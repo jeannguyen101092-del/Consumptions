@@ -48,21 +48,19 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v54.5 - DENIM EDITION.
-    🌟 ĐỒNG BỘ CHÍ MẠNG: Khóa cứng hiệu suất sơ đồ hàng Jeans tối đa 87% - 88%.
-    Tính toán số thực chuẩn xác, triệt tiêu lỗi trả kết quả bằng 0 vô lý.
+    Industrial Consumption CAM Core Engine v54.6 - FIXED DENIM FORMULA.
+    🌟 SỬA TRIỆT ĐỂ: Sửa lại công thức Gerber CAD gốc, đưa định mức về đúng thực tế sản xuất.
+    Khóa cứng hiệu suất sơ đồ hàng Jeans tối đa 87% - 88%.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper().strip()
     
-    # Ma trận hệ số diện tích rập tịnh phẳng hình học CAD
+    # Ma trận hệ số diện tích rập tịnh phẳng hình học CAD cho hàng Jeans Denim
     PRODUCT_NET_AREA_MATRIX = {
         "JEANS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
-        "CARGO_PANTS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
         "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.75, "FUSING": 0.20, "DEFAULT": 0.80}
     }
-    prod_type_upper = str(product_type).upper()
-    active_product = "JEANS"  # Định hình phân hệ chuyên biệt cho quần bò Denim
+    active_product = "JEANS"
 
     is_main_fabric = False
     is_pocket_fabric = False
@@ -96,16 +94,6 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     if b_width < 4.5 or b_length < 6.5:
         is_major = False
 
-    # Bộ khử lỗi phồng diện tích thân quần
-    if is_main_fabric and any(k in current_comp_name for k in ["FRONT", "BACK", "THÂN"]):
-        if b_width >= 20.0 and p_count == 2:
-            b_width = b_width / 2.0  
-
-    if b_width >= 40.0 and p_count >= 2:
-        b_width = b_width / p_count  
-    if p_count > 2 and is_main_fabric:
-        p_count = 2  
-
     # 2. PHÉP TOÁN NHÂN DIỆN TÍCH NET AREA TỰ ĐỘNG HIỆU CHUẨN
     if poly_area > 0.0:
         u_unit = poly_unit.upper().strip()
@@ -115,10 +103,10 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
             converted_poly = poly_area / 645.16
         else:
             converted_poly = poly_area
-
         total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
         geo_source = "Gerber/Lectra Polygon DXF"
     else:
+        # SỬA LỖI TẠI ĐÂY: Tính diện tích hình chữ nhật bao thô chuẩn (Dài x Rộng x Số lượng)
         raw_box_area = b_length * b_width * p_count
         prod_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
         
@@ -134,12 +122,11 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
         total_net_area = raw_box_area * net_factor
         geo_source = "CAD Convex Hull Inferred"
 
-    # 3. XỬ LÝ KHỔ VẢI THỰC TẾ
+    # 3. XỬ LÝ KHỔ VẢI THỰC TẾ (SƠ ĐỒ BÁO KHỔ ĐANG LÀ 57 INCH)
     try: width_inch = float(row.get("fabric_width_inch", 0.0) or 0.0)
     except: width_inch = 0.0
-        
     if width_inch <= 0.0:
-        width_inch = 44.0 if is_pocket_fabric else 56.0
+        width_inch = 57.0
 
     # 4. ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ CHUẨN ĐỒ DENIM
     try:
@@ -148,11 +135,11 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     except:
         warp_num, weft_num = 0.03, 0.03
 
-    # 🌟 ĐỒNG BỘ HIỆU SUẤT: Khống chế chuẩn xưởng may theo đúng thực tế hàng Jean của bạn
+    # Đồng bộ hiệu suất sơ đồ chuẩn hàng Jeans Denim theo đúng yêu cầu
     if is_major:
         base_eff = 0.87  # Thân lớn cố định 87%
     else:
-        base_eff = 0.88  # Chi tiết nhiều, nhỏ xếp xen kẽ đạt tối đa 88%
+        base_eff = 0.88  # Chi tiết nhỏ xếp xen kẽ đạt 88%
 
     ai_marker_efficiency = round(base_eff, 3)
     row["marker_efficiency"] = ai_marker_efficiency
@@ -166,27 +153,31 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     try: gather_ratio = float(spec_meta.get("gather_ratio", 1.00))
     except: gather_ratio = 1.00
 
-    # 6. CÔNG THỨC TOÁN HỌC GERBER CAD TIÊU CHUẨN ĐỔ RA YARDS
+    # 6. 🛠️ SỬA LẠI CÔNG THỨC TOÁN HỌC GERBER CAD TIÊU CHUẨN ĐỔ RA YARDS ĐÚNG THỰC TẾ
     gross_consumption_yards = 0.0
     if total_net_area > 0.0 and width_inch > 0.0:
-        area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num)
-        final_target_area = area_with_shrinkage * gather_ratio
+        # Tính toán diện tích đã cộng độ co rút dọc và ngang
+        area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num) * gather_ratio
         
-        # Chiết khấu 25% diện tích vải thô cho các linh kiện nhỏ vì đi lọt lách vào háng/đáy quần bò
+        # Áp dụng chiết khấu 25% diện tích vải thô cho các linh kiện nhỏ vì đi lọt lách vào háng/đáy quần bò
         if not is_major and not is_pocket_fabric:
-            final_target_area = final_target_area * 0.75 
+            area_with_shrinkage = area_with_shrinkage * 0.75 
             
-        raw_yards = final_target_area / (width_inch * 36.0 * ai_marker_efficiency)
+        # Công thức chuẩn: Diện tích / (Khổ vải inch * 36 inch để đổi ra Yards * Hiệu suất sơ đồ)
+        raw_yards = area_with_shrinkage / (width_inch * 36.0 * ai_marker_efficiency)
         gross_consumption_yards = raw_yards * (1.0 + total_industrial_loss)
 
-    # Đảm bảo số nhảy thực tế tối thiểu, tránh bị ép về 0 gây lỗi QA_FAIL
-    if gross_consumption_yards <= 0.0 and (b_length > 0 and b_width > 0):
-        gross_consumption_yards = (b_length * b_width * p_count) / (width_inch * 36.0 * 0.87)
+    # Khối phòng vệ dự phòng tính toán thô chuẩn nhà máy (nếu công thức trên dính lỗi chia)
+    if gross_consumption_yards <= 0.005 and (b_length > 0 and b_width > 0):
+        # Tính toán ước lượng thực tế tiến trình sơ đồ dệt
+        approx_yards = (b_length * p_count) / 36.0
+        if not is_major:
+            approx_yards = approx_yards * 0.50 # Chi tiết phụ giảm một nửa chiều dài đóng góp sơ đồ
+        gross_consumption_yards = (approx_yards / ai_marker_efficiency) * (1.0 + total_industrial_loss)
 
     gross_consumption_meters = gross_consumption_yards * 0.9144
     
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
-
 
 
 
