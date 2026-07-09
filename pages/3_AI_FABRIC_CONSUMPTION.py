@@ -337,18 +337,19 @@ def compute_thread_engine() -> tuple:
 
 import copy
 import re
+import math
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_query: str = "", *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v68.5 - DYNAMIC PROMPT WIDTH MATRIX.
-    🌟 PHẦN 1: Tự động bóc tách khổ vải chính, khổ lót, khổ keo động trực tiếp từ câu lệnh chat của người dùng.
+    Enterprise Multi-Engine CAD Router v70.0 - ULTRA INDUSTRIAL MULTI-PRODUCT ROUTER.
+    🌟 PHẦN 1: Tự động bóc tách khổ vải động từ câu lệnh chat và đồng bộ biến is_dress_mode thống nhất.
     """
     if not blueprint_final or "bom_rows" not in blueprint_final:
         return blueprint_final
         
     router_bom_rows = []
     
-    # Đọc thông số co rút từ spec_meta do AI bóc tách
+    # 1. ĐỌC THÔNG SỐ CO RÚT VÀ HAO HỤT CÔNG NGHIỆP TỪ SPEC_META GỐC DO AI QUÉT
     ai_meta = blueprint_final.get("spec_meta", {})
     try: warp_shrink = float(ai_meta.get("warp_shrink", 3.0))
     except: warp_shrink = 3.0
@@ -358,9 +359,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     except: weft_shrink = 3.0
     weft_shrink_factor = 1.0 + (weft_shrink / 100.0)
 
-    denim_industrial_loss = 0.043 # Hao hụt công nghiệp 4.3%
-    marker_eff_major = 0.87       # Hiệu suất sơ đồ cố định 87% cho thân lớn Denim
-    marker_eff_minor = 0.88       # Hiệu suất sơ đồ lồng ghép đạt 88% cho linh kiện chi tiết nhỏ
+    denim_industrial_loss = 0.043 # Hao hụt công nghiệp nhà máy 4.3%
 
     # Danh sách lọc sạch phụ liệu cứng và chỉ may
     EXCLUDE_HARDWARE_AND_THREAD = {
@@ -369,7 +368,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         "STEPESTITCH", "TOPSTITCH", "SEWING", "ASTRA", "COATS", "TWILL TAPE"
     }
 
-    # Bóc tách khổ vật tư động từ lệnh chat bằng Regex
+    # BÓC TÁCH KHỔ VẬT TƯ ĐỘNG TỪ LỆNH CHAT BẰNG REGEX
     query_lower = str(current_query).lower()
     parsed_main_width = 57.0
     parsed_lining_width = 57.0
@@ -389,23 +388,39 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     if match_fusing:
         parsed_fusing_width = float(match_fusing.group(1))
 
-    # Cố định khung sơ đồ lồng thân quần dựa trên thông số rập chuẩn ổn định nhất
+    # =====================================================================
+    # 🔍 BỘ TỰ ĐỘNG PHÂN LOẠI MÃ HÀNG NGÀNH MAY CẢI TIẾN THÔNG MINH VÁ LỖI AI
+    # =====================================================================
+    is_dress_mode = False
+    for r in blueprint_final.get("bom_rows", []):
+        if not r: continue
+        name_check = str(r.get("component_name", "")).upper().strip()
+        
+        # Đánh chặn thông minh các biến thể đặt tên đầm liền thân của AI
+        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT", "BODY", "OVERALL", "STRIPE"]):
+            is_dress_mode = True
+            break
+
+    if is_dress_mode:
+        product_label = "WOMENS DRESS (ĐẦM VÁY TẦNG)"
+        marker_eff_major = 0.75 # Hiệu suất thân áo đầm 75%
+        marker_eff_minor = 0.72 # Hiệu suất tầng váy xòe tròn hạ kịch trần 72%
+        hem_allowance = 1.50    # Gấu lai đầm chừa 1.5 inch để cuốn biên to bản
+    else:
+        product_label = "JEANS/CARGO (QUẦN BÒ TÚI HỘP)"
+        marker_eff_major = 0.87 # Hiệu suất thân quần Jeans 87%
+        marker_eff_minor = 0.88 # Hiệu suất linh kiện quần Jeans 88%
+        hem_allowance = 1.50
+
+    # Khung dọc sơ đồ lồng cố định dự phòng chuyên biệt (Chỉ áp dụng cho phân hệ QUẦN JEANS)
     fixed_back_panel_len = 44.5   
     fixed_front_panel_len = 39.0  
-
-    if fixed_back_panel_len > 25.0:
-        hem_allowance = 1.50      
-        product_label = "PANTS (QUẦN DÀI)"
-    else:
-        hem_allowance = 1.75      
-        product_label = "SHORTS (QUẦN NGẮN)"
-
     adjusted_back_panel_len = fixed_back_panel_len + 0.44 + hem_allowance
     pants_base_length_inch = adjusted_back_panel_len * warp_shrink_factor
     total_pants_base_yds = (pants_base_length_inch / (36.0 * marker_eff_major)) * (1.0 + denim_industrial_loss)
 
     MAJOR_PANELS = ["FRONT PANEL", "BACK PANEL", "THÂN TRƯỚC", "THÂN SAU"]
-      # =====================================================================
+    # =====================================================================
     # PHẦN 2: VÒNG LẶP PYTHON DUYỆT TÍNH TOÁN ĐỊNH MỨC THEO MA TRẬN PHÂN HỆ ĐỘNG
     # =====================================================================
     for ai_row in blueprint_final.get("bom_rows", []):
@@ -438,7 +453,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         try: width_inch = float(ui_row.get("fabric_width_inch", 57.0))
         except: width_inch = 57.0
 
-        calc_note = f"📌 {product_label} | "
+        # Khống chế chiều dài tối đa dây viền tránh lỗi AI dồn số từ khung chat vào rập
+        is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
+        if is_bias_binding and b_len > 25.0:
+            b_len = 14.5
+            calc_note = "📌 [IE CORRECTION] Đánh chặn lỗi AI dồn thông số dây viền | "
+        else:
+            calc_note = f"📌 {product_label} | "
 
         if engine_target == "FABRIC":
             width_inch = parsed_main_width
@@ -447,13 +468,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif engine_target == "FUSING":
             width_inch = parsed_fusing_width
 
-        # Thuật toán rã đôi rập đối với chi tiết xòe tầng quá khổ vải rộng hơn 57"
+        # Thuật toán rã đôi rập đối với chi tiết xòe tầng đầm váy quá khổ vải rộng hơn 57"
         if engine_target in ["FABRIC", "FUSING"] and b_wid >= width_inch:
             b_wid = b_wid / 2.0
             p_count = p_count * 2
             calc_note = calc_note + "✂️ [IE SPLIT] Rập quá khổ -> Tự động rã đôi rập & nhân đôi sản lượng | "
 
-        # 🌟 ĐÃ SỬA LỖI ĐỒNG BỘ: Đổi chữ 'is_dress_product' thành 'is_dress_mode' tại dòng 460 để khử lỗi sập app
+        # 🔒 ĐỒNG BỘ BIẾN TUYỆT ĐỐI: Khử hoàn toàn lỗi đỏ sập app Streamlit nhờ biến is_dress_mode thống nhất toàn diện
         if not is_dress_mode and (engine_target == "FUSING" or engine_target == "FABRIC"):
             if any(kw in comp_name for kw in ["WELT", "PIP", "CƠI", "MỔ", "FLAP", "NẮP", "FLY", "BAGET", "FACING"]):
                 b_wid = 3.0
@@ -501,7 +522,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             if engine_target == "FABRIC":
                 if is_dress_mode:
                     active_eff = marker_eff_major if "BODICE" in comp_name else marker_eff_minor
-                    is_bias_binding = any(kw in comp_name for kw in ["BINDING", "BIAS", "TRIM", "STRAP", "PIPING", "RIBBON"])
                     is_narrow_strip = b_wid < 4.0
                     
                     if is_bias_binding or is_narrow_strip:
@@ -574,6 +594,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["gross_consumption"] = 0.0
             ui_row["quality_status"] = "QA_FAIL"
             ui_row["system_notes"] = f"Lỗi Python: {str(inline_err)}"
+            
+
             
         router_bom_rows.append(ui_row)
 
