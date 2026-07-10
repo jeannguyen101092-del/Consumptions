@@ -453,7 +453,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
      # =====================================================================
-    # 🔥 ĐOẠN 2.1 + 3.1: HỆ THỐNG PHÒNG VỆ AN TOÀN TUYỆT ĐỐI CHỐNG TRỐNG DÒNG
+       # =====================================================================
+    # 🔥 ĐOẠN 2.1 + 3.1: HỆ THỐNG PHÒNG VỆ AN TOÀN & KHỬ LỖI THÔNG SỐ NỬA VÒNG (HALF-WIDTH)
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -473,17 +474,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     # Nếu dữ liệu rập thô từ AI hoàn toàn rỗng, ép dữ liệu mẫu để hệ thống KHÔNG BỊ CHẾT GIAO DIỆN
     if not source_rows:
         source_rows = [
-            {"component_name": "THÂN TRƯỚC (FRONT PANEL)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 15.0},
-            {"component_name": "THÂN SAU (BACK PANEL)", "material_class": "FABRIC", "piece_count": 1, "bounding_box_length": 31.5, "bounding_box_width": 18.5},
+            {"component_name": "THÂN TRƯỚC (FRONT PANEL)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 26.5},
+            {"component_name": "THÂN SAU (BACK PANEL)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 31.5, "bounding_box_width": 26.5},
             {"component_name": "TAY ÁO (SLEEVE)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 33.5, "bounding_box_width": 14.0},
             {"component_name": "CỔ ÁO (COLLAR)", "material_class": "FABRIC", "piece_count": 1, "bounding_box_length": 15.0, "bounding_box_width": 3.5}
         ]
 
-    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI (Đã sửa lỗi bẫy khoảng trắng làm mất dòng)
+    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI (Làm sạch chuỗi ký tự chuẩn hóa)
     for row in source_rows:
         if not row or not isinstance(row, dict): continue
         
-        # Đồng bộ lấy tên chi tiết bất kể AI trả về key hoa hay thường
         c_name_raw = row.get("Component Name", row.get("component_name", row.get("Component", "UNNAMED")))
         m_class_raw = row.get("Material Class", row.get("material_class", row.get("Material", "FABRIC")))
         
@@ -497,12 +497,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             continue  
         seen_pieces.add(absolute_key)
         
-        # Đồng bộ ngược lại key chuẩn để các đoạn code phía dưới đọc được
         row["Component Name"] = c_name_raw if "Component Name" in row else row.get("component_name")
         row["Material Class"] = m_class_raw if "Material Class" in row else row.get("material_class")
         unique_bom_rows.append(row)
 
-    # 📊 BƯỚC 3: TÍNH CHIỀI DÀI KHUNG SƠ ĐỒ TỔNG CHUẨN CAD (Bên ngoài vòng lặp - Tránh O(N²))
+    # 📊 BƯỚC 3: TIỀN XỬ LÝ - TÍNH TỔNG DIỆN TÍCH SƠ ĐỒ THỰC TẾ (Đã áp dụng chia đôi Thân)
     total_fabric_net_area = 0.0
     max_primary_len = 0.0
     warp_shrink_factor = 1.0 + (float(warp_shrink) / 100.0) if 'warp_shrink' in locals() else 1.03
@@ -520,17 +519,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if is_fab:
             try:
                 l_s = float(r_scan.get("bounding_box_length", r_scan.get("Dài sản xuất (L-inch)", 25.0))) * warp_shrink_factor
-                w_s = float(r_scan.get("bounding_box_width", r_scan.get("Rộng sản xuất (W-inch)", 12.0))) * weft_shrink_factor
+                w_s = float(r_scan.get("bounding_box_width", r_scan.get("Rộng sản xuất (W-inch)", 12.0)))
                 try: c_s = int(float(r_scan.get("Số lượng rập (Pcs)", r_scan.get("piece_count", 1))))
                 except: c_s = 1
                 
+                # 🌟 Sửa lỗi thông số nửa vòng khi quét tổng diện tích sơ đồ lớn
+                if any(k in comp_scan for k in ["FRONT", "BACK", "BODY", "THÂN"]):
+                    if c_s >= 2:
+                        w_s = w_s / 2.0
+                        
+                w_s = w_s * weft_shrink_factor
                 if l_s <= 0: l_s = 25.0
                 if w_s <= 0: w_s = 12.0
+                
                 total_fabric_net_area += (l_s * w_s * c_s)
                 if l_s > max_primary_len: max_primary_len = l_s
             except: pass
 
-    if total_fabric_net_area <= 0: total_fabric_net_area = 600.0
+    if total_fabric_net_area <= 0: total_fabric_net_area = 400.0
     if max_primary_len <= 0: max_primary_len = 32.0
 
     # 📐 BƯỚC 4: VÒNG LẶP CHÍNH CAD ROUTER - PHÂN BỔ ĐỊNH MỨC CHI TIẾT PHẲNG
@@ -554,12 +560,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if raw_len <= 0: raw_len = 25.0
         if raw_wid <= 0: raw_wid = 12.0
 
+        # 🌟 KHỬ LỖI THÔNG SỐ NỬA VÒNG CHUẨN KỸ THUẬT MAY:
+        # Nếu chi tiết thuộc nhóm Thân và có số lượng >= 2, ép chia đôi chiều rộng trước khi cộng biên may
+        is_body_component = any(k in comp_name for k in ["FRONT", "BACK", "BODY", "THÂN"])
+        if is_body_component and p_count >= 2:
+            raw_wid = raw_wid / 2.0
+            calc_note_sa = "✂️ Sửa bẫy Half-Width (Chia đôi W) | "
+        else:
+            calc_note_sa = ""
+
         raw_len_with_sa = raw_len + 1.0
         raw_wid_with_sa = raw_wid + 1.0
         shrunk_len = raw_len_with_sa * warp_shrink_factor
         shrunk_wid = raw_wid_with_sa * weft_shrink_factor
 
-        # Mặc định hiệu suất sơ đồ phẳng
         marker_efficiency = 0.87 if engine_target == "FABRIC" else (0.82 if engine_target == "LINING" else 0.92)
 
         if engine_target == "FABRIC":
@@ -570,16 +584,23 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             current_piece_net_area = shrunk_len * shrunk_wid * float(p_count)
             area_contribution_ratio = current_piece_net_area / total_fabric_net_area if total_fabric_net_area > 0 else 0.1
             gross_yds = total_marker_gross_yds * area_contribution_ratio
-            calc_note = f"📊 Sơ đồ tổng -> Phân bổ {int(area_contribution_ratio*100)}%"
+            
+            # Khóa chặn trần vật lý bổ trợ bảo vệ form dáng định mức
+            physical_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 1.08
+            if gross_yds > physical_max_cap:
+                gross_yds = physical_max_cap
+                calc_note = calc_note_sa + f"📊 Phân bổ phẳng (Ép trần vật lý)"
+            else:
+                calc_note = calc_note_sa + f"📊 Sơ đồ tổng -> Phân bổ {int(area_contribution_ratio*100)}%"
         else:
             gross_yds = ((shrunk_len * p_count) / 36.0) * (1.0 + industrial_loss)
-            calc_note = "⚡ Tính theo cụm chi tiết phụ liệu"
+            calc_note = calc_note_sa + "⚡ Tính theo cụm chi tiết phụ liệu"
 
         final_rounded_value = max(0.0001, round(gross_yds, 4))
 
-        # Đồng bộ gán giá trị chặt chẽ vào cả 2 bảng định dạng key hoa/thường
-        ui_row["Dài sản xuất (L-inch)"] = round(raw_len_with_sa, 2)
-        ui_row["Rộng sản xuất (W-inch)"] = round(raw_wid_with_sa, 2)
+        # Gán chuẩn xác dữ liệu đồng bộ vào hàng
+        ui_row["Dài sản xuất (L-inch)"] = round(raw_len, 2)  # Giữ số gốc hiển thị
+        ui_row["Rộng sản xuất (W-inch)"] = round(raw_wid, 2)  # Đã chia đôi nếu là Thân nửa vòng
         ui_row["Gross Consumption"] = final_rounded_value
         ui_row["gross_consumption"] = final_rounded_value
         ui_row["calculated_consumption"] = final_rounded_value
@@ -588,16 +609,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         
         router_bom_rows.append(ui_row)
 
-    # 🌟 ÉP ĐỒNG BỘ ĐẦU RA VÀO SESSION STATE ĐỂ BẢNG LUÔN CÓ DATA
+    # 🌟 ÉP ĐỒNG BỘ ĐẦU RA VÀO SESSION STATE ĐỂ RENDER LÊN UI TABLE 7b
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(router_bom_rows)
     if isinstance(blueprint_final, dict):
         blueprint_final["bom_rows"] = router_bom_rows
-
-    # 🔬 KHỐI DEBUG KIỂM TRA LỖI THEO PHÁN ĐOÁN CỦA BẠN (SẼ IN RA MÀN HÌNH STREAMLIT)
-    st.info("🔬 [HỆ THỐNG GIÁM SÁT DEBUG CHUYÊN SÂU]")
-    st.write("**Số dòng trong router_bom_rows:**", len(router_bom_rows))
-    if router_bom_rows:
-        st.write("**Dữ liệu 2 dòng đầu tiên:**", router_bom_rows[:2])
     # =====================================================================
 
 
