@@ -1003,13 +1003,13 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
+# ĐOẠN B: TIÊU ĐỀ ĐỈNH TRẦN & GRID THÂN TRANG SAU KHI ĐẢO THỨ TỰ LOGIC
 # =====================================================================
 
-# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
+# 1. TIÊU ĐỀ XANH TEAL TRÊN ĐỈNH
 st.markdown(
     """
-    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
+    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
         <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
             🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
         </h2>
@@ -1017,6 +1017,33 @@ st.markdown(
     """, 
     unsafe_allow_html=True
 )
+
+# 2. ĐƯA LƯỚI CHIA ĐÔI (UPLOADER & PROFILE THÂN DƯỚI CŨ) LÊN TRÊN ĐỈNH TRẦN 
+col_left, col_right = st.columns(2)
+
+with col_left:
+    with st.container(border=True, height=520):
+        st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
+        # ... (Toàn bộ code xử lý Upload PDF & Hiển thị 6 thông tin Profile giữ nguyên) ...
+
+with col_right:
+    with st.container(border=True, height=520):
+        st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
+        # ... (Toàn bộ code hiển thị ảnh bản vẽ gốc giữ nguyên) ...
+
+
+# 3. ĐẨY LƯỚI 4 CỘT CAD ASSETS XUỐNG DƯỚI ĐỂ ĐÓN NỘI DUNG SAU KHI XỬ LÝ SƠ ĐỒ
+with st.container(border=True):
+    st.markdown(
+        """
+        <div style="font-weight: 600; background-color: #1E3A8A; color: white; padding: 10px 14px; border-radius: 6px; font-size: 14px; letter-spacing: 0.5px; margin-bottom: 15px;">
+            🖼️ VISUAL CAD/PLM ASSETS CONTROL PANEL
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    
+    col_photo, col_front, col_back, col_marker = st.columns(4)
 
 from pathlib import Path
 import streamlit as st
