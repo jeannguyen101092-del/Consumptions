@@ -423,7 +423,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     generated_fusing_rows = []
     cleaned_engine_rows = []
-    # 🌟 ĐOẠN 3B: Loại bỏ sạch chỉ thêu/phụ liệu & Đồng nhất nguồn diện tích hình học rập
+        # 🌟 ĐOẠN 3B: Loại bỏ sạch chỉ thêu/phụ liệu & Đồng nhất nguồn diện tích hình học rập
     # =====================================================================
     for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
@@ -450,7 +450,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Material Class"] = "FABRIC"
 
         raw_len = float(ui_row.get("bounding_box_length", ui_row.get("Dài sản xuất (L-inch)", 0.0)))
-        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("Rộng sản xuất (W-inch)", 0.0)))
+        raw_wid = float(ui_row.get("bounding_box_width", r_scan.get("Rộng sản xuất (W-inch)", 0.0) if 'r_scan' in locals() else ui_row.get("Rộng sản xuất (W-inch)", 0.0)))
         try: p_count = int(float(ui_row.get("Số lượng rập (Pcs)", ui_row.get("piece_count", 1))))
         except: p_count = 1
 
@@ -461,7 +461,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
-        sa_w, sa_l = float(seam_allowance), float(seam_allowance)
+        
+        # 🌟 ĐÃ SỬA VÁ LỖI DÒNG 464 TẠI ĐÂY: Trích xuất chuẩn xác index mảng tránh hoàn toàn TypeError
+        if isinstance(seam_allowance, (list, tuple)):
+            sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
+            sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
+        else:
+            sa_w = float(seam_allowance)
+            sa_l = float(seam_allowance)
 
         if engine_target in ["FABRIC", "LINING"]:
             raw_wid_with_sa = raw_wid + sa_w
@@ -487,6 +494,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         ui_row["single_piece_net_area"] = calculated_piece_net_area
         cleaned_engine_rows.append(ui_row)
+
     # 🌟 ĐOẠN 3C: Gom diện tích sơ đồ tổng Gerber và Tính định mức đơn chiếc chuẩn xác
     # =====================================================================
     for ui_row in cleaned_engine_rows:
