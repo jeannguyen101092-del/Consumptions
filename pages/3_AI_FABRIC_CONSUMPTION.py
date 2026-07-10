@@ -453,7 +453,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
         # =====================================================================
-     # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+       # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -465,7 +465,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_len = str(row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", "0")))
         r_wid = str(row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", "0")))
         
-        # Khóa khử trùng an toàn: Kết hợp Tên + Vật tư + Kích thước rập
         absolute_key = (r_name, r_mat, r_len, r_wid)
         
         if absolute_key in seen_pieces:
@@ -558,9 +557,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
+        # 🌟 ĐÃ SỬA TẠI ĐÂY: Nhận diện chính xác nếu seam_allowance là mảng [W, L]
+        if isinstance(seam_allowance, (list, tuple)):
+            sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
+            sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
+        else:
+            sa_w = float(seam_allowance)
+            sa_l = float(seam_allowance)
+
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            sa_w = float(seam_allowance) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
-            sa_l = float(seam_allowance) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
             raw_wid_with_sa = raw_wid + sa_w
             raw_len_with_sa = raw_len + sa_l
             calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{sa_w}\" L+{sa_l}\" | "
@@ -573,6 +578,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
+
         # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (ĐỒNG BỘ ENGINE SƠ ĐỒ LỚN)
         # =====================================================================
         gross_yds = 0.0
