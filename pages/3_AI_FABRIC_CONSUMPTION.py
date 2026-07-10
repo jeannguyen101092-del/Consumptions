@@ -1003,8 +1003,21 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
+# =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
+
+# 🌟 BỔ SUNG TÊN DỰ ÁN TRÊN ĐỈNH GIAO DIỆN CHUẨN FLAT ERP 🌟
+st.markdown(
+    """
+    <div style="background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;">
+        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #1e293b; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
+            🚀 HỆ THỐNG TỰ ĐỘNG HÓA BOM & TỐI ƯU ĐỊNH MỨC VẢI VĂN PHÒNG
+        </h2>
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
 
 # Chuỗi mã hóa hình ảnh vector đồ họa gốc của 4 ô trang phục
 encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
@@ -1030,7 +1043,6 @@ with k_col3:
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
-
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
