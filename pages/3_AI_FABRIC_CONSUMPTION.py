@@ -566,13 +566,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             else:
                 marker_efficiency = float(eff_rules)
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
+                       # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ SỬA LỖI VỌT ĐỊNH MỨC TAY ÁO
             if engine_target == "FABRIC":
                 raw_piece_area = shrunk_len * shrunk_wid * float(active_count)
                 
                 is_long_sash_checked = kwargs.get("is_long_sash", False)
                 if is_long_sash_checked:
                     raw_piece_area = raw_piece_area * 0.90
+                    
+                # 🔥 ĐÃ THÊM: Bộ hiệu chỉnh sơ đồ cặp tay áo (Sleeve Nesting Guard)
+                # Hai tay áo cong luôn được lộn đầu lồng khít vào nhau trên sơ đồ thực tế, giúp tiết kiệm 30% diện tích hụt ảo
+                if sub_component == "SLEEVE" and active_count >= 2:
+                    raw_piece_area = raw_piece_area * 0.70
+                    calc_note += "✂️ [SLEEVE GUARD] Tối ưu sơ đồ lộn đầu cặp tay áo (Tiết kiệm 30%) | "
                     
                 gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note += f"⚡ CAD True-Area Engine | "
