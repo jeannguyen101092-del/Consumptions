@@ -423,12 +423,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "PANTS"
             break
 
-      # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG & ĐỊNH TUYẾN KỸ THUẬT
+         # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & SỬA LỖI ĐỊNH TUYẾN CHUỖI TỪ KHÓA TÚI QUẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
     
-    # Trích xuất an toàn danh sách bom_rows bất kể dữ liệu thô đầu vào là dict hay list
     raw_bom_source = blueprint_final.get("bom_rows", []) if isinstance(blueprint_final, dict) else (blueprint_final if isinstance(blueprint_final, list) else [])
     
     for row in raw_bom_source:
@@ -438,11 +437,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_len = str(row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", "0")))
         r_wid = str(row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", "0")))
         
-        # Khóa khử trùng tuyệt đối dựa trên Tên + Vật tư + Kích thước rập cụ thể
         absolute_key = (r_name, r_mat, r_len, r_wid)
-        
         if absolute_key in seen_pieces:
-            continue  # Nếu chi tiết rập này trùng hoàn toàn, xóa bỏ dòng lặp thừa ngay lập tức
+            continue  
         seen_pieces.add(absolute_key)
         unique_bom_rows.append(row)
 
@@ -451,14 +448,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     main_body_wid = 0.0
     for r in unique_bom_rows:
         r_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
-        if "ALLOVER" in r_name or "BODY" in r_name:
+        if "ALLOVER" in r_name or "BODY" in r_name or "PANEL" in r_name:
             try:
                 main_body_len = float(r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", 0.0)))
                 main_body_wid = float(r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", 0.0)))
                 if main_body_len > 0: break
             except: pass
 
-    # 3. Quét kiểm tra cấu trúc phụ liệu của mã hàng để phục vụ thuật toán ép keo dựng
     has_waistband_fusing = any(
         "FUSING" in str(r.get("Component Name", r.get("component_name", ""))).upper() and "WAISTBAND" in str(r.get("Component Name", r.get("component_name", ""))).upper()
         for r in unique_bom_rows
@@ -483,17 +479,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
-        # Phòng vệ chất lượng: Bỏ qua hoàn toàn phụ liệu rời ra khỏi bảng gộp nguyên liệu thẳng
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
-            continue
+            continue 
             
-        # Định tuyến định phân hệ phân phối kỹ thuật
+        # 🌟 SỬA BẪY TỪ KHÓA TẠI ĐÂY: Nhận diện chính xác cụm lót túi bất kể có chữ MAIN FABRIC đứng trước hay không
+        is_pocket_component = any(k in comp_name for k in ["POCKET BAG", "LOT TUI", "LÓT TÚI", "POCKETING"]) or ("POCKET" in comp_name and "FLAP" not in comp_name and "BACK POCKET" not in comp_name)
+        
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
-        elif any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG", "POCKET BAG", "LOT TUI"]):
-            engine_target = "LINING"
-            ui_row["Material Class"] = "LINING"
-        elif "POCKET" in comp_name and "FLAP" not in comp_name:  
+        elif is_pocket_component:
+            # Ép chi tiết lót túi văng ra khỏi vải chính, chuyển hẳn sang phân hệ LINING
             engine_target = "LINING"
             ui_row["Material Class"] = "LINING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
@@ -510,8 +505,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         except: p_count = 1
         width_inch = parsed_main_width
 
+        # Đồng bộ hóa cấu phần phụ trợ (bỏ qua tiền tố để nhận diện đúng sub_component)
         sub_component = "DEFAULT"
-        if any(kw in comp_name for kw in ["FRONT", "BACK", "BODY", "THÂN", "ALLOVER"]): sub_component = "BODY"
+        if any(kw in comp_name for kw in ["FRONT PANEL", "BACK PANEL", "BODY", "THÂN CHÍNH"]): sub_component = "BODY"
         elif "SLEEVE" in comp_name or "TAY" in comp_name: sub_component = "SLEEVE"
         elif "COLLAR" in comp_name or "CỔ" in comp_name: sub_component = "COLLAR"
         elif "CUFF" in comp_name or "MANS" in comp_name or "BO TAY" in comp_name: sub_component = "CUFF"
@@ -528,14 +524,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 raw_len = 34.0
                 raw_wid = 3.5
 
-        # Tra cứu quy tắc chừa đường may của bộ Rule Engine phía trên
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 VÁ HOÀN CHỈNH DÒNG LỖI 540: Trích xuất chuẩn xác index mảng để không gây crash TypeError
         if isinstance(seam_allowance, (list, tuple)):
-            sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
-            sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
+            sa_w = float(seam_allowance) if len(seam_allowance) > 0 else 0.5
+            sa_l = float(seam_allowance) if len(seam_allowance) > 1 else sa_w
         else:
             sa_w = float(seam_allowance)
             sa_l = float(seam_allowance)
@@ -553,6 +547,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
+
 
                # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢN ÉP CHIỀU DÀI THEO THÂN CHÍNH CHỐNG PHÌNH DM)
         # =====================================================================
