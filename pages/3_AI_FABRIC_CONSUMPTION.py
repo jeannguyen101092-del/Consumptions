@@ -619,22 +619,39 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = eff_lining
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
+                        # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - ĐÃ HẠ CON SỐ CAO VÔ LÝ
             elif engine_target == "FUSING":
-                eff_fusing = 0.85
+                # Ép hiệu suất sơ đồ keo lót lên mốc cao thực tế (92%) vì cấu phần nhỏ xếp lồng khít rất dễ
+                eff_fusing = 0.92
+                
+                # Khóa chặt hệ số co rút của keo lót cố định ở mức an toàn (1%), không ăn theo 14% co rút ngang của vải chính
+                fusing_shrink_l = 1.01
+                fusing_shrink_w = 1.01
+                
+                # Áp dụng yêu cầu mặc định kích thước cho cơi túi mổ 7x4 inch
                 if any(kw in comp_name or kw in sub_component for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
-                    shrunk_len = 7.0 * warp_shrink_factor
-                    shrunk_wid = 4.0 * weft_shrink_factor
+                    shrunk_len = 7.0 * fusing_shrink_l
+                    shrunk_wid = 4.0 * fusing_shrink_w
                     calc_note += "✂️ Ép kích thước keo cơi túi mổ mặc định 7\" x 4\" | "
+                else:
+                    # Các chi tiết keo khác tính theo kích thước rập sát thành phẩm
+                    shrunk_len = raw_len_with_sa * fusing_shrink_l
+                    shrunk_wid = raw_wid_with_sa * fusing_shrink_w
                 
-                raw_fusing_area = shrunk_len * shrunk_wid * active_count
-                gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * 0.90)) * (1.0 + industrial_loss)
+                # Công thức tính diện tích phẳng chuẩn khổ keo lót
+                raw_fusing_area = shrunk_len * shrunk_wid * float(active_count)
                 
-                max_allowable_yds = ((shrunk_len * active_count) / 36.0) * (1.0 + industrial_loss)
+                # Quy tắc CAD: Các linh kiện keo nhỏ lồng ghép song song tận dụng tối đa khổ ngang cây keo
+                gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing)) * (1.0 + industrial_loss)
+                
+                # Khống chế trần cực đại tuyệt đối dựa trên tổng chiều dài đứng của rập chi tiết
+                max_allowable_yds = ((shrunk_len * float(active_count)) / 36.0) * (1.0 + industrial_loss)
                 if gross_yds > max_allowable_yds:
                     gross_yds = max_allowable_yds
+                    
                 marker_efficiency = eff_fusing
-                calc_note += "⚡ Diện tích keo chuẩn | "
+                calc_note += "⚡ CAD Fusing Area Engine | "
+
 
             # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
             elif engine_target == "ELASTIC":
