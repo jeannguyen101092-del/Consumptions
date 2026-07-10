@@ -705,16 +705,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
 
             # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - Khóa co rút keo Mex độc lập ở mốc 1% chống vọt số
-            elif engine_target == "FUSING":
-                eff_fusing = 0.92
-                fusing_shrink_l = 1.01
-                fusing_shrink_w = 1.01
-                
-                if any(kw in comp_name or kw in sub_component for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
-                    shrunk_len = 7.0 * fusing_shrink_l
-                    shrunk_wid = 4.0 * fusing_shrink_w
-                    calc_note += "✂️ Ép kích thước keo cơi túi mổ mặc định 7\" x 4\" | "
-                else:
+            # Trích xuất chuẩn xác biên may theo vị trí mảng dữ liệu [Rộng, Dài]
+            if engine_target != "FUSING" and engine_target != "ELASTIC":
+            # Nếu seam_allowance là list/tuple, bóc tách theo index. Nếu là số đơn, lấy trực tiếp.
+               sa_w = float(seam_allowance[0]) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
+               sa_l = float(seam_allowance[1]) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
+            
+               raw_wid_with_sa = raw_wid + sa_w
+               raw_len_with_sa = raw_len + sa_l
+               calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{sa_w}\" L+{sa_l}\" | "
+           else:
                     shrunk_len = raw_len_with_sa * fusing_shrink_l
                     shrunk_wid = raw_wid_with_sa * fusing_shrink_w
                 
