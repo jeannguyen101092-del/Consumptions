@@ -1003,10 +1003,10 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN B: TIÊU ĐỀ ĐỈNH TRẦN & GRID THÂN TRANG SAU KHI ĐẢO THỨ TỰ LOGIC
+# ĐOẠN B: TIÊU ĐỀ ĐỈNH TRẦN & GRID THÂN TRANG (ĐÃ CHUẨN HÓA LUỒNG UX)
 # =====================================================================
 
-# 1. TIÊU ĐỀ XANH TEAL TRÊN ĐỈNH
+# 1. TIÊU ĐỀ XANH TEAL TRÊN ĐỈNH TRẦN CHUẨN HỆ THỐNG ERP
 st.markdown(
     """
     <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
@@ -1018,57 +1018,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 2. ĐƯA LƯỚI CHIA ĐÔI (UPLOADER & PROFILE THÂN DƯỚI CŨ) LÊN TRÊN ĐỈNH TRẦN 
-col_left, col_right = st.columns(2)
-
-with col_left:
-    with st.container(border=True, height=520):
-        st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
-        # ... (Toàn bộ code xử lý Upload PDF & Hiển thị 6 thông tin Profile giữ nguyên) ...
-
-with col_right:
-    with st.container(border=True, height=520):
-        st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
-        # ... (Toàn bộ code hiển thị ảnh bản vẽ gốc giữ nguyên) ...
-
-
-# 3. ĐẨY LƯỚI 4 CỘT CAD ASSETS XUỐNG DƯỚI ĐỂ ĐÓN NỘI DUNG SAU KHI XỬ LÝ SƠ ĐỒ
-with st.container(border=True):
-    st.markdown(
-        """
-        <div style="font-weight: 600; background-color: #1E3A8A; color: white; padding: 10px 14px; border-radius: 6px; font-size: 14px; letter-spacing: 0.5px; margin-bottom: 15px;">
-            🖼️ VISUAL CAD/PLM ASSETS CONTROL PANEL
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-    
-    col_photo, col_front, col_back, col_marker = st.columns(4)
-
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
-st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = None
-    st.session_state.chat_history = []
-    st.session_state.pdf_bytes = None
-    st.session_state.pdf_name = ""
-    st.session_state.pdf_text_cache = None
-    
-    if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
-    if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
-    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-    st.rerun()
-
-
-# ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (SỬ DỤNG HEIGHT NATIVE CỦA STREAMLIT)
-# ------------------------------------------------------------------------------
+# 2. LUỒNG UX SỐ 1: LƯỚI CHIA ĐÔI THÂN TRÊN (BỘ TẢI FILE & ẢNH BẢN VẼ GỐC)
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    # Ép chiều cao native bằng tham số height, tự động sinh thanh cuộn nếu tràn nội dung
     with st.container(border=True, height=520):
         st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
         
@@ -1086,6 +1040,7 @@ with col_left:
             st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
             txt = st.session_state.pdf_text_cache
             
+            import re
             def get_meta(pattern, default="N/A"):
                 m = re.search(pattern, txt, re.IGNORECASE)
                 return m.group(1).strip() if m else default
@@ -1114,12 +1069,74 @@ with col_right:
     with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-        # Hiển thị hình vẽ phác thảo nguyên bản mượt mà
+        # Hiển thị hình vẽ phác thảo nguyên bản mượt mà từ PDF
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
             st.image(st.session_state.pdf_page_one_image, use_container_width=True)
         else:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
 
+
+# 3. LUỒNG UX SỐ 2: LƯỚI 4 CỘT CAD ASSETS ĐƯỢC ĐẨY XUỐNG DƯỚI ĐỂ ĐÓN DỮ LIỆU
+with st.container(border=True):
+    st.markdown(
+        """
+        <div style="font-weight: 600; background-color: #1E3A8A; color: white; padding: 10px 14px; border-radius: 6px; font-size: 14px; letter-spacing: 0.5px; margin-bottom: 15px;">
+            🖼️ VISUAL CAD/PLM ASSETS CONTROL PANEL
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    
+    col_photo, col_front, col_back, col_marker = st.columns(4)
+    DEFAULT_PLACEHOLDER = "assets/placeholder.png"
+
+    # 📷 1. PRODUCT PHOTO
+    with col_photo:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📷 PRODUCT PHOTO</div>', unsafe_allow_html=True)
+        if st.session_state.get("product_photo_bytes") is not None:
+            st.image(st.session_state.product_photo_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Product Image ]")
+
+    # 📐 2. FRONT SKETCH
+    with col_front:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📐 FRONT SKETCH</div>', unsafe_allow_html=True)
+        if st.session_state.get("front_sketch_bytes") is not None:
+            st.image(st.session_state.front_sketch_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Front Sketch ]")
+
+    # 📐 3. BACK SKETCH
+    with col_back:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📐 BACK SKETCH</div>', unsafe_allow_html=True)
+        if st.session_state.get("back_sketch_bytes") is not None:
+            st.image(st.session_state.back_sketch_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Back Sketch ]")
+
+    # ✂️ 4. MARKER PREVIEW / AI LAYOUT
+    with col_marker:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">✂️ MARKER PREVIEW</div>', unsafe_allow_html=True)
+        if st.session_state.get("marker_preview_bytes") is not None:
+            st.image(st.session_state.marker_preview_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No CAD Marker ]")
+
+
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    st.session_state.bom_data = None
+    st.session_state.chat_history = []
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_name = ""
+    st.session_state.pdf_text_cache = None
+    
+    if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
+    if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
+    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+    st.rerun()
 
 
 
