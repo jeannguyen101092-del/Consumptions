@@ -582,7 +582,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
-        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN & PHÂN BỔ SƠ ĐỒ KHÔNG LỖI)
+                # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN & PHÂN BỔ SƠ ĐỒ KHÔNG LỖI)
         # =====================================================================
         gross_yds = 0.0
         try:
@@ -717,25 +717,27 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         except Exception as e:
             pass
 
-    # 🌟 ĐOẠN VÁ LỖI PHÒNG VỆ STATE: Chuyển đổi cấu trúc an toàn tránh AttributeError
+    # 🌟 CHỐT CHẶN TRIỆT TIÊU LỖI PHƯƠNG THỨC: Thay thế hoàn toàn cơ chế .get lỗi của hệ thống gốc
     # =====================================================================
-    if isinstance(blueprint_final, dict):
-        bom_rows_source = blueprint_final.get("bom_rows", [])
-    elif isinstance(blueprint_final, list):
-        bom_rows_source = blueprint_final
-    else:
-        bom_rows_source = []
+    bom_rows_source = []
+    if 'blueprint_final' in locals() and blueprint_final:
+        if isinstance(blueprint_final, dict):
+            bom_rows_source = blueprint_final.get("bom_rows", [])
+        elif isinstance(blueprint_final, list):
+            bom_rows_source = blueprint_final
 
-    # Đồng bộ đẩy mảng tính toán router_bom_rows sạch lỗi ra giao diện hiển thị
+    # Kiểm tra biến cục bộ và ép đồng bộ trạng thái lưu trữ Streamlit
     if 'router_bom_rows' in locals() and router_bom_rows:
         st.session_state["accumulated_bom_rows"] = copy.deepcopy(router_bom_rows)
+        # Ép đè trực tiếp lên blueprint_processed/accumulated_bom_rows gốc để ngăn chặn dòng mã lỗi chạy tiếp
+        if 'blueprint_processed' in locals() and isinstance(blueprint_processed, dict):
+            blueprint_processed["bom_rows"] = copy.deepcopy(router_bom_rows)
     else:
         st.session_state["accumulated_bom_rows"] = copy.deepcopy(bom_rows_source)
     # =====================================================================
 
 
-
-
+   
 
 
 
