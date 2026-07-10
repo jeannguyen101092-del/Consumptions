@@ -898,40 +898,10 @@ st.markdown("""
         margin: auto !important;
     }
 
-       /* =====================================================================
-       🌟 FIX TRIỆT ĐỂ: ÉP HAI Ô CONTAINER BẰNG NHAU THEO ĐÚNG DOM STREAMLIT
-       ===================================================================== */
-    div[data-testid="stColumns"] {
-        display: flex !important;
-        align-items: stretch !important;
-    }
-    div[data-testid="stColumn"] {
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    /* Cho phép cấu trúc block nội bộ kéo dãn tự do */
-    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] {
-        height: 100% !important;
-        display: flex !important;
-        flex-direction: column !important;
-        flex-grow: 1 !important;
-    }
-    
-    /* Ép trực tiếp chiều cao cố định vào class sinh viền st.container(border=True) */
-    div[data-testid="stVerticalBlockBorderContainer"],
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        height: 560px !important;
-        min-height: 560px !important;
-        max-height: 560px !important;
-        display: block !important; /* Đẩy nội dung chữ lên đỉnh trần */
-        overflow-y: auto !important; /* Tự động xuất hiện thanh cuộn nội bộ nếu nội dung quá dài */
-    }
-
-    /* Khống chế ảnh không vượt quá không gian hiển thị của ô bên phải */
+    /* 🌟 FIX TRIỆT ĐỂ: SỬA LỖI ẨN ẢNH VÀ TRẢ LẠI HIỂN THỊ TỰ ĐỘNG CHO SKETCH 🌟 */
     div[data-testid="stImage"] img {
-        max-height: 440px !important;
-        object-fit: contain !important;
         width: 100% !important;
+        height: auto !important;
     }
     
     .cad-header-text-flat {
@@ -1083,15 +1053,15 @@ with col_left:
 
 # --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ THÔNG TIN HÌNH ẢNH SKETCH ---
 with col_right:
-    # Ép chiều cao khớp hoàn toàn với ô bên trái thông qua tham số height
     with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-        # Hiển thị hình vẽ phác thảo (Sketch) từ Session State nếu có
+        # Hiển thị hình vẽ phác thảo nguyên bản mượt mà
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
             st.image(st.session_state.pdf_page_one_image, use_container_width=True)
         else:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+
 
 
 
