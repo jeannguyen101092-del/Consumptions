@@ -1018,30 +1018,83 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Chuỗi mã hóa hình ảnh vector đồ họa gốc của 4 ô trang phục
-encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
-encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
+from pathlib import Path
+import streamlit as st
 
-# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
-k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+# =====================================================================
+# HÀM BẢO VỆ GIAO DIỆN: CHECK FILE TRÁNH LỖI KHI CHƯA CÓ ẢNH ASSETS
+# =====================================================================
+def show_placeholder(image_path, text_fallback):
+    """
+    Kiểm tra xem file ảnh placeholder có tồn tại không. 
+    Nếu có: Hiển thị ảnh native. 
+    Nếu không: Hiển thị hộp thông tin phẳng để giao diện không bị báo lỗi đỏ.
+    """
+    if Path(image_path).exists():
+        st.image(image_path, use_container_width=True)
+    else:
+        # Hộp thông tin dự phòng phẳng siêu nhẹ chuẩn ERP
+        st.markdown(
+            f'<div style="border: 1px dashed #CBD5E1; border-radius: 6px; height: 160px; display: flex; '
+            f'justify-content: center; align-items: center; color: #94A3B8; font-size: 12px; background-color: #F8FAFC; font-weight: 500;">'
+            f'{text_fallback}</div>', 
+            unsafe_allow_html=True
+        )
 
-with k_col1: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
 
-with k_col2: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+# =====================================================================
+# 🖼️ AUTOMATED CAD COSTING WORKSPACE - 4-COLUMN VISUAL PLACEHOLDER GRID
+# =====================================================================
 
-with k_col3: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+# Sử dụng container native bọc viền an toàn chuẩn Streamlit
+with st.container(border=True):
+    # Tiêu đề phân hệ chuẩn phong cách ERP phẳng, đồng bộ màu xanh Navy (#1E3A8A)
+    st.markdown(
+        """
+        <div style="font-weight: 600; background-color: #1E3A8A; color: white; padding: 10px 14px; border-radius: 6px; font-size: 14px; letter-spacing: 0.5px; margin-bottom: 15px;">
+            🖼️ VISUAL CAD/PLM ASSETS CONTROL PANEL
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
-with k_col4: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+    # Khởi tạo lưới 4 cột tỷ lệ đều nhau chuẩn văn phòng thiết kế
+    col_photo, col_front, col_back, col_marker = st.columns(4)
+
+    # Đường dẫn tới 1 file ảnh mặc định duy nhất của toàn bộ hệ thống
+    DEFAULT_PLACEHOLDER = "assets/placeholder.png"
+
+    # 📷 1. PRODUCT PHOTO
+    with col_photo:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📷 PRODUCT PHOTO</div>', unsafe_allow_html=True)
+        if st.session_state.get("product_photo_bytes") is not None:
+            st.image(st.session_state.product_photo_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Product Image ]")
+
+    # 📐 2. FRONT SKETCH
+    with col_front:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📐 FRONT SKETCH</div>', unsafe_allow_html=True)
+        if st.session_state.get("front_sketch_bytes") is not None:
+            st.image(st.session_state.front_sketch_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Front Sketch ]")
+
+    # 📐 3. BACK SKETCH
+    with col_back:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">📐 BACK SKETCH</div>', unsafe_allow_html=True)
+        if st.session_state.get("back_sketch_bytes") is not None:
+            st.image(st.session_state.back_sketch_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No Back Sketch ]")
+
+    # ✂️ 4. MARKER PREVIEW / AI LAYOUT
+    with col_marker:
+        st.markdown('<div style="text-align: center; font-weight: bold; color: #1E3A8A; margin-bottom: 6px; font-size: 12px;">✂️ MARKER PREVIEW</div>', unsafe_allow_html=True)
+        if st.session_state.get("marker_preview_bytes") is not None:
+            st.image(st.session_state.marker_preview_bytes, use_container_width=True)
+        else:
+            show_placeholder(DEFAULT_PLACEHOLDER, "[ No CAD Marker ]")
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
