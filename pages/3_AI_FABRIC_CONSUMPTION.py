@@ -917,8 +917,11 @@ st.markdown("""
         flex-grow: 1 !important;
     }
     /* Ép trực tiếp vào class sinh viền st.container(border=True) */
+    /* Ép trực tiếp vào class sinh viền st.container(border=True) */
     div[data-testid="stVerticalBlockBorderContainer"] {
-        min-height: 540px !important; /* Đặt chiều cao sàn cố định để cân bằng tuyệt đối */
+        height: 560px !important;
+     }
+
         height: 100% !important;
         display: flex !important;
         flex-direction: column !important;
