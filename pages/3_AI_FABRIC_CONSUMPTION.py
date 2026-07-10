@@ -916,11 +916,12 @@ st.markdown("""
         flex-direction: column !important;
         flex-grow: 1 !important;
     }
-    /* Ép trực tiếp vào class sinh viền st.container(border=True) */
-    /* Ép trực tiếp vào class sinh viền st.container(border=True) */
+   /* Ép trực tiếp vào class sinh viền st.container(border=True) */
     div[data-testid="stVerticalBlockBorderContainer"] {
         height: 560px !important;
-     }
+        display: block !important; /* Thêm dòng này để đẩy nội dung chữ lên đỉnh trần */
+    }
+
 
         height: 100% !important;
         display: flex !important;
