@@ -572,8 +572,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
             continue
-        # =====================================================================
-        # 🔥 ĐOẠN 3: KHỐI CÔNG THỨC TOÁN HỌC CAD & BỘ NÃO TỰ SINH KEO Mex THEO IE
+               # =====================================================================
+        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢNG CẤU HÌNH & PHÂN LỚP ĐỘNG)
         # =====================================================================
         gross_yds = 0.0
         try:
@@ -582,34 +582,97 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             active_wid = float(width_inch) if float(width_inch) > 0 else 56.0
             active_count = int(p_count)
 
-            # Trích xuất chính xác index 0 của mảng [Eff, Utilization] từ Phần 1 gốc của bạn
+            # Đọc đúng phần tử đầu tiên của mảng hiệu suất sơ đồ từ Phần 1 gốc
             eff_rules = NESTING_EFF_MATRIX.get(product_type, NESTING_EFF_MATRIX["DEFAULT"])
             nesting_data = eff_rules.get(sub_component, eff_rules["DEFAULT"])
-            marker_efficiency = float(nesting_data[0]) if isinstance(nesting_data, list) else float(nesting_data)
+            marker_efficiency = float(nesting_data) if isinstance(nesting_data, list) else float(nesting_data)
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ HẠ ĐỊNH MỨC SÁT THỰC TẾ XƯỞNG CẮT
+            # 📊 BẢNG CẤU HÌNH BIẾN LAYOUT_FACTOR THEO NHÓM NGUYÊN LIỆU CHỦ ĐẠO
+            LAYOUT_FACTOR_MATRIX = {
+                "KNIT": 1.03,      # Vải thun dẻo dẻo dễ lách rập
+                "SHIRT": 1.05,     # Áo sơ mi vuông vức
+                "PANTS": 1.06,     # Quần Jeans, Cargo bản to
+                "DRESS": 1.08,     # Váy đầm xòe tròn xéo góc
+                "JACKET": 1.09,    # Áo Jacket nhiều linh kiện phức tạp
+                "DEFAULT": 1.06
+            }
+            material_group = ai_meta.get("fabric_group", "WOVEN").upper().strip()
+            current_layout_factor = LAYOUT_FACTOR_MATRIX.get(product_type, LAYOUT_FACTOR_MATRIX.get(material_group, LAYOUT_FACTOR_MATRIX["DEFAULT"]))
+
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - THUẬT TOÁN ĐA PHÂN LỚP ĐỘNG THEO TỶ LỆ DIỆN TÍCH
             if engine_target == "FABRIC":
-                raw_piece_area = shrunk_len * shrunk_wid * float(active_count)
+                # Tìm chi tiết lớn nhất của toàn bộ mã hàng để làm mốc quy đổi tỷ lệ đứng
+                largest_piece_area = 1.0
+                for r_check in unique_bom_rows:
+                    if not r_check: continue
+                    try:
+                        l_check = float(r_check.get("bounding_box_length", r_check.get("Dài sản xuất (L-inch)", 0.0))) * warp_shrink_factor
+                        w_check = float(r_check.get("bounding_box_width", r_check.get("Rộng sản xuất (W-inch)", 0.0))) * weft_shrink_factor
+                        if (l_check * w_check) > largest_piece_area:
+                            largest_piece_area = l_check * w_check
+                    except: pass
+
+                # Tính toán tỷ lệ diện tích động (Dynamic Area Ratio)
+                current_piece_area = shrunk_len * shrunk_wid
+                area_ratio = current_piece_area / largest_piece_area
                 
-                is_long_sash_checked = kwargs.get("is_long_sash", False)
-                if is_long_sash_checked:
-                    raw_piece_area = raw_piece_area * 0.90
+                # Định vị phân lớp hình học CAD thực tế theo tỷ lệ phần trăm
+                if area_ratio >= 0.55:
+                    panel_class = "PRIMARY_PANEL"      # Thân lớn (Bất chấp áo trẻ em Kids hay áo người lớn)
+                elif 0.15 <= area_ratio < 0.55:
+                    panel_class = "SECONDARY_PANEL"    # Tay áo, cạp quần, đô áo lớn
+                else:
+                    panel_class = "SMALL_PANEL"        # Linh kiện nhỏ (Túi, cơi, nẹp, bo, đỉa)
+                # =====================================================================
+                # 🔥 ĐOẠN 3.2: CÔNG THỨC TÍNH PHÂN LỚP SƠ ĐỒ CAD VÀ BỘ LỌC VALIDATION CHUẨN GERBER
+                # =====================================================================
+                # 📐 CÔNG THỨC 1: Áp dụng cho Chi tiết lớn và trung bình (PRIMARY & SECONDARY PANEL)
+                if panel_class in ["PRIMARY_PANEL", "SECONDARY_PANEL"]:
+                    # Áp dụng ma trận lồng ghép cặp chi tiết đối xứng lộn đầu đảo chiều ôm khít nhau
+                    pair_layout_factor = {"SLEEVE": 0.86, "FRONT": 0.97, "BACK": 0.98}.get(sub_component, 1.0)
+                    shrunk_wid = shrunk_wid * pair_layout_factor
                     
-                # Tối ưu sơ đồ lộn đầu cặp tay áo (Tiết kiệm 30% diện tích hao hụt ảo so với thân áo)
-                if sub_component == "SLEEVE" and active_count >= 2:
-                    raw_piece_area = raw_piece_area * 0.70
-                    calc_note += "✂️ Tối ưu sơ đồ lộn đầu cặp tay áo | "
+                    # Mô phỏng phần biên vải hao hụt đầu sào không dùng thực tế nhà máy
+                    edge_loss = 1.2 
+                    usable_width = max(20.0, active_wid - edge_loss)
+                    
+                    # Tính toán động chính xác số lượng rập nằm vừa trên một hàng đứng ngang khổ vải
+                    pieces_per_row = max(1, math.floor(usable_width / shrunk_wid))
+                    
+                    # Tính toán số hàng đứng dọc trục khổ vải tiêu tốn chiều dài thực tế
+                    required_rows = math.ceil(float(active_count) / pieces_per_row)
+                    allocated_len = shrunk_len * required_rows
+                    
+                    # Định mức quy đổi ra Yards chuẩn sơ đồ hình học dọc trục cây vải
+                    gross_yds = (allocated_len / 36.0) * current_layout_factor * (1.0 + industrial_loss)
+                    calc_note += f"✂️ [{panel_class}] Giác sơ đồ dọc ({pieces_per_row} pcs/hàng ngang | Biên hao: {edge_loss}\") | "
                 
-                # Thuật toán lồng ghép cấu phần phụ cho ÁO (Jacket / Sơ mi):
-                # Các linh kiện nhỏ (Túi, Nẹp, Cổ, Đai) xếp lồng vào thân áo, giảm 65% diện tích tính hao dọc cây vải
-                if product_type in ["JACKET", "DEFAULT"] and sub_component not in ["BODY", "SLEEVE"]:
-                    raw_piece_area = raw_piece_area * 0.35
-                    calc_note += "🧩 Quy tắc CAD: Lồng linh kiện nhỏ vào khoảng hở của thân áo (Giảm 65%) | "
+                # 📐 CÔNG THỨC 2: Áp dụng cho Linh kiện nhỏ (SMALL_PANEL) lách lồng khoảng trống rập chính
+                else:
+                    # Ma trận hệ số lồng ghép thực tế chi tiết phụ (Túi mổ 8% tốn ít vải hơn túi hộp Cargo 15%)
+                    nest_factor = {
+                        "WELT": 0.08, "MỔ": 0.08,             # Túi mổ, cơi nhỏ lách cực khít
+                        "POCKET": 0.12, "CARGO": 0.15,         # Túi đắp, túi hộp Cargo lớn tốn vải hơn
+                        "PLACKET": 0.18, "NẸP": 0.18,          # Nẹp tà lách biên dọc
+                        "WAISTBAND": 0.22, "CẠP": 0.22,        # Cạp quần
+                        "COLLAR": 0.28, "CỔ": 0.28,            # Cổ áo chiếm diện tích phẳng
+                        "CUFF": 0.26, "MANS": 0.26,            # Bo tay, măng séc
+                    }.get(sub_component, 0.25)
+                    
+                    raw_piece_area = shrunk_len * shrunk_wid * float(active_count) * nest_factor
+                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                    calc_note += f"🧩 [{panel_class}] Lồng khoảng hở sơ đồ rập (Hệ số lồng: {int(nest_factor*100)}%) | "
 
-                gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                calc_note += f"⚡ CAD Tối ưu phẳng | "
-
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ KHỐNG CHẾ SỐ LƯỢNG TÚI TRƯỚC Max 2 Pcs
+                # 🌟 TẦNG BẢO VỆ CHÍ MẠNG: MARKER VALIDATION GUARD CHẶN SAI LỆCH SỐ LỚN
+                net_theoretical_yds = (current_piece_area * float(active_count)) / (active_wid * 36.0)
+                if gross_yds < net_theoretical_yds:
+                    gross_yds = net_theoretical_yds * 1.02 # Phạt sàn tối thiểu phải lớn hơn diện tích phẳng rập thô 2%
+                
+                # Khống chế trần cực đại tuyệt đối để bảo vệ xưởng cắt không bị vọt định mức ảo
+                theoretical_max_yds = ((shrunk_len * float(active_count)) / 36.0) * (1.0 + industrial_loss)
+                if gross_yds > theoretical_max_yds and panel_class != "SMALL_PANEL":
+                    gross_yds = theoretical_max_yds
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - LOGIC KHỐNG CHẾ SỐ LƯỢNG TÚI TRƯỚC Max 2 Pcs
             elif engine_target == "LINING":
                 eff_lining = 0.82
                 if "FRONT" in comp_name and "POCKET" in comp_name:
@@ -624,7 +687,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = eff_lining
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - Khóa co rút 1% chống vọt định mức keo lót
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - KHÓA CO RÚT KEO MEX ĐỘC LẬP Ở MỐC 1% CHỐNG VỌT SỐ
             elif engine_target == "FUSING":
                 eff_fusing = 0.92
                 fusing_shrink_l = 1.01
@@ -654,7 +717,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = 1.0
                 calc_note += "Tính theo trục dọc chun | "
 
-            # Quy đổi đơn vị tiêu hao và làm tròn số hiển thị lên bảng dữ liệu
             gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
             final_rounded_value = max(0.0001, round(gross_val, 4))
 
@@ -668,7 +730,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
             router_bom_rows.append(ui_row)
 
-            # Quy tắc tự động sinh dòng Mex lót theo nghiệp vụ IE nhà xưởng
+            # =====================================================================
+            # 🧠 BỘ NÃO NGHIỆP VỤ: TỰ ĐỘNG BÙ KEO MEX THEO THỰC TẾ NHÀ MÁY ĐƯỢC CHUẨN HÓA
+            # =====================================================================
             if engine_target == "FABRIC":
                 if product_type == "PANTS":
                     if sub_component == "WAISTBAND" and not is_waistband_elastic:
@@ -723,7 +787,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
 
-    # ĐỆ TIẾP: Tính toán độc lập định mức cho các dòng keo tự sinh thêm ở trên
+    # ĐỆ TIẾP: Tính toán độc lập chiều dài dọc sơ đồ keo cho các dòng keo tự sinh thêm ở trên
     for f_row in generated_fusing_rows:
         try:
             f_len = float(f_row.get("bounding_box_length", 5.0))
@@ -732,9 +796,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
             f_shrunk_len = f_len * 1.01
             f_shrunk_wid = f_wid * 1.01
-            f_area = f_shrunk_len * f_shrunk_wid * f_count
             
-            f_gross_yds = (f_area / (56.0 * 36.0 * 0.92)) * (1.0 + industrial_loss)
+            f_pieces_per_row = max(1, int(56.0 / (f_shrunk_wid + 0.1)))
+            f_vertical_rows = math.ceil(f_count / float(f_pieces_per_row))
+            f_allocated_len = f_shrunk_len * f_vertical_rows
+            
+            f_gross_yds = (f_allocated_len / 36.0) * 1.08 * (1.0 + industrial_loss)
             f_final_val = max(0.0001, round(f_gross_yds * 0.9144 if uom_target == "MTR" else f_gross_yds, 4))
             
             f_row["Dài sản xuất (L-inch)"] = round(f_len, 2)
@@ -750,6 +817,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
+
 
 
 
