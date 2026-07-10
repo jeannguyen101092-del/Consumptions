@@ -450,43 +450,75 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "PANTS"
             break
        # =====================================================================
-    # PHẦN 2.1: QUÉT NHẬN DIỆN KỸ THUẬT VÀ THIẾT LẬP ĐỊNH TUYẾN PHÂN HỆ
+       # =====================================================================
+    # PHẦN 2.1: BỘ LỌC KHỬ TRÙNG CHI TIẾT AI QUÉT LỖI & ĐỊNH TUYẾN PHÂN HỆ
     # =====================================================================
-    # Tạo các biến cờ để kiểm tra cấu trúc mã hàng phục vụ ép keo tự động
-    is_waistband_elastic = False  # Kiểm tra quần lưng thun
-    has_welt_pocket = False       # Kiểm tra quần có túi mổ
-    has_fusing_rows = False       # Kiểm tra xem tài liệu đã có sẵn dòng keo chưa
+    router_bom_rows = []
+    
+    # 🌟 THÊM KHỬ TRÙNG CHÍ MẠNG: Loại bỏ các dòng rập trùng tên + trùng thông số do AI quét lặp
+    seen_pieces = set()
+    unique_bom_rows = []
+    
+    for row in blueprint_final.get("bom_rows", []):
+        if not row: continue
+        r_name = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
+        r_mat = str(row.get("Material Class", row.get("material_class", ""))).upper().strip()
+        r_len = float(row.get("bounding_box_length", row.get("Dài sản xuất (L-inch)", 0.0)))
+        r_wid = float(row.get("bounding_box_width", row.get("Rộng sản xuất (W-inch)", 0.0)))
+        
+        # Tạo khóa nhận diện (Tên + Phân loại + Kích thước)
+        unique_key = (r_name, r_mat, round(r_len, 2), round(r_wid, 2))
+        
+        if unique_key in seen_pieces:
+            continue  # Nếu đã có rồi thì bỏ qua luôn, không cho nạp vào bảng tính nữa
+        seen_pieces.add(unique_key)
+        unique_bom_rows.append(row)
 
-    # Vòng quét sơ bộ để nhận diện kỹ thuật dòng sản phẩm
-    for r in blueprint_final.get("bom_rows", []):
-        if not r: continue
+    # 1. Quét tìm kích thước của chi tiết vải chính tổng ALLOVER BODY để làm dữ liệu dự phòng
+    main_body_len = 0.0
+    main_body_wid = 0.0
+    for r in unique_bom_rows:
+        r_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
+        if "ALLOVER" in r_name or "BODY" in r_name:
+            try:
+                main_body_len = float(r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", 0.0)))
+                main_body_wid = float(r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", 0.0)))
+                if main_body_len > 0: break
+            except: pass
+
+    # Kiểm tra trước xem bảng dữ liệu rập có dòng Keo của Cạp quần chưa
+    has_waistband_fusing = any(
+        "FUSING" in str(r.get("Component Name", r.get("component_name", ""))).upper() and "WAISTBAND" in str(r.get("Component Name", r.get("component_name", ""))).upper()
+        for r in unique_bom_rows
+    )
+    is_waistband_elastic = False
+    has_welt_pocket = False
+    has_fusing_rows = False
+    for r in unique_bom_rows:
         r_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
         r_mat = str(r.get("Material Class", r.get("material_class", ""))).upper()
         if "ELASTIC" in r_name or "CHUN" in r_name or "THUN" in r_name or "ELASTIC" in r_mat:
-            if "WAIST" in r_name or "LƯNG" in r_name or "CẠP" in r_name:
-                is_waistband_elastic = True
-        if any(kw in r_name for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
-            has_welt_pocket = True
-        if any(kw in r_name or kw in r_mat for kw in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
-            has_fusing_rows = True
+            if "WAIST" in r_name or "LƯNG" in r_name or "CẠP" in r_name: is_waistband_elastic = True
+        if any(kw in r_name for kw in ["WELT", "CƠI", "MỔ", "FACING"]): has_welt_pocket = True
+        if any(kw in r_name or kw in r_mat for kw in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]): has_fusing_rows = True
 
     # Danh sách chứa các dòng rập keo lót tự động sinh thêm độc lập
     generated_fusing_rows = []
 
-    for ai_row in blueprint_final.get("bom_rows", []):
-        if not ai_row: continue
+    # Tiến hành lặp duyệt trên danh sách ĐÃ ĐƯỢC LỌC SẠCH TRÙNG LẶP
+    for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
-        
         comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", ""))).upper().strip()
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
         # PHÒNG VỆ CHẤT LƯỢNG: Bỏ qua phụ liệu cứng rời
-        if any(key in comp_name for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET"]):
-            ui_row["Gross Consumption"] = 0.0
-            ui_row["gross_consumption"] = 0.0
-            ui_row["calculated_consumption"] = 0.0
-            ui_row["Notes"] = "Phụ liệu cứng cố định - Không tính định mức diện tích"
+        if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
+            ui_row["Gross Consumption"] = ui_row.get("Quantity", ui_row.get("quantity", 0.0105 if "BUTTON" in comp_name else 0.0))
+            if ui_row["Gross Consumption"] == 0: ui_row["Gross Consumption"] = 0.0105
+            ui_row["gross_consumption"] = ui_row["Gross Consumption"]
+            ui_row["calculated_consumption"] = ui_row["Gross Consumption"]
+            ui_row["Notes"] = "Phụ liệu đóng gói / Phụ liệu cứng - Giữ nguyên định mức gốc"
             router_bom_rows.append(ui_row)
             continue
             
@@ -512,7 +544,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         # Tra cứu nhóm cấu phần chuẩn IE
         sub_component = "DEFAULT"
-        if any(kw in comp_name for kw in ["FRONT", "BACK", "BODY", "THÂN"]): sub_component = "BODY"
+        if any(kw in comp_name for kw in ["FRONT", "BACK", "BODY", "THÂN", "ALLOVER"]): sub_component = "BODY"
         elif "SLEEVE" in comp_name or "TAY" in comp_name: sub_component = "SLEEVE"
         elif "COLLAR" in comp_name or "CỔ" in comp_name: sub_component = "COLLAR"
         elif "CUFF" in comp_name or "MANS" in comp_name or "BO TAY" in comp_name: sub_component = "CUFF"
@@ -523,22 +555,21 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         # Khôi phục kích thước keo lót dính lỗi OCR về 0
         if engine_target == "FUSING" and raw_len <= 0.0:
-            if sub_component == "WAISTBAND":
+            if main_body_len > 0:
+                raw_len = main_body_len
+                raw_wid = main_body_wid * 0.15 
+            else:
                 raw_len = 34.0
                 raw_wid = 3.5
-            elif "CƠI" in comp_name or "WELT" in comp_name:
-                raw_len = 7.0
-                raw_wid = 4.0
 
         # Tra cứu ma trận biên may bù trừ từ Đoạn 1
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # Bóc tách mảng bù biên may
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            raw_wid_with_sa = raw_wid + float(seam_allowance[0])
-            raw_len_with_sa = raw_len + float(seam_allowance[1])
-            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance[0]}\" L+{seam_allowance[1]}\" | "
+            raw_wid_with_sa = raw_wid + float(seam_allowance)
+            raw_len_with_sa = raw_len + float(seam_allowance)
+            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance}\" L+{seam_allowance}\" | "
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
@@ -547,6 +578,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
             continue
+
         gross_yds = 0.0
         try:
             shrunk_len = raw_len_with_sa * warp_shrink_factor
