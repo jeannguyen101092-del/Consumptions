@@ -519,19 +519,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif "POCKET" in comp_name or "TÚI" in comp_name: sub_component = "POCKET"
         elif "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name: sub_component = "WAISTBAND"
 
-        # Tra cứu Ma trận Biên may (Seam Allowance) động từ Phần 1
+                # Tra cứu ma trận biên may bù trừ từ Đoạn 1
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 ĐÃ SỬA ĐOẠN LỖI CHÍ MẠNG: Trích xuất đúng index [0] cho Chiều rộng và index [1] cho Chiều dài
+        # 🔥 ĐÃ SỬA CHÍ MẠNG: Lấy đúng phần tử index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị lỗi cộng list
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            raw_wid_with_sa = raw_wid + float(seam_allowance)
-            raw_len_with_sa = raw_len + float(seam_allowance)
-            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance}\" L+{seam_allowance}\" | "
+            raw_wid_with_sa = raw_wid + float(seam_allowance[0])
+            raw_len_with_sa = raw_len + float(seam_allowance[1])
+            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance[0]}\" L+{seam_allowance[1]}\" | "
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
-            calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát thành phẩm | "
+            calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát rập | "
+
 
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
