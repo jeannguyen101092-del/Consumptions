@@ -1003,15 +1003,14 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
 
-# 🌟 BỔ SUNG TÊN DỰ ÁN TRÊN ĐỈNH GIAO DIỆN CHUẨN FLAT ERP 🌟
+# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
 st.markdown(
     """
-    <div style="background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); text-align: center;">
-        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #1e293b; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
+    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
+        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
             🚀 HỆ THỐNG TỰ ĐỘNG HÓA BOM & TỐI ƯU ĐỊNH MỨC VẢI VĂN PHÒNG
         </h2>
     </div>
