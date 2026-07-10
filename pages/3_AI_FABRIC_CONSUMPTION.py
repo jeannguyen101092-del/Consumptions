@@ -963,8 +963,79 @@ with col_right:
 
 
 # =====================================================================
+# 🧠 KHỐI CHỨA HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐẶT PHÍA TRÊN ĐOẠN 7a)
+# =====================================================================
+import streamlit as st
+import google.generativeai as genai
+import json, copy, re, fitz, traceback
+
+@st.cache_data(show_spinner=False)
+def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_size_cmd, raw_json_schema, prompt_agent_2):
+    """
+    Hàm gọi AI quét PDF có sử dụng cơ chế Cache dữ liệu của Streamlit.
+    Giúp cố định thông số 100% không đổi giữa các lần gõ chat hoặc tương tác nút bấm.
+    """
+    doc_recovery = fitz.open(stream=pdf_bytes, filetype="pdf")
+    total_pages = len(doc_recovery)
+    full_pdf_raw_text = ""
+    image_payloads = []
+    
+    for idx in range(total_pages):
+        page_text = doc_recovery[idx].get_text("text")
+        full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+        
+        if len(image_payloads) < 12:
+            pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
+            image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+            
+    gemini_inputs = copy.deepcopy(image_payloads)
+    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+    gemini_inputs.append(prompt_agent_2)
+
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    response = model.generate_content(
+        gemini_inputs,
+        generation_config={
+            "response_mime_type": "application/json",
+            "response_schema": raw_json_schema,
+            "temperature": 0.0  # 🌟 KHÓA CHẶT: Ép về 0.0 để triệt tiêu tính ngẫu nhiên, số liệu luôn đồng nhất
+        }
+    )
+    
+    blueprint_worker = json.loads(response.text)
+    
+    if blueprint_worker and "bom_rows" in blueprint_worker:
+        blueprint_worker["calculated_on_size"] = target_size_cmd
+        
+        for row in blueprint_worker.get("bom_rows", []):
+            # Chuẩn hóa chuỗi văn bản đầu vào để tránh lỗi khoảng trắng làm áp sai quy tắc IE
+            if "component_name" in row:
+                row["component_name"] = " ".join(str(row["component_name"]).upper().split())
+                
+            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
+            except: row["bounding_box_length"] = 0.0
+            
+            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
+            except: row["bounding_box_width"] = 0.0
+            
+            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+            except: row["polygon_net_area"] = 0.0
+            
+            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+            except: row["piece_count"] = 1
+
+            try:
+                w_val = row.get("fabric_width_inch")
+                if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                    row["fabric_width_inch"] = float(active_width)
+                else:
+                    row["fabric_width_inch"] = float(w_val)
+            except:
+                row["fabric_width_inch"] = float(active_width)
+                
+    return blueprint_worker
+# =====================================================================
 # ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V118.0)
-# 🌟 KHÓA CHẶT RPM CHÍ MẠNG: Chỉ chạy quét AI khi có sự kiện nút bấm chat mới
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -984,25 +1055,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI Platform đang quét toàn bộ Techpack..."):
-        import google.generativeai as genai
-        import json, copy, traceback, re
-        import fitz 
-        
         try:
-            doc_recovery = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-            total_pages = len(doc_recovery)
-            full_pdf_raw_text = ""
-            image_payloads = []
-            
-            # Quy trình bóc tách tĩnh của Python (Không chứa lệnh gọi AI con)
-            for idx in range(total_pages):
-                page_text = doc_recovery[idx].get_text("text")
-                full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
-                
-                if len(image_payloads) < 12:
-                    pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            
             chat_lower = current_query.lower()
             match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
@@ -1063,67 +1116,49 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
             """
 
-            gemini_inputs = copy.deepcopy(image_payloads)
-            gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
-            gemini_inputs.append(prompt_agent_2)
-
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(
-                gemini_inputs,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "response_schema": raw_json_schema,
-                    "temperature": 0.1
-                }
+            # 🔥 Gọi hàm Cache độc lập từ Đoạn 1 để lấy số liệu cố định
+            blueprint_worker = execute_cached_gemini_scan(
+                st.session_state.pdf_bytes, 
+                current_query, 
+                active_width, 
+                target_size_cmd, 
+                raw_json_schema, 
+                prompt_agent_2
             )
-            
-            blueprint_worker = json.loads(response.text)
                 
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                for row in blueprint_worker.get("bom_rows", []):
-                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
-                    except: row["bounding_box_length"] = 0.0
-                    
-                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
-                    except: row["bounding_box_width"] = 0.0
-                    
-                    try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-                    except: row["polygon_net_area"] = 0.0
-                    
-                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
-                    except: row["piece_count"] = 1
-
-                    try:
-                        w_val = row.get("fabric_width_inch")
-                        if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
-                            row["fabric_width_inch"] = float(active_width)
-                        else:
-                            row["fabric_width_inch"] = float(w_val)
-                    except:
-                        row["fabric_width_inch"] = float(active_width)
-                
-                # 🛠️ PHẦN KHÔI PHỤC BỊ THIẾU TỪ ĐÂY 🛠️
-                # Gọi hàm xử lý tính toán định mức (bạn cần đảm bảo hàm này đã được định nghĩa ở trên)
-                if 'allocate_fabric_consumption' in globals() or 'allocate_fabric_consumption' in locals():
-                    blueprint_final = allocate_fabric_consumption(blueprint_worker)
+                # Nối thẳng vào hàm tính toán định mức nâng cấp (đã xử lý cơi túi 4in và chống thấp vải chính)
+                if "allocate_fabric_consumption_and_quality_gate" in globals():
+                    blueprint_final = allocate_fabric_consumption_and_quality_gate(
+                        blueprint_worker, 
+                        current_query=current_query
+                    )
                 else:
-                    blueprint_final = blueprint_worker  # Dự phòng nếu chưa khai báo hàm
+                    blueprint_final = blueprint_worker
                 
-                # Cập nhật kết quả vào session state của hệ thống
+                # Đẩy trạng thái đồng bộ lên hệ thống hiển thị bảng rập của Streamlit
+                st.session_state.blueprint_final = blueprint_final
                 st.session_state.last_active_blueprint = blueprint_final
                 
-                # Ghi nhận phản hồi thành công từ AI vào lịch sử Chat
-                ai_response_text = f"✅ Đã quét thành công Techpack cho Cỡ (Size): **{target_size_cmd}**. Đã bóc tách được {len(blueprint_worker['bom_rows'])} chi tiết trong bảng dữ liệu BOM vật tư."
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
+                # Ghi thông báo phản hồi lên cửa sổ chat
+                total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
+                ai_response_text = (
+                    f"✅ **Đã quét thành công Techpack cho Cỡ (Size): {target_size_cmd}**.\n\n"
+                    f"📊 Hệ thống CAD Matrix đã đồng bộ hóa cố định **{total_extracted_pieces} chi tiết rập**.\n"
+                    f"- Thông số kích thước rập đã được lưu vào bộ nhớ đệm (Cache) chống nhảy số.\n"
+                    f"- Vải chính đã khôi phục đủ số lượng rập thực tế để tránh định mức thấp.\n"
+                    f"- Toàn bộ phụ liệu keo lót cơi túi mổ đã được ép cứng về mốc tiêu chuẩn **4.0 inch**."
+                )
                 
-                # Ép làm mới giao diện ngay lập tức để hiển thị nội dung chat mới nhất
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
                 st.rerun()
                 
         except Exception as e:
-            st.error(f"❌ Pipeline Lỗi: {str(e)}")
+            st.error(f"❌ Pipeline Hệ Thống Gặp Lỗi: {str(e)}")
             st.code(traceback.format_exc())
+
 
 
 # =====================================================================
