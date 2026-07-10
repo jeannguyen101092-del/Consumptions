@@ -535,22 +535,30 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 shrunk_wid = 11.5 * weft_shrink_factor
                 calc_note += "⚠️ [AI-OCR GUARD] Ép bắp tay về bản dẹt 11.5\" | "
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ FIX BIẾN LỖI CHẠY KHÔNG RA ĐỊNH MỨC
+           # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ ĐIỀU CHỈNH CHỐNG THẤP ĐỊNH MỨC
             if engine_target == "FABRIC":
-                adjusted_count = 1.0 if (sub_component == "BODY" and active_count >= 2) else float(active_count)
+                # SỬA: Không ép số lượng thân quần về 1.0 nữa, giữ nguyên active_count để tính toán diện tích thực
+                actual_pieces_qty = float(active_count)
                 
-                # SỬA: Thêm giá trị fallback an toàn cho kiểm tra dây đai / sash
                 is_long_sash_checked = kwargs.get("is_long_sash", False)
                 
                 if is_long_sash_checked:
-                    raw_piece_area = shrunk_len * shrunk_wid * active_count * 0.90
+                    raw_piece_area = shrunk_len * shrunk_wid * actual_pieces_qty * 0.90
                     gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 else:
-                    raw_piece_area = shrunk_len * shrunk_wid * adjusted_count
-                    # SỬA: Giảm bớt gánh nặng phạt sơ đồ kép diện tích thân quần
-                    util_factor = nesting_utilization if sub_component == "BODY" else 0.95
-                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency * util_factor)) * (1.0 + industrial_loss)
-                calc_note += f"⚡ CAD Nesting Engine | "
+                    raw_piece_area = shrunk_len * shrunk_wid * actual_pieces_qty
+                    
+                    # SỬA: Thay vì nhân kép hai hệ số phạt (efficiency * utilization) làm vọt định mức lúc trước,
+                    # hoặc thả nổi làm thấp định mức, chúng ta dùng marker_efficiency chuẩn (ví dụ 87% như trong ảnh)
+                    # Đối với các chi tiết nhỏ (như BELTLOOP, FACING), đảm bảo định mức tối thiểu không bị bằng 0
+                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                    
+                    # Bổ sung định mức sàn cho các chi tiết nhỏ cắt rời, tránh bị làm tròn về 0
+                    if gross_yds < 0.005 and actual_pieces_qty > 0:
+                        gross_yds = 0.005 * actual_pieces_qty
+                        
+                calc_note += f"⚡ CAD Real-Area Nesting (Qty: {actual_pieces_qty}) | "
+
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ HẠ ĐỊNH MỨC XUỐNG MỨC THỰC TẾ
             elif engine_target == "LINING":
