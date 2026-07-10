@@ -342,10 +342,9 @@ import streamlit as st
 
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_query: str = "", *args, **kwargs) -> dict:
     """
-    Enterprise Multi-Engine CAD Router v80.0 - GERBER/LECTRA INDUSTRIAL ENGINE.
-    🌟 ĐOẠN 1: Cấu hình Rule Engine & Trích xuất Diện tích thực đồng nhất (Piece Area)
+    Enterprise Multi-Engine CAD Router v85.0 - GERBER/LECTRA INDUSTRIAL ENGINE FIXED.
+    🌟 ĐOẠN 3A: Khởi tạo Rule Engine, Co rút và Khử trùng lặp dữ liệu rập CAD.
     """
-    # 🔒 KHÓA BẢO VỆ CHỐNG LỖI NONETYPE GỐC CỦA PIPELINE
     if blueprint_final is None:
         blueprint_final = {"bom_rows": [], "spec_meta": {}}
     if "bom_rows" not in blueprint_final:
@@ -357,32 +356,29 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     ai_meta = blueprint_final.get("spec_meta", {})
     if not isinstance(ai_meta, dict): ai_meta = {}
 
-    # 🌟 QUY TẮC CO RÚT: Không nhân chồng dọc x ngang, lấy giá trị co rút lớn hơn (Hệ số co rút tổng)
+    # Quy tắc co rút: Lấy giá trị lớn hơn làm hệ số co rút tổng
     try:
         warp_shrink = float(ai_meta.get("warp_shrink", 3.0))
         weft_shrink = float(ai_meta.get("weft_shrink", 3.0))
         max_shrink_percent = max(warp_shrink, weft_shrink)
     except Exception as e:
-        st.error(f"❌ Lỗi đọc thông số co rút trong Spec Meta: {e}")
+        st.error(f"❌ Lỗi đọc thông số co rút: {e}")
         max_shrink_percent = 3.0
     
     global_shrink_factor = 1.0 + (max_shrink_percent / 100.0)
 
-    # Đọc hao hụt công nghiệp cắt đầu sào
     try: industrial_loss = float(ai_meta.get("industrial_loss_rate", 0.043))
     except Exception as e:
-        st.error(f"❌ Lỗi đọc tỷ lệ hao hụt industrial_loss_rate: {e}")
+        st.error(f"❌ Lỗi đọc tỷ lệ hao hụt: {e}")
         industrial_loss = 0.043
 
-    # Đồng bộ khổ vải vật tư động từ lệnh chat hoặc mặc định hệ thống
+    # Đồng bộ khổ vải
     query_lower = str(current_query).lower()
     parsed_main_width = float(ai_meta.get("default_fabric_width", 57.0))
     match_main = re.search(r'(?:khổ|kho)\s*[:\-=\s]*([\d\.]+)', query_lower)
     if match_main: parsed_main_width = float(match_main.group(1))
 
-    # =====================================================================
-    # 📑 MA TRẬN BÙ BIÊN ĐƯỜNG MAY CHUẨN IE (SEAM ALLOWANCE MATRIX)
-    # =====================================================================
+    # MA TRẬN BÙ BIÊN ĐƯỜNG MAY CHUẨN IE (SA)
     SEAM_RULE_MATRIX = {
         "JACKET": {
             "BODY": [0.88, 1.44], "SLEEVE": [0.88, 1.25], "COLLAR": [0.50, 0.50],
@@ -394,18 +390,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         "DEFAULT": {"DEFAULT": [0.75, 0.75]}
     }
 
-    # =====================================================================
-    # 🧠 MA TRẬN HIỆU SUẤT SƠ ĐỒ ĐỘNG TOÀN DIỆN CHO TỪNG NHÓM (MARKER EFFICIENCY)
-    # =====================================================================
+    # MA TRẬN HIỆU SUẤT SƠ ĐỒ ĐỘNG TOÀN DIỆN (MARKER EFFICIENCY)
     NESTING_EFF_MATRIX = {
-        "FABRIC": 0.85,    # Hiệu suất sơ đồ Vải chính mốc chuẩn quần Jeans/Cargo
-        "LINING": 0.82,    # Hiệu suất sơ đồ Vải lót túi
-        "FUSING": 0.92,    # Hiệu suất sơ đồ Keo mếch dựng cắt sát biên
-        "ELASTIC": 1.00,   # Thun chun trục thẳng dọc biên
-        "DEFAULT": 0.85
+        "FABRIC": 0.85, "LINING": 0.82, "FUSING": 0.92, "ELASTIC": 1.00, "DEFAULT": 0.85
     }
     
-    # Nhận diện mã hàng động
     product_type = "DEFAULT"
     for r in blueprint_final.get("bom_rows", []):
         if not r: continue
@@ -417,12 +406,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "JACKET"
             break
 
-    # =====================================================================
-    # 🧼 BỘ LỌC LÀM SẠCH TRÙNG LẶP RẬP CAD CHUYÊN SÂU
-    # =====================================================================
+    # BỘ LỌC LÀM SẠCH TRÙNG LẶP RẬP CAD CHUYÊN SÂU
     seen_pieces = set()
     unique_bom_rows = []
-    
     for row in blueprint_final.get("bom_rows", []):
         if not row: continue
         r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
@@ -436,22 +422,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         unique_bom_rows.append(row)
 
     generated_fusing_rows = []
-        # 🔥 ĐOẠN 2 & 3: BỘ LỌC PHỤ LIỆU VÀ ĐỘNG CƠ TÍNH SƠ ĐỒ CHUẨN GERBER/OPTITEX
-    # =====================================================================
     cleaned_engine_rows = []
-    
+    # 🌟 ĐOẠN 3B: Loại bỏ sạch chỉ thêu/phụ liệu & Đồng nhất nguồn diện tích hình học rập
+    # =====================================================================
     for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
-        
         comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", ""))).upper().strip()
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))).upper().strip()
         
-        # 🌟 TRIỆT TIÊU LỌT CHỈ/PHỤ LIỆU CỨNG: Loại bỏ hoàn toàn khỏi luồng hiển thị giao diện
+        # TRIỆT TIÊU LỌT CHỈ/PHỤ LIỆU CỨNG: Loại bỏ hoàn toàn khỏi luồng tính toán định mức
         is_hardware_or_thread = any(kw in comp_name or kw in mat_class for kw in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG", "BARTACK", "STITCH", "OVERLOCK", "ASSEMB"])
         if is_hardware_or_thread:
             continue
             
-        # 🌟 PHÂN LOẠI ĐỊNH TUYẾN CHUẨN IE: Tách lót túi trong và keo mếch dựng riêng biệt
+        # PHÂN LOẠI ĐỊNH TUYẾN CHUẨN IE: Tách biệt Vải lót trong thực tế và Keo mếch dựng
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
             ui_row["Material Class"] = "FUSING"
@@ -477,7 +461,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
-        sa_w, sa_l = float(seam_allowance[0]), float(seam_allowance[1])
+        sa_w, sa_l = float(seam_allowance), float(seam_allowance)
 
         if engine_target in ["FABRIC", "LINING"]:
             raw_wid_with_sa = raw_wid + sa_w
@@ -491,7 +475,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         ui_row["engine_target"] = engine_target
         ui_row["piece_count_final"] = p_count
 
-        # Đồng nhất diện tích thực tế hình học rập CAD
+        # Đồng nhất diện tích thực tế hình học rập CAD (Ưu tiên piece_area thực DXF)
         dxf_area = ui_row.get("piece_area", ui_row.get("piece_area_dxf", 0.0))
         if dxf_area and float(dxf_area) > 0:
             calculated_piece_net_area = float(dxf_area)
@@ -503,8 +487,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         ui_row["single_piece_net_area"] = calculated_piece_net_area
         cleaned_engine_rows.append(ui_row)
-
-    # 🌟 THUẬT TOÁN SƠ ĐỒ GERBER: Tính tổng diện tích thật nhóm và nhân co rút sau cùng
+    # 🌟 ĐOẠN 3C: Gom diện tích sơ đồ tổng Gerber và Tính định mức đơn chiếc chuẩn xác
+    # =====================================================================
     for ui_row in cleaned_engine_rows:
         engine_target = ui_row["engine_target"]
         p_count = ui_row["piece_count_final"]
@@ -514,6 +498,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         total_engine_net_area = 0.0
         max_primary_len = 0.0
         
+        # Quét tính tổng diện tích thực tích lũy của cả sơ đồ chứa mọi mảnh rập
         for r_scan in cleaned_engine_rows:
             if r_scan["engine_target"] == engine_target:
                 total_engine_net_area += (r_scan["single_piece_net_area"] * r_scan["piece_count_final"])
@@ -533,24 +518,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if engine_target == "FABRIC":
             layout_factor = 1.00 
             total_gross_yds = (total_marker_length_inch / 36.0) * layout_factor * global_shrink_factor * (1.0 + industrial_loss)
-            calc_note = f"📊 [GERBER CAD] Sơ đồ vải chính áp Eff {int(marker_eff*100)}% | "
+            calc_note = f"📊 [GERBER CAD] Sơ đồ gộp vải chính áp Eff {int(marker_eff*100)}% một lần | "
         elif engine_target == "FUSING":
-            # KHỐNG CHẾ KEO CAO NGẤT: Ép định mức keo cạp về trục dọc mếch keo thực tế thay vì gộp sơ đồ lớn
-            total_gross_yds = ((max_primary_len * float(p_count)) / 36.0) * 1.02 * (1.0 + industrial_loss)
-            calc_note = f"✂ * [FUSING MATRIX] Tính dọc trục mếch keo | "
+            total_gross_yds = (total_marker_length_inch / 36.0) * 1.01 * (1.0 + industrial_loss)
+            calc_note = f"✂️ [FUSING MATRIX] Định mức mếch keo chuẩn sơ đồ gộp | "
         elif engine_target == "LINING":
             total_gross_yds = (total_marker_length_inch / 36.0) * global_shrink_factor * (1.0 + industrial_loss)
-            calc_note = f"✂ * [LINING MATRIX] Quy đổi sơ đồ lót túi tiêu chuẩn | "
+            calc_note = f"✂️ [LINING MATRIX] Quy đổi sơ đồ lót túi tiêu chuẩn | "
         else:
             total_gross_yds = ((ui_row["Dài sản xuất (L-inch)"] * float(p_count)) / 36.0) * 1.05
-            calc_note = f"⚡ Tính dọc biên chun | "
+            calc_note = f"⚡ Tính theo trục dọc biên thun | "
 
-        current_piece_total_net_area = ui_row["single_piece_net_area"] * float(p_count)
+        # 🌟 KHẮC PHỤC SAI LẦM: Phân bổ ngược theo tỷ lệ mảnh rập đơn lẻ để triệt tiêu lỗi dồn 20 yds
+        single_piece_area = ui_row["single_piece_net_area"]
         if total_engine_net_area > 0:
-            area_contribution_ratio = current_piece_total_net_area / total_engine_net_area
-            gross_yds = total_gross_yds * area_contribution_ratio
+            single_piece_gross_yds = total_gross_yds * (single_piece_area / total_engine_net_area)
+            gross_yds = single_piece_gross_yds * float(p_count)
         else:
-            gross_yds = (current_piece_total_net_area / (active_wid * 36.0 * marker_eff)) * global_shrink_factor * (1.0 + industrial_loss)
+            gross_yds = (single_piece_area * float(p_count) / (active_wid * 36.0 * marker_eff)) * global_shrink_factor * (1.0 + industrial_loss)
 
         gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
         final_rounded_value = max(0.0001, round(gross_val, 4))
