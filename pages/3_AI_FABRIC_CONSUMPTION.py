@@ -1222,45 +1222,6 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & LÀM SẠCH BỘ NHỚ TẠM
-# =====================================================================
-import pandas as pd
-import re
-import io
-import copy
-import math
-import streamlit as st
-from openpyxl import Workbook
-
-if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
-    blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
-    
-    # Trích xuất văn bản câu lệnh chat mới nhất để lấy thông số khổ vải động
-    chat_txt = ""
-    if 'safe_user_prompt' in locals() and safe_user_prompt:
-        chat_txt = str(safe_user_prompt).lower()
-    elif st.session_state.get("chat_history"):
-        chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
-        
-    match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
-    extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
-    
-    # Kích hoạt hàm Router để tính toán ma trận đường may từ rập gốc sạch
-    if 'allocate_fabric_consumption_and_quality_gate' in globals():
-        blueprint_processed = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query=chat_txt)
-    else:
-        blueprint_processed = blueprint_worker
-
-    # 🧹 BƯỚC LỌC PHÒNG VỆ: Kiểm tra kiểu dữ liệu an toàn trước khi gán State tránh lỗi AttributeError
-    st.session_state["bom_data"] = blueprint_processed
-    
-    if isinstance(blueprint_processed, dict):
-        st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
-    elif isinstance(blueprint_processed, list):
-        st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed)
-    else:
-        st.session_state["accumulated_bom_rows"] = []
-# =====================================================================
 # ĐOẠN 7b - PHẦN 2: ĐỒNG BỘ THÔNG SỐ ĐỘNG VÀ RENDERING GIAO DIỆN UI BẢNG TÍNH
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -1270,24 +1231,33 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # 🌟 ĐỒNG BỘ HIỂN THỊ CO RÚT ĐỘNG: Lấy từ biến động ngoài ô chat (4% và 14%)
+    # 🌟 ĐỒNG BỘ TRIỆT ĐỂ CO RÚT (BẮT TỪ ĐIỀU KIỆN CHAT HOẶC SESSION STATE)
     if 'warp_shrink' in locals():
-        current_warp_shrink = f"{float(warp_shrink)}%"
-    else:
+        st.session_state["active_warp_shrink"] = f"{float(warp_shrink)}%"
+    elif 'warp_shrink_factor' in locals():
+        st.session_state["active_warp_shrink"] = f"{round((warp_shrink_factor - 1.0) * 100, 1)}%"
+    elif "active_warp_shrink" not in st.session_state:
         ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
-        current_warp_shrink = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
+        st.session_state["active_warp_shrink"] = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
         
     if 'weft_shrink' in locals():
-        current_weft_shrink = f"{float(weft_shrink)}%"
-    else:
+        st.session_state["active_weft_shrink"] = f"{float(weft_shrink)}%"
+    elif 'weft_shrink_factor' in locals():
+        st.session_state["active_weft_shrink"] = f"{round((weft_shrink_factor - 1.0) * 100, 1)}%"
+    elif "active_weft_shrink" not in st.session_state:
         ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
-        current_weft_shrink = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
+        st.session_state["active_weft_shrink"] = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
     
-    # 🌟 ĐỒNG BỘ TIÊU ĐỀ SIZE: Ép bảng xanh đổi theo size yêu cầu (Ví dụ: 1X)
+    # 🌟 ĐỒNG BỘ TRIỆT ĐỂ TIÊU ĐỀ SIZE:
     if 'target_size_cmd' in locals() and target_size_cmd:
-        extracted_size = str(target_size_cmd).upper().strip()
-    elif 'extracted_size' not in locals():
-        extracted_size = str(bom_source.get("calculated_on_size", "30")).upper().strip()
+        st.session_state["active_display_size"] = str(target_size_cmd).upper().strip()
+    elif "active_display_size" not in st.session_state:
+        st.session_state["active_display_size"] = str(bom_source.get("calculated_on_size", "30")).upper().strip()
+
+    # Gán ngược lại biến hiển thị từ bộ nhớ trạng thái an toàn
+    current_warp_shrink = st.session_state["active_warp_shrink"]
+    current_weft_shrink = st.session_state["active_weft_shrink"]
+    extracted_size = st.session_state["active_display_size"]
 
     display_data = []
     
@@ -1307,7 +1277,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             raw_width = r.get("fabric_width_inch", r.get("Khổ vải (Width)", 56.0))
             cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
             
-            # Ép đồng bộ giá trị động vào cột hàng
+            # Ép đồng bộ giá trị động đã khóa trong session state vào cột hàng
             warp_dynamic = current_warp_shrink
             weft_dynamic = current_weft_shrink
             
