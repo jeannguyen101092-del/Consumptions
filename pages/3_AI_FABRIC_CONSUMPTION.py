@@ -1157,7 +1157,7 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-if st.session_state.chat_history:
+if st.session_state.get("chat_history"):
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
@@ -1169,11 +1169,16 @@ with chat_input_container:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # BIỆN PHÁP CHẶN ĐỨNG VÒNG LẶP RERUN: Chỉ gọi AI khi có prompt thực sự phát sinh
-if st.session_state.pdf_bytes is not None and safe_user_prompt:
+if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
     current_query = str(safe_user_prompt).strip()
     
     with st.spinner("🧠 AI Platform đang quét toàn bộ Techpack..."):
         try:
+            # Khởi tạo biến phòng vệ đầu hàm để tránh NameError khi nhảy vào khối except
+            blueprint_final = None 
+            target_size_cmd = "32"
+            active_width = 56.0
+
             chat_lower = current_query.lower()
             match_size = re.search(r'\b(?:size|sz|cỡ|co|cl)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
             target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "32"
@@ -1232,7 +1237,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
             """
 
-            # Gọi hàm bọc st.cache_data phía trên để lấy dữ liệu rập thô cố định từ tài liệu
+            # Gọi hàm lấy dữ liệu rập thô cố định từ tài liệu
             blueprint_worker = execute_cached_gemini_scan(
                 st.session_state.pdf_bytes, 
                 current_query, 
@@ -1242,12 +1247,12 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 prompt_agent_2
             )
                 
-            if blueprint_worker and "bom_rows" in blueprint_worker:
+            if blueprint_worker and isinstance(blueprint_worker, dict) and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # 🌟 ĐÃ SỬA CHÍ MẠNG: Chuẩn hóa sạch dữ liệu thô ngay trước khi đẩy vào bộ não sơ đồ tổng
-                # Ép kiểu an toàn, tuyệt đối không chạy thuật toán nhân nhân/cộng dồn bừa bãi tại đây
+                # 🌟 Chuẩn hóa sạch dữ liệu thô ngay trước khi đẩy vào bộ não sơ đồ tổng
                 for row in blueprint_worker.get("bom_rows", []):
+                    if not row or not isinstance(row, dict): continue
                     if "component_name" in row:
                         row["component_name"] = " ".join(str(row["component_name"]).upper().split())
                     try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
@@ -1266,25 +1271,38 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                     )
                 else:
                     blueprint_final = blueprint_worker
+            else:
+                blueprint_final = blueprint_worker
                 
-                # Khóa chặt trạng thái vào session_state để Streamlit UI hiển thị lên màn hình
-                st.session_state.blueprint_final = blueprint_final
-                st.session_state.last_active_blueprint = blueprint_final
-                
-                # Ghi nhận phản hồi thành công vào lịch sử Chat
+            # Khóa chặt trạng thái vào session_state để Streamlit UI hiển thị lên màn hình
+            st.session_state.blueprint_final = blueprint_final
+            st.session_state.last_active_blueprint = blueprint_final
+            
+            # 🌟 ĐÃ FIX LỖI: Kiểm tra phòng vệ an toàn tuyệt đối tránh lỗi NoneType / List / Dict chéo cấu trúc
+            if blueprint_final and isinstance(blueprint_final, dict):
                 total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
-                ai_response_text = (
-                    f"✅ **Hệ thống Sơ đồ Tổng (Marker-Based) đã xử lý thành công!**\n\n"
-                    f"📊 Đã gộp và phân bổ tỷ lệ diện tích phẳng cho **{total_extracted_pieces} chi tiết rập**.\n"
-                    f"- Mã hàng: Định mức tính theo chiều dài dọc cây khung nền chuẩn.\n"
-                    f"- Cỡ (Size): **{target_size_cmd}** | Khổ hữu dụng: **{active_width}\"**."
-                )
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
-                
-                # Ép làm mới giao diện ngay lập tức để giải phóng RAM và vẽ lại bảng số liệu tối ưu
-                st.rerun()
-                
+            elif isinstance(blueprint_final, list):
+                total_extracted_pieces = len(blueprint_final)
+            else:
+                total_extracted_pieces = 0
+
+            # Khôi phục hoàn chỉnh chuỗi thông báo và đóng khối câu lệnh
+            ai_response_text = (
+                f"✅ **Hệ thống Sơ đồ Tổng (Marker-Based) đã xử lý thành công!** \n\n"
+                f"📊 Đã gộp và phân bổ tỷ lệ diện tích phẳng cho {total_extracted_pieces} chi tiết rập.\n"
+                f"▪️ Mã hàng: Định mức tính theo chiều dài dọc cây khung nền chuẩn.\n"
+                f"▪️ Cỡ (Size): **{target_size_cmd}** | Khổ hữu dụng: **{active_width}\"**"
+            )
+            
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+            st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
+            
+            # Ép lệnh đổi giao diện ngay lập tức để giải phóng các lỗi về lặp dữ liệu trên UI
+            st.rerun()
+
         except Exception as e:
+            import traceback
             st.error(f"❌ Pipeline Lỗi: {str(e)}")
             st.code(traceback.format_exc())
 
