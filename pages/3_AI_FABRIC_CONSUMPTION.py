@@ -572,11 +572,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             active_wid = float(width_inch) if float(width_inch) > 0 else 56.0
             active_count = int(p_count)
 
+            # Lấy thông số từ ma trận hiệu suất sơ đồ đơn lẻ của Đoạn 1
             eff_rules = NESTING_EFF_MATRIX.get(product_type, NESTING_EFF_MATRIX["DEFAULT"])
             nesting_data = eff_rules.get(sub_component, eff_rules["DEFAULT"])
-            marker_efficiency = float(nesting_data[0])  # Lấy đúng phần tử đầu tiên của mảng hiệu suất sơ đồ
+            
+            # 🔥 ĐÃ SỬA LỖI CHÍ MẠNG: Bóc tách đúng phần tử thứ 0 của mảng [Eff, Utilization] từ Phần 1 gốc
+            if isinstance(nesting_data, list):
+                marker_efficiency = float(nesting_data[0])
+            else:
+                marker_efficiency = float(nesting_data)
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC)
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ HẠ ĐỊNH MỨC SÁT THỰC TẾ XƯỞNG CẮT
             if engine_target == "FABRIC":
                 raw_piece_area = shrunk_len * shrunk_wid * float(active_count)
                 
@@ -584,13 +590,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if is_long_sash_checked:
                     raw_piece_area = raw_piece_area * 0.90
                     
+                # Tối ưu sơ đồ lộn đầu cặp tay áo (Tiết kiệm 30% diện tích hao hụt ảo so với thân áo)
                 if sub_component == "SLEEVE" and active_count >= 2:
                     raw_piece_area = raw_piece_area * 0.70
                     calc_note += "✂️ Tối ưu sơ đồ lộn đầu cặp tay áo | "
                 
+                # Thuật toán lồng ghép cấu phần phụ cho ÁO (Jacket / Sơ mi)
+                # Các linh kiện nhỏ (Túi, Nẹp, Cổ, Đỉa, Đai) xếp lồng vào khoảng trống của Thân áo, giảm 65% diện tích tính hao dọc cây vải
                 if product_type in ["JACKET", "DEFAULT"] and sub_component not in ["BODY", "SLEEVE"]:
                     raw_piece_area = raw_piece_area * 0.35
-                    calc_note += "🧩 Lồng linh kiện nhỏ vào khoảng trống của thân áo | "
+                    calc_note += "🧩 Quy tắc CAD: Lồng linh kiện nhỏ vào khoảng hở của thân áo (Giảm 65%) | "
 
                 gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note += f"⚡ CAD Tối ưu phẳng | "
@@ -633,6 +642,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = 1.0
                 calc_note += "Tính theo trục dọc chun | "
 
+            # Quy đổi đơn vị tiêu hao và làm tròn số hiển thị lên bảng dữ liệu
             gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
             final_rounded_value = max(0.0001, round(gross_val, 4))
 
@@ -703,6 +713,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
 
+    # ĐỆ TIẾP: Tính toán độc lập diện tích phẳng cho các dòng keo tự sinh thêm ở trên
     for f_row in generated_fusing_rows:
         try:
             f_len = float(f_row.get("bounding_box_length", 5.0))
@@ -711,12 +722,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
             f_shrunk_len = f_len * warp_shrink_factor
             f_shrunk_wid = f_wid * weft_shrink_factor
+            f_area = f_shrunk_len * f_shrunk_wid * f_count
             
-            f_pieces_per_row = max(1, int(56.0 / (f_shrunk_wid + 0.1)))
-            f_vertical_rows = math.ceil(f_count / float(f_pieces_per_row))
-            f_allocated_len = f_shrunk_len * f_vertical_rows
-            
-            f_gross_yds = (f_allocated_len / 36.0) * 1.08 * (1.0 + industrial_loss)
+            f_gross_yds = (f_area / (56.0 * 36.0 * 0.85 * 0.90)) * (1.0 + industrial_loss)
             f_final_val = max(0.0001, round(f_gross_yds * 0.9144 if uom_target == "MTR" else f_gross_yds, 4))
             
             f_row["Dài sản xuất (L-inch)"] = round(f_len, 2)
