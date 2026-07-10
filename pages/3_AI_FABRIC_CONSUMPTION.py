@@ -1288,6 +1288,18 @@ import copy
 import streamlit as st
 from openpyxl import Workbook
 
+# 🌟 VÁ LỖI DÒNG 1264: Chốt chặn an toàn cho biến blueprint_final trước khi xử lý hiển thị
+# =====================================================================
+if 'blueprint_final' in locals() and blueprint_final is not None:
+    if isinstance(blueprint_final, dict):
+        total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
+    elif isinstance(blueprint_final, list):
+        total_extracted_pieces = len(blueprint_final)
+    else:
+        total_extracted_pieces = 0
+else:
+    total_extracted_pieces = 0
+
 # 1. ĐỒNG BỘ NGUỒN DỮ LIỆU TỪ PIPELINE SANG BỘ HIỂN THỊ GIAO DIỆN
 # =====================================================================
 # ĐOẠN 7b - MỤC 1: SỬA TRIỆT ĐỂ LỖI TRỒI SỤT - LÀM SẠCH BỘ NHỚ TẠM
@@ -1312,7 +1324,7 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     else:
         blueprint_processed = blueprint_worker
 
-    # 🌟 CHỐT CHẶN VÁ LỖI AN TOÀN TUYỆT ĐỐI KHỬ ATTRIBUTEERROR (NƠI XẢY RA LỖI GỐC)
+    # 🌟 CHỐT CHẶN VÁ LỖI AN TOÀN TUYỆT ĐỐI KHỬ ATTRIBUTEERROR KHI PIPELINE TRẢ VỀ NONE
     if blueprint_processed is None:
         blueprint_processed = {"bom_rows": [], "calculated_on_size": "30", "spec_meta": {}}
 
@@ -1333,7 +1345,7 @@ if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug
         st.json(st.session_state["raw_ai_debug_payload"])
 
 
-# 3. KHỐI CHUYỂN ĐỔI SANG PANDAS DATAFRAME & HIỂN THỊ BẢNG GỘP MUA HÀNG
+# 3. KHỐI CHUYỂN ĐỔI SANG PANDAS DATAFRAME & HIỂN THỊ BẢNG GỘP MỦA HÀNG
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
     if not isinstance(bom_source, dict): bom_source = {}
@@ -1460,5 +1472,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 "Thông số gốc": measurement_val
             })
         if parsed_evidence_rows:
+
             st.dataframe(pd.DataFrame(parsed_evidence_rows), use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
