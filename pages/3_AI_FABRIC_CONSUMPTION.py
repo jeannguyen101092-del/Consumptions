@@ -452,24 +452,30 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
        # =====================================================================
           # =====================================================================
        # =====================================================================
-    # 🔥 ĐOẠN 2: BỘ LỌC KHỬ TRÙNG CHI TIẾT AI QUÉT LỖI & ĐỊNH TUYẾN PHÂN HỆ
+        # =====================================================================
+    # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
     
-    # 1. Khử trùng sạch các dòng rập bị AI nhận diện lặp lại 2 lần
     for row in blueprint_final.get("bom_rows", []):
         if not row: continue
-        r_name = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
-        r_mat = str(row.get("Material Class", row.get("material_class", ""))).upper().strip()
-        r_len = float(row.get("bounding_box_length", row.get("Dài sản xuất (L-inch)", 0.0)))
-        r_wid = float(row.get("bounding_box_width", row.get("Rộng sản xuất (W-inch)", 0.0)))
+        # Chuẩn hóa tên chi tiết và phân hệ vật tư để nhận diện chính xác
+        r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
+        r_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
         
-        unique_key = (r_name, r_mat, round(r_len, 2), round(r_wid, 2))
-        if unique_key in seen_pieces:
-            continue  
-        seen_pieces.add(unique_key)
+        # 🌟 KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Chỉ dựa trên Tên + Nhóm vật tư (Tháo bẫy lặp kích thước nhảy số)
+        absolute_key = (r_name, r_mat)
+        
+        if absolute_key in seen_pieces:
+            continue  # Nếu tên chi tiết này đã được tính rồi, xóa bỏ dòng lặp thừa ngay lập tức
+        seen_pieces.add(absolute_key)
         unique_bom_rows.append(row)
+
+    # =====================================================================
+    # (Toàn bộ logic tính toán và phân bổ phía dưới giữ nguyên vẹn không đổi)
+    # =====================================================================
+
 
     # 2. Thu thập kích thước Thân tổng dự phòng phục vụ vá lỗi Techpack gom dòng
     main_body_len = 0.0
