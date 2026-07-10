@@ -453,7 +453,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
         # =====================================================================
-    # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+       # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -464,7 +464,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
         r_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
         
-        # 🌟 KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Chỉ dựa trên Tên + Nhóm vật tư (Tháo bẫy lặp kích thước nhảy số)
+        # 🌟 KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Dựa trên Tên + Nhóm vật tư
         absolute_key = (r_name, r_mat)
         
         if absolute_key in seen_pieces:
@@ -473,11 +473,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         unique_bom_rows.append(row)
 
     # =====================================================================
-    # (Toàn bộ logic tính toán và phân bổ phía dưới giữ nguyên vẹn không đổi)
+    # (Các đoạn logic lấy kích thước Thân tổng dự phòng giữ nguyên...)
     # =====================================================================
-
-
-    # 2. Thu thập kích thước Thân tổng dự phòng phục vụ vá lỗi Techpack gom dòng
     main_body_len = 0.0
     main_body_wid = 0.0
     for r in unique_bom_rows:
@@ -489,7 +486,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if main_body_len > 0: break
             except: pass
 
-    # 3. Quét kiểm tra cấu trúc phụ liệu của mã hàng để phục vụ thuật toán ép keo dựng
     has_waistband_fusing = any(
         "FUSING" in str(r.get("Component Name", r.get("component_name", ""))).upper() and "WAISTBAND" in str(r.get("Component Name", r.get("component_name", ""))).upper()
         for r in unique_bom_rows
@@ -503,10 +499,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             if "WAIST" in r_name or "LƯNG" in r_name or "CẠP" in r_name: is_waistband_elastic = True
         if any(kw in r_name for kw in ["WELT", "CƠI", "MỔ", "FACING"]): has_welt_pocket = True
 
-    # Danh sách rỗng độc lập để sửa lỗi NameError của Đoạn 3 ở dưới
     generated_fusing_rows = []
 
     # 4. Tiến hành lặp duyệt trên danh sách rập ĐÃ ĐƯỢC LỌC SẠCH TRÙNG LẶP
+    # KHỞI TẠO DANH SÁCH TẠM THỜI ĐỂ LỌC LẠI CHỐT CHẶN CUỐI
+    temp_router_rows = []
+
     for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
         
@@ -514,14 +512,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
-        # Phòng vệ chất lượng: Bỏ qua và giữ nguyên định mức gốc của nhãn mác, khóa, nút rời
+        # Phòng vệ chất lượng: Bỏ qua và giữ nguyên định mức gốc của phụ liệu rời
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
             ui_row["Gross Consumption"] = ui_row.get("Quantity", ui_row.get("quantity", 0.0105 if "BUTTON" in comp_name else 0.0))
             if ui_row["Gross Consumption"] == 0: ui_row["Gross Consumption"] = 0.0105
             ui_row["gross_consumption"] = ui_row["Gross Consumption"]
             ui_row["calculated_consumption"] = ui_row["Gross Consumption"]
             ui_row["Notes"] = "Phụ liệu đóng gói - Giữ nguyên định mức gốc"
-            router_bom_rows.append(ui_row)
+            temp_router_rows.append(ui_row) # Đổi sang append vào mảng tạm
             continue
             
         # Định tuyến phân hệ kỹ thuật chính xác
@@ -561,11 +559,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 raw_len = 34.0
                 raw_wid = 3.5
 
-        # Tra cứu ma trận quy tắc bù biên may từ Phần 1 của bạn
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 ĐÃ FIX LỖI TẠI ĐÂY: Trích xuất chuẩn xác index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị phình rập lên 25.5"
         if engine_target != "FUSING" and engine_target != "ELASTIC":
             raw_wid_with_sa = raw_wid + float(seam_allowance[0])
             raw_len_with_sa = raw_len + float(seam_allowance[1])
@@ -576,10 +572,32 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát rập thành phẩm | "
 
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
-            router_bom_rows.append(ui_row)
+            temp_router_rows.append(ui_row) # Đổi sang append vào mảng tạm
             continue
-               # =====================================================================
-                # =====================================================================
+
+        # ... (Toàn bộ logic tính toán công thức Gross của bạn nằm ở đây) ...
+        # (Giả sử cuối đoạn này bạn có dòng lệnh tính ra ui_row['Gross Consumption'] = ...)
+        
+        temp_router_rows.append(ui_row) # Đổi sang append vào mảng tạm
+
+    # =====================================================================
+    # 🌟 CHỐT CHẶN CUỐI CÙNG: KHỬ TRÙNG TUYỆT ĐỐI TRƯỚC KHI ĐẨY RA ROUTER_BOM_ROWS
+    # Thao tác này loại bỏ triệt để các phần tử sinh lỗi dồn dòng ở cuối bảng dữ liệu hiển thị
+    # =====================================================================
+    final_seen = set()
+    router_bom_rows = []  # Làm trống và nạp lại chuẩn xác
+    
+    for row in temp_router_rows:
+        c_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
+        c_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
+        
+        final_key = (c_name, c_mat)
+        if final_key in final_seen:
+            continue  # Ngăn chặn tuyệt đối dòng WAISTBAND thứ 2 lọt vào danh sách hiển thị
+        final_seen.add(final_key)
+        router_bom_rows.append(row)
+    # =====================================================================
+
         # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢN CHUẨN SƠ ĐỒ TỔNG GERBER)
         # =====================================================================
         gross_yds = 0.0
