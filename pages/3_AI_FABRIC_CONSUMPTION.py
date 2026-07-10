@@ -958,6 +958,20 @@ st.markdown("""
 
 
 import streamlit as st
+import re
+
+# =====================================================================
+# KHỞI TẠO DỮ LIỆU ĐỂ TRÁNH LỖI BIẾN CHƯA ĐỊNH NGHĨA (NAMEERROR)
+# =====================================================================
+kpi_style_id = st.session_state.get("style_id", "N/A")
+total_materials = 0
+main_fabric_cons = "0.00"
+active_size_kpi = "M"
+
+# Khởi tạo các giá trị session state mặc định nếu chưa có
+if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
+if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
+if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
@@ -998,92 +1012,70 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.pdf_name = ""
     st.session_state.pdf_text_cache = None
     
-    # 🌟 BỔ SUNG 2 DÒNG NÀY ĐỂ XÓA SẠCH DỮ LIỆU TẬN GỐC 🌟
     if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
     if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
-    
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
     st.rerun()
 
 
-
 # ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (HỢP NHẤT THẺ ĐÓNG HTML KHÍT RẠT)
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ ĐỔI SANG ST.CONTAINER BORDER)
 # ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    # Mở hộp custom-erp-box-flat và viết tiêu đề trong cùng 1 lệnh st.markdown
-    st.markdown('<div class="custom-erp-box-flat"><div class="cad-header-text-flat">📂 TECHPACK UPLOADER & PROFILE SUMMARY</div>', unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
-    
-    if uploaded_file is not None:
-        if st.session_state.pdf_name != uploaded_file.name:
-            st.session_state.pdf_text_cache = None
-            if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-            if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-        st.session_state.pdf_bytes = uploaded_file.read()
-        st.session_state.pdf_name = uploaded_file.name
-
-    if st.session_state.pdf_text_cache is not None:
-        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-        txt = st.session_state.pdf_text_cache
+    with st.container(border=True):
+        st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
         
-        import re
-        def get_meta(pattern, default="N/A"):
-            m = re.search(pattern, txt, re.IGNORECASE)
-            return m.group(1).strip() if m else default
-
-        style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-        short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE RUCHED MINI DRESS")
-        customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
-        season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "FALL Winter 2026")
-        fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "POPLIN FABRIC COTTON - SP26")
-
-        m_col1, m_col2 = st.columns(2)
-        with m_col1:
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Style Code / Mã hàng</div><div class="meta-value-flat"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Customer / Đối tác</div><div class="meta-value-flat">{customer}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
-        with m_col2:
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-flat">{short_desc}</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
-    else:
-        if st.session_state.pdf_bytes is None:
-            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt thông số sản phẩm sẽ tự động hiển thị tại đây sau khi nạp file PDF.</div>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
         
-    # 🟢 CHUYỂN THÈ ĐÓNG HỘP XUỐNG ĐÂY (Sau khi tất cả nội dung bên trong đã chạy xong)
-    st.markdown('</div>', unsafe_allow_html=True)
+        if uploaded_file is not None:
+            if st.session_state.pdf_name != uploaded_file.name:
+                st.session_state.pdf_text_cache = None
+                if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+                if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+            st.session_state.pdf_bytes = uploaded_file.read()
+            st.session_state.pdf_name = uploaded_file.name
 
+        if st.session_state.pdf_text_cache is not None:
+            st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+            txt = st.session_state.pdf_text_cache
+            
+            def get_meta(pattern, default="N/A"):
+                m = re.search(pattern, txt, re.IGNORECASE)
+                return m.group(1).strip() if m else default
 
-# --- CỘT PHẢI: KHUNG XEM BẢN VẼ PHẲNG SKETCH VÀNG VÀNG ---
+            style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
+            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE RUCHED MINI DRESS")
+            customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
+            season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "FALL Winter 2026")
+            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "POPLIN FABRIC COTTON - SP26")
+
+            m_col1, m_col2 = st.columns(2)
+            with m_col1:
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Style Code / Mã hàng</div><div class="meta-value-flat"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Customer / Đối tác</div><div class="meta-value-flat">{customer}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
+            with m_col2:
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-flat">{short_desc}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+        else:
+            if st.session_state.pdf_bytes is None:
+                st.markdown("<div style='margin-top: 20px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
+
+# --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ THÔNG TIN HÌNH ẢNH SKETCH ---
 with col_right:
-    # Mở hộp custom-erp-box-flat và viết tiêu đề trong cùng 1 lệnh st.markdown
-    st.markdown('<div class="custom-erp-box-flat sticky-sketch-box-flat"><div class="cad-header-text-flat">🎨 TECHPACK SKETCH VISUALIZER</div>', unsafe_allow_html=True)
-    
-    if st.session_state.pdf_bytes is not None:
-        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
-            try:
-                import fitz
-                doc_img = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                if len(doc_img) > 0:
-                    page = doc_img.load_page(0)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), colorspace=fitz.csRGB)
-                    st.session_state.pdf_page_one_image = pix.tobytes("png")
-            except Exception as e_img:
-                st.error(f"⚠️ Không thể hiển thị ảnh vẽ phác họa: {str(e_img)}")
-
-    if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-        st.image(st.session_state.pdf_page_one_image, width=300)
-    else:
-        st.markdown("<div style='margin-top: 70px; text-align: center; color: #64748b; font-size: 13px;'>Hình vẽ phác họa phẳng (Sketch) trích xuất từ trang bìa PDF sẽ tự động hiển thị cân xứng tại đây sau khi nạp file thành công.</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-    # 🟢 CHUYỂN THÈ ĐÓNG HỘP XUỐNG ĐÂY (Sau khi ảnh hoặc chữ sketch đã vẽ xong)
-    st.markdown('</div>', unsafe_allow_html=True)
+        # Hiển thị hình vẽ phác thảo (Sketch) từ Session State nếu có
+        if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
+            st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+        else:
+            st.markdown("<div style='padding: 40px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
 
 
 
