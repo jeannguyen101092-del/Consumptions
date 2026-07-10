@@ -453,7 +453,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
         # =====================================================================
-         # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+      # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & PHÂN LOẠI ĐỊNH TUYẾN LINH KIỆN (BẢN CHUẨN)
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -522,10 +522,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             router_bom_rows.append(ui_row)
             continue
             
-        if any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG"]):
-            engine_target = "LINING"
-        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
+        # 🌟 VÁ LỖI PHÂN LOẠI ĐOẠN 2.1: Tách triệt để lót túi ra khỏi sơ đồ vải chính
+        if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
+        elif any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG", "POCKET BAG", "LOT TUI"]):
+            engine_target = "LINING"
+            ui_row["Material Class"] = "LINING"
+        elif "POCKET" in comp_name and "FLAP" not in comp_name:  
+            engine_target = "LINING"
+            ui_row["Material Class"] = "LINING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
             engine_target = "ELASTIC"
         else:
@@ -561,10 +566,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # Bóc tách an toàn cấu trúc dữ liệu mảng [W, L] của Seam Allowance
         if isinstance(seam_allowance, (list, tuple)):
-            sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
-            sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
+            sa_w = float(seam_allowance) if len(seam_allowance) > 0 else 0.5
+            sa_l = float(seam_allowance) if len(seam_allowance) > 1 else sa_w
         else:
             sa_w = float(seam_allowance)
             sa_l = float(seam_allowance)
@@ -582,7 +586,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
-                # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN & PHÂN BỔ SƠ ĐỒ KHÔNG LỖI)
+        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN ĐỊNH MỨC & TỰ ĐỘNG SINH KEO)
         # =====================================================================
         gross_yds = 0.0
         try:
@@ -595,8 +599,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             nesting_data = eff_rules.get(sub_component, eff_rules["DEFAULT"])
             marker_efficiency = float(nesting_data) if isinstance(nesting_data, list) else float(nesting_data)
 
+            # 🌟 VÁ LỖI ĐỊNH MỨC CAO ĐOẠN 3.1: Ép hệ số sắp xếp quần (PANTS) xuống mốc chuẩn 1.00 để hạ định mức vải
             LAYOUT_FACTOR_MATRIX = {
-                "KNIT": 1.03, "SHIRT": 1.05, "PANTS": 1.06, "DRESS": 1.08, "JACKET": 1.09, "DEFAULT": 1.06
+                "KNIT": 1.02, "SHIRT": 1.03, "PANTS": 1.00, "DRESS": 1.05, "JACKET": 1.06, "DEFAULT": 1.02
             }
             material_group = ai_meta.get("fabric_group", "WOVEN").upper().strip()
             current_layout_factor = LAYOUT_FACTOR_MATRIX.get(product_type, LAYOUT_FACTOR_MATRIX.get(material_group, LAYOUT_FACTOR_MATRIX["DEFAULT"]))
@@ -605,14 +610,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 total_fabric_net_area = 0.0
                 max_primary_len = 0.0
                 
-                # Quét tính tổng diện tích sơ đồ làm sạch linh kiện
+                # Quét tính tổng diện tích sơ đồ làm sạch linh kiện vải chính
                 for r_scan in unique_bom_rows:
                     if not r_scan: continue
                     scan_comp = str(r_scan.get("Component Name", r_scan.get("component_name", ""))).upper().strip()
                     scan_mat = str(r_scan.get("Material Class", r_scan.get("material_class", "FABRIC"))).upper().strip()
                     
                     is_scan_fusing = any(k in scan_comp or k in scan_mat for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"])
-                    is_scan_lining = any(k in scan_comp for k in ["LÓT", "LINING", "POCKETING", "BAG"]) and scan_mat != "FABRIC"
+                    is_scan_lining = any(k in scan_comp for k in ["LÓT", "LINING", "POCKETING", "BAG", "POCKET BAG", "LOT TUI"]) or "POCKET" in scan_comp
                     is_scan_elastic = "THUN" in scan_comp or "CHUN" in scan_comp or "ELASTIC" in scan_mat
                     is_scan_trim = any(k in scan_comp or k in scan_mat for k in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ"])
 
@@ -635,8 +640,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if usable_fabric_width <= 0: usable_fabric_width = 54.8
                 theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency) if total_fabric_net_area > 0 else 0
                 
+                # Ép khung sơ đồ chặt chẽ hơn để giảm hao hụt
                 if theoretical_marker_len_inch < max_primary_len:
-                    total_marker_length_inch = max_primary_len * 1.05
+                    total_marker_length_inch = max_primary_len * 1.01
                 else:
                     total_marker_length_inch = theoretical_marker_len_inch
 
@@ -653,17 +659,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
             elif engine_target == "LINING":
                 eff_lining = 0.82
-                if "FRONT" in comp_name and "POCKET" in comp_name:
-                    active_count = 2
-                    calc_note += "✂️ Ép số lượng lót túi trước về 2 Pcs | "
-                
                 pieces_per_row = max(1, int(active_wid / (shrunk_wid + 0.1)))
                 required_vertical_rows = math.ceil(active_count / float(pieces_per_row))
                 allocated_lining_len_inch = shrunk_len * required_vertical_rows
                 
                 gross_yds = (allocated_lining_len_inch / 36.0) * (1.0 + industrial_loss)
                 marker_efficiency = eff_lining
-                calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
+                calc_note += f"✂️ Xếp lót ({pieces_per_row} pcs/hàng) | "
 
             elif engine_target == "FUSING":
                 eff_fusing = 0.92
@@ -673,7 +675,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if any(kw in comp_name or kw in sub_component for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
                     shrunk_len = 7.0 * fusing_shrink_l
                     shrunk_wid = 4.0 * fusing_shrink_w
-                    calc_note += "✂️ Ép kích thước keo cơi túi mổ mặc định 7\" x 4\" | "
+                    calc_note += "✂️ Ép kích thước keo cơi túi mặc định 7\" x 4\" | "
                 else:
                     shrunk_len = raw_len_with_sa * fusing_shrink_l
                     shrunk_wid = raw_wid_with_sa * fusing_shrink_w
@@ -704,7 +706,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
             router_bom_rows.append(ui_row)
 
-            # Quy tắc tự động sinh dòng Mex lót theo nghiệp vụ nhà máy
+            # 🌟 VÁ LỖI THIẾU KEO ĐOẠN 3.1: Nghiệp vụ tự động sinh keo phụ trợ cho nắp túi, cơi túi và đáp cửa quần (Fly)
             if engine_target == "FABRIC" and product_type == "PANTS":
                 if sub_component == "WAISTBAND" and not is_waistband_elastic:
                     f_row = copy.deepcopy(ui_row)
@@ -714,8 +716,33 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     f_row["bounding_box_length"] = raw_len
                     f_row["bounding_box_width"] = raw_wid
                     generated_fusing_rows.append(f_row)
+                    
+                if sub_component == "POCKET" or any(k in comp_name for k in ["FLAP", "WELT", "CƠI", "NẮP"]):
+                    f_row = copy.deepcopy(ui_row)
+                    f_row["Component Name"] = f"{comp_name} INTERLINING KEO (AUTO POCKET)"
+                    f_row["Material Class"] = "FUSING"
+                    f_row["Notes"] = "⚡ Quy tắc IE: Tự động ép keo mếch cho chi tiết túi"
+                    f_row["bounding_box_length"] = raw_len
+                    f_row["bounding_box_width"] = raw_wid
+                    generated_fusing_rows.append(f_row)
+
+                if any(k in comp_name for k in ["FLY", "FACING", "SHIELD", "ĐÁP", "BAGET"]):
+                    f_row = copy.deepcopy(ui_row)
+                    f_row["Component Name"] = f"{comp_name} INTERLINING KEO (AUTO FLY)"
+                    f_row["Material Class"] = "FUSING"
+                    f_row["Notes"] = "⚡ Quy tắc IE: Tự động ép keo cửa quần (Fly)"
+                    f_row["bounding_box_length"] = raw_len
+                    f_row["bounding_box_width"] = raw_wid
+                    generated_fusing_rows.append(f_row)
         except Exception as e:
             pass
+
+    # Tích hợp nạp ngược các dòng keo tự động sinh thêm vào bộ hiển thị chính
+    if generated_fusing_rows:
+        router_bom_rows.extend(generated_fusing_rows)
+
+   
+
 
     # 🌟 CHỐT CHẶN TRIỆT TIÊU LỖI PHƯƠNG THỨC: Thay thế hoàn toàn cơ chế .get lỗi của hệ thống gốc
     # =====================================================================
