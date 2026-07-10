@@ -1284,6 +1284,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
 import pandas as pd
 import re
 import io
+import copy
 import streamlit as st
 from openpyxl import Workbook
 
@@ -1293,28 +1294,37 @@ from openpyxl import Workbook
 # =====================================================================
 if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
     # 🔒 KHÓA BẢO VỆ: Luôn tạo một bản sao độc lập (Deepcopy) từ dữ liệu gốc của Techpack
-    # Tuyệt đối không cho phép Python lấy rập đã tính ở lượt bấm trước để tính chồng lên lượt sau
     blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
     
     # Trích xuất văn bản câu lệnh chat mới nhất để lấy thông số khổ vải động
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
-    elif st.session_state.chat_history:
+    elif "chat_history" in st.session_state and st.session_state.chat_history:
         chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
         
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
     
-    # Kích hoạt hàm Router của Đoạn A để tính toán ma trận đường may từ rập gốc sạch
+    # Kích hoạt hàm Router để tính toán ma trận đường may từ rập gốc sạch
     if 'allocate_fabric_consumption_and_quality_gate' in globals():
         blueprint_processed = allocate_fabric_consumption_and_quality_gate(blueprint_worker, current_query=chat_txt)
     else:
         blueprint_processed = blueprint_worker
 
+    # 🌟 CHỐT CHẶN VÁ LỖI AN TOÀN TUYỆT ĐỐI KHỬ ATTRIBUTEERROR (NƠI XẢY RA LỖI GỐC)
+    if blueprint_processed is None:
+        blueprint_processed = {"bom_rows": [], "calculated_on_size": "30", "spec_meta": {}}
+
     # 🧹 BỘ LỌC LÀM SẠCH: Xóa bỏ hoàn toàn mảng cũ, ép bộ nhớ tạm ghi nhận dữ liệu mới tinh
     st.session_state["bom_data"] = blueprint_processed
-    st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
+    
+    if isinstance(blueprint_processed, dict):
+        st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
+    elif isinstance(blueprint_processed, list):
+        st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed)
+    else:
+        st.session_state["accumulated_bom_rows"] = []
 
 
 # 2. KHỐI DEBUG MONITOR GIÁM SÁT PAYLOAD THÔ TỪ GEMINI
@@ -1322,12 +1332,17 @@ if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug
     with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
         st.json(st.session_state["raw_ai_debug_payload"])
 
-# 3. KHỐI CHUYỂN ĐỔI SANG PANDAS DATAFRAME & HIỂN THỊ BẢNG GỘP MUA HÀNG màu xanh
+
+# 3. KHỐI CHUYỂN ĐỔI SANG PANDAS DATAFRAME & HIỂN THỊ BẢNG GỘP MUA HÀNG
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
+    if not isinstance(bom_source, dict): bom_source = {}
+    
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
     ai_meta_data = bom_source.get("spec_meta", {})
+    if not isinstance(ai_meta_data, dict): ai_meta_data = {}
+    
     current_warp_shrink = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
     current_weft_shrink = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
     
@@ -1339,23 +1354,23 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
             
-        current_gross = r.get("gross_consumption", 0.0)
-        sys_notes = r.get("system_notes", "Mô phỏng CAD Gerber V27")
-        engine_target = str(r.get("engine", "FABRIC")).upper().strip()
-        uom_display = str(r.get("uom", "YDS")).upper().strip()
+        current_gross = r.get("gross_consumption", r.get("Gross Consumption", 0.0))
+        sys_notes = r.get("system_notes", r.get("Notes", "Mô phỏng CAD Gerber V27"))
+        engine_target = str(r.get("engine", r.get("Material Class", "FABRIC"))).upper().strip()
+        uom_display = str(r.get("uom", r.get("UOM", "YDS"))).upper().strip()
 
-        b_len_val = r.get("bounding_box_length", 0.0)
-        b_wid_val = r.get("bounding_box_width", 0.0)
-        p_count_val = r.get("piece_count", 1)
+        b_len_val = r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", r.get("Dài sản xuất (L-Inch)", 0.0)))
+        b_wid_val = r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", r.get("Rộng sản xuất (W-Inch)", 0.0)))
+        p_count_val = r.get("piece_count", r.get("Số lượng rập (Pcs)", 1))
 
         if engine_target in ["FABRIC", "LINING", "FUSING"]:
-            raw_width = r.get("fabric_width_inch", 57.0)
+            raw_width = r.get("fabric_width_inch", r.get("Khổ vải (Width)", 57.0))
             cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
             warp_dynamic = current_warp_shrink
             weft_dynamic = current_weft_shrink
-            eff_dynamic = r.get('marker_efficiency', 0.87)
+            eff_dynamic = r.get('marker_efficiency', r.get('Marker Efficiency', 0.87))
             if isinstance(eff_dynamic, (int, float)): 
-                eff_dynamic = f"{round(eff_dynamic * 100, 1)}%"
+                eff_dynamic = f"{round(eff_dynamic * 100, 1)}%" if eff_dynamic <= 1.0 else f"{eff_dynamic}%"
             else:
                 eff_dynamic = f"{eff_dynamic}"
         else:
@@ -1365,7 +1380,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             eff_dynamic = "-"
 
         display_data.append({
-            "Component Name": r.get("component_name", "Unnamed Material"),
+            "Component Name": r.get("component_name", r.get("Component Name", "Unnamed Material")),
             "Material Class": r.get("material_class", engine_target).upper().strip(),
             "UOM": uom_display,
             "Số lượng rập (Pcs)": p_count_val,
@@ -1376,7 +1391,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Co rút ngang (% Weft)": weft_dynamic,   
             "Marker Efficiency": eff_dynamic,         
             "Gross Consumption": float(current_gross),
-            "Quality Status": r.get("quality_status", "PASS"),
+            "Quality Status": r.get("quality_status", r.get("Quality Status", "PASS")),
             "System Calculation Notes": sys_notes
         })
         
@@ -1405,6 +1420,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         st.markdown('</div><br>', unsafe_allow_html=True)
+        
         # GIAO DIỆN BẢNG CHI TIẾT ĐỐI CHIẾU RẬP CAD (DETAILED CAD PIECES MATRIX)
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header">📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT RẬP ĐÃ BÙ LAI & ĐƯỜNG MAY)</div>', unsafe_allow_html=True)
@@ -1414,7 +1430,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     else:
         st.warning("⚠️ Hệ thống đã xử lý xong nhưng cấu trúc danh mục BOM trống dữ liệu thực tế.")
 
-    # 6. KHỐI BẰNG CHỨNG SỐ ĐO GỐC TRÍCH XUẤT TỪ TECHPACK
+    # 6. KHỐI BẰNG CHỨNG SỐ ĐO GỐC TRÍCH XUẤT TỪ TECHPACK (VÁ CÚ PHÁP HOÀN CHỈNH)
     raw_evidence_list = bom_source.get("matched_measurements", [])
     if raw_evidence_list and isinstance(raw_evidence_list, list):
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1437,41 +1453,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 parts = raw_str.split("=", 1)
                 description = parts[0].strip()
                 measurement_val = parts[1].strip()
-                
+            
             parsed_evidence_rows.append({
-                "STT": idx + 1, 
-                "Mã POM": pom_code, 
-                "Mô tả Thông số Kỹ thuật": description, 
-                "Kích thước Đo thực tế (Inches)": measurement_val
+                "Mã POM": pom_code,
+                "Mô tả vị trí kiểm tra": description,
+                "Thông số gốc": measurement_val
             })
-            
-        df_evidence = pd.DataFrame(parsed_evidence_rows)
-        st.dataframe(df_evidence, use_container_width=True, hide_index=True)
+        if parsed_evidence_rows:
+            st.dataframe(pd.DataFrame(parsed_evidence_rows), use_container_width=True, hide_index=True)
         st.markdown('</div>', unsafe_allow_html=True)
-
-    # 7. KHỐI TỰ ĐỘNG KẾT XUẤT VÀ TẢI FILE EXCEL THÀNH PHẨM CHUẨN NHÀ MÁY
-    if display_data:
-        try:
-            output = io.BytesIO()
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "BOM Consumption"
-            ws.sheet_view.showGridLines = True
-            ws.append([f"BÁO CÁO ĐỊNH MỨC VẬT TƯ SẢN XUẤT ĐA PHÂN HỆ (SIZE: {extracted_size})"])
-            if 'df_bom' in locals():
-                ws.append(list(df_bom.columns))
-                for index, row_excel in df_bom.iterrows():
-                    ws.append(list(row_excel))
-            wb.save(output)
-            output.seek(0)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="📥 Tải Báo Cáo Định Mức Phụ Liệu Excel (Chuẩn Nhà Máy)",
-                data=output,
-                file_name=f"BOM_Production_Consumption_Size_{extracted_size}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        except Exception as excel_err:
-            pass
