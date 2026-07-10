@@ -452,30 +452,35 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
        # =====================================================================
           # =====================================================================
        # =====================================================================
-        # =====================================================================
-    # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+       # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
+    # ĐẢM BẢO CHẮC CHẮN BIẾN CHỨA KẾT QUẢ ĐÃ ĐƯỢC RESET TRỐNG TRƯỚC KHI CHẠY VÒNG LẶP
+    router_bom_rows = [] 
+    
     seen_pieces = set()
     unique_bom_rows = []
     
     for row in blueprint_final.get("bom_rows", []):
         if not row: continue
-        # Chuẩn hóa tên chi tiết và phân hệ vật tư để nhận diện chính xác
-        r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
-        r_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
         
-        # 🌟 KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Chỉ dựa trên Tên + Nhóm vật tư (Tháo bẫy lặp kích thước nhảy số)
+        # 🌟 NÂNG CẤP KHỬ TRÙNG: Loại bỏ mọi ký tự đặc biệt, dấu cách thừa, đưa về chữ in hoa chuẩn
+        r_name = "".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
+        r_mat = "".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
+        
+        # Thêm kiểm tra phòng vệ nếu dòng dữ liệu trống rỗng
+        if not r_name: continue 
+        
+        # KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Dựa trên Tên chi tiết viết liền + Phân lớp vật tư
         absolute_key = (r_name, r_mat)
         
         if absolute_key in seen_pieces:
-            continue  # Nếu tên chi tiết này đã được tính rồi, xóa bỏ dòng lặp thừa ngay lập tức
+            continue  # Đã tồn tại chi tiết này, loại bỏ ngay dòng lặp thừa
         seen_pieces.add(absolute_key)
         unique_bom_rows.append(row)
 
     # =====================================================================
     # (Toàn bộ logic tính toán và phân bổ phía dưới giữ nguyên vẹn không đổi)
     # =====================================================================
-
 
     # 2. Thu thập kích thước Thân tổng dự phòng phục vụ vá lỗi Techpack gom dòng
     main_body_len = 0.0
@@ -565,7 +570,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 ĐÃ FIX LỖI TẠI ĐÂY: Trích xuất chuẩn xác index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị phình rập lên 25.5"
         if engine_target != "FUSING" and engine_target != "ELASTIC":
             raw_wid_with_sa = raw_wid + float(seam_allowance[0])
             raw_len_with_sa = raw_len + float(seam_allowance[1])
@@ -578,8 +582,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
             continue
-               # =====================================================================
-                # =====================================================================
+
         # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢN CHUẨN SƠ ĐỒ TỔNG GERBER)
         # =====================================================================
         gross_yds = 0.0
