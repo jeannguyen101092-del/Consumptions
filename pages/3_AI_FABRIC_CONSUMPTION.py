@@ -451,12 +451,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             break
        # =====================================================================
           # =====================================================================
+       # =====================================================================
     # 🔥 ĐOẠN 2: BỘ LỌC KHỬ TRÙNG CHI TIẾT AI QUÉT LỖI & ĐỊNH TUYẾN PHÂN HỆ
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
     
-    # 1. Khử trùng các dòng rập bị AI nhận diện lặp lại 2 lần (Tay, Cổ, Bo tay)
+    # 1. Khử trùng sạch các dòng rập bị AI nhận diện lặp lại 2 lần
     for row in blueprint_final.get("bom_rows", []):
         if not row: continue
         r_name = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
@@ -470,7 +471,36 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         seen_pieces.add(unique_key)
         unique_bom_rows.append(row)
 
-    # 2. Vòng lặp duyệt trên danh sách rập ĐÃ ĐƯỢC LỌC SẠCH TRÙNG LẶP
+    # 2. Thu thập kích thước Thân tổng dự phòng phục vụ vá lỗi Techpack gom dòng
+    main_body_len = 0.0
+    main_body_wid = 0.0
+    for r in unique_bom_rows:
+        r_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
+        if "ALLOVER" in r_name or "BODY" in r_name:
+            try:
+                main_body_len = float(r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", 0.0)))
+                main_body_wid = float(r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", 0.0)))
+                if main_body_len > 0: break
+            except: pass
+
+    # 3. Quét kiểm tra cấu trúc phụ liệu của mã hàng để phục vụ thuật toán ép keo dựng
+    has_waistband_fusing = any(
+        "FUSING" in str(r.get("Component Name", r.get("component_name", ""))).upper() and "WAISTBAND" in str(r.get("Component Name", r.get("component_name", ""))).upper()
+        for r in unique_bom_rows
+    )
+    is_waistband_elastic = False
+    has_welt_pocket = False
+    for r in unique_bom_rows:
+        r_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
+        r_mat = str(r.get("Material Class", r.get("material_class", ""))).upper()
+        if "ELASTIC" in r_name or "CHUN" in r_name or "THUN" in r_name or "ELASTIC" in r_mat:
+            if "WAIST" in r_name or "LƯNG" in r_name or "CẠP" in r_name: is_waistband_elastic = True
+        if any(kw in r_name for kw in ["WELT", "CƠI", "MỔ", "FACING"]): has_welt_pocket = True
+
+    # Danh sách rỗng độc lập để sửa lỗi NameError của Đoạn 3 ở dưới
+    generated_fusing_rows = []
+
+    # 4. Tiến hành lặp duyệt trên danh sách rập ĐÃ ĐƯỢC LỌC SẠCH TRÙNG LẶP
     for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
         
@@ -478,7 +508,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
-        # Lọc sạch phụ liệu cứng cứng rời khỏi diện tích phẳng
+        # Phòng vệ chất lượng: Bỏ qua và giữ nguyên định mức gốc của nhãn mác, khóa, nút rời
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
             ui_row["Gross Consumption"] = ui_row.get("Quantity", ui_row.get("quantity", 0.0105 if "BUTTON" in comp_name else 0.0))
             if ui_row["Gross Consumption"] == 0: ui_row["Gross Consumption"] = 0.0105
@@ -498,7 +528,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             engine_target = "FABRIC"
 
-        # Đọc dữ liệu gốc độc lập chống lỗi lưu xích bộ nhớ Streamlit
         raw_len = float(ai_row.get("bounding_box_length", 0.0))
         raw_wid = float(ai_row.get("bounding_box_width", 0.0))
         if raw_len <= 0: raw_len = float(ai_row.get("Dài sản xuất (L-inch)", 0.0))
@@ -508,7 +537,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         except: p_count = 1
         width_inch = parsed_main_width
 
-        # 🧠 THUẬT TOÁN LOOKUP SUB-COMPONENT: Xác định cấu phần tra bảng IE
         sub_component = "DEFAULT"
         if any(kw in comp_name for kw in ["FRONT", "BACK", "BODY", "THÂN", "ALLOVER"]): sub_component = "BODY"
         elif "SLEEVE" in comp_name or "TAY" in comp_name: sub_component = "SLEEVE"
@@ -519,11 +547,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif "POCKET" in comp_name or "TÚI" in comp_name: sub_component = "POCKET"
         elif "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name: sub_component = "WAISTBAND"
 
-                # Tra cứu ma trận biên may bù trừ từ Đoạn 1
+        if engine_target == "FUSING" and raw_len <= 0.0:
+            if main_body_len > 0:
+                raw_len = main_body_len
+                raw_wid = main_body_wid * 0.15 
+            else:
+                raw_len = 34.0
+                raw_wid = 3.5
+
+        # Tra cứu ma trận quy tắc bù biên may từ Phần 1 của bạn
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🔥 ĐÃ SỬA CHÍ MẠNG: Lấy đúng phần tử index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị lỗi cộng list
+        # 🌟 ĐÃ FIX LỖI TẠI ĐÂY: Trích xuất chuẩn xác index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị phình rập lên 25.5"
         if engine_target != "FUSING" and engine_target != "ELASTIC":
             raw_wid_with_sa = raw_wid + float(seam_allowance[0])
             raw_len_with_sa = raw_len + float(seam_allowance[1])
@@ -531,8 +567,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
-            calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát rập | "
-
+            calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát rập thành phẩm | "
 
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
@@ -547,7 +582,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             active_wid = float(width_inch) if float(width_inch) > 0 else 56.0
             active_count = int(p_count)
 
-            # Đọc đúng phần tử đầu tiên của mảng hiệu suất sơ đồ từ Phần 1 gốc [Eff, Utilization]
+            # Trích xuất chính xác index 0 của mảng [Eff, Utilization] từ Phần 1 gốc của bạn
             eff_rules = NESTING_EFF_MATRIX.get(product_type, NESTING_EFF_MATRIX["DEFAULT"])
             nesting_data = eff_rules.get(sub_component, eff_rules["DEFAULT"])
             marker_efficiency = float(nesting_data[0]) if isinstance(nesting_data, list) else float(nesting_data)
@@ -566,7 +601,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     calc_note += "✂️ Tối ưu sơ đồ lộn đầu cặp tay áo | "
                 
                 # Thuật toán lồng ghép cấu phần phụ cho ÁO (Jacket / Sơ mi):
-                # Các linh kiện nhỏ (Tui, Nẹp, Cổ, Đai) lồng vào khoảng trống thân áo, giảm 65% chiều dài dọc cây
+                # Các linh kiện nhỏ (Túi, Nẹp, Cổ, Đai) xếp lồng vào thân áo, giảm 65% diện tích tính hao dọc cây vải
                 if product_type in ["JACKET", "DEFAULT"] and sub_component not in ["BODY", "SLEEVE"]:
                     raw_piece_area = raw_piece_area * 0.35
                     calc_note += "🧩 Quy tắc CAD: Lồng linh kiện nhỏ vào khoảng hở của thân áo (Giảm 65%) | "
@@ -633,9 +668,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             
             router_bom_rows.append(ui_row)
 
-            # =====================================================================
-            # 🧠 BỘ NÃO NGHIỆP VỤ: TỰ ĐỘNG BÙ KEO MEX THEO THỰC TẾ NHÀ MÁY
-            # =====================================================================
+            # Quy tắc tự động sinh dòng Mex lót theo nghiệp vụ IE nhà xưởng
             if engine_target == "FABRIC":
                 if product_type == "PANTS":
                     if sub_component == "WAISTBAND" and not is_waistband_elastic:
@@ -690,7 +723,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
 
-    # ĐỆ TIẾP: Tính toán độc lập diện tích phẳng cho các dòng keo tự sinh thêm ở trên
+    # ĐỆ TIẾP: Tính toán độc lập định mức cho các dòng keo tự sinh thêm ở trên
     for f_row in generated_fusing_rows:
         try:
             f_len = float(f_row.get("bounding_box_length", 5.0))
@@ -715,12 +748,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         except:
             router_bom_rows.append(f_row)
 
-
-            
-
     blueprint_final["bom_rows"] = router_bom_rows
     return blueprint_final
-
 
 
 
