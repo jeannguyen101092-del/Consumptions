@@ -423,7 +423,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "PANTS"
             break
 
-         # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & SỬA LỖI ĐỊNH TUYẾN CHUỖI TỪ KHÓA TÚI QUẦN
+       # 🔥 ĐOẠN 2.1: BỘ LỌC SIÊU PHÒNG VỆ - KHỬ LỖI TYPEERROR DÒNG 531 TUYỆT ĐỐI
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -482,13 +482,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
             continue 
             
-        # 🌟 SỬA BẪY TỪ KHÓA TẠI ĐÂY: Nhận diện chính xác cụm lót túi bất kể có chữ MAIN FABRIC đứng trước hay không
+        # Nhận diện chính xác cụm lót túi bất kể có chữ MAIN FABRIC đứng trước hay không
         is_pocket_component = any(k in comp_name for k in ["POCKET BAG", "LOT TUI", "LÓT TÚI", "POCKETING"]) or ("POCKET" in comp_name and "FLAP" not in comp_name and "BACK POCKET" not in comp_name)
         
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
         elif is_pocket_component:
-            # Ép chi tiết lót túi văng ra khỏi vải chính, chuyển hẳn sang phân hệ LINING
             engine_target = "LINING"
             ui_row["Material Class"] = "LINING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
@@ -505,7 +504,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         except: p_count = 1
         width_inch = parsed_main_width
 
-        # Đồng bộ hóa cấu phần phụ trợ (bỏ qua tiền tố để nhận diện đúng sub_component)
         sub_component = "DEFAULT"
         if any(kw in comp_name for kw in ["FRONT PANEL", "BACK PANEL", "BODY", "THÂN CHÍNH"]): sub_component = "BODY"
         elif "SLEEVE" in comp_name or "TAY" in comp_name: sub_component = "SLEEVE"
@@ -527,12 +525,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        if isinstance(seam_allowance, (list, tuple)):
-            sa_w = float(seam_allowance) if len(seam_allowance) > 0 else 0.5
-            sa_l = float(seam_allowance) if len(seam_allowance) > 1 else sa_w
-        else:
-            sa_w = float(seam_allowance)
-            sa_l = float(seam_allowance)
+        # 🌟 KHỬ LỖI TUYỆT ĐỐI TẠI ĐÂY: Trích xuất trực tiếp bằng try-except index mảng [0] và [1] để triệt tiêu lỗi float()
+        try:
+            if isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) >= 2:
+                sa_w = float(seam_allowance[0])
+                sa_l = float(seam_allowance[1])
+            elif isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) == 1:
+                sa_w = float(seam_allowance[0])
+                sa_l = float(seam_allowance[0])
+            else:
+                sa_w = float(seam_allowance)
+                sa_l = float(seam_allowance)
+        except:
+            sa_w = 0.5
+            sa_l = 0.5
 
         if engine_target != "FUSING" and engine_target != "ELASTIC":
             raw_wid_with_sa = raw_wid + sa_w
@@ -547,6 +553,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
+
 
 
                # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢN ÉP CHIỀU DÀI THEO THÂN CHÍNH CHỐNG PHÌNH DM)
