@@ -1034,13 +1034,14 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
 
 
 # ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ ĐỔI SANG ST.CONTAINER BORDER)
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (SỬ DỤNG HEIGHT NATIVE CỦA STREAMLIT)
 # ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
 # --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
-    with st.container(border=True):
+    # Ép chiều cao native bằng tham số height, tự động sinh thanh cuộn nếu tràn nội dung
+    with st.container(border=True, height=520):
         st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
         
         uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
@@ -1082,14 +1083,16 @@ with col_left:
 
 # --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ THÔNG TIN HÌNH ẢNH SKETCH ---
 with col_right:
-    with st.container(border=True):
+    # Ép chiều cao khớp hoàn toàn với ô bên trái thông qua tham số height
+    with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
         # Hiển thị hình vẽ phác thảo (Sketch) từ Session State nếu có
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
             st.image(st.session_state.pdf_page_one_image, use_container_width=True)
         else:
-            st.markdown("<div style='padding: 40px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+
 
 
 
