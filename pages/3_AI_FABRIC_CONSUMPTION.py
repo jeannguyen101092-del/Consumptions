@@ -572,25 +572,35 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = eff_lining
                 calc_note += f"Xếp ngang lót ({pieces_per_row} chi tiết/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - ĐÃ NÂNG ĐỊNH MỨC ĐÚNG TỶ LỆ
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - ĐÃ THÊM MẶC ĐỊNH RỘNG 4 INCH CHO CƠI TÚI MỔ
             elif engine_target == "FUSING":
-                eff_fusing = 0.84
+                eff_fusing = 0.85 
+                
+                # Quy tắc xử lý Nẹp áo (Placket) cũ của bạn
                 if sub_component == "PLACKET" and shrunk_wid > 4.0: 
                     shrunk_wid = 2.0  
                 
+                # 🔥 ĐÃ THÊM: Nếu là chi tiết Cơi túi / Túi mổ (WELT, POCKET, COI), mặc định bản rộng keo = 4.0 inch
+                if any(kw in comp_name for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
+                    # Ép bản rộng rập keo về 4.0 inch trước khi tính co rút (hoặc sau co rút tùy bạn, ở đây ép trực tiếp sau co rút)
+                    shrunk_wid = 4.0 * weft_shrink_factor
+                    calc_note += "✂️ [WELT FUSING RULE] Ép bản rộng keo cơi túi mặc định 4.0\" | "
+
                 raw_fusing_area = shrunk_len * shrunk_wid * active_count
                 gross_yds = (raw_fusing_area / (active_wid * 36.0 * eff_fusing * 0.90)) * (1.0 + industrial_loss)
                 
-                # SỬA: Nhân hệ số bao phủ rập theo số lượng chi tiết thực tế để không bị ép nhỏ định mức
+                # Khống chế trần an toàn dựa trên số lượng chi tiết thực tế
                 max_allowable_yds = ((shrunk_len * active_count) / 36.0) * (1.0 + industrial_loss)
                 if gross_yds > max_allowable_yds and sub_component != "PLACKET":
                     gross_yds = max_allowable_yds
+                    
                 marker_efficiency = eff_fusing
                 calc_note += "⚡ Sơ đồ diện tích keo lồng chi tiết | "
 
+
             # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
             elif engine_target == "ELASTIC":
-                gross_yds = ((shrunk_len * active_count) / 36.0) * 1.05
+                gross_yds = ((shrunk_len * active_count) / 36.0) * 1.1
                 marker_efficiency = 1.0
                 calc_note += "Tính theo chiều dài trục thun | "
 
