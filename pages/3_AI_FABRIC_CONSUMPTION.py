@@ -362,7 +362,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     # Đọc hao hụt đầu sào/hao hụt cắt từ Meta (mặc định 4.3% nếu trống)
     industrial_loss = float(ai_meta.get("industrial_loss_rate", 0.043))
 
-    # Danh sách lọc sạch phụ liệu cứng
+    # Danh sách lọc sạch phụ liệu cứng và chỉ thêu trực tiếp
     EXCLUDE_HARDWARE_AND_THREAD = {
         "ZIPPER", "BUTTON", "NÚT", "SHANK", "RIVET", "TAG", "LABEL", "MÁC", "HANGTAG",
         "EYELETS", "SNAP", "VELCRO", "HOOK", "LOOP", "STOPPER", "TOGGLE", "THREAD", "CHỈ",
@@ -379,27 +379,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     # =====================================================================
     # 📑 CHUYỂN ĐỔI THÀNH RULE ENGINE: MA TRẬN BÙ BIÊN ĐƯỜNG MAY CHUẨN IE (SA)
     # =====================================================================
-    # Cấu trúc: [Biên rộng (W-inch), Biên dài (L-inch)]
     SEAM_RULE_MATRIX = {
         "JACKET": {
-            "BODY": [0.88, 1.44],     # Biên may 2 bên + gấu lai áo
-            "SLEEVE": [0.88, 1.25],   # Biên may bắp tay + măng séc
-            "COLLAR": [0.50, 0.50],   # Cổ áo chừa đường may nhỏ
-            "CUFF": [0.50, 0.50],
-            "POCKET": [0.88, 1.50],   # Túi hộp/Túi đắp chừa miệng túi to
-            "PLACKET": [0.50, 0.88],
-            "DEFAULT": [0.88, 0.88]
+            "BODY": [0.88, 1.44], "SLEEVE": [0.88, 1.25], "COLLAR": [0.50, 0.50],
+            "CUFF": [0.50, 0.50], "POCKET": [0.88, 1.50], "PLACKET": [0.50, 0.88], "DEFAULT": [0.88, 0.88]
         },
         "PANTS": {
-            "BODY": [1.00, 1.75],     # Quần Jeans/Cargo biên rộng + gấu lai quần to
-            "POCKET": [0.88, 1.25],
-            "WAISTBAND": [0.50, 0.88], # Cạp/Lưng quần
-            "DEFAULT": [0.75, 0.75]
+            "BODY": [1.00, 1.75], "POCKET": [0.88, 1.25], "WAISTBAND": [0.50, 0.88], "DEFAULT": [0.75, 0.75]
         },
         "DRESS": {
-            "BODY": [0.88, 0.88],
-            "TIER": [0.88, 1.50],     # Tầng váy xòe cuốn biên lai to
-            "DEFAULT": [0.88, 0.88]
+            "BODY": [0.88, 0.88], "TIER": [0.88, 1.50], "DEFAULT": [0.88, 0.88]
         },
         "DEFAULT": {
             "DEFAULT": [0.75, 0.75]
@@ -408,28 +397,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     # =====================================================================
     # 🧠 CHUYỂN ĐỔI THÀNH RULE ENGINE: MA TRẬN HIỆU SUẤT SƠ ĐỒ ĐỘNG (MARKER EFF)
-    # 🌟 ĐỒNG BỘ: Chuyển sang số thực để không bị lỗi chia mảng làm mất vải chính
     # =====================================================================
     NESTING_EFF_MATRIX = {
-        "JACKET": {
-            "BODY": 0.85,
-            "SLEEVE": 0.82,
-            "POCKET": 0.78,
-            "DEFAULT": 0.82
-        },
-        "PANTS": {
-            "BODY": 0.87,
-            "POCKET": 0.85,
-            "DEFAULT": 0.85
-        },
-        "DRESS": {
-            "BODY": 0.82,
-            "TIER": 0.78,
-            "DEFAULT": 0.80
-        },
-        "DEFAULT": {
-            "DEFAULT": 0.82
-        }
+        "JACKET": {"BODY": 0.85, "SLEEVE": 0.82, "POCKET": 0.78, "DEFAULT": 0.82},
+        "PANTS": {"BODY": 0.87, "POCKET": 0.85, "DEFAULT": 0.85},
+        "DRESS": {"BODY": 0.82, "TIER": 0.78, "DEFAULT": 0.80},
+        "DEFAULT": {"DEFAULT": 0.82}
     }
     
     # =====================================================================
@@ -449,10 +422,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif any(kw in name_check for kw in ["JEAN", "PANTS", "QUẦN", "CARGO", "TROUSER", "SHORT"]):
             product_type = "PANTS"
             break
-       # =====================================================================
-          # =====================================================================
-       # =====================================================================
-        # =====================================================================
+
       # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & PHÂN LOẠI ĐỊNH TUYẾN LINH KIỆN (BẢN CHUẨN)
     # =====================================================================
     seen_pieces = set()
