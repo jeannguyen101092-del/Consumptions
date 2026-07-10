@@ -535,30 +535,37 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 shrunk_wid = 11.5 * weft_shrink_factor
                 calc_note += "⚠️ [AI-OCR GUARD] Ép bắp tay về bản dẹt 11.5\" | "
 
-           # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ ĐIỀU CHỈNH CHỐNG THẤP ĐỊNH MỨC
+                       # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - THUẬT TOÁN HÌNH HỌC SƠ ĐỒ CHUẨN (KHÔNG KHỐNG CHẾ SIZE)
             if engine_target == "FABRIC":
-                # SỬA: Không ép số lượng thân quần về 1.0 nữa, giữ nguyên active_count để tính toán diện tích thực
                 actual_pieces_qty = float(active_count)
+                active_wid = float(width_inch) if float(width_inch) > 0 else 57.0
+                
+                # 1. Tính toán số lượng chi tiết rập có thể xếp vừa trên một hàng ngang của khổ vải
+                # Thêm khoảng cách đệm an toàn giữa các chi tiết là 0.2 inch
+                pieces_per_row = max(1, int(active_wid / (shrunk_wid + 0.2)))
+                
+                # Đối với thân quần lớn, nếu phom quá to (Big size) không xếp vừa 2 cái nằm ngang, 
+                # hệ thống sẽ tự động hiểu là phải xếp dọc (pieces_per_row = 1) mà không bị crash số
+                
+                # 2. Tính số hàng dọc (hàng đứng) cần thiết để chứa đủ tổng số lượng rập
+                required_vertical_rows = math.ceil(actual_pieces_qty / pieces_per_row)
+                
+                # 3. Chiều dài sơ đồ thô tiêu tốn (inch)
+                allocated_length_inch = shrunk_len * required_vertical_rows
                 
                 is_long_sash_checked = kwargs.get("is_long_sash", False)
-                
                 if is_long_sash_checked:
-                    raw_piece_area = shrunk_len * shrunk_wid * actual_pieces_qty * 0.90
-                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                else:
-                    raw_piece_area = shrunk_len * shrunk_wid * actual_pieces_qty
-                    
-                    # SỬA: Thay vì nhân kép hai hệ số phạt (efficiency * utilization) làm vọt định mức lúc trước,
-                    # hoặc thả nổi làm thấp định mức, chúng ta dùng marker_efficiency chuẩn (ví dụ 87% như trong ảnh)
-                    # Đối với các chi tiết nhỏ (như BELTLOOP, FACING), đảm bảo định mức tối thiểu không bị bằng 0
-                    gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                    
-                    # Bổ sung định mức sàn cho các chi tiết nhỏ cắt rời, tránh bị làm tròn về 0
-                    if gross_yds < 0.005 and actual_pieces_qty > 0:
-                        gross_yds = 0.005 * actual_pieces_qty
-                        
-                calc_note += f"⚡ CAD Real-Area Nesting (Qty: {actual_pieces_qty}) | "
+                    allocated_length_inch = allocated_length_inch * 0.90
 
+                # 4. Quy đổi ra Yards và áp hiệu suất sơ đồ (Marker Efficiency) cùng hao hụt công nghiệp
+                # Vì hiệu suất sơ đồ (ví dụ 87%) là hao hụt khoảng trống, ta chia trực tiếp ở mẫu số chiều dài
+                gross_yds = (allocated_length_inch / (36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                
+                # Phòng vệ bộ lọc đỉa quần (BELTLOOP) hoặc chi tiết cực nhỏ không bị triệt tiêu về 0
+                if gross_yds < 0.005 and actual_pieces_qty > 0:
+                    gross_yds = 0.005 * actual_pieces_qty
+                    
+                calc_note += f"✂️ CAD Linear Nesting ({pieces_per_row} chi tiết/hàng ngang | Cần {required_vertical_rows} hàng dọc) | "
 
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ HẠ ĐỊNH MỨC XUỐNG MỨC THỰC TẾ
             elif engine_target == "LINING":
