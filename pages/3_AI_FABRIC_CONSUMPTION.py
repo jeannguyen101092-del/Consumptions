@@ -792,15 +792,25 @@ if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 
-# 3. Tự động phân tách trích xuất văn bản từ tài liệu PDF khi có file nạp vào
-if st.session_state.pdf_bytes is not None and st.session_state.pdf_text_cache is None:
+# 3. Tự động phân tách trích xuất văn bản và hình ảnh trang đầu từ tài liệu PDF
+if st.session_state.pdf_bytes is not None and (st.session_state.pdf_text_cache is None or st.session_state.get("pdf_page_one_image") is None):
     try:
         import fitz
         doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-        full_text_extract = ""
-        for page_num in range(len(doc)):
-            full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
-        st.session_state.pdf_text_cache = full_text_extract
+        
+        # Trích xuất văn bản chữ
+        if st.session_state.pdf_text_cache is None:
+            full_text_extract = ""
+            for page_num in range(len(doc)):
+                full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
+            st.session_state.pdf_text_cache = full_text_extract
+            
+        # Trích xuất hình ảnh trang đầu tiên làm Sketch bản vẽ
+        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
+            if len(doc) > 0:
+                page = doc.load_page(0)
+                pix = page.get_pixmap(dpi=150)
+                st.session_state.pdf_page_one_image = pix.tobytes("png")
     except Exception: 
         pass
 
@@ -821,6 +831,7 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
             if val_gross > 0.0:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
+
 
 # 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
 st.markdown("""
