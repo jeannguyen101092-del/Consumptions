@@ -898,7 +898,7 @@ st.markdown("""
         margin: auto !important;
     }
 
-    /* =====================================================================
+       /* =====================================================================
        🌟 FIX TRIỆT ĐỂ: ÉP HAI Ô CONTAINER BẰNG NHAU THEO ĐÚNG DOM STREAMLIT
        ===================================================================== */
     div[data-testid="stColumns"] {
@@ -916,22 +916,22 @@ st.markdown("""
         flex-direction: column !important;
         flex-grow: 1 !important;
     }
-   /* Ép trực tiếp vào class sinh viền st.container(border=True) */
-    div[data-testid="stVerticalBlockBorderContainer"] {
+    
+    /* Ép trực tiếp chiều cao cố định vào class sinh viền st.container(border=True) */
+    div[data-testid="stVerticalBlockBorderContainer"],
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         height: 560px !important;
-        display: block !important; /* Thêm dòng này để đẩy nội dung chữ lên đỉnh trần */
+        min-height: 560px !important;
+        max-height: 560px !important;
+        display: block !important; /* Đẩy nội dung chữ lên đỉnh trần */
+        overflow-y: auto !important; /* Tự động xuất hiện thanh cuộn nội bộ nếu nội dung quá dài */
     }
 
-
-        height: 100% !important;
-        display: flex !important;
-        flex-direction: column !important;
-        flex-grow: 1 !important;
-    }
     /* Khống chế ảnh không vượt quá không gian hiển thị của ô bên phải */
     div[data-testid="stImage"] img {
         max-height: 440px !important;
         object-fit: contain !important;
+        width: 100% !important;
     }
     
     .cad-header-text-flat {
@@ -966,6 +966,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
