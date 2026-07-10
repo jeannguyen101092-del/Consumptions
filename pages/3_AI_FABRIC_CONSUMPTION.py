@@ -423,7 +423,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "PANTS"
             break
 
-       # 🔥 ĐOẠN 2.1: BỘ LỌC SIÊU PHÒNG VỆ - KHỬ LỖI TYPEERROR DÒNG 531 TUYỆT ĐỐI
+         # 🌟 VÁ LỖI DÒNG 1272 CHỐNG CRASH HỆ THỐNG TUYỆT ĐỐI KHỬ NONE
+    # =====================================================================
+    if 'blueprint_final' in locals() and blueprint_final is not None:
+        if isinstance(blueprint_final, dict):
+            total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
+        elif isinstance(blueprint_final, list):
+            total_extracted_pieces = len(blueprint_final)
+        else:
+            total_extracted_pieces = 0
+    else:
+        total_extracted_pieces = 0
+
+    # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & ÉP TÁCH CHI TIẾT NHỎ RA KHỎI SƠ ĐỒ VẢI CHÍNH
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -482,13 +494,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
             continue 
             
-        # Nhận diện chính xác cụm lót túi bất kể có chữ MAIN FABRIC đứng trước hay không
-        is_pocket_component = any(k in comp_name for k in ["POCKET BAG", "LOT TUI", "LÓT TÚI", "POCKETING"]) or ("POCKET" in comp_name and "FLAP" not in comp_name and "BACK POCKET" not in comp_name)
+        # 🌟 PHÒNG VỆ CHÂN KHÔNG TỪ KHÓA: Đánh dấu tất cả các chi tiết nhỏ tận dụng vải hở sơ đồ
+        is_lining_piece = any(k in comp_name for k in ["POCKET BAG", "LOT TUI", "LÓT TÚI", "POCKETING", "BAG"])
+        is_small_nested_piece = any(k in comp_name for k in ["BACK POCKET", "FLY PIECE", "FLY FACING", "FLY SHIELD", "BELT LOOP", "ĐỈA QUẦN", "ĐÁP CỬA", "BAGET"])
         
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
-        elif is_pocket_component:
+        elif is_lining_piece:
             engine_target = "LINING"
+            ui_row["Material Class"] = "LINING"
+        elif is_small_nested_piece:
+            # 🌟 CHIẾN THUẬT IE CHỐNG PHÌNH: Ép mục tiêu tính toán của chi tiết nhỏ sang phân hệ lách sơ đồ (LINING/FALLBACK)
+            # Điều này giúp loại trừ diện tích của chúng ra khỏi sơ đồ vải chính tổng, ngăn chặn làm phình định mức thân trước/sau
+            engine_target = "LINING" 
             ui_row["Material Class"] = "LINING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
             engine_target = "ELASTIC"
@@ -525,14 +543,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 KHỬ LỖI TUYỆT ĐỐI TẠI ĐÂY: Trích xuất trực tiếp bằng try-except index mảng [0] và [1] để triệt tiêu lỗi float()
         try:
             if isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) >= 2:
                 sa_w = float(seam_allowance[0])
                 sa_l = float(seam_allowance[1])
-            elif isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) == 1:
-                sa_w = float(seam_allowance[0])
-                sa_l = float(seam_allowance[0])
             else:
                 sa_w = float(seam_allowance)
                 sa_l = float(seam_allowance)
@@ -553,6 +567,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
+
 
 
 
