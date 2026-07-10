@@ -540,7 +540,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     if total_fabric_net_area <= 0: total_fabric_net_area = 400.0
     if max_primary_len <= 0: max_primary_len = 32.0
     # =====================================================================
-    # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - PHÂN BỔ ĐỊNH MỨC CHI TIẾT PHẲNG PHÂN TẦNG VẬT TƯ
+        # =====================================================================
+    # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - THUẬT TOÁN CHÈN RẬP NHỎ VÀO KHOẢNG TRỐNG SƠ ĐỒ GỘP (NESTING)
     # =====================================================================
     for ai_row in unique_bom_rows:
         ui_row = copy.deepcopy(ai_row)
@@ -579,47 +580,47 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         shrunk_len = raw_len_with_sa * warp_shrink_factor
         shrunk_wid = raw_wid_with_sa * weft_shrink_factor
 
-        # Cấu hình hiệu suất sơ đồ chuẩn hóa theo phân hệ
+        # Mặc định hiệu suất đi sơ đồ
         marker_efficiency = 0.87 if engine_target == "FABRIC" else (0.82 if engine_target == "LINING" else 0.92)
 
-        # --- PHÂN PHỐI LOGIC THEO ENGINE ĐÍNH KÈM ---
-        if engine_target == "FABRIC":
-            theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency)
-            total_marker_length_inch = max(max_primary_len * 1.05, theoretical_marker_len_inch)
-            total_marker_gross_yds = (total_marker_length_inch / 36.0) * 1.05 * (1.0 + industrial_loss)
+        # -----------------------------------------------------------------
+        # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) & KEO MEX (FUSING) - THUẬT TOÁN CHÈN RẬP LÁCH SƠ ĐỒ
+        # -----------------------------------------------------------------
+        if engine_target in ["FABRIC", "FUSING"]:
+            # Nhận diện xem chi tiết hiện tại có phải là RẬP CHÍNH (Bản to quyết định khung sơ đồ dọc) hay không
+            is_primary_piece = any(k in comp_name for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY"])
             
+            # Tính toán diện tích thực tế chi tiết chiếm dụng
             current_piece_net_area = shrunk_len * shrunk_wid * float(p_count)
-            area_contribution_ratio = current_piece_net_area / total_fabric_net_area if total_fabric_net_area > 0 else 0.1
-            gross_yds = total_marker_gross_yds * area_contribution_ratio
             
-            # Khóa chặn trần vật lý bổ trợ bảo vệ định mức Thân
-            physical_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 1.08
-            if gross_yds > physical_max_cap:
-                gross_yds = physical_max_cap
-                calc_note = calc_note_sa + f"📊 Phân bổ phẳng (Ép trần vật lý)"
-            else:
-                calc_note = calc_note_sa + f"📊 Sơ đồ tổng -> Phân bổ {int(area_contribution_ratio*100)}%"
-
-        # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - ĐÃ ĐƯỢC FIX LỖI VỌT SỐ NẸP ÁO
-        elif engine_target == "FUSING":
-            eff_fusing = 0.92
-            # Tính toán số lượng nẹp/chi tiết có thể lách vừa trên khổ ngang vải hữu dụng
-            pieces_per_horizontal_row = max(1, int(usable_fabric_width / (shrunk_wid + 0.1)))
-            
-            # Tính số hàng dọc cần thiết để xếp hết số lượng rập yêu cầu
-            required_vertical_rows = math.ceil(p_count / float(pieces_per_horizontal_row))
-            allocated_fusing_inch = shrunk_len * required_vertical_rows
-            
-            # Quy đổi ra Yards và cộng hao hụt công nghiệp
-            gross_yds = (allocated_fusing_inch / 36.0) * (1.0 + industrial_loss)
-            
-            # Bộ khóa chặn an toàn tối cao cho keo mex không vượt quá chiều dọc thô tích lũy
-            max_fusing_cap = ((shrunk_len * float(p_count)) / 36.0) * (1.0 + industrial_loss)
-            if gross_yds > max_fusing_cap:
-                gross_yds = max_fusing_cap
+            if is_primary_piece:
+                # 1. Đối với rập lớn: Tính theo chiều dài khung sơ đồ tổng chung và phân bổ tỷ lệ phẳng diện tích
+                theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency)
+                total_marker_length_inch = max(max_primary_len * 1.05, theoretical_marker_len_inch)
+                total_marker_gross_yds = (total_marker_length_inch / 36.0) * 1.05 * (1.0 + industrial_loss)
                 
-            marker_efficiency = eff_fusing
-            calc_note = calc_note_sa + f"⚡ Khống chế sơ đồ keo ngang ({pieces_per_horizontal_row} pcs/hàng)"
+                if total_fabric_net_area > 0:
+                    area_contribution_ratio = current_piece_net_area / total_fabric_net_area
+                    gross_yds = total_marker_gross_yds * area_contribution_ratio
+                else:
+                    gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                
+                # Ép trần vật lý tối đa bảo vệ đường dọc cây
+                physical_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 1.08
+                if gross_yds > physical_max_cap:
+                    gross_yds = physical_max_cap
+                calc_note = calc_note_sa + f"📊 Rập lớn - Định mức tính theo khung sơ đồ phẳng"
+            else:
+                # 2. Đối với rập nhỏ (Collar, Cuff, Pocket, Belt Loop, Keo nẹp...): 
+                # Ép thuật toán "Hút diện tích lách sơ đồ" (Nesting Fill). Định mức chỉ bằng diện tích thực chia khổ vải thực tế, 
+                # tận dụng 100% khoảng trống hao hụt của rập lớn, không làm tăng chiều dài bàn cắt đơn lẻ.
+                gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0)) * (1.0 + industrial_loss)
+                
+                # Khống chế chặt chẽ: Định mức rập nhỏ lách sơ đồ không bao giờ được phép vượt quá 35% chiều dọc thô của nó
+                linear_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 0.35
+                if gross_yds > linear_max_cap:
+                    gross_yds = linear_max_cap
+                calc_note = calc_note_sa + f"🧩 Rập nhỏ - Tự động chèn lách vào khoảng trống sơ đồ gộp"
 
         # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
         elif engine_target == "LINING":
