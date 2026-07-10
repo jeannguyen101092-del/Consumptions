@@ -577,9 +577,15 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note += f"⚡ CAD True-Area Engine | "
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
+                       # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ SỬA LỖI DƯ SỐ LƯỢNG TÚI TRƯỚC
             elif engine_target == "LINING":
                 eff_lining = 0.82
+                
+                # 🔥 ĐÃ THÊM: Nếu phát hiện là lót túi trước (FRONT POCKET BAG), ép số lượng rập về tối đa 2 Pcs
+                if "FRONT" in comp_name and "POCKET" in comp_name:
+                    active_count = 2
+                    calc_note += "✂️ [LINING GUARD] Ép số lượng lót túi trước về mốc chuẩn 2 Pcs | "
+                
                 pieces_per_row = max(1, int(active_wid / (shrunk_wid + 0.1)))
                 required_vertical_rows = math.ceil(active_count / float(pieces_per_row))
                 allocated_lining_len_inch = shrunk_len * required_vertical_rows
@@ -587,6 +593,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 gross_yds = (allocated_lining_len_inch / 36.0) * (1.0 + industrial_loss)
                 marker_efficiency = eff_lining
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
+
 
             # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
             elif engine_target == "FUSING":
