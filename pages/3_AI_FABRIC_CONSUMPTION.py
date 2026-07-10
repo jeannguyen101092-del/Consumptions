@@ -436,7 +436,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         unique_bom_rows.append(row)
 
     generated_fusing_rows = []
-        # 🌟 ĐOẠN 2: Bộ lọc triệt tiêu Phụ liệu cứng/Chỉ thêu & Phân loại cấu phần chuẩn IE
+        # 🔥 ĐOẠN 2 & 3: BỘ LỌC PHỤ LIỆU VÀ ĐỘNG CƠ TÍNH SƠ ĐỒ CHUẨN GERBER/OPTITEX
     # =====================================================================
     cleaned_engine_rows = []
     
@@ -446,12 +446,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", ""))).upper().strip()
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))).upper().strip()
         
-        # 🌟 VÁ LỖI LỌT CHỈ/PHỤ LIỆU: Kiểm tra từ khóa triệt để để loại bỏ hoàn toàn khỏi luồng tính toán
-        is_hardware_or_thread = any(kw in comp_name or kw in mat_class for kw in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG", "BARTACK", "STITCH", "OVERLOCK", "ASSEMB")])
+        # 🌟 TRIỆT TIÊU LỌT CHỈ/PHỤ LIỆU CỨNG: Loại bỏ hoàn toàn khỏi luồng hiển thị giao diện
+        is_hardware_or_thread = any(kw in comp_name or kw in mat_class for kw in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG", "BARTACK", "STITCH", "OVERLOCK", "ASSEMB"])
         if is_hardware_or_thread:
-            continue # Loại bỏ sạch sẽ, không cho lọt vào bảng chi tiết và bảng tổng hợp màu xanh
+            continue
             
-        # 🌟 PHÂN LOẠI ĐỊNH TUYẾN CHUẨN IE: Tách biệt rõ ràng Vải chính, Lót túi thực tế và Keo dựng
+        # 🌟 PHÂN LOẠI ĐỊNH TUYẾN CHUẨN IE: Tách lót túi trong và keo mếch dựng riêng biệt
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
             ui_row["Material Class"] = "FUSING"
@@ -465,7 +465,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             engine_target = "FABRIC"
             ui_row["Material Class"] = "FABRIC"
 
-        # Trích xuất kích thước rập cơ bản
         raw_len = float(ui_row.get("bounding_box_length", ui_row.get("Dài sản xuất (L-inch)", 0.0)))
         raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("Rộng sản xuất (W-inch)", 0.0)))
         try: p_count = int(float(ui_row.get("Số lượng rập (Pcs)", ui_row.get("piece_count", 1))))
@@ -476,12 +475,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif "WAISTBAND" in comp_name or "CẠP" in comp_name or "LƯNG" in comp_name: sub_component = "WAISTBAND"
         elif "POCKET" in comp_name: sub_component = "POCKET"
 
-        # Trích xuất biên may an toàn đường may
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         sa_w, sa_l = float(seam_allowance[0]), float(seam_allowance[1])
 
-        # Bù biên may thành rập sản xuất
         if engine_target in ["FABRIC", "LINING"]:
             raw_wid_with_sa = raw_wid + sa_w
             raw_len_with_sa = raw_len + sa_l
@@ -506,15 +503,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         ui_row["single_piece_net_area"] = calculated_piece_net_area
         cleaned_engine_rows.append(ui_row)
-    # 🌟 ĐOẠN 3: Thuật toán sơ đồ tổng Gerber, cân bằng mếch keo và đồng bộ đầu ra hiển thị
-    # =====================================================================
+
+    # 🌟 THUẬT TOÁN SƠ ĐỒ GERBER: Tính tổng diện tích thật nhóm và nhân co rút sau cùng
     for ui_row in cleaned_engine_rows:
         engine_target = ui_row["engine_target"]
         p_count = ui_row["piece_count_final"]
         comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", ""))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
-        # Tính tổng diện tích rập thật của cả nhóm vật tư
         total_engine_net_area = 0.0
         max_primary_len = 0.0
         
@@ -524,36 +520,31 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if r_scan["Dài sản xuất (L-inch)"] > max_primary_len:
                     max_primary_len = r_scan["Dài sản xuất (L-inch)"]
 
-        # Định cấu hình mốc Hiệu suất sơ đồ (Marker Efficiency) một lần cho cả nhóm
         marker_eff = NESTING_EFF_MATRIX.get(engine_target, NESTING_EFF_MATRIX["DEFAULT"])
         active_wid = float(parsed_main_width) if float(parsed_main_width) > 0 else 56.0
         usable_width_inch = active_wid - 1.2 if engine_target != "ELASTIC" else active_wid
 
-        # Tính chiều dài sơ đồ thô phẳng (Marker Length)
         theoretical_marker_len_inch = total_engine_net_area / (usable_width_inch * marker_eff) if total_engine_net_area > 0 else 0
         if theoretical_marker_len_inch < max_primary_len:
             total_marker_length_inch = max_primary_len * 1.01
         else:
             total_marker_length_inch = theoretical_marker_len_inch
 
-        # 🌟 BƯỚC KHỐNG CHẾ ÉP ĐỊNH MỨC THEO QUY TRÌNH CHUẨN CAD
         if engine_target == "FABRIC":
             layout_factor = 1.00 
             total_gross_yds = (total_marker_length_inch / 36.0) * layout_factor * global_shrink_factor * (1.0 + industrial_loss)
-            calc_note = f"📊 [GERBER CAD] Sơ đồ gộp vải chính áp Eff {int(marker_eff*100)}% | "
+            calc_note = f"📊 [GERBER CAD] Sơ đồ vải chính áp Eff {int(marker_eff*100)}% | "
         elif engine_target == "FUSING":
-            # 🌟 KHỐNG CHẾ KEO CAO NGẤT: Ép chiều dài mếch cạp thô về trục dọc bàn mếch mỏng thay vì chiếm dụng sơ đồ lớn
+            # KHỐNG CHẾ KEO CAO NGẤT: Ép định mức keo cạp về trục dọc mếch keo thực tế thay vì gộp sơ đồ lớn
             total_gross_yds = ((max_primary_len * float(p_count)) / 36.0) * 1.02 * (1.0 + industrial_loss)
-            calc_note = f"✂️ [FUSING MATRIX] Tính theo trục dọc mếch keo thực tế | "
+            calc_note = f"✂ * [FUSING MATRIX] Tính dọc trục mếch keo | "
         elif engine_target == "LINING":
-            # Cân bằng vải lót túi chính xác dựa trên chiều dọc rập gộp hàng
             total_gross_yds = (total_marker_length_inch / 36.0) * global_shrink_factor * (1.0 + industrial_loss)
-            calc_note = f"✂️ [LINING MATRIX] Quy đổi sơ đồ lót túi tiêu chuẩn | "
+            calc_note = f"✂ * [LINING MATRIX] Quy đổi sơ đồ lót túi tiêu chuẩn | "
         else:
             total_gross_yds = ((ui_row["Dài sản xuất (L-inch)"] * float(p_count)) / 36.0) * 1.05
-            calc_note = f"⚡ Tính theo trục dọc biên thun | "
+            calc_note = f"⚡ Tính dọc biên chun | "
 
-        # Phân bổ định mức ngược về từng dòng BOM chi tiết theo tỷ lệ diện tích
         current_piece_total_net_area = ui_row["single_piece_net_area"] * float(p_count)
         if total_engine_net_area > 0:
             area_contribution_ratio = current_piece_total_net_area / total_engine_net_area
@@ -572,20 +563,19 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         
         router_bom_rows.append(ui_row)
 
-        # QUY TẮC IE TỰ ĐỘNG SINH MẾCH KEO THEO DIỆN TÍCH THỰC CHO CÁC PHẦN CÒN THIẾU
         if engine_target == "FABRIC" and product_type == "PANTS":
             if any(k in comp_name for k in ["FLY", "FACING", "SHIELD", "ĐÁP", "BAGET"]):
                 f_row = copy.deepcopy(ui_row)
                 f_row["Component Name"] = f"{comp_name} INTERLINING KEO (AUTO FLY)"
                 f_row["Material Class"] = "FUSING"
                 f_row["engine_target"] = "FUSING"
-                f_row["Notes"] = "⚡ Quy tắc IE: Tự động ép keo mếch cho cửa quần (Fly)"
+                f_row["Notes"] = "⚡ Quy tắc IE: Tự động ép keo mếch đáp cửa quần (Fly)"
                 generated_fusing_rows.append(f_row)
 
     if generated_fusing_rows:
         router_bom_rows.extend(generated_fusing_rows)
 
-    # ĐỒNG BỘ ĐẦU RA AN TOÀN TRÁNH BỊ LỖI TREO APP ĐÓNG BĂNG STATE
+    # ĐỒNG BỘ ĐẦU RA STATE PHÒNG VỆ
     # =====================================================================
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(router_bom_rows)
     if 'blueprint_processed' in locals() and isinstance(blueprint_processed, dict):
