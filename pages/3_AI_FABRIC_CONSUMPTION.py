@@ -1231,30 +1231,35 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # 🌟 ĐỒNG BỘ TRIỆT ĐỂ CO RÚT (BẮT TỪ ĐIỀU KIỆN CHAT HOẶC SESSION STATE)
-    if 'warp_shrink' in locals():
-        st.session_state["active_warp_shrink"] = f"{float(warp_shrink)}%"
-    elif 'warp_shrink_factor' in locals():
-        st.session_state["active_warp_shrink"] = f"{round((warp_shrink_factor - 1.0) * 100, 1)}%"
-    elif "active_warp_shrink" not in st.session_state:
-        ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
-        st.session_state["active_warp_shrink"] = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
-        
-    if 'weft_shrink' in locals():
-        st.session_state["active_weft_shrink"] = f"{float(weft_shrink)}%"
-    elif 'weft_shrink_factor' in locals():
-        st.session_state["active_weft_shrink"] = f"{round((weft_shrink_factor - 1.0) * 100, 1)}%"
-    elif "active_weft_shrink" not in st.session_state:
-        ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
-        st.session_state["active_weft_shrink"] = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
-    
-    # 🌟 ĐỒNG BỘ TRIỆT ĐỂ TIÊU ĐỀ SIZE:
-    if 'target_size_cmd' in locals() and target_size_cmd:
-        st.session_state["active_display_size"] = str(target_size_cmd).upper().strip()
+    # Đọc trực tiếp câu lệnh chat mới nhất để trích xuất text đồng bộ UI hiển thị
+    chat_text_ui = ""
+    if st.session_state.get("chat_history"):
+        chat_text_ui = str(st.session_state.chat_history[-1]["user"]).lower()
+
+    # 🌟 ĐỒNG BỘ TIÊU ĐỀ SIZE QUA REGEX CHAT:
+    match_size_ui = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_text_ui)
+    if match_size_ui:
+        st.session_state["active_display_size"] = str(match_size_ui.group(1)).upper().strip()
     elif "active_display_size" not in st.session_state:
         st.session_state["active_display_size"] = str(bom_source.get("calculated_on_size", "30")).upper().strip()
 
-    # Gán ngược lại biến hiển thị từ bộ nhớ trạng thái an toàn
+    # 🌟 ĐỒNG BỘ CO RÚT DỌC QUA REGEX CHAT:
+    match_warp_ui = re.search(r'(?:dọc|doc|warp)\s*[:\-=\s]*([\d\.]+)', chat_text_ui)
+    if match_warp_ui:
+        st.session_state["active_warp_shrink"] = f"{float(match_warp_ui.group(1))}%"
+    elif "active_warp_shrink" not in st.session_state:
+        ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
+        st.session_state["active_warp_shrink"] = f"{ai_meta_data.get('warp_shrink', 3.0)}%"
+
+    # 🌟 ĐỒNG BỘ CO RÚT NGANG QUA REGEX CHAT:
+    match_weft_ui = re.search(r'(?:ngang|ngag|weft)\s*[:\-=\s]*([\d\.]+)', chat_text_ui)
+    if match_weft_ui:
+        st.session_state["active_weft_shrink"] = f"{float(match_weft_ui.group(1))}%"
+    elif "active_weft_shrink" not in st.session_state:
+        ai_meta_data = bom_source.get("spec_meta", {}) if isinstance(bom_source, dict) else {}
+        st.session_state["active_weft_shrink"] = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
+
+    # Giải phóng dữ liệu đã khóa trạng thái an toàn ra biến hiển thị bảng
     current_warp_shrink = st.session_state["active_warp_shrink"]
     current_weft_shrink = st.session_state["active_weft_shrink"]
     extracted_size = st.session_state["active_display_size"]
@@ -1277,7 +1282,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             raw_width = r.get("fabric_width_inch", r.get("Khổ vải (Width)", 56.0))
             cut_width_val = f"{float(raw_width)} inch" if isinstance(raw_width, (int, float)) else f"{raw_width} inch"
             
-            # Ép đồng bộ giá trị động đã khóa trong session state vào cột hàng
             warp_dynamic = current_warp_shrink
             weft_dynamic = current_weft_shrink
             
