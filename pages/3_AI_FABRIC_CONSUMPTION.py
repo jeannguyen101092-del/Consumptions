@@ -1184,7 +1184,8 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
                 
     return blueprint_worker
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V118.0)
+# ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V125.0)
+# 🌟 ĐỒNG BỘ TUYỆT ĐỐI VỚI THUẬT TOÁN SƠ ĐỒ TỔNG GERBER / LECTRA
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1195,7 +1196,7 @@ if st.session_state.chat_history:
 
 chat_input_container = st.container()
 with chat_input_container:
-    safe_user_prompt = st.chat_input("Gõ câu lệnh bất kỳ...", key="ie_workspace_static_chat_input_key")
+    safe_user_prompt = st.chat_input("Gõ câu lệnh bất kỳ (Ví dụ: tính định mức cỡ 32)...", key="ie_workspace_static_chat_input_key")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1206,8 +1207,8 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
     with st.spinner("🧠 AI Platform đang quét toàn bộ Techpack..."):
         try:
             chat_lower = current_query.lower()
-            match_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
-            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "30"
+            match_size = re.search(r'\b(?:size|sz|cỡ|co|cl)\s*[:\-=\s]*([\w\d/]+)\b', chat_lower)
+            target_size_cmd = str(match_size.group(1)).upper().strip() if match_size else "32"
             
             match_w = re.search(r'(?:khổ|kho|width|w)\s*[:\-=\s]*([\d\.]+)', chat_lower)
             active_width = float(match_w.group(1)) if match_w else 56.0
@@ -1217,12 +1218,13 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 "type": "OBJECT",
                 "properties": {
                     "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: CARGO_PANTS, JEANS"},
+                    "detected_base_size": {"type": "STRING", "description": "Size mẫu/Size chuẩn trích xuất từ tài liệu"},
                     "spec_meta": {
                         "type": "OBJECT",
                         "properties": {
                             "warp_shrink": {"type": "NUMBER", "description": "Độ co rút dọc (%)"},
                             "weft_shrink": {"type": "NUMBER", "description": "Độ co rút ngang (%)"},
-                            "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải (Ví dụ: 1.45 nếu có)"},
+                            "gather_ratio": {"type": "NUMBER", "description": "Tỷ lệ nhún vải"},
                             "has_stripe": {"type": "BOOLEAN", "description": "True nếu vải có vân sọc, kẻ caro"},
                             "fabric_group": {"type": "STRING", "description": "Nhóm vải chính: DENIM, WOVEN, hoặc KNIT"}
                         },
@@ -1234,13 +1236,10 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         "items": {
                             "type": "OBJECT",
                             "properties": {
-                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập ( FRONT PANEL, POCKET...)"},
+                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập (FRONT PANEL, POCKET...)"},
                                 "material_class": {"type": "STRING", "description": "Phân loại bắt buộc: FABRIC, LINING, FUSING, ELASTIC, THREAD"},
                                 "uom": {"type": "STRING", "description": "Đơn vị tính từ bảng BOM: YDS, MTR, PCS"},
                                 "piece_count": {"type": "INTEGER", "description": "Tổng số lượng chi tiết thực tế khi cắt sản xuất"},
-                                "polygon_net_area": {"type": "NUMBER", "description": "Diện tích đa giác hệ CAD nếu có"},
-                                "polygon_area_mode": {"type": "STRING", "description": "TOTAL hoặc PER_PIECE"},
-                                "polygon_unit": {"type": "STRING", "description": "CM2 hoặc IN2"},
                                 "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài rập thô chi tiết (L)"},
                                 "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng rập thô chi tiết (W)"},
                                 "fabric_width_inch": {"type": "NUMBER", "description": "Khổ rộng vật tư tương ứng trích xuất từ bảng BOM"}
@@ -1249,7 +1248,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                         }
                     }
                 },
-                "required": ["detected_product_type", "spec_meta", "bom_rows"]
+                "required": ["detected_product_type", "detected_base_size", "spec_meta", "bom_rows"]
             }
 
             prompt_agent_2 = f"""
@@ -1257,7 +1256,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             Task: Audit and extract ALL components from the Techpack context, drawings, BOM tables, and sketches.
 
             🌟 USER CHAT COMMAND CONTEXT (CRITICAL):
-            You MUST update 'warp_shrink' and 'weft_shrink' inside 'spec_meta' exactly as requested here:
+            You MUST extract numbers belonging to Size '{target_size_cmd}'. Update 'warp_shrink' and 'weft_shrink' exactly as requested here:
             "{current_query}"
 
             STRICT AUDIT & VISION RULES:
@@ -1265,7 +1264,7 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             - For fabric_width_inch, extract specific values from BOM; if not specified, fallback to {active_width}.
             """
 
-            # 🔥 Gọi hàm Cache độc lập từ Đoạn 1 để lấy số liệu cố định
+            # Gọi hàm bọc st.cache_data phía trên để lấy dữ liệu rập thô cố định từ tài liệu
             blueprint_worker = execute_cached_gemini_scan(
                 st.session_state.pdf_bytes, 
                 current_query, 
@@ -1278,7 +1277,20 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
             if blueprint_worker and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # Nối thẳng vào hàm tính toán định mức nâng cấp (đã xử lý cơi túi 4in và chống thấp vải chính)
+                # 🌟 ĐÃ SỬA CHÍ MẠNG: Chuẩn hóa sạch dữ liệu thô ngay trước khi đẩy vào bộ não sơ đồ tổng
+                # Ép kiểu an toàn, tuyệt đối không chạy thuật toán nhân nhân/cộng dồn bừa bãi tại đây
+                for row in blueprint_worker.get("bom_rows", []):
+                    if "component_name" in row:
+                        row["component_name"] = " ".join(str(row["component_name"]).upper().split())
+                    try: row["bounding_box_length"] = float(row.get("bounding_box_length", 0.0))
+                    except: row["bounding_box_length"] = 0.0
+                    try: row["bounding_box_width"] = float(row.get("bounding_box_width", 0.0))
+                    except: row["bounding_box_width"] = 0.0
+                    try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+                    except: row["piece_count"] = 1
+                    row["fabric_width_inch"] = float(active_width)
+                
+                # 🔥 ĐỒNG BỘ: Chuyển tiếp thẳng dữ liệu thô vào bộ não sơ đồ tổng gộp Gerber/Lectra
                 if "allocate_fabric_consumption_and_quality_gate" in globals():
                     blueprint_final = allocate_fabric_consumption_and_quality_gate(
                         blueprint_worker, 
@@ -1287,27 +1299,26 @@ if st.session_state.pdf_bytes is not None and safe_user_prompt:
                 else:
                     blueprint_final = blueprint_worker
                 
-                # Đẩy trạng thái đồng bộ lên hệ thống hiển thị bảng rập của Streamlit
+                # Khóa chặt trạng thái vào session_state để Streamlit UI hiển thị lên màn hình
                 st.session_state.blueprint_final = blueprint_final
                 st.session_state.last_active_blueprint = blueprint_final
                 
-                # Ghi thông báo phản hồi lên cửa sổ chat
+                # Ghi nhận phản hồi thành công vào lịch sử Chat
                 total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
                 ai_response_text = (
-                    f"✅ **Đã quét thành công Techpack cho Cỡ (Size): {target_size_cmd}**.\n\n"
-                    f"📊 Hệ thống CAD Matrix đã đồng bộ hóa cố định **{total_extracted_pieces} chi tiết rập**.\n"
-                    f"- Thông số kích thước rập đã được lưu vào bộ nhớ đệm (Cache) chống nhảy số.\n"
-                    f"- Vải chính đã khôi phục đủ số lượng rập thực tế để tránh định mức thấp.\n"
-                    f"- Toàn bộ phụ liệu keo lót cơi túi mổ đã được ép cứng về mốc tiêu chuẩn **4.0 inch**."
+                    f"✅ **Hệ thống Sơ đồ Tổng (Marker-Based) đã xử lý thành công!**\n\n"
+                    f"📊 Đã gộp và phân bổ tỷ lệ diện tích phẳng cho **{total_extracted_pieces} chi tiết rập**.\n"
+                    f"- Mã hàng: Định mức tính theo chiều dài dọc cây khung nền chuẩn.\n"
+                    f"- Cỡ (Size): **{target_size_cmd}** | Khổ hữu dụng: **{active_width}\"**."
                 )
-                
                 st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
+                
+                # Ép làm mới giao diện ngay lập tức để giải phóng RAM và vẽ lại bảng số liệu tối ưu
                 st.rerun()
                 
         except Exception as e:
-            st.error(f"❌ Pipeline Hệ Thống Gặp Lỗi: {str(e)}")
+            st.error(f"❌ Pipeline Lỗi: {str(e)}")
             st.code(traceback.format_exc())
-
 
 
 # =====================================================================
