@@ -561,7 +561,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             else:
                 marker_efficiency = float(eff_rules)
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ SỬA LỖI VỌT ĐỊNH MỨC TAY ÁO
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - ĐÃ HẠ ĐỊNH MỨC SÁT THỰC TẾ XƯỞNG CẮT
             if engine_target == "FABRIC":
                 raw_piece_area = shrunk_len * shrunk_wid * float(active_count)
                 
@@ -572,16 +572,20 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 # Tối ưu sơ đồ lộn đầu cặp tay áo (Tiết kiệm 30% diện tích hao hụt ảo so với thân áo)
                 if sub_component == "SLEEVE" and active_count >= 2:
                     raw_piece_area = raw_piece_area * 0.70
-                    calc_note += "✂️ Tối ưu sơ đồ lộn đầu cặp tay áo (Tiết kiệm 30%) | "
-                    
-                gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                calc_note += f"⚡ CAD True-Area Engine | "
+                    calc_note += "✂️ Tối ưu sơ đồ lộn đầu cặp tay áo | "
+                
+                # 🔥 ĐÃ THÊM: Thuật toán lồng ghép cấu phần phụ cho ÁO (Jacket / Sơ mi)
+                # Các linh kiện nhỏ (Túi, Nẹp, Cổ, Đỉa, Đai) xếp lồng vào khoảng trống của Thân áo, giảm 65% diện tích tính hao dọc cây vải
+                if product_type in ["JACKET", "DEFAULT"] and sub_component not in ["BODY", "SLEEVE"]:
+                    raw_piece_area = raw_piece_area * 0.35
+                    calc_note += "🧩 Quy tắc CAD: Lồng linh kiện nhỏ vào khoảng hở của thân áo (Giảm 65%) | "
 
-            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - ĐÃ SỬA LỖI DƯ SỐ LƯỢNG TÚI TRƯỚC
+                gross_yds = (raw_piece_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                calc_note += f"⚡ CAD Tối ưu phẳng | "
+
+            # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
             elif engine_target == "LINING":
                 eff_lining = 0.82
-                
-                # Khống chế số lượng lót túi trước về mốc chuẩn tối đa 2 Pcs
                 if "FRONT" in comp_name and "POCKET" in comp_name:
                     active_count = 2
                     calc_note += "✂️ Ép số lượng lót túi trước về chuẩn 2 Pcs | "
@@ -594,13 +598,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 marker_efficiency = eff_lining
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
 
-            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - ĐÃ ĐỒNG BỘ KÍCH THƯỚC CƠI TÚI MỔ 7x4 INCH
+            # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING)
             elif engine_target == "FUSING":
                 eff_fusing = 0.85
-                
                 if any(kw in comp_name or kw in sub_component for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
-                    shrunk_len = 7.0 * warp_shrink_factor   # Chiều dài 7 inch cố định
-                    shrunk_wid = 4.0 * weft_shrink_factor   # Chiều rộng 4 inch cố định
+                    shrunk_len = 7.0 * warp_shrink_factor
+                    shrunk_wid = 4.0 * weft_shrink_factor
                     calc_note += "✂️ Ép kích thước keo cơi túi mổ mặc định 7\" x 4\" | "
                 
                 raw_fusing_area = shrunk_len * shrunk_wid * active_count
@@ -610,13 +613,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if gross_yds > max_allowable_yds:
                     gross_yds = max_allowable_yds
                 marker_efficiency = eff_fusing
-                calc_note += "⚡ Diện tích keo lồng chi tiết | "
-
-            # 📐 PHÂN HỆ THUN CHUN (ELASTIC)
-            elif engine_target == "ELASTIC":
-                gross_yds = ((shrunk_len * active_count) / 36.0) * 1.05
-                marker_efficiency = 1.0
-                calc_note += "Tính theo trục dọc chun | "
+                calc_note += "⚡ Diện tích keo chuẩn | "
 
             # Quy đổi đơn vị tiêu hao và làm tròn số hiển thị lên bảng dữ liệu
             gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
@@ -636,9 +633,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             # 🧠 BỘ NÃO THÔNG MINH: TỰ ĐỘNG SINH DÒNG KEO MEX THIẾU THEO NGHIỆP VỤ IE
             # =====================================================================
             if engine_target == "FABRIC":
-                # Quy tắc 1: Đối với QUẦN JEAN (PANTS)
                 if product_type == "PANTS":
-                    # Ép lưng baget dán keo, nhưng LƯNG THUN THÌ KHÔNG ÉP KEO LƯNG
                     if sub_component == "WAISTBAND" and not is_waistband_elastic:
                         f_row = copy.deepcopy(ui_row)
                         f_row["Component Name"] = f"{comp_name} INTERLINING KEO (AUTO JEANS)"
@@ -648,7 +643,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         f_row["bounding_box_width"] = raw_wid
                         generated_fusing_rows.append(f_row)
                     
-                    # Quần có túi mổ -> Tự động ép thêm keo cơi túi kích thước 4" x 7"
                     if has_welt_pocket and sub_component == "POCKET":
                         f_row = copy.deepcopy(ui_row)
                         f_row["Component Name"] = "WELT POCKET FUSING (AUTO JEANS)"
@@ -658,7 +652,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                         f_row["bounding_box_width"] = 4.0
                         generated_fusing_rows.append(f_row)
 
-                # Quy tắc 2: Đối với ÁO (JACKET / SHIRT / COAT)
                 elif product_type in ["JACKET", "DEFAULT"]:
                     if sub_component == "COLLAR":
                         f_row = copy.deepcopy(ui_row)
