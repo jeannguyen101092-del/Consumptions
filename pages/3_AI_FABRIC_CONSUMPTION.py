@@ -898,27 +898,34 @@ st.markdown("""
         margin: auto !important;
     }
 
-    /* 🌟 SỬA ĐỔI CHÍNH TẠI ĐÂY: CSS ÉP HAI CONTAINER NATIVE BẰNG NHAU KHÍT RẠT 🌟 */
-    [data-testid="stColumns"] {
+    /* =====================================================================
+       🌟 FIX TRIỆT ĐỂ: ÉP HAI Ô CONTAINER BẰNG NHAU THEO ĐÚNG DOM STREAMLIT
+       ===================================================================== */
+    div[data-testid="stColumns"] {
         display: flex !important;
         align-items: stretch !important;
     }
-    [data-testid="stColumn"] {
+    div[data-testid="stColumn"] {
         display: flex !important;
         flex-direction: column !important;
     }
-    [data-testid="stColumn"] > div {
-        flex-grow: 1 !important;
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    /* Khóa chiều cao tối thiểu 520px cho khung st.container(border=True) */
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        min-height: 520px !important;
+    /* Cho phép cấu trúc block nội bộ kéo dãn tự do */
+    div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] {
         height: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        flex-grow: 1 !important;
     }
-    /* Đảm bảo ảnh PDF/Sketch cuộn mượt hoặc co vừa vặn khung, không làm tràn viền */
-    [data-testid="stImage"] img {
+    /* Ép trực tiếp vào class sinh viền st.container(border=True) */
+    div[data-testid="stVerticalBlockBorderContainer"] {
+        min-height: 540px !important; /* Đặt chiều cao sàn cố định để cân bằng tuyệt đối */
+        height: 100% !important;
+        display: flex !important;
+        flex-direction: column !important;
+        flex-grow: 1 !important;
+    }
+    /* Khống chế ảnh không vượt quá không gian hiển thị của ô bên phải */
+    div[data-testid="stImage"] img {
         max-height: 440px !important;
         object-fit: contain !important;
     }
@@ -955,6 +962,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
