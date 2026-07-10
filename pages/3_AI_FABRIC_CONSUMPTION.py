@@ -453,7 +453,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
         # =====================================================================
-   # 🌟 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN (ĐÃ FIX THỤT LỀ)
+  # 🌟 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN (ĐÃ SỬA LỖI TYPEERROR)
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -559,15 +559,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 raw_len = 34.0
                 raw_wid = 3.5
 
-        # Tra cứu ma trận quy tắc bù biên may từ Phần 1
+        # Tra cứu ma trận quy tắc bù biên may từ Phần 1 của bạn
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # Trích xuất chuẩn xác biên may
+        # 🌟 ĐÃ FIX: TRÍCH XUẤT CHUẨN XÁC BIÊN MAY KHÔNG LO LỖI TYPEERROR MẢNG LIST/TUPLE 🌟
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            raw_wid_with_sa = raw_wid + float(seam_allowance)
-            raw_len_with_sa = raw_len + float(seam_allowance)
-            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance}\" L+{seam_allowance}\" | "
+            if isinstance(seam_allowance, (list, tuple)):
+                sa_w = float(seam_allowance[0])
+                sa_l = float(seam_allowance[1])
+            else:
+                sa_w = float(seam_allowance)
+                sa_l = float(seam_allowance)
+            
+            raw_wid_with_sa = raw_wid + sa_w
+            raw_len_with_sa = raw_len + sa_l
+            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{sa_w}\" L+{sa_l}\" | "
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
