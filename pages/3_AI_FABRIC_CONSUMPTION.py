@@ -453,18 +453,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
           # =====================================================================
        # =====================================================================
         # =====================================================================
-       # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+         # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
     
-    for row in blueprint_final.get("bom_rows", []):
+    # Trích xuất an toàn danh sách bom_rows bất kể dữ liệu là dict hay list
+    raw_bom_source = blueprint_final.get("bom_rows", []) if isinstance(blueprint_final, dict) else (blueprint_final if isinstance(blueprint_final, list) else [])
+    
+    for row in raw_bom_source:
         if not row: continue
         r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
         r_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
         r_len = str(row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", "0")))
         r_wid = str(row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", "0")))
         
+        # Khóa khử trùng tuyệt đối dựa trên Tên + Vật tư + Kích thước rập hình học
         absolute_key = (r_name, r_mat, r_len, r_wid)
         
         if absolute_key in seen_pieces:
@@ -557,7 +561,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 ĐÃ SỬA TẠI ĐÂY: Nhận diện chính xác nếu seam_allowance là mảng [W, L]
+        # Bóc tách an toàn cấu trúc dữ liệu mảng [W, L] của Seam Allowance
         if isinstance(seam_allowance, (list, tuple)):
             sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
             sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
@@ -578,8 +582,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
-
-        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (ĐỒNG BỘ ENGINE SƠ ĐỒ LỚN)
+        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN & PHÂN BỔ SƠ ĐỒ KHÔNG LỖI)
         # =====================================================================
         gross_yds = 0.0
         try:
@@ -602,7 +605,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 total_fabric_net_area = 0.0
                 max_primary_len = 0.0
                 
-                # Quét làm sạch cấu phần vải chính, lọc bỏ keo/lót chuẩn xác bằng đối chiếu danh mục
+                # Quét tính tổng diện tích sơ đồ làm sạch linh kiện
                 for r_scan in unique_bom_rows:
                     if not r_scan: continue
                     scan_comp = str(r_scan.get("Component Name", r_scan.get("component_name", ""))).upper().strip()
@@ -643,10 +646,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 if total_fabric_net_area > 0:
                     area_contribution_ratio = current_piece_net_area / total_fabric_net_area
                     gross_yds = total_marker_gross_yds * area_contribution_ratio
-                    calc_note += f"📊 [MARKER BASED] Tổng sơ đồ {round(total_marker_gross_yds, 2)} yds -> Phân bổ tỉ lệ {int(area_contribution_ratio*100)}% | "
+                    calc_note += f"📊 [MARKER BASED] Tổng sơ đồ {round(total_marker_gross_yds, 2)} yds -> Phân bổ tỷ lệ {int(area_contribution_ratio*100)}% | "
                 else:
                     gross_yds = (current_piece_net_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                    calc_note += f"⚠️ [FLAT FALLBACK] Tính độc lập | "
+                    calc_note += f"⚠️ [FLAT FALLBACK] Tính độc lập rập | "
 
             elif engine_target == "LINING":
                 eff_lining = 0.82
@@ -713,6 +716,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                     generated_fusing_rows.append(f_row)
         except Exception as e:
             pass
+
+    # 🌟 ĐOẠN VÁ LỖI PHÒNG VỆ STATE: Chuyển đổi cấu trúc an toàn tránh AttributeError
+    # =====================================================================
+    if isinstance(blueprint_final, dict):
+        bom_rows_source = blueprint_final.get("bom_rows", [])
+    elif isinstance(blueprint_final, list):
+        bom_rows_source = blueprint_final
+    else:
+        bom_rows_source = []
+
+    # Đồng bộ đẩy mảng tính toán router_bom_rows sạch lỗi ra giao diện hiển thị
+    if 'router_bom_rows' in locals() and router_bom_rows:
+        st.session_state["accumulated_bom_rows"] = copy.deepcopy(router_bom_rows)
+    else:
+        st.session_state["accumulated_bom_rows"] = copy.deepcopy(bom_rows_source)
+    # =====================================================================
 
 
 
