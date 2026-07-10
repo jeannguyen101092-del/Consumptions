@@ -423,12 +423,12 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             product_type = "PANTS"
             break
 
-      # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG & PHÂN LOẠI ĐỊNH TUYẾN LINH KIỆN (BẢN CHUẨN)
+      # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG & ĐỊNH TUYẾN KỸ THUẬT
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
     
-    # Trích xuất an toàn danh sách bom_rows bất kể dữ liệu là dict hay list
+    # Trích xuất an toàn danh sách bom_rows bất kể dữ liệu thô đầu vào là dict hay list
     raw_bom_source = blueprint_final.get("bom_rows", []) if isinstance(blueprint_final, dict) else (blueprint_final if isinstance(blueprint_final, list) else [])
     
     for row in raw_bom_source:
@@ -438,11 +438,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_len = str(row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", "0")))
         r_wid = str(row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", "0")))
         
-        # Khóa khử trùng tuyệt đối dựa trên Tên + Vật tư + Kích thước rập hình học
+        # Khóa khử trùng tuyệt đối dựa trên Tên + Vật tư + Kích thước rập cụ thể
         absolute_key = (r_name, r_mat, r_len, r_wid)
         
         if absolute_key in seen_pieces:
-            continue  
+            continue  # Nếu chi tiết rập này trùng hoàn toàn, xóa bỏ dòng lặp thừa ngay lập tức
         seen_pieces.add(absolute_key)
         unique_bom_rows.append(row)
 
@@ -483,16 +483,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
+        # Phòng vệ chất lượng: Bỏ qua hoàn toàn phụ liệu rời ra khỏi bảng gộp nguyên liệu thẳng
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
-            ui_row["Gross Consumption"] = ui_row.get("Quantity", ui_row.get("quantity", 0.0105 if "BUTTON" in comp_name else 0.0))
-            if ui_row["Gross Consumption"] == 0: ui_row["Gross Consumption"] = 0.0105
-            ui_row["gross_consumption"] = ui_row["Gross Consumption"]
-            ui_row["calculated_consumption"] = ui_row["Gross Consumption"]
-            ui_row["Notes"] = "Phụ liệu đóng gói - Giữ nguyên định mức gốc"
-            router_bom_rows.append(ui_row)
             continue
             
-        # 🌟 VÁ LỖI PHÂN LOẠI ĐOẠN 2.1: Tách triệt để lót túi ra khỏi sơ đồ vải chính
+        # Định tuyến định phân hệ phân phối kỹ thuật
         if any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
         elif any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG", "POCKET BAG", "LOT TUI"]):
@@ -533,12 +528,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 raw_len = 34.0
                 raw_wid = 3.5
 
+        # Tra cứu quy tắc chừa đường may của bộ Rule Engine phía trên
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
+        # 🌟 VÁ HOÀN CHỈNH DÒNG LỖI 540: Trích xuất chuẩn xác index mảng để không gây crash TypeError
         if isinstance(seam_allowance, (list, tuple)):
-            sa_w = float(seam_allowance) if len(seam_allowance) > 0 else 0.5
-            sa_l = float(seam_allowance) if len(seam_allowance) > 1 else sa_w
+            sa_w = float(seam_allowance[0]) if len(seam_allowance) > 0 else 0.5
+            sa_l = float(seam_allowance[1]) if len(seam_allowance) > 1 else sa_w
         else:
             sa_w = float(seam_allowance)
             sa_l = float(seam_allowance)
@@ -556,6 +553,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             ui_row["Gross Consumption"] = 0.0
             router_bom_rows.append(ui_row)
             continue
+
         # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (TÍNH TOÁN ĐỊNH MỨC & TỰ ĐỘNG SINH KEO)
         # =====================================================================
         gross_yds = 0.0
