@@ -449,26 +449,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif any(kw in name_check for kw in ["JEAN", "PANTS", "QUẦN", "CARGO", "TROUSER", "SHORT"]):
             product_type = "PANTS"
             break
-# =====================================================================
-    # 📌 BỘ NHẬN DIỆN MÃ HÀNG ĐỒNG (PRODUCT TYPE CLASS ENGINE) - ĐÃ FIX LỀ
-    # =====================================================================
-    product_type = "DEFAULT"
-    for r in blueprint_final.get("bom_rows", []):
-        if not r: continue
-        name_check = str(r.get("Component Name", r.get("component_name", ""))).upper().strip()
-        
-        if any(kw in name_check for kw in ["DRESS", "VÁY", "BODICE", "TIER", "SKIRT"]):
-            product_type = "DRESS"
-            break
-        elif any(kw in name_check for kw in ["JACKET", "COAT", "ÁO", "SLEEVE", "COLLAR", "CUFF"]):
-            product_type = "JACKET"
-            break
-        elif any(kw in name_check for kw in ["JEAN", "PANTS", "QUẦN", "CARGO", "TROUSER", "SHORT"]):
-            product_type = "PANTS"
-            break
-
-    # =====================================================================
-    # 🌟 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
+       # =====================================================================
+          # =====================================================================
+       # =====================================================================
+        # =====================================================================
+    # 🔥 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -479,7 +464,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_name = " ".join(str(row.get("Component Name", row.get("component_name", ""))).upper().split())
         r_mat = " ".join(str(row.get("Material Class", row.get("material_class", ""))).upper().split())
         
-        # KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Chỉ dựa trên Tên + Nhóm vật tư (Tháo bẫy lặp kích thước nhảy số)
+        # 🌟 KHÓA KHỬ TRÙNG TUYỆT ĐỐI: Chỉ dựa trên Tên + Nhóm vật tư (Tháo bẫy lặp kích thước nhảy số)
         absolute_key = (r_name, r_mat)
         
         if absolute_key in seen_pieces:
@@ -529,23 +514,25 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", ui_row.get("engine", "FABRIC")))).upper().strip()
         uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
         
-        # LOẠI BỎ HOÀN TOÀN CHỈ, NÚT, DÂY KÉO VÀ PHỤ LIỆU ĐÓNG GÓI RỜI KHỎI BẢNG ĐỊNH MỨC MÁY
+        # Phòng vệ chất lượng: Bỏ qua và giữ nguyên định mức gốc của nhãn mác, khóa, nút rời
         if any(key in comp_name or key in mat_class for key in ["ZIPPER", "BUTTON", "NÚT", "KHÓA", "THREAD", "CHỈ", "SHANK", "RIVET", "TRIM", "LABEL", "TAG"]):
-            continue  # Bỏ qua hoàn toàn dòng phụ liệu này, không thêm vào bảng tính nữa
+            ui_row["Gross Consumption"] = ui_row.get("Quantity", ui_row.get("quantity", 0.0105 if "BUTTON" in comp_name else 0.0))
+            if ui_row["Gross Consumption"] == 0: ui_row["Gross Consumption"] = 0.0105
+            ui_row["gross_consumption"] = ui_row["Gross Consumption"]
+            ui_row["calculated_consumption"] = ui_row["Gross Consumption"]
+            ui_row["Notes"] = "Phụ liệu đóng gói - Giữ nguyên định mức gốc"
+            router_bom_rows.append(ui_row)
+            continue
             
-        # Định tuyến phân hệ kỹ thuật chính xác - Ưu tiên kiểm tra tên chi tiết túi và lót
-        if any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "POCKET BAG", "BAG"]):
+        # Định tuyến phân hệ kỹ thuật chính xác
+        if any(k in comp_name for k in ["LÓT", "LINING", "POCKETING", "BAG"]):
             engine_target = "LINING"
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]):
             engine_target = "FUSING"
         elif "THUN" in comp_name or "CHUN" in comp_name or "ELASTIC" in mat_class:
             engine_target = "ELASTIC"
         else:
-            # Chốt chặn an toàn: Nếu tên chi tiết chứa từ khóa túi thì ép về LINING, không cho lọt vào FABRIC
-            if "POCKET" in comp_name or "TÚI" in comp_name:
-                engine_target = "LINING"
-            else:
-                engine_target = "FABRIC"
+            engine_target = "FABRIC"
 
         raw_len = float(ai_row.get("bounding_box_length", 0.0))
         raw_wid = float(ai_row.get("bounding_box_width", 0.0))
@@ -578,18 +565,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # Bóc tách chính xác chỉ mục phần tử mảng tránh lỗi TypeError
+        # 🌟 ĐÃ FIX LỖI TẠI ĐÂY: Trích xuất chuẩn xác index [0] cho Chiều rộng và index [1] cho Chiều dài để không bị phình rập lên 25.5"
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            if isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) >= 2:
-                sa_w = float(seam_allowance[0])
-                sa_l = float(seam_allowance[1])
-            else:
-                sa_w = float(seam_allowance)
-                sa_l = float(seam_allowance)
-            
-            raw_wid_with_sa = raw_wid + sa_w
-            raw_len_with_sa = raw_len + sa_l
-            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{sa_w}\" L+{sa_l}\" | "
+            raw_wid_with_sa = raw_wid + float(seam_allowance[0])
+            raw_len_with_sa = raw_len + float(seam_allowance[1])
+            calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{seam_allowance[0]}\" L+{seam_allowance[1]}\" | "
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
@@ -598,14 +578,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
             continue
-
-        # ĐÓNG GÓI DỮ LIỆU ĐÃ TÍNH TOÁN VÀO DANH SÁCH ĐẦU RA 
-        ui_row["Gross Consumption"] = round((raw_len_with_sa * p_count) / 36.0, 4)
-        ui_row["gross_consumption"] = ui_row["Gross Consumption"]
-        ui_row["Notes"] = calc_note
-        router_bom_rows.append(ui_row)
-         # =====================================================================
-        # 🔥 ĐOẠN 3.1: GERBER MULTI-PANEL MARKER ENGINE (HẠ ĐỊNH MỨC VẢI CHÍNH QUẦN)
+               # =====================================================================
+                # =====================================================================
+        # 🔥 ĐOẠN 3.1: MULTI-ENGINE CAD ROUTER (BẢN CHUẨN SƠ ĐỒ TỔNG GERBER)
         # =====================================================================
         gross_yds = 0.0
         try:
@@ -619,37 +594,24 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             nesting_data = eff_rules.get(sub_component, eff_rules["DEFAULT"])
             marker_efficiency = float(nesting_data) if isinstance(nesting_data, list) else float(nesting_data)
 
-            # BẢNG CẤU HÌNH BIẾN LAYOUT_FACTOR THEO NHÓM NGUYÊN LIỆU CHỦ ĐẠO
+            # 📊 BẢNG CẤU HÌNH BIẾN LAYOUT_FACTOR THEO NHÓM NGUYÊN LIỆU CHỦ ĐẠO
             LAYOUT_FACTOR_MATRIX = {
-                "KNIT": 1.02,      # Vải thun co giãn dẻo
-                "SHIRT": 1.04,     # Áo sơ mi vuông vức
-                "PANTS": 1.04,     # Quần Jeans, Cargo bản to dập rập dẹt phẳng rất khít
-                "DRESS": 1.07,     # Váy đầm xòe tròn xéo góc
-                "JACKET": 1.08,    # Áo Jacket nhiều chi tiết
-                "DEFAULT": 1.04
+                "KNIT": 1.03,      # Vải thun dẻo dẻo dễ lách rập
+                "SHIRT": 1.05,     # Áo sơ mi vuông vức
+                "PANTS": 1.06,     # Quần Jeans, Cargo bản to
+                "DRESS": 1.08,     # Váy đầm xòe tròn xéo góc
+                "JACKET": 1.09,    # Áo Jacket nhiều linh kiện phức tạp
+                "DEFAULT": 1.06
             }
             material_group = ai_meta.get("fabric_group", "WOVEN").upper().strip()
             current_layout_factor = LAYOUT_FACTOR_MATRIX.get(product_type, LAYOUT_FACTOR_MATRIX.get(material_group, LAYOUT_FACTOR_MATRIX["DEFAULT"]))
 
-            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - THUẬT TOÁN SƠ ĐỒ TỔNG PHÂN LỚP
+            # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) - THUẬT TOÁN SƠ ĐỒ TỔNG CHUẨN CAD
             if engine_target == "FABRIC":
-                # 🌟 BƯỚC 1: QUÉT TỔNG SƠ ĐỒ LỚN (GOM CHI TIẾT CHÍNH & PHÂN LỚP HÌNH HỌC)
-                total_primary_net_area = 0.0
+                # 🌟 BƯỚC 1: QUÉT TỔNG SƠ ĐỒ LỚN (MARKER GROUP VALIDATION)
+                total_fabric_net_area = 0.0
                 max_primary_len = 0.0
                 
-                # Tìm chi tiết lớn nhất của toàn bộ mã hàng để làm mốc tính tỷ lệ động
-                largest_piece_raw_area = 1.0
-                for r_check in unique_bom_rows:
-                    if not r_check: continue
-                    is_fab = not any(k in str(r_check.get("Component Name", r_check.get("component_name", ""))).upper() for k in ["LÓT", "LINING", "POCKETING", "BAG", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "THUN", "CHUN", "ELASTIC"])
-                    if is_fab:
-                        try:
-                            l_c = float(r_check.get("bounding_box_length", r_check.get("Dài sản xuất (L-inch)", 0.0)))
-                            w_c = float(r_check.get("bounding_box_width", r_check.get("Rộng sản xuất (W-inch)", 0.0)))
-                            if (l_c * w_c) > largest_piece_raw_area: largest_piece_raw_area = l_c * w_c
-                        except: pass
-
-                # Thực hiện phân bổ và quét sơ đồ gộp cho riêng cấu phần vải chính
                 for r_scan in unique_bom_rows:
                     if not r_scan: continue
                     is_fab = not any(k in str(r_scan.get("Component Name", r_scan.get("component_name", ""))).upper() for k in ["LÓT", "LINING", "POCKETING", "BAG", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "THUN", "CHUN", "ELASTIC"])
@@ -659,58 +621,34 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                             w_s = float(r_scan.get("bounding_box_width", r_scan.get("Rộng sản xuất (W-inch)", 0.0))) * weft_shrink_factor
                             c_s = int(float(r_scan.get("piece_count", r_scan.get("Số lượng rập (Pcs)", 1))))
                             
-                            # Tính tỷ lệ diện tích động để cô lập linh kiện nhỏ
-                            piece_ratio = (l_s * w_s) / largest_piece_raw_area
-                            
-                            # QUY TẮC CAD: Chỉ chi tiết lớn (Thân trước, Thân sau) mới được phép tính diện tích làm khung dọc trục sơ đồ
-                            if piece_ratio >= 0.40:
-                                total_primary_net_area += (l_s * w_s * c_s)
-                                # Khống chế chiều dài sơ đồ không vượt quá chiều dài của chi tiết dài nhất (Thân quần)
-                                if l_s > max_primary_len: max_primary_len = l_s
+                            total_fabric_net_area += (l_s * w_s * c_s)
+                            if l_s > max_primary_len:
+                                max_primary_len = l_s
                         except: pass
 
-                # 🌟 BƯỚC 2: TÍNH CHIỀI DÀI KHUNG SƠ ĐỒ TỔNG CHUẨN CAD VẢI CHÍNH
+                # 🌟 BƯỚC 2: TÍNH CHIỀI DÀI KHUNG SƠ ĐỒ TỔNG CHUẨN CAD
                 usable_fabric_width = active_wid - 1.2
-                theoretical_marker_len_inch = total_primary_net_area / (usable_fabric_width * marker_efficiency)
+                theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency)
                 
-                # Biện pháp phòng vệ hình học: Định mức sơ đồ tổng không được nhỏ hơn chiều dài thân quần lớn nhất
                 if theoretical_marker_len_inch < max_primary_len:
-                    total_marker_length_inch = max_primary_len
+                    total_marker_length_inch = max_primary_len * 1.05
                 else:
                     total_marker_length_inch = theoretical_marker_len_inch
 
-                # Tổng định mức Yards tiêu tốn thực tế của CẢ CHIẾC QUẦN trên sơ đồ giác mẫu
+                # Tổng định mức Yards tiêu tốn thực tế của CẢ SƠ ĐỒ CHUNG
                 total_marker_gross_yds = (total_marker_length_inch / 36.0) * current_layout_factor * (1.0 + industrial_loss)
 
-                # 🌟 BƯỚC 3: PHÂN BỔ TRẢ ĐỊNH MỨC VỀ TỪNG DÒNG BOM THEO TỶ LỆ DIỆN TÍCH ĐỘNG
+                # 🌟 BƯỚC 3: PHÂN BỔ ĐỊNH MỨC VỀ TỪNG DÒNG BOM THEO TỶ LỆ DIỆN TÍCH
                 current_piece_net_area = shrunk_len * shrunk_wid * float(active_count)
                 
-                # Tính lại tỷ lệ diện tích của chi tiết hiện tại so với chi tiết lớn nhất
-                current_area_ratio = (shrunk_len * shrunk_wid) / largest_piece_raw_area
-                
-                if current_area_ratio >= 0.40:
-                    # Đối với thân lớn, ăn theo tỷ lệ phần trăm diện tích đóng góp trên sơ đồ chính
-                    if total_primary_net_area > 0:
-                        area_contribution_ratio = current_piece_net_area / total_primary_net_area
-                        gross_yds = total_marker_gross_yds * area_contribution_ratio
-                    else:
-                        gross_yds = (total_marker_gross_yds / 2.0)
+                if total_fabric_net_area > 0:
+                    area_contribution_ratio = current_piece_net_area / total_fabric_net_area
+                    gross_yds = total_marker_gross_yds * area_contribution_ratio
                 else:
-                    # Đối với các linh kiện nhỏ lẻ (Túi, Đỉa, Đáp), áp hệ số lách rập khít gầm nách/đáy quần (Giảm 88% tiêu hao dọc)
-                    nest_factor = {"POCKET": 0.10, "WAISTBAND": 0.20, "BELT LOOP": 0.05}.get(sub_component, 0.12)
-                    gross_yds = (current_piece_net_area / (active_wid * 36.0 * marker_efficiency)) * nest_factor * (1.0 + industrial_loss)
+                    gross_yds = (current_piece_net_area / (active_wid * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
 
-                # Bảo vệ Validation tầng sàn: Định mức thân quần không được phép nhỏ hơn diện tích net phẳng hình học
-                net_theoretical_yds = (shrunk_len * shrunk_wid * float(active_count)) / (active_wid * 36.0)
-                if gross_yds < net_theoretical_yds and current_area_ratio >= 0.40:
-                    gross_yds = net_theoretical_yds * 1.02
-                
-                # Khống chế trần: Định mức 1 cặp thân quần không được phép lớn hơn chiều dài đứng của chính nó
-                theoretical_max_yds = (shrunk_len / 36.0) * current_layout_factor * (1.0 + industrial_loss)
-                if gross_yds > theoretical_max_yds and current_area_ratio >= 0.40:
-                    gross_yds = theoretical_max_yds
-
-                calc_note += f"📊 [GERBER ENGINE] Tổng sơ đồ gộp {round(total_marker_gross_yds, 2)} yds -> Khử cộng dồn linh kiện phụ thành công | "
+                # Log thông tin hiển thị lên bảng dữ liệu rập (ĐÃ VÁ HOÀN CHỈNH TOÁN TỬ HẾT LỖI CÚ PHÁP)
+                calc_note += f"📊 [MARKER BASED] Tổng sơ đồ {round(total_marker_gross_yds, 2)} yds -> Phân bổ tỷ lệ phẳng {int(area_contribution_ratio*100)}% | "
             # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING) - Logic khống chế túi trước Max 2 Pcs
             elif engine_target == "LINING":
                 eff_lining = 0.82
@@ -727,16 +665,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 calc_note += f"Xếp ngang lót ({pieces_per_row} pcs/hàng) | "
 
             # 📐 PHÂN HỆ KEO MEX DỰNG (FUSING) - Khóa co rút keo Mex độc lập ở mốc 1% chống vọt số
-            # Trích xuất chuẩn xác biên may theo vị trí mảng dữ liệu [Rộng, Dài]
-            if engine_target != "FUSING" and engine_target != "ELASTIC":
-            # Nếu seam_allowance là list/tuple, bóc tách theo index. Nếu là số đơn, lấy trực tiếp.
-               sa_w = float(seam_allowance[0]) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
-               sa_l = float(seam_allowance[1]) if isinstance(seam_allowance, (list, tuple)) else float(seam_allowance)
-            
-               raw_wid_with_sa = raw_wid + sa_w
-               raw_len_with_sa = raw_len + sa_l
-               calc_note = f"📌 {product_type}-{sub_component} | Biên may W+{sa_w}\" L+{sa_l}\" | "
-           else:
+            elif engine_target == "FUSING":
+                eff_fusing = 0.92
+                fusing_shrink_l = 1.01
+                fusing_shrink_w = 1.01
+                
+                if any(kw in comp_name or kw in sub_component for kw in ["WELT", "CƠI", "MỔ", "FACING"]):
+                    shrunk_len = 7.0 * fusing_shrink_l
+                    shrunk_wid = 4.0 * fusing_shrink_w
+                    calc_note += "✂️ Ép kích thước keo cơi túi mổ mặc định 7\" x 4\" | "
+                else:
                     shrunk_len = raw_len_with_sa * fusing_shrink_l
                     shrunk_wid = raw_wid_with_sa * fusing_shrink_w
                 
