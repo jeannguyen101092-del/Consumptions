@@ -777,8 +777,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
 import streamlit as st
 
-import streamlit as st
-
 # =====================================================================
 # ĐOẠN 6a: KHỞI TẠO BỘ NHỚ STATE & CẤU HÌNH CSS PHẲNG NATIVE CHUẨN ERP
 # =====================================================================
@@ -900,18 +898,29 @@ st.markdown("""
         margin: auto !important;
     }
 
-    /* Khống chế chiều cao 1:1 đối xứng phần thân dưới khít rạt */
-    .custom-erp-box-flat {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 8px !important;
-        padding: 20px !important;
-        margin-bottom: 15px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03) !important;
-        max-height: 380px !important; 
-        min-height: 380px !important; /* Khóa cứng chiều cao 2 bên bằng khít nhau tăm tắp */
-        overflow-y: auto !important;   /* Tự động bật thanh cuộn dọc nếu chữ hoặc ảnh dài */
-        box-sizing: border-box !important;
+    /* 🌟 SỬA ĐỔI CHÍNH TẠI ĐÂY: CSS ÉP HAI CONTAINER NATIVE BẰNG NHAU KHÍT RẠT 🌟 */
+    [data-testid="stColumns"] {
+        display: flex !important;
+        align-items: stretch !important;
+    }
+    [data-testid="stColumn"] {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    [data-testid="stColumn"] > div {
+        flex-grow: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    /* Khóa chiều cao tối thiểu 520px cho khung st.container(border=True) */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        min-height: 520px !important;
+        height: 100% !important;
+    }
+    /* Đảm bảo ảnh PDF/Sketch cuộn mượt hoặc co vừa vặn khung, không làm tràn viền */
+    [data-testid="stImage"] img {
+        max-height: 440px !important;
+        object-fit: contain !important;
     }
     
     .cad-header-text-flat {
@@ -933,14 +942,6 @@ st.markdown("""
     }
     .meta-label-flat { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; text-transform: uppercase !important; }
     .meta-value-flat { font-size: 13px !important; font-weight: 600 !important; color: #0f172a !important; margin-top: 1px !important; }
-
-    .sticky-sketch-box-flat img {
-        max-height: 290px !important;
-        width: auto !important;
-        object-fit: contain !important;
-        margin: 0 auto !important;
-        display: block !important;
-    }
 
     /* Khóa chết và ép ẩn toàn diện mọi class ghim đỉnh hoặc hàng rỗng cũ bị dính đệm */
     .main-body-spacer, 
