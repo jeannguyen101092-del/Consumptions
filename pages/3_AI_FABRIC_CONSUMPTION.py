@@ -1011,7 +1011,7 @@ st.markdown(
     """
     <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
         <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-            🚀 HỆ THỐNG TỰ ĐỘNG HÓA BOM & TỐI ƯU ĐỊNH MỨC VẢI VĂN PHÒNG
+            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
         </h2>
     </div>
     """, 
