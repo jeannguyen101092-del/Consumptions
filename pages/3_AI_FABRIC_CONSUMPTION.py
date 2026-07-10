@@ -520,14 +520,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
+                # Áp dụng biên may chuẩn IE động theo từng cấu phần
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            raw_wid_with_sa = raw_wid + seam_allowance
-            raw_len_with_sa = raw_len + seam_allowance
-            calc_note = f"📌 {product_type}-{sub_component} | "
+            # SỬA TẠI ĐÂY: Lấy phần tử [0] cho Chiều rộng và phần tử [1] cho Chiều dài
+            raw_wid_with_sa = raw_wid + float(seam_allowance[0])
+            raw_len_with_sa = raw_len + float(seam_allowance[1])
+            calc_note = f"📌 {product_type}-{sub_component} | Bù biên IE động W+{seam_allowance[0]}\" L+{seam_allowance[1]}\" | "
         else:
             raw_wid_with_sa = raw_wid
             raw_len_with_sa = raw_len
-            calc_note = f"📌 {product_type}-{sub_component} | Fusing cắt sát rập | "
+            calc_note = f"📌 {product_type}-{sub_component} | Fusing/Elastic cắt sát thành phẩm | "
+
 
         if raw_len_with_sa <= 0.0 or raw_wid_with_sa <= 0.0:
             router_bom_rows.append(ui_row)
