@@ -449,11 +449,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         elif any(kw in name_check for kw in ["JEAN", "PANTS", "QUẦN", "CARGO", "TROUSER", "SHORT"]):
             product_type = "PANTS"
             break
-       # =====================================================================
-          # =====================================================================
-       # =====================================================================
-        # =====================================================================
-  # 🌟 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN (ĐÃ SỬA LỖI TYPEERROR)
+    # 🌟 ĐOẠN 2.1: BỘ LỌC KHỬ TRÙNG TỰ ĐỘNG TUYỆT ĐỐI CHỐNG LẶP DÒNG 3 LẦN (ĐÃ FIX SẠCH LỖI THỤT LỀ & BÓC MẢNG)
     # =====================================================================
     seen_pieces = set()
     unique_bom_rows = []
@@ -563,9 +559,9 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         prod_rules = SEAM_RULE_MATRIX.get(product_type, SEAM_RULE_MATRIX["DEFAULT"])
         seam_allowance = prod_rules.get(sub_component, prod_rules["DEFAULT"])
         
-        # 🌟 ĐÃ FIX: TRÍCH XUẤT CHUẨN XÁC BIÊN MAY KHÔNG LO LỖI TYPEERROR MẢNG LIST/TUPLE 🌟
+        # Bóc tách chính xác chỉ mục phần tử mảng tránh lỗi TypeError và lỗi IndentationError
         if engine_target != "FUSING" and engine_target != "ELASTIC":
-            if isinstance(seam_allowance, (list, tuple)):
+            if isinstance(seam_allowance, (list, tuple)) and len(seam_allowance) >= 2:
                 sa_w = float(seam_allowance[0])
                 sa_l = float(seam_allowance[1])
             else:
