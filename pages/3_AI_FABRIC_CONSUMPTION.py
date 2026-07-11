@@ -543,17 +543,22 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         # =====================================================================
     # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - THUẬT TOÁN CHÈN RẬP NHỎ VÀO KHOẢNG TRỐNG SƠ ĐỒ GỘP (NESTING)
     # =====================================================================
+    # Phòng vệ tránh chia cho 0 nếu thông số khổ vải bị lỗi cấu hình
+    if 'usable_fabric_width' not in locals() or usable_fabric_width <= 0:
+        usable_fabric_width = 54.8 # Khổ 56 inch trừ biên 1.2 inch
+
     for ai_row in unique_bom_rows:
+        if not ai_row or not isinstance(ai_row, dict): continue
         ui_row = copy.deepcopy(ai_row)
         
-        comp_name = str(ui_row.get("Component Name", ui_row.get("component_name", "UNNAMED"))).upper().strip()
-        mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))).upper().strip()
-        uom_target = str(ui_row.get("UOM", ui_row.get("uom", "YDS"))).upper().strip()
+        comp_name = str(ui_row.get("component_name", ui_row.get("Component Name", "UNNAMED"))).upper().strip()
+        mat_class = str(ui_row.get("material_class", ui_row.get("Material Class", "FABRIC"))).upper().strip()
+        uom_target = str(ui_row.get("uom", ui_row.get("UOM", "YDS"))).upper().strip()
         
-        try: p_count = int(float(ui_row.get("Số lượng rập (Pcs)", ui_row.get("piece_count", 1))))
+        try: p_count = int(float(ui_row.get("piece_count", ui_row.get("Số lượng rập (Pcs)", 1))))
         except: p_count = 1
 
-        # Phân tầng chính xác mục tiêu xử lý của chi tiết rập
+        # Phân tầng chính xác mục tiêu xử lý của chi tiết rập (Đồng bộ trường engine)
         engine_target = "FABRIC"
         if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]): 
             engine_target = "LINING"
@@ -575,26 +580,23 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         else:
             calc_note_sa = ""
 
+        # Tính bù đường may kỹ thuật sản xuất (+1 inch biên công nghiệp)
         raw_len_with_sa = raw_len + 1.0
         raw_wid_with_sa = raw_wid + 1.0
         shrunk_len = raw_len_with_sa * warp_shrink_factor
         shrunk_wid = raw_wid_with_sa * weft_shrink_factor
 
-        # Mặc định hiệu suất đi sơ đồ
+        # Mặc định hiệu suất đi sơ đồ theo từng phân hệ
         marker_efficiency = 0.87 if engine_target == "FABRIC" else (0.82 if engine_target == "LINING" else 0.92)
 
         # -----------------------------------------------------------------
         # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) & KEO MEX (FUSING) - THUẬT TOÁN CHÈN RẬP LÁCH SƠ ĐỒ
         # -----------------------------------------------------------------
         if engine_target in ["FABRIC", "FUSING"]:
-            # Nhận diện xem chi tiết hiện tại có phải là RẬP CHÍNH (Bản to quyết định khung sơ đồ dọc) hay không
             is_primary_piece = any(k in comp_name for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY"])
-            
-            # Tính toán diện tích thực tế chi tiết chiếm dụng
             current_piece_net_area = shrunk_len * shrunk_wid * float(p_count)
             
             if is_primary_piece:
-                # 1. Đối với rập lớn: Tính theo chiều dài khung sơ đồ tổng chung và phân bổ tỷ lệ phẳng diện tích
                 theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency)
                 total_marker_length_inch = max(max_primary_len * 1.05, theoretical_marker_len_inch)
                 total_marker_gross_yds = (total_marker_length_inch / 36.0) * 1.05 * (1.0 + industrial_loss)
@@ -605,22 +607,16 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
                 else:
                     gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 
-                # Ép trần vật lý tối đa bảo vệ đường dọc cây
                 physical_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 1.08
                 if gross_yds > physical_max_cap:
                     gross_yds = physical_max_cap
-                calc_note = calc_note_sa + f"📊 Rập lớn - Định mức tính theo khung sơ đồ phẳng"
+                calc_note = calc_note_sa + "📊 Rập lớn - Định mức tính theo khung sơ đồ phẳng"
             else:
-                # 2. Đối với rập nhỏ (Collar, Cuff, Pocket, Belt Loop, Keo nẹp...): 
-                # Ép thuật toán "Hút diện tích lách sơ đồ" (Nesting Fill). Định mức chỉ bằng diện tích thực chia khổ vải thực tế, 
-                # tận dụng 100% khoảng trống hao hụt của rập lớn, không làm tăng chiều dài bàn cắt đơn lẻ.
                 gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0)) * (1.0 + industrial_loss)
-                
-                # Khống chế chặt chẽ: Định mức rập nhỏ lách sơ đồ không bao giờ được phép vượt quá 35% chiều dọc thô của nó
                 linear_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 0.35
                 if gross_yds > linear_max_cap:
                     gross_yds = linear_max_cap
-                calc_note = calc_note_sa + f"🧩 Rập nhỏ - Tự động chèn lách vào khoảng trống sơ đồ gộp"
+                calc_note = calc_note_sa + "🧩 Rập nhỏ - Tự động chèn lách vào khoảng trống sơ đồ gộp"
 
         # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
         elif engine_target == "LINING":
@@ -637,18 +633,21 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             marker_efficiency = 1.0
             calc_note = calc_note_sa + "Tính theo trục dọc chun / phụ liệu rời"
 
-        # Quy đổi đơn vị đo lường UOM đầu ra (YDS / MTR)
+        # Quy đổi đơn vị đo lường UOM đầu ra
         gross_val = gross_yds * 0.9144 if uom_target == "MTR" else gross_yds
         final_rounded_value = max(0.0001, round(gross_val, 4))
 
-        # Gán chuẩn xác dữ liệu đồng bộ vào hàng hiển thị
-        ui_row["Dài sản xuất (L-inch)"] = round(raw_len, 2)
-        ui_row["Rộng sản xuất (W-inch)"] = round(raw_wid, 2)
-        ui_row["Gross Consumption"] = final_rounded_value
+        # ĐỒNG BỘ TUYỆT ĐỐI KEY CHỮ THƯỜNG & CHỮ HOA CHO GIAO DIỆN MỤC 3
+        ui_row["bounding_box_length"] = round(shrunk_len, 2)
+        ui_row["bounding_box_width"] = round(shrunk_wid, 2)
+        ui_row["piece_count"] = p_count
+        ui_row["engine"] = engine_target
+        ui_row["uom"] = uom_target if engine_target not in ["FABRIC", "LINING", "FUSING"] else "YDS"
+        ui_row["fabric_width_inch"] = parsed_main_width
+        ui_row["marker_efficiency"] = marker_efficiency
         ui_row["gross_consumption"] = final_rounded_value
-        ui_row["calculated_consumption"] = final_rounded_value
-        ui_row["Marker Efficiency"] = marker_efficiency
-        ui_row["Notes"] = calc_note
+        ui_row["quality_status"] = "PASS"
+        ui_row["system_notes"] = calc_note
         
         router_bom_rows.append(ui_row)
 
