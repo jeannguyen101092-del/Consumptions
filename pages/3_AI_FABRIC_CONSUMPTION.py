@@ -341,7 +341,7 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
         
     return total_fabric_net_area
 # =====================================================================
-# ĐOẠN 3: THUẬT TOÁN GIẢ LẬP XẾP LỒNG RẬP 2D SKYLINE CÔNG NGHIỆP
+# ĐOẠN 3: THUẬT TOÁN GIẢ LẬP XẾP LỒNG RẬP 2D SKYLINE CÔNG NGHIỆP (ĐÃ SỬA CHUẨN INDEX)
 # =====================================================================
 def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tuple:
     """
@@ -399,18 +399,18 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
                             updated_skyline.append([item_end, seg_end - item_end, seg_y])
                             
                 updated_skyline.append(new_segment)
-                skyline = sorted(updated_skyline, key=lambda s: s[0])
+                skyline = sorted(updated_skyline, key=lambda s: s[0]) # Sắp xếp chuẩn theo trục X (seg_x)
                 
-                # 🛠️ TRÍCH XUẤT CHỈ SỐ INDEX [2] ĐỂ ĐẢM BẢO AN TOÀN TUYỆT ĐỐI KHI GỘP MẢNG
+                # 🛠️ KHẮC PHỤC TRIỆT ĐỂ: Truy xuất index [1] và [2] để gộp mảng Skyline an toàn
                 merged_skyline = []
                 for seg in skyline:
                     if not merged_skyline:
                         merged_skyline.append(seg)
                     else:
                         last = merged_skyline[-1]
-                        # So sánh cao độ dọc seg_y (chỉ mục số 2) của đoạn trước và đoạn sau
+                        # So sánh cao độ dọc seg_y (vị trí index số 2) của đoạn trước và đoạn sau
                         if abs(last[2] - seg[2]) < 0.001:
-                            last[1] += seg[1] # Cộng dồn biên rộng seg_w (chỉ mục số 1)
+                            last[1] += seg[1] # Cộng dồn biên rộng seg_w (vị trí index số 1)
                         else:
                             merged_skyline.append(seg)
                 skyline = merged_skyline
