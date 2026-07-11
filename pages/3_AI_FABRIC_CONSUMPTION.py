@@ -672,34 +672,36 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         # Mặc định hiệu suất đi sơ đồ theo từng phân hệ
         marker_efficiency = 0.87 if engine_target == "FABRIC" else (0.82 if engine_target == "LINING" else 0.92)
 
-        # -----------------------------------------------------------------
+                # -----------------------------------------------------------------
         # 📐 PHÂN HỆ VẢI CHÍNH (FABRIC) & KEO MEX (FUSING) - THUẬT TOÁN CHÈN RẬP LÁCH SƠ ĐỒ
         # -----------------------------------------------------------------
         if engine_target in ["FABRIC", "FUSING"]:
             is_primary_piece = any(k in comp_name for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY"])
-            current_piece_net_area = shrunk_len * shrunk_wid * float(p_count)
             
             if is_primary_piece:
-                theoretical_marker_len_inch = total_fabric_net_area / (usable_fabric_width * marker_efficiency)
-                total_marker_length_inch = max(max_primary_len * 1.05, theoretical_marker_len_inch)
-                total_marker_gross_yds = (total_marker_length_inch / 36.0) * 1.05 * (1.0 + industrial_loss)
+                # Thuật toán chuẩn công nghiệp: Tính số lượng chi tiết có thể xếp theo chiều ngang khổ vải
+                # Khoảng trống an toàn giữa các rập là 0.2 inch
+                pieces_per_width = max(1, int(usable_fabric_width / (shrunk_wid + 0.2)))
                 
-                if total_fabric_net_area > 0:
-                    area_contribution_ratio = current_piece_net_area / total_fabric_net_area
-                    gross_yds = total_marker_gross_yds * area_contribution_ratio
-                else:
-                    gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                # Tính số hàng dọc cần thiết để xếp hết số lượng rập (p_count)
+                required_rows = math.ceil(p_count / float(pieces_per_width))
                 
-                physical_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 1.08
-                if gross_yds > physical_max_cap:
-                    gross_yds = physical_max_cap
-                calc_note = calc_note_sa + "📊 Rập lớn - Định mức tính theo khung sơ đồ phẳng"
+                # Định mức vải dựa trực tiếp trên chiều dài rập * số hàng dọc cần cắt
+                gross_yds = ((shrunk_len * required_rows) / 36.0) * (1.0 + industrial_loss)
+                
+                calc_note = calc_note_sa + f"📊 Rập chính - Xếp ngang Khổ ({pieces_per_width} Pcs/Hàng) | {required_rows} Hàng dọc"
             else:
-                gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0)) * (1.0 + industrial_loss)
-                linear_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 0.35
+                # Đối với rập nhỏ (Collar, Pocket...): Hút diện tích khoảng trống, không chiếm thêm chiều dài trục dọc bàn cắt
+                # Tỷ lệ chiếm dụng diện tích thực tế trên khổ vải hữu dụng
+                current_piece_net_area = shrunk_len * shrunk_wid * float(p_count)
+                gross_yds = (current_piece_net_area / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                
+                # Khống chế trần: Rập nhỏ lách sơ đồ tối đa không vượt quá 25% chiều dài vật lý của chính nó
+                linear_max_cap = ((shrunk_len * float(p_count)) / 36.0) * 0.25
                 if gross_yds > linear_max_cap:
                     gross_yds = linear_max_cap
-                calc_note = calc_note_sa + "🧩 Rập nhỏ - Tự động chèn lách vào khoảng trống sơ đồ gộp"
+                    
+                calc_note = calc_note_sa + "🧩 Rập nhỏ - Tự động chèn lách khoảng trống sơ đồ gộp"
 
         # 📐 PHÂN HỆ VẢI LÓT TÚI (LINING)
         elif engine_target == "LINING":
