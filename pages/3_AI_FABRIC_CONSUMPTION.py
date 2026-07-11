@@ -643,8 +643,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
         # Phân tầng chính xác mục tiêu xử lý của chi tiết rập (Đồng bộ trường engine)
         engine_target = "FABRIC"
-        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING"]): 
+        # SỬA TẠI ĐÂY: Thêm "BAG" và "POCKET BAG" để ép lót túi sang đúng phân hệ LINING
+        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "BAG", "POCKET BAG"]): 
             engine_target = "LINING"
+
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]): 
             engine_target = "FUSING"
         elif any(k in comp_name or k in mat_class for k in ["THUN", "CHUN", "ELASTIC"]): 
