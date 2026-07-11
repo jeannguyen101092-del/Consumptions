@@ -530,7 +530,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         # =====================================================================
     # 🔥 ĐOẠN A: KHỬ TRÙNG ĐẦU VÀO & TIỀN XỬ LÝ QUÉT DIỆN TÍCH SƠ ĐỒ TỔNG CAD
     # =====================================================================
-    seen_pieces = set()
     unique_bom_rows = []
     router_bom_rows = [] # Reset sạch biến tích lũy tránh lặp dòng dồn State
     
@@ -546,89 +545,100 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         if isinstance(worker, dict): source_rows = worker.get("bom_rows", [])
         elif isinstance(worker, list): source_rows = worker
 
-    # Nếu dữ liệu rập thô hoàn toàn trống, tự nạp dữ liệu mẫu phòng vệ
     if not source_rows:
-        source_rows = [
-            {"component_name": "THÂN TRƯỚC (FRONT PANEL)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 26.5},
-            {"component_name": "THÂN SAU (BACK PANEL)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 31.5, "bounding_box_width": 26.5},
-            {"component_name": "TAY ÁO (SLEEVE)", "material_class": "FABRIC", "piece_count": 2, "bounding_box_length": 33.5, "bounding_box_width": 14.0},
-            {"component_name": "FRONT PLACKET INTERL FUSING", "material_class": "FUSING", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 2.0}
-        ]
+        raise ValueError("❌ [CRITICAL ERROR] Dữ liệu danh mục rập CAD (BOM Rows) hoàn toàn trống. Không thể tính định mức.")
 
-    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Xóa sạch toàn bộ Phụ liệu và Passan)
+    # 🧹 BƯỚC 2: BỘ LỌC PHÂN LOẠI & LOẠI BỎ PHỤ LIỆU RỜI (Không khử trùng gộp dòng của Gerber)
     for row in source_rows:
         if not row or not isinstance(row, dict): continue
         
-        c_name_raw = row.get("Component Name", row.get("component_name", row.get("Component", "UNNAMED")))
-        m_class_raw = row.get("Material Class", row.get("material_class", row.get("Material", "FABRIC")))
+        c_name_raw = row.get("component_name", row.get("Component Name", row.get("Component", "UNNAMED")))
+        m_class_raw = row.get("material_class", row.get("Material Class", row.get("Material", "FABRIC")))
         
         r_name = " ".join(str(c_name_raw).upper().split()).strip()
         r_mat = " ".join(str(m_class_raw).upper().split()).strip()
         
         if not r_name: continue
         
-        # ✂️ VAN CHẶN PHỤ LIỆU CÔNG NGHIỆP: Loại bỏ hoàn toàn phụ liệu đóng gói, phụ liệu may mặc rời, passan
+        # Van chặn phụ liệu rời, phụ liệu đếm chiếc (Phòng mua hàng tự tính theo cây riêng)
         EXCLUDE_KEYWORDS = [
-            "LOOP", "BELT LOOP", "PASSAN", "TRIM", "THREAD", "CHỈ", "ELASTIC", "CHUN", "THUN",
-            "TAPE", "TWILL TAPE", "CLOSURE", "SCOOP", "PULLER", "ZIPPER", "BUTTON", "NÚT", 
-            "LABEL", "MÁC", "TAG", "HANGTAG", "POLYBAG", "THÙNG", "CARTON", "STICKER"
+            "LOOP", "BELT LOOP", "PASSAN", "TRIM", "THREAD", "CHỈ", "ZIPPER", "BUTTON", "NÚT", 
+            "LABEL", "MÁC", "TAG", "HANGTAG", "POLYBAG", "THÙNG", "CARTON", "STICKER", "CLOSURE", "PULLER"
         ]
         if any(k in r_name for k in EXCLUDE_KEYWORDS) or any(k in r_mat for k in EXCLUDE_KEYWORDS):
             continue
             
-        absolute_key = (r_name, r_mat)
-        
-        if absolute_key in seen_pieces:
-            continue  
-        seen_pieces.add(absolute_key)
-        
+        # Giữ nguyên cấu trúc dòng độc lập từ hệ thống CAD/PLM truyền sang (Tuyệt đối không chạy seen_pieces gộp dòng)
         row["component_name"] = c_name_raw
         row["material_class"] = m_class_raw
         unique_bom_rows.append(row)
 
-    # 📊 BƯỚC 3: TIỀN XỬ LÝ - QUÉT TỔNG DIỆN TÍCH SƠ ĐỒ CHUNG (Đã áp lọc Half-Width Thân)
+    # 📊 BƯỚC 3: TIỀN XỬ LÝ - QUÉT TỔNG DIỆN TÍCH SƠ ĐỒ THỰC TẾ (GEOMETRY-DRIVEN SCAN)
     total_fabric_net_area = 0.0
     max_primary_len = 0.0
     
     warp_shrink_factor = warp_shrink_factor if 'warp_shrink_factor' in locals() else 1.03
     weft_shrink_factor = weft_shrink_factor if 'weft_shrink_factor' in locals() else 1.03
     industrial_loss = industrial_loss if 'industrial_loss' in locals() else 0.043
-    product_type = product_type if 'product_type' in locals() else "DEFAULT"
     
     parsed_main_width = parsed_main_width if 'parsed_main_width' in locals() else 57.0
     usable_fabric_width = parsed_main_width - 1.2
+
+    # Danh sách từ khóa mở rộng đại diện cho phân hệ Vải chính / Vải phối cắt sơ đồ gộp
+    MAIN_FABRIC_KEYWORDS = ["FABRIC", "SHELL", "MAIN", "CONTRAST", "PHỐI", "RIB", "WAISTBAND", "CUFF", "BO", "CẠP"]
 
     for r_scan in unique_bom_rows:
         comp_scan = str(r_scan.get("component_name", r_scan.get("Component Name", ""))).upper()
         mat_scan = str(r_scan.get("material_class", r_scan.get("Material Class", ""))).upper()
         
-        # Chỉ quét tính toán diện tích cho hệ vải chính thực tế
-        is_fab = not any(k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "BAG"])
-        if is_fab:
+        # Kiểm tra xem chi tiết có thuộc nhóm Vải chính/Vải phối không (loại trừ keo, lót túi)
+        is_main_fabric = any(k in mat_scan or k in comp_scan for k in MAIN_FABRIC_KEYWORDS) and not any(
+            k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "BAG"]
+        )
+        
+        if is_main_fabric:
+            # 📐 ƯU TIÊN DIỆN TÍCH POLYGON THỰC (NET AREA) TỪ GERBER ACCUMARK
+            net_area_polygon = r_scan.get("net_area", r_scan.get("polygon_area"))
+            
             try:
-                l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", r_scan.get("Dài sản xuất (L-Inch)", 25.0)))) * warp_shrink_factor
-                w_s = float(r_scan.get("bounding_box_width", r_scan.get("width", r_scan.get("Rộng sản xuất (W-Inch)", 12.0))))
+                l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", r_scan.get("Dài sản xuất (L-Inch)", 0.0)))) * warp_shrink_factor
+                w_s = float(r_scan.get("bounding_box_width", r_scan.get("width", r_scan.get("Rộng sản xuất (W-Inch)", 0.0))))
                 
                 try: c_s = int(float(r_scan.get("piece_count", r_scan.get("Số lượng rập (Pcs)", 1))))
                 except: c_s = 1
                 
-                # Khử bẫy thông số nửa vòng của Thân ngay bước quét tổng diện tích sơ đồ lớn
-                if any(k in comp_scan for k in ["FRONT", "BACK", "BODY", "THÂN"]):
-                    if c_s >= 2:
-                        w_s = w_s / 2.0
-                        
+                # ✂️ KHÔNG CHIA ĐÔI MẶC ĐỊNH: Chỉ chia chiều rộng khi có cờ xác nhận rập mở đôi/nửa vòng từ CAD
+                is_half_width = r_scan.get("is_half_width", r_scan.get("is_folded", r_scan.get("is_mirrored", False)))
+                if is_half_width and c_s >= 2:
+                    w_s = w_s / 2.0
+
                 w_s = w_s * weft_shrink_factor
-                if l_s <= 0: l_s = 25.0
-                if w_s <= 0: w_s = 12.0
                 
-                total_fabric_net_area += (l_s * w_s * c_s)
+                # Tính toán diện tích dòng
+                if net_area_polygon is not None and float(net_area_polygon) > 0:
+                    # Nếu có dữ liệu hình học phẳng polygon thực tế diện tích, ưu tiên sử dụng trực tiếp
+                    current_line_area = float(net_area_polygon) * warp_shrink_factor * weft_shrink_factor * c_s
+                else:
+                    # Fallback về bounding box hình học nếu thiếu hụt thông tin polygon area
+                    if l_s <= 0 or w_s <= 0:
+                        raise ValueError(f"❌ [CAD GEOMETRY ERROR] Chi tiết {comp_scan} thiếu hụt thông số kích thước hình học Bounding Box.")
+                    current_line_area = (l_s * w_s * c_s)
+                
+                if current_line_area <= 0:
+                    raise ValueError(f"❌ [CAD AREA ERROR] Chi tiết {comp_scan} tính toán ra diện tích phẳng bằng 0 hoặc âm.")
+                    
+                total_fabric_net_area += current_line_area
                 if l_s > max_primary_len: max_primary_len = l_s
-            except: 
+            except ValueError as ve:
+                raise ve
+            except:
                 pass
 
-    if total_fabric_net_area <= 0: total_fabric_net_area = 400.0
-    if max_primary_len <= 0: max_primary_len = 32.0
-
+    # 🔒 KHÔNG DÙNG GIÁ TRỊ PHÒNG VỆ 400.0: Nếu diện tích vải chính quét ra bằng 0, báo lỗi dừng pipeline lập tức
+    if total_fabric_net_area <= 0:
+        raise ValueError("❌ [CAD INTERFACE ERROR] Tổng diện tích quét sơ đồ phẳng bằng 0. Vui lòng kiểm tra lại tệp xuất rập hình học.")
+    if max_primary_len <= 0:
+        max_primary_len = 32.0
 
 
     # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - THUẬT TOÁN CHÈN RẬP NHỎ VÀO KHOẢNG TRỐNG SƠ ĐỒ GỘP (NESTING)
