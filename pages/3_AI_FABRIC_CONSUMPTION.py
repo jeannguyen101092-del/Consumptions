@@ -418,21 +418,29 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
 
     total_marker_len_inch = max([s[2] for s in skyline]) if skyline else 0.0
     return placed_positions, total_marker_len_inch
-def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float, weft_shrink_factor: float, industrial_loss: float) -> list:
+def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.04, industrial_loss: float = 0.043) -> list:
     """
     ĐOẠN 4: QUY ĐỔI ĐỊNH MỨC THEO CHIỀU DỌC CHIẾM DỤNG THỰC TẾ & ĐỒNG BỘ UI
     """
+    import streamlit as st
     nesting_pool = []
     router_bom_rows = []
+
+    # 🔒 PHÒNG VỆ AN TOÀN: Nếu các hệ số truyền vào bị lỗi hoặc bằng 0, tự động ép cấu hình chuẩn nhà máy
+    if not warp_shrink_factor or warp_shrink_factor <= 1.0: warp_shrink_factor = 1.03
+    if not weft_shrink_factor or weft_shrink_factor <= 1.0: weft_shrink_factor = 1.04
+    if not industrial_loss or industrial_loss <= 0: industrial_loss = 0.043
+    if not parsed_main_width or parsed_main_width <= 0: parsed_main_width = 56.0
+    if not usable_fabric_width or usable_fabric_width <= 0: usable_fabric_width = parsed_main_width - 1.2
 
     # Chuẩn bị dữ liệu rập co rút hình học
     for row in unique_bom_rows:
         ui_row = copy.deepcopy(row)
-        comp_name = str(ui_row.get("component_name", "")).upper().strip()
-        mat_class = str(ui_row.get("material_class", "")).upper().strip()
+        comp_name = str(ui_row.get("component_name", ui_row.get("Component Name", "UNNAMED"))).upper().strip()
+        mat_class = str(ui_row.get("material_class", ui_row.get("Material Class", "FABRIC"))).upper().strip()
         uom_target = str(ui_row.get("uom", ui_row.get("UOM", "YDS"))).upper().strip()
         
-        try: p_count = int(float(ui_row.get("piece_count", 1)))
+        try: p_count = int(float(ui_row.get("piece_count", ui_row.get("Số lượng rập (Pcs)", 1))))
         except: p_count = 1
 
         engine_target = "FABRIC"
@@ -441,9 +449,13 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]): 
             engine_target = "FUSING"
 
-        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", 25.0)))
-        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", 12.0)))
+        # Đọc linh hoạt toàn bộ các kiểu Key kích thước đầu vào của Dataframe
+        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", ui_row.get("Dài sản xuất (L-inch)", 25.0)))))
+        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", ui_row.get("Rộng sản xuất (W-inch)", 12.0)))))
         
+        if raw_len <= 0: raw_len = 25.0
+        if raw_wid <= 0: raw_wid = 12.0
+
         shrunk_len = (raw_len + 1.0) * warp_shrink_factor
         shrunk_wid = (raw_wid + 1.0) * weft_shrink_factor
         
@@ -453,7 +465,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             "area": shrunk_len * shrunk_wid, "raw_len": raw_len, "raw_wid": raw_wid
         })
 
-    # Chạy tính toán phân bổ dòng
+    # Chạy tính toán phân bổ dòng hình học Skyline
     for target_class in ["FABRIC", "LINING", "FUSING"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
@@ -476,6 +488,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
                 
                 calc_note = f"🧩 Skyline Nesting - Chiều dọc chiếm dụng thực tế: {round(effective_occupied_length, 1)} Inch"
             else:
+                # Nếu hốc xếp Skyline bị lỗi biên rộng, áp dụng van cứu hộ diện tích phẳng an toàn
                 gross_yds = (it["area"] / (usable_fabric_width * 36.0)) * (1.0 + industrial_loss)
                 calc_note = "⚠️ Fallback - Diện tích bao quát"
 
@@ -486,7 +499,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             ui_row["bounding_box_width"] = round(it["shrunk_wid"], 2)
             ui_row["piece_count"] = it["p_count"]
             ui_row["engine"] = it["engine_target"]
-            ui_row["uom"] = it["uom_target"] if it["engine_target"] not in ["FABRIC", "LINING", "FUSING"] else "YDS"
+            ui_row["uom"] = "YDS" # Ép chuẩn đơn vị Yard để đồng bộ hàm tính bảng Summary gộp mua hàng
             ui_row["fabric_width_inch"] = parsed_main_width
             ui_row["marker_efficiency"] = marker_efficiency
             ui_row["gross_consumption"] = final_rounded_value
@@ -496,7 +509,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
-
 
 
 
