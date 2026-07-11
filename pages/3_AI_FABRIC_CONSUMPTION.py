@@ -348,7 +348,7 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
     Tính khoảng trống hình học tự động lách rập nhỏ vào khoảng trống rập lớn.
     """
     sorted_items = sorted(items, key=lambda x: x["area"], reverse=True)
-    skyline = [[0.0, bin_width, 0.0]] # Phân đoạn: [seg_x, seg_w, seg_y]
+    skyline = [[0.0, bin_width, 0.0]] # Cấu trúc mỗi đoạn: [seg_x, seg_w, seg_y]
     placed_positions = []
 
     for item in sorted_items:
@@ -401,16 +401,16 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
                 updated_skyline.append(new_segment)
                 skyline = sorted(updated_skyline, key=lambda s: s[0])
                 
-                # 🛠️ SỬA LỖI TẠI ĐÂY: Gộp các phân đoạn chân trời kề nhau nếu có cùng cao độ dọc an toàn
+                # 🛠️ TRÍCH XUẤT CHỈ SỐ INDEX [2] ĐỂ ĐẢM BẢO AN TOÀN TUYỆT ĐỐI KHI GỘP MẢNG
                 merged_skyline = []
                 for seg in skyline:
                     if not merged_skyline:
                         merged_skyline.append(seg)
                     else:
                         last = merged_skyline[-1]
-                        # So sánh cao độ dọc seg_y của đoạn trước và đoạn sau (phần tử chỉ mục số 2)
+                        # So sánh cao độ dọc seg_y (chỉ mục số 2) của đoạn trước và đoạn sau
                         if abs(last[2] - seg[2]) < 0.001:
-                            last[1] += seg[1] # Cộng dồn biên rộng seg_w
+                            last[1] += seg[1] # Cộng dồn biên rộng seg_w (chỉ mục số 1)
                         else:
                             merged_skyline.append(seg)
                 skyline = merged_skyline
