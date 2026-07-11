@@ -527,7 +527,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     blueprint_processed_output["bom_rows"] = router_bom_rows
     return blueprint_processed_output
         # =====================================================================
-      # =====================================================================
+        # =====================================================================
     # 🔥 ĐOẠN A: KHỬ TRÙNG ĐẦU VÀO & TIỀN XỬ LÝ QUÉT DIỆN TÍCH SƠ ĐỒ TỔNG CAD
     # =====================================================================
     seen_pieces = set()
@@ -555,7 +555,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             {"component_name": "FRONT PLACKET INTERL FUSING", "material_class": "FUSING", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 2.0}
         ]
 
-    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Quét bẫy lỗi chính tả và loại bỏ Passan)
+    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Xóa sạch toàn bộ Phụ liệu và Passan)
     for row in source_rows:
         if not row or not isinstance(row, dict): continue
         
@@ -567,8 +567,13 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         
         if not r_name: continue
         
-        # ✂️ SỬA LỖI CHÍNH TẢ TẠI ĐÂY: Thêm "BELT LOOP", "LOOP", "PASSAN" để quét sạch toàn bộ biến thể
-        if any(k in r_name for k in ["LOOP", "BELT LOOP", "PASSAN"]):
+        # ✂️ VAN CHẶN PHỤ LIỆU CÔNG NGHIỆP: Loại bỏ hoàn toàn phụ liệu đóng gói, phụ liệu may mặc rời, passan
+        EXCLUDE_KEYWORDS = [
+            "LOOP", "BELT LOOP", "PASSAN", "TRIM", "THREAD", "CHỈ", "ELASTIC", "CHUN", "THUN",
+            "TAPE", "TWILL TAPE", "CLOSURE", "SCOOP", "PULLER", "ZIPPER", "BUTTON", "NÚT", 
+            "LABEL", "MÁC", "TAG", "HANGTAG", "POLYBAG", "THÙNG", "CARTON", "STICKER"
+        ]
+        if any(k in r_name for k in EXCLUDE_KEYWORDS) or any(k in r_mat for k in EXCLUDE_KEYWORDS):
             continue
             
         absolute_key = (r_name, r_mat)
@@ -597,7 +602,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         comp_scan = str(r_scan.get("component_name", r_scan.get("Component Name", ""))).upper()
         mat_scan = str(r_scan.get("material_class", r_scan.get("Material Class", ""))).upper()
         
-        is_fab = not any(k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "THUN", "CHUN", "ELASTIC", "THREAD", "CHỈ", "BAG"])
+        # Chỉ quét tính toán diện tích cho hệ vải chính thực tế
+        is_fab = not any(k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "BAG"])
         if is_fab:
             try:
                 l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", r_scan.get("Dài sản xuất (L-Inch)", 25.0)))) * warp_shrink_factor
