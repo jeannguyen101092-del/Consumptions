@@ -527,6 +527,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     blueprint_processed_output["bom_rows"] = router_bom_rows
     return blueprint_processed_output
         # =====================================================================
+      # =====================================================================
     # 🔥 ĐOẠN A: KHỬ TRÙNG ĐẦU VÀO & TIỀN XỬ LÝ QUÉT DIỆN TÍCH SƠ ĐỒ TỔNG CAD
     # =====================================================================
     seen_pieces = set()
@@ -554,7 +555,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             {"component_name": "FRONT PLACKET INTERL FUSING", "material_class": "FUSING", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 2.0}
         ]
 
-    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Loại bỏ Passan/Belt Loop và làm sạch chuỗi)
+    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Quét bẫy lỗi chính tả và loại bỏ Passan)
     for row in source_rows:
         if not row or not isinstance(row, dict): continue
         
@@ -566,8 +567,8 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         
         if not r_name: continue
         
-        # ✂️ LOẠI BỎ PASSAN TẠI ĐÂY: Không cho Belt Loop hoặc Passan lọt vào danh sách tính toán
-        if any(k in r_name for k in ["LOOP", "PASSAN"]):
+        # ✂️ SỬA LỖI CHÍNH TẢ TẠI ĐÂY: Thêm "BELT LOOP", "LOOP", "PASSAN" để quét sạch toàn bộ biến thể
+        if any(k in r_name for k in ["LOOP", "BELT LOOP", "PASSAN"]):
             continue
             
         absolute_key = (r_name, r_mat)
@@ -621,6 +622,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     if total_fabric_net_area <= 0: total_fabric_net_area = 400.0
     if max_primary_len <= 0: max_primary_len = 32.0
+
 
 
     # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - THUẬT TOÁN CHÈN RẬP NHỎ VÀO KHOẢNG TRỐNG SƠ ĐỒ GỘP (NESTING)
