@@ -526,7 +526,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     blueprint_processed_output = copy.deepcopy(blueprint_final)
     blueprint_processed_output["bom_rows"] = router_bom_rows
     return blueprint_processed_output
-    # =====================================================================
+        # =====================================================================
     # 🔥 ĐOẠN A: KHỬ TRÙNG ĐẦU VÀO & TIỀN XỬ LÝ QUÉT DIỆN TÍCH SƠ ĐỒ TỔNG CAD
     # =====================================================================
     seen_pieces = set()
@@ -540,7 +540,6 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     elif isinstance(blueprint_final, list):
         source_rows = blueprint_final
         
-    # SỬA LỖI: Kiểm tra phòng vệ blueprint_worker từ kwargs hoặc nếu blueprint_final trống
     if not source_rows and 'blueprint_worker' in kwargs:
         worker = kwargs.get('blueprint_worker')
         if isinstance(worker, dict): source_rows = worker.get("bom_rows", [])
@@ -555,7 +554,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
             {"component_name": "FRONT PLACKET INTERL FUSING", "material_class": "FUSING", "piece_count": 2, "bounding_box_length": 32.0, "bounding_box_width": 2.0}
         ]
 
-    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Làm sạch chuỗi, loại bỏ khoảng trắng dư thừa)
+    # 🧹 BƯỚC 2: BỘ LỌC KHỬ TRÙNG TUYỆT ĐỐI (Loại bỏ Passan/Belt Loop và làm sạch chuỗi)
     for row in source_rows:
         if not row or not isinstance(row, dict): continue
         
@@ -566,13 +565,17 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         r_mat = " ".join(str(m_class_raw).upper().split()).strip()
         
         if not r_name: continue
+        
+        # ✂️ LOẠI BỎ PASSAN TẠI ĐÂY: Không cho Belt Loop hoặc Passan lọt vào danh sách tính toán
+        if any(k in r_name for k in ["LOOP", "PASSAN"]):
+            continue
+            
         absolute_key = (r_name, r_mat)
         
         if absolute_key in seen_pieces:
             continue  
         seen_pieces.add(absolute_key)
         
-        # SỬA LỖI ĐỒNG BỘ KEY: Chuẩn hóa lại cấu trúc Key chữ thường để đồng bộ với Đoạn 7b Mục 3
         row["component_name"] = c_name_raw
         row["material_class"] = m_class_raw
         unique_bom_rows.append(row)
@@ -581,13 +584,11 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     total_fabric_net_area = 0.0
     max_primary_len = 0.0
     
-    # SỬA LỖI BẪY BIẾN CỤ CỤC BỘ (NameError): Kế thừa trực tiếp hệ số đã bóc tách an toàn ở đầu hàm
     warp_shrink_factor = warp_shrink_factor if 'warp_shrink_factor' in locals() else 1.03
     weft_shrink_factor = weft_shrink_factor if 'weft_shrink_factor' in locals() else 1.03
     industrial_loss = industrial_loss if 'industrial_loss' in locals() else 0.043
     product_type = product_type if 'product_type' in locals() else "DEFAULT"
     
-    # SỬA LỖI ĐỒNG BỘ KHỔ VẢI: Sử dụng thông số parsed_main_width từ câu lệnh chat đã regex thành công
     parsed_main_width = parsed_main_width if 'parsed_main_width' in locals() else 57.0
     usable_fabric_width = parsed_main_width - 1.2
 
@@ -595,17 +596,14 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
         comp_scan = str(r_scan.get("component_name", r_scan.get("Component Name", ""))).upper()
         mat_scan = str(r_scan.get("material_class", r_scan.get("Material Class", ""))).upper()
         
-        is_fab = not any(k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "THUN", "CHUN", "ELASTIC", "THREAD", "CHỈ"])
+        is_fab = not any(k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "THUN", "CHUN", "ELASTIC", "THREAD", "CHỈ", "BAG"])
         if is_fab:
             try:
-                # SỬA LỖI TRUY XUẤT KEY: Đọc linh hoạt cả kiểu snake_case lẫn dạng hiển thị tiếng Việt của DataFrame
                 l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", r_scan.get("Dài sản xuất (L-Inch)", 25.0)))) * warp_shrink_factor
                 w_s = float(r_scan.get("bounding_box_width", r_scan.get("width", r_scan.get("Rộng sản xuất (W-Inch)", 12.0))))
                 
-                try: 
-                    c_s = int(float(r_scan.get("piece_count", r_scan.get("Số lượng rập (Pcs)", 1))))
-                except: 
-                    c_s = 1
+                try: c_s = int(float(r_scan.get("piece_count", r_scan.get("Số lượng rập (Pcs)", 1))))
+                except: c_s = 1
                 
                 # Khử bẫy thông số nửa vòng của Thân ngay bước quét tổng diện tích sơ đồ lớn
                 if any(k in comp_scan for k in ["FRONT", "BACK", "BODY", "THÂN"]):
@@ -623,6 +621,7 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
 
     if total_fabric_net_area <= 0: total_fabric_net_area = 400.0
     if max_primary_len <= 0: max_primary_len = 32.0
+
 
     # 🔥 ĐOẠN B: VÒNG LẶP CHÍNH CAD ROUTER - THUẬT TOÁN CHÈN RẬP NHỎ VÀO KHOẢNG TRỐNG SƠ ĐỒ GỘP (NESTING)
     # =====================================================================
