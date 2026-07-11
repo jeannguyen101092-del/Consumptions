@@ -341,14 +341,14 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
         
     return total_fabric_net_area
 # =====================================================================
-# ĐOẠN 3: THUẬT TOÁN GIẢ LẬP XẾP LỒNG RẬP 2D SKYLINE CÔNG NGHIỆP
+# ĐOẠN 3: THUẬT TOÁN GIẢ LẬP XẾP LỒNG RẬP 2D SKYLINE CÔNG NGHIỆP (ĐÃ SỬA LỖI MẢNG)
 # =====================================================================
 def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tuple:
     """
     Tính khoảng trống hình học tự động lách rập nhỏ vào khoảng trống rập lớn.
     """
     sorted_items = sorted(items, key=lambda x: x["area"], reverse=True)
-    skyline = [[0.0, bin_width, 0.0]]
+    skyline = [[0.0, bin_width, 0.0]] # Cấu trúc mỗi đoạn: [seg_x, seg_w, seg_y]
     placed_positions = []
 
     for item in sorted_items:
@@ -366,11 +366,12 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
                 max_y_in_range = seg_y
                 scan_idx = idx
                 
+                # 🛠️ SỬA LỖI TẠI ĐÂY: bóc tách chính xác phần tử seg_w (chiều rộng) để cộng dồn
                 while scan_idx < len(skyline) and current_width_fitted < w_item:
-                    scan_seg = skyline[scan_idx]
-                    current_width_fitted += scan_seg
-                    if scan_seg > max_y_in_range:
-                        max_y_in_range = scan_seg
+                    scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
+                    current_width_fitted += scan_seg_w
+                    if scan_seg_y > max_y_in_range:
+                        max_y_in_range = scan_seg_y
                     scan_idx += 1
                     
                 if current_width_fitted >= w_item:
@@ -399,26 +400,29 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
                             updated_skyline.append([item_end, seg_end - item_end, seg_y])
                             
                 updated_skyline.append(new_segment)
-                skyline = sorted(updated_skyline, key=lambda s: s)
+                skyline = sorted(updated_skyline, key=lambda s: s[0]) # Sắp xếp theo trục x
                 
+                # Làm sạch và gộp các chân trời kề nhau cùng độ cao dọc
                 merged_skyline = []
                 for seg in skyline:
                     if not merged_skyline:
                         merged_skyline.append(seg)
                     else:
                         last = merged_skyline[-1]
-                        if abs((last + last) - seg) < 0.001 and abs(last - seg) < 0.001:
-                            last += seg
+                        # So sánh cao độ y của đoạn trước và đoạn sau
+                        if abs(last[2] - seg[2]) < 0.001:
+                            last[1] += seg[1] # Gộp chiều rộng nếu cùng độ cao dọc
                         else:
                             merged_skyline.append(seg)
                 skyline = merged_skyline
             else:
-                max_current_y = max([s for s in skyline]) if skyline else 0.0
+                max_current_y = max([s[2] for s in skyline]) if skyline else 0.0
                 placed_positions.append({"item": item, "x": 0.0, "y": max_current_y, "w": w_item, "l": l_item})
                 skyline = [[0.0, bin_width, max_current_y + l_item]]
 
-    total_marker_len_inch = max([s for s in skyline]) if skyline else 0.0
+    total_marker_len_inch = max([s[2] for s in skyline]) if skyline else 0.0
     return placed_positions, total_marker_len_inch
+
 # =====================================================================
 # ĐOẠN 4: QUY ĐỔI ĐỊNH MỨC AXIS CHIẾM DỤNG & ĐỒNG BỘ UI DATAFRAME
 # =====================================================================
