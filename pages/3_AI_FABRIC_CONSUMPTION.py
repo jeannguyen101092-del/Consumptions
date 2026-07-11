@@ -422,6 +422,7 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
     total_marker_len_inch = max([s[2] for s in skyline]) if skyline else 0.0
     return placed_positions, total_marker_len_inch
 
+
 # =====================================================================
 # ĐOẠN 4: QUY ĐỔI ĐỊNH MỨC AXIS CHIẾM DỤNG & ĐỒNG BỘ UI DATAFRAME
 # =====================================================================
