@@ -474,7 +474,8 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
        # =====================================================================
       # =====================================================================
         # =====================================================================
-    # ĐOẠN 3 NÂNG CẤP CHUYÊN NGHIỆP: BENCHMARK PROFILE & REGRESSION LEARNING
+        # =====================================================================
+    # ĐOẠN 3 SỬA LỖI NAMEERROR: BENCHMARK PROFILE & REGRESSION LEARNING
     # =====================================================================
     
     # 🔴 HỒ SƠ THAM CHIẾU HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP (INDUSTRY BENCHMARK PROFILE)
@@ -485,8 +486,11 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         "KNIT":    {"FABRIC": (0.86, 0.90), "LINING": (0.80, 0.85), "FUSING": (0.87, 0.89)}
     }
 
-    # Xác định dòng hàng động dựa trên chỉ số dồn ép hình học (Packing Index) đã tính ở Đoạn trước
-    # Hoặc dựa trên từ khóa chi tiết rập để ánh xạ chính xác vào PROFILE
+    # 🛠️ VÁ LỖI ĐỊNH NGHĨA BIẾN: Khởi tạo biến nhận diện loại sản phẩm từ danh sách rập đầu vào
+    all_comp_names_lower = [str(it["comp_name"]).upper() for it in nesting_pool]
+    is_shirt_product = any(k in name for name in all_comp_names_lower for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
+
+    # Xác định dòng hàng động dựa trên đặc trưng hình học và từ khóa chi tiết rập
     garment_type = "JACKET" if is_shirt_product else "TROUSER"
     if not is_shirt_product and any("KNIT" in str(r.get("material_class", "")).upper() for r in unique_bom_rows):
         garment_type = "KNIT"
@@ -511,7 +515,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         
         if raw_marker_area > 0:
             calculated_eff = total_poly_area_sum / raw_marker_area
-            # Phòng vệ sai số chia phẳng tuyệt đối của thuật toán hình học
             calculated_eff = max(0.50, min(0.98, calculated_eff))
         else:
             calculated_eff = 0.85
@@ -534,17 +537,12 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         shrunk_marker_length = raw_marker_length * warp_shrink_factor
 
         # 5. BỘ HỒI QUY HIỆU CHỈNH TỰ ĐỘNG THEO SAI LỆCH BENCHMARK (REGRESSION LEARNING ENGINE)
-        # Thay vì nhân hệ số cố định, thuật toán tự tính độ lệch giữa CAD thực tế và trung điểm của khoảng chuẩn (Benchmark Midpoint)
-        # Mục đích để bù đắp phần hao hụt lãng phí thực tế ngoài xưởng cắt nếu sơ đồ phẳng lách quá lý tưởng
         benchmark_midpoint = (low_bound + high_bound) / 2.0
         
         if calculated_eff < benchmark_midpoint:
-            # Nếu hiệu suất hình học kém, hệ số hồi quy tự động tăng lên để bù vải an toàn (Regression Factor > 1.0)
             regression_calibration_factor = benchmark_midpoint / calculated_eff
-            # Khống chế trần hồi quy tối đa để tránh bùng nổ định mức (Tối đa bù 7%)
             regression_calibration_factor = min(1.07, regression_calibration_factor)
         else:
-            # Nếu sơ đồ đã lách cực tốt, hệ số hồi quy tiệm cận biên an toàn tối thiểu của nhà máy
             regression_calibration_factor = 1.015 
 
         # 6. TÍNH TOÁN ĐỊNH MỨC TỔNG THEO YARDS
@@ -564,21 +562,21 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
                 gross_yds = min_secure_cap
 
             ui_row = it["ui_row"]
-            # Phản ánh chính xác kích thước sau co rút lên DataFrame UI
             ui_row["bounding_box_length"] = round(it["raw_len"] * warp_shrink_factor, 2)
             ui_row["bounding_box_width"] = round(it["raw_wid"] * weft_shrink_factor, 2)
             ui_row["piece_count"] = it["p_count"]
             ui_row["engine"] = it["engine_target"]
             ui_row["uom"] = "YDS"
             ui_row["fabric_width_inch"] = parsed_main_width
-            ui_row["marker_efficiency"] = round(calculated_eff, 2)  # Trả về kết quả CAD thực tế 100%
+            ui_row["marker_efficiency"] = round(calculated_eff, 2)  
             ui_row["gross_consumption"] = max(0.005, round(gross_yds, 4))
-            ui_row["quality_status"] = quality_status  # Gán trạng thái PASS/WARNING động lên bảng UI
+            ui_row["quality_status"] = quality_status  
             ui_row["system_notes"] = system_notes_status
             
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+
 
 
 
