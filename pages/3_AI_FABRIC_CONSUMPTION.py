@@ -257,15 +257,15 @@ def preprocess_bom_and_execute(agent_output_json: dict, product_type: str) -> li
 
 def step_1_sanitize_and_filter_accessories(source_rows: list) -> list:
     """
-    Loại bỏ hoàn toàn phụ liệu đóng gói rời, nhãn mác.
-    Giữ lại đỉa quần (Belt Loop) và chỉ may (Thread) để tính toán định mức đầy đủ trên giao diện.
+    Loại bỏ hoàn toàn chỉ may, khóa kéo, nút và các phụ liệu rời đóng gói.
+    Hỗ trợ dò tìm tiêu đề cột tiếng Việt để chặn triệt để, không cho phụ liệu lọt lưới làm kéo định mức về 0.
     """
     import copy
     unique_bom_rows = []
     
-    # Chỉ chặn phụ liệu đóng gói, nhãn mác không liên quan đến sơ đồ rập hình học
+    # Danh sách từ khóa phụ liệu bắt buộc phải chặn nghiêm ngặt
     EXCLUDE_KEYWORDS = [
-        "PASSAN", "TRIM", "ZIPPER", "BUTTON", "NÚT", 
+        "THREAD", "CHỈ", "ZIPPER", "KÉO", "DÂY KÉO", "BUTTON", "NÚT", "PASSAN", "TRIM",
         "LABEL", "MÁC", "TAG", "HANGTAG", "POLYBAG", "THÙNG", "CARTON", "STICKER", "CLOSURE", "PULLER"
     ]
     
@@ -273,70 +273,73 @@ def step_1_sanitize_and_filter_accessories(source_rows: list) -> list:
         if not row or not isinstance(row, dict): 
             continue
         
-        # Tạo bản sao viết hoa toàn bộ Key để tra cứu không phân biệt chữ hoa/thường hoặc khoảng trắng
+        # 1. Chuẩn hóa viết hoa toàn bộ Key và Value để quét tiếng Việt chuẩn xác
         row_upper = {str(k).strip().upper(): v for k, v in row.items()}
         
-        c_name_raw = row_upper.get("COMPONENT_NAME", row_upper.get("COMPONENT", row.get("component_name", row.get("Component Name", "UNNAMED"))))
-        m_class_raw = row_upper.get("MATERIAL_CLASS", row_upper.get("MATERIAL", row.get("material_class", row.get("Material Class", "FABRIC"))))
+        # Dò tìm cột Tên chi tiết (Component Name) hỗ trợ cả tiếng Anh lẫn tiếng Việt
+        c_name_raw = row_upper.get("COMPONENT_NAME", row_upper.get("COMPONENT", 
+                     row_upper.get("TÊN CHI TIẾT", row_upper.get("CHI TIẾT RẬP", 
+                     row.get("component_name", row.get("Component Name", "UNNAMED"))))))
         
-        # Ép kiểu số lượng rập an toàn, mặc định bằng 1 nếu trống (tránh nhân với số 0)
-        p_count_raw = row_upper.get("PIECE_COUNT", row_upper.get("SỐ LƯỢNG RẬP (PCS)", 1))
-        try:
-            p_count_raw = int(float(str(p_count_raw).strip())) if p_count_raw else 1
-        except ValueError:
-            p_count_raw = 1
+        # Dò tìm cột Nhóm nguyên liệu (Material Class) hỗ trợ cả tiếng Anh lẫn tiếng Việt
+        m_class_raw = row_upper.get("MATERIAL_CLASS", row_upper.get("MATERIAL", 
+                      row_upper.get("NHÓM NGUYÊN LIỆU", row_upper.get("NGUYÊN LIỆU", 
+                      row.get("material_class", row.get("Material Class", "FABRIC"))))))
         
-        # Lấy kích thước rập theo đúng định dạng văn bản trên UI, ép kiểu số thực float
+        # Lấy số lượng rập (Pcs)
+        p_count_raw = row_upper.get("PIECE_COUNT", row_upper.get("SỐ LƯỢNG RẬP (PCS)", row_upper.get("SỐ LƯỢNG", 1)))
+        try: p_count_raw = int(float(str(p_count_raw).strip())) if p_count_raw else 1
+        except: p_count_raw = 1
+        
+        # Lấy kích thước rập bao chữ nhật
         r_len_raw = row_upper.get("BOUNDING_BOX_LENGTH", row_upper.get("LENGTH", row_upper.get("DÀI SẢN XUẤT (L-INCH)", 0.0)))
         r_wid_raw = row_upper.get("BOUNDING_BOX_WIDTH", row_upper.get("WIDTH", row_upper.get("RỘNG SẢN XUẤT (W-INCH)", 0.0)))
         
-        try:
-            r_len_raw = float(str(r_len_raw).strip())
-            r_wid_raw = float(str(r_wid_raw).strip())
-        except ValueError:
-            r_len_raw = 0.0
-            r_wid_raw = 0.0
+        try: r_len_raw = float(str(r_len_raw).strip())
+        except: r_len_raw = 0.0
+        try: r_wid_raw = float(str(r_wid_raw).strip())
+        except: r_wid_raw = 0.0
         
+        # Biến chuỗi văn bản sạch để so sánh từ khóa chặn phụ liệu
         r_name = " ".join(str(c_name_raw).upper().split()).strip()
         r_mat = " ".join(str(m_class_raw).upper().split()).strip()
         
         if not r_name: 
             continue
-        
-        # Kiểm tra điều kiện loại trừ phụ liệu đóng gói
+            
+        # 🛠️ KIỂM TRA CHẶN NGHIÊM NGẶT: Nếu thuộc nhóm THREAD hoặc chứa từ khóa phụ liệu -> Xóa lập tức
         if any(k in r_name for k in EXCLUDE_KEYWORDS) or any(k in r_mat for k in EXCLUDE_KEYWORDS):
             continue
             
-        # ÉP ĐỒNG BỘ TOÀN DIỆN MỌI KHÓA DỮ LIỆU ĐẦU RA CHO CÁC BƯỚC SAU
+        # Nếu chi tiết rập có kích thước bằng 0 (lỗi file đầu vào), bỏ qua để tránh phá hỏng sơ đồ lồng ghép
+        if r_len_raw <= 0 or r_wid_raw <= 0:
+            continue
+            
+        # ÉP ĐỒNG BỘ TOÀN DIỆN MỌI KHÓA DỮ LIỆU ĐẦU RA SẠCH CHO CÁC STEP SAU
         clean_row = copy.deepcopy(row)
-        
         clean_row["component_name"] = c_name_raw
         clean_row["Component Name"] = c_name_raw
-        clean_row["Component"] = c_name_raw
         
         clean_row["material_class"] = m_class_raw
         clean_row["Material Class"] = m_class_raw
-        clean_row["Material"] = m_class_raw
         
         clean_row["piece_count"] = p_count_raw
         clean_row["Số lượng rập (Pcs)"] = p_count_raw
         
         clean_row["bounding_box_length"] = r_len_raw
-        clean_row["length"] = r_len_raw
-        clean_row["Dài sản xuất (L-Inch)"] = r_len_raw
         clean_row["Dài sản xuất (L-inch)"] = r_len_raw
+        clean_row["Dài sản xuất (L-Inch)"] = r_len_raw
         
         clean_row["bounding_box_width"] = r_wid_raw
-        clean_row["width"] = r_wid_raw
-        clean_row["Rộng sản xuất (W-Inch)"] = r_wid_raw
         clean_row["Rộng sản xuất (W-inch)"] = r_wid_raw
+        clean_row["Rộng sản xuất (W-Inch)"] = r_wid_raw
         
-        # Giữ lại diện tích đa giác gốc nếu file CAD đầu vào có sẵn
         clean_row["net_area"] = row_upper.get("NET_AREA", row_upper.get("POLYGON_AREA", row.get("net_area", row.get("polygon_area", None))))
         
         unique_bom_rows.append(clean_row)
         
     return unique_bom_rows
+
 def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: float, weft_shrink_factor: float) -> float:
     """
     Quét và tích lũy tổng diện tích tinh đa giác của Vải chính từ tệp CAD.
