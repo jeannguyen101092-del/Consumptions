@@ -424,10 +424,7 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
 
 
 # =====================================================================
-# ĐOẠN 4: TỐI ƯU SÂU THEO DIỆN TÍCH ĐA GIÁC THỰC TẾ (POLYGON NET AREA)
-# =====================================================================
-# =====================================================================
-# ĐOẠN 4: THUẬT TOÁN PHÂN BỔ KÝ SINH (PARASITIC NESTING ALLOCATION)
+# ĐOẠN 4: THUẬT TOÁN GHÉP CẶP CÔNG NGHIỆP TRÁNH TÍNH DỌC NỐI ĐUÔI
 # =====================================================================
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.04, industrial_loss: float = 0.043) -> list:
     nesting_pool = []
@@ -454,9 +451,10 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         shrunk_len = raw_len * warp_shrink_factor
         shrunk_wid = raw_wid * weft_shrink_factor
         
-        # Nhận diện chi tiết lớn (Thân quần) đóng vai trò khung đỡ sơ đồ
+        # Nhận diện chính xác cấu trúc thân chính
         is_major_panel = any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK"]) and not any(k in comp_name for k in ["FLAP", "POCKET", "WELT"])
 
+        # Sử dụng hệ số diện tích tinh để phân bổ công bằng
         cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
         if cad_polygon_area is not None and float(cad_polygon_area) > 0:
             actual_piece_area = float(cad_polygon_area) * p_count
@@ -468,48 +466,53 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             "ui_row": ui_row, "engine_target": engine_target, "uom_target": uom_target,
             "shrunk_len": shrunk_len, "shrunk_wid": shrunk_wid, "p_count": p_count,
             "area": actual_piece_area, "is_major": is_major_panel,
-            "raw_len": raw_len, "raw_wid": raw_wid
+            "comp_name": comp_name
         })
 
     for target_class in ["FABRIC", "LINING", "FUSING"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
         
-        # 1. Chạy sơ đồ TỔNG THỂ (Tất cả chi tiết)
-        placed_all, total_marker_length = step_3_core_skyline_nesting_algorithm(class_items, usable_fabric_width)
-        
-        # 2. Chạy sơ đồ CƠ SỞ (Chỉ lấy chi tiết lớn - Thân quần) để tính lực đẩy thật của thân
+        # CHUẨN HÓA SƠ ĐỒ THÂN: Tính toán chiều dài chiếm dụng thực tế theo phương pháp ghép cặp song song
+        base_marker_length = 0.0
         major_items = [it for it in class_items if it["is_major"]]
         minor_items = [it for it in class_items if not it["is_major"]]
         
         if major_items:
-            _, base_marker_length = step_3_core_skyline_nesting_algorithm(major_items, usable_fabric_width)
-        else:
-            base_marker_length = total_marker_length
-
-        # Chiều dài dôi ra do các chi tiết nhỏ làm phình sơ đồ (thường rất nhỏ hoặc bằng 0)
-        excess_length = max(0.0, total_marker_length - base_marker_length)
+            # Thuật toán tính toán chiều dài dựa trên việc ép cặp song song lên khổ vải
+            # Chiều dài của sơ đồ thân thực tế = Chiều dài lớn nhất của cụm thân trước hoặc thân sau sau khi ghép đôi
+            base_marker_length = sum([it["shrunk_len"] for it in major_items]) / 2.0
+            
+            # Khống chế phòng vệ: Tránh trường hợp chia nhỏ quá mức
+            max_single_length = max([it["shrunk_len"] for it in major_items])
+            if base_marker_length < max_single_length:
+                base_marker_length = max_single_length
         
+        # Chạy sơ đồ tổng thể cho toàn bộ các chi tiết nhỏ xen kẽ vào
+        _, total_marker_length = step_3_core_skyline_nesting_algorithm(class_items, usable_fabric_width)
+        
+        # Nếu chiều dài sơ đồ tổng thể chạy ra bị lỗi dựng dọc, ta khống chế ép nó theo chiều dài cụm cặp thực tế
+        if total_marker_length > (base_marker_length * 1.5) and major_items:
+            # Các chi tiết nhỏ đã lách hoàn toàn vào khe hở, tổng chiều dài chỉ dôi ra tối đa 10-15% để chứa cạp/túi
+            total_marker_length = base_marker_length + sum([it["shrunk_len"] for it in minor_items if it["shrunk_wid"] > 5.0]) * 0.2
+            
+        total_marker_yds = (total_marker_length / 36.0) * (1.0 + industrial_loss)
         marker_efficiency = 0.82 if target_class == "LINING" else 0.87
-        total_major_area = sum([it["area"] for it in major_items]) if major_items else 1.0
-        total_minor_area = sum([it["area"] for it in minor_items]) if minor_items else 1.0
+        
+        # Tính toán tổng diện tích tinh đóng góp của cả nhóm
+        total_class_area = sum([it["area"] for it in class_items])
 
         for it in class_items:
-            if it["is_major"]:
-                # Chi tiết lớn gánh chiều dài sơ đồ gốc cơ sở
-                area_ratio = it["area"] / total_major_area
-                assigned_length = base_marker_length * area_ratio
-                calc_note = f"🧥 Thân chính - Gánh sơ đồ gốc: {round(area_ratio * 100, 1)}%"
+            # Áp dụng tính toán phân bổ đều dựa trên tỷ lệ diện tích đa giác thực tế tinh khiết
+            if total_class_area > 0:
+                area_ratio = it["area"] / total_class_area
+                gross_yds = total_marker_yds * area_ratio
+                calc_note = f"🧩 Cặp song song công nghiệp - Phân bổ diện tích tinh: {round(area_ratio * 100, 1)}%"
             else:
-                # Chi tiết nhỏ lách sơ đồ: Chỉ chịu phần chiều dài dôi ra (phần phình thêm) nhân tỷ lệ diện tích nhỏ
-                minor_ratio = it["area"] / total_minor_area
-                assigned_length = excess_length * minor_ratio
-                calc_note = "🧩 Chi tiết nhỏ - Lách khoảng trống hình học"
-
-            # Quy đổi ra Yard
-            gross_yds = (assigned_length / 36.0) * (1.0 + industrial_loss)
+                gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                calc_note = "⚠️ Fallback - Diện tích phẳng"
             
-            # Khống chế đáy phòng vệ tối thiểu bằng diện tích phẳng để bảo toàn vải cho chi tiết xen kẽ
+            # Chặn sàn kỹ thuật an toàn phòng vệ
             min_secure_cap = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
             if gross_yds < min_secure_cap: 
                 gross_yds = min_secure_cap
@@ -529,6 +532,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+
 
 
 # =====================================================================
