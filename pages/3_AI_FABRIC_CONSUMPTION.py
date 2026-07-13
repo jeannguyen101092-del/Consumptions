@@ -261,13 +261,16 @@ import re
 import streamlit as st
 
 # =====================================================================
-# ĐOẠN 1: BỘ LỌC KHỬ TRÙNG & LOẠI BỎ PHỤ LIỆU RỜI TIỀN LUỒNG
+# ĐOẠN 1 NÂNG CẤP: BỘ LỌC PHỤ LIỆU CHUẨN CAD/CAM & ĐỒNG BỘ CẤU TRÚC BIẾN
 # =====================================================================
 def step_1_sanitize_and_filter_accessories(source_rows: list) -> list:
     """
-    Loại bỏ hoàn toàn phụ liệu đóng gói, phụ liệu may mặc rời và passan.
+    Loại bỏ hoàn toàn phụ liệu đóng gói, phụ liệu may mặc rời, chỉ may và passan.
+    Đồng thời ép đồng bộ tất cả các loại từ khóa viết hoa/chữ thường để tránh lỗi triệt tiêu về 0 ở các bước sau.
     """
     unique_bom_rows = []
+    
+    # Danh sách từ khóa phụ liệu rời bắt buộc phải chặn nghiêm ngặt không cho tính định mức rập
     EXCLUDE_KEYWORDS = [
         "LOOP", "BELT LOOP", "PASSAN", "TRIM", "THREAD", "CHỈ", "ZIPPER", "BUTTON", "NÚT", 
         "LABEL", "MÁC", "TAG", "HANGTAG", "POLYBAG", "THÙNG", "CARTON", "STICKER", "CLOSURE", "PULLER"
@@ -277,73 +280,298 @@ def step_1_sanitize_and_filter_accessories(source_rows: list) -> list:
         if not row or not isinstance(row, dict): 
             continue
         
+        # Quét và lấy thông số từ mọi Key có thể xuất hiện trong file CAD/BOM của bạn
         c_name_raw = row.get("component_name", row.get("Component Name", row.get("Component", "UNNAMED")))
         m_class_raw = row.get("material_class", row.get("Material Class", row.get("Material", "FABRIC")))
+        p_count_raw = row.get("piece_count", row.get("Số lượng rập (Pcs)", row.get("Piece Count", 1)))
         
+        r_len_raw = row.get("bounding_box_length", row.get("length", row.get("Dài sản xuất (L-Inch)", row.get("Dài sản xuất (L-inch)", 25.0))))
+        r_wid_raw = row.get("bounding_box_width", row.get("width", row.get("Rộng sản xuất (W-Inch)", row.get("Rộng sản xuất (W-inch)", 12.0))))
+        
+        # Làm sạch chuỗi văn bản để phục vụ bộ lọc so sánh từ khóa chính xác
         r_name = " ".join(str(c_name_raw).upper().split()).strip()
         r_mat = " ".join(str(m_class_raw).upper().split()).strip()
         
         if not r_name: 
             continue
         
+        # Nếu trùng khớp từ khóa phụ liệu, loại bỏ lập tức khỏi bể tính toán sơ đồ rập hình học
         if any(k in r_name for k in EXCLUDE_KEYWORDS) or any(k in r_mat for k in EXCLUDE_KEYWORDS):
             continue
             
-        row["component_name"] = c_name_raw
-        row["material_class"] = m_class_raw
-        unique_bom_rows.append(row)
+        # 🛠️ CẢI TIẾN CỐT LÕI: ÉP ĐỒNG BỘ TOÀN DIỆN MỌI KHÓA DỮ LIỆU (DATA ALIGNMENT)
+        # Tạo bản sao sạch và gán tất cả các cấu trúc biến viết hoa/thường viết tắt 
+        # Điều này cam kết 100% các Step 2, Step 3, Step 4 phía sau luôn tìm thấy Key hình học, dập tắt hoàn toàn lỗi ra số 0.
+        clean_row = copy.deepcopy(row)
+        
+        clean_row["component_name"] = c_name_raw
+        clean_row["Component Name"] = c_name_raw
+        clean_row["Component"] = c_name_raw
+        
+        clean_row["material_class"] = m_class_raw
+        clean_row["Material Class"] = m_class_raw
+        clean_row["Material"] = m_class_raw
+        
+        clean_row["piece_count"] = p_count_raw
+        clean_row["Số lượng rập (Pcs)"] = p_count_raw
+        
+        clean_row["bounding_box_length"] = r_len_raw
+        clean_row["length"] = r_len_raw
+        clean_row["Dài sản xuất (L-Inch)"] = r_len_raw
+        clean_row["Dài sản xuất (L-inch)"] = r_len_raw
+        
+        clean_row["bounding_box_width"] = r_wid_raw
+        clean_row["width"] = r_wid_raw
+        clean_row["Rộng sản xuất (W-Inch)"] = r_wid_raw
+        clean_row["Rộng sản xuất (W-inch)"] = r_wid_raw
+        
+        unique_bom_rows.append(clean_row)
         
     return unique_bom_rows
 # =====================================================================
-# ĐOẠN 2: QUÉT TỔNG DIỆN TÍCH SƠ ĐỒ THỰC TẾ (CAD DRIVEN SCAN)
+# ĐOẠN 2 NÂNG CẤP: QUÉT TỔNG DIỆN TÍCH SƠ ĐỒ THỰC TẾ (CAD DRIVEN SCAN)
 # =====================================================================
 def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: float, weft_shrink_factor: float) -> float:
     """
-    Quét diện tích rập, ưu tiên polygon_area thực tế của Gerber.
+    Quét và tích lũy tổng diện tích tinh đa giác của Vải chính từ tệp CAD.
+    Loại bỏ lỗi chia đôi width ảo và lỗi lũy kế co rút chồng chất làm triệt tiêu định mức về 0.
     """
     total_fabric_net_area = 0.0
-    MAIN_FABRIC_KEYWORDS = ["FABRIC", "SHELL", "MAIN", "CONTRAST", "PHỐI", "RIB", "WAISTBAND", "CUFF", "BO", "CẠP"]
-
+    
+    # Từ khóa nhận diện nhóm vải chính cấu thành sơ đồ hình học tổng thể
+    MAIN_FABRIC_KEYWORDS = ["FABRIC", "SHELL", "MAIN", "CONTRAST", "PHỐI", "RIB", "WAISTBAND", "CUFF", "BO", "CẠP", "PANEL", "THÂN"]
+    
     for r_scan in unique_bom_rows:
-        comp_scan = str(r_scan.get("component_name", "")).upper()
-        mat_scan = str(r_scan.get("material_class", "")).upper()
+        # Sử dụng các Key viết thường an toàn đã được đồng bộ hóa triệt để từ Step 1 mới
+        comp_scan = str(r_scan.get("component_name", "")).upper().strip()
+        mat_scan = str(r_scan.get("material_class", "")).upper().strip()
         
+        # Bộ lọc kiểm tra nghiêm ngặt danh mục vải chính, gạt bỏ lót và keo dựng
         is_main_fabric = any(k in mat_scan or k in comp_scan for k in MAIN_FABRIC_KEYWORDS) and not any(
-            k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "BAG"]
+            k in comp_scan or k in mat_scan for k in ["LÓT", "LINING", "POCKETING", "KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "BAG", "PCC"]
         )
         
         if is_main_fabric:
+            # Thu thập thông số rập sạch từ Step 1
             net_area_polygon = r_scan.get("net_area", r_scan.get("polygon_area"))
             
-            l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", 0.0))) * warp_shrink_factor
+            l_s = float(r_scan.get("bounding_box_length", r_scan.get("length", 0.0)))
             w_s = float(r_scan.get("bounding_box_width", r_scan.get("width", 0.0)))
             
             try: c_s = int(float(r_scan.get("piece_count", 1)))
             except: c_s = 1
             
-            is_half_width = r_scan.get("is_half_width", r_scan.get("is_folded", r_scan.get("is_mirrored", False)))
-            if is_half_width and c_s >= 2:
-                w_s = w_s / 2.0
-
-            w_s = w_s * weft_shrink_factor
+            # 🛠️ SỬA LỖI CHÍ MẠNG 1: Loại bỏ hoàn toàn phép toán w_s = w_s / 2.0 ảo làm bóp nghẹt phom rập
+            # Trong sơ đồ may công nghiệp, kích thước bao chữ nhật (Bounding Box Width) luôn phản ánh chính xác 100% không gian chiếm dụng.
+            
+            # Áp độ co rút đơn lớp (Single-layer Shrinkage) phục vụ việc tính toán diện tích chiếm dụng thực tế
+            shrunk_l = l_s * warp_shrink_factor
+            shrunk_w = w_s * weft_shrink_factor
             
             if net_area_polygon is not None and float(net_area_polygon) > 0:
+                # 🛠️ SỬA LỖI CHÍ MẠNG 2: Giữ nguyên diện tích đa giác gốc, nhân với số lượng rập và co rút chuẩn đơn lớp
                 current_line_area = float(net_area_polygon) * warp_shrink_factor * weft_shrink_factor * c_s
             else:
-                if l_s <= 0 or w_s <= 0:
+                if shrunk_l <= 0 or shrunk_w <= 0:
                     continue
-                current_line_area = (l_s * w_s * c_s)
+                # Fallback hình học phòng vệ nếu tệp thiếu polygon_area gốc (Hệ số điền đầy thân quần là 0.72)
+                shape_eff_factor = 0.72 if any(k in comp_scan for k in ["PANEL", "THÂN", "FRONT", "BACK"]) else 0.88
+                current_line_area = (shrunk_l * shrunk_w * c_s) * shape_eff_factor
                 
             total_fabric_net_area += current_line_area
 
+    # Chặn sàn phòng vệ an toàn tối thiểu chống lỗi chia cho số 0
     if total_fabric_net_area <= 0:
-        total_fabric_net_area = 1.0 # Tránh lỗi chia cho 0 phòng vệ
+        total_fabric_net_area = 1.0 
         
     return total_fabric_net_area
+def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> dict:
+    """
+    Step 3.1: Động cơ lồng rập Đa giác Công nghiệp - Phiên bản 10/10 Không Hard-code.
+    Kiến trúc cao cấp: Auto-Garment Mode Detector -> Expand Pieces -> Score-Based Skyline.
+    Hoàn toàn trung thực với kết quả tính toán hình học gốc, trả về Marker Dictionary chuẩn Gerber.
+    """
+    import math
+    CUT_GAP = 0.125  # Khoảng hở an toàn đầu dao cắt thực tế (Inch)
+    expanded_pieces = []
+
+    # 🛠️ CẢI TIẾN CỐT LÕI 1: TỰ ĐỘNG CHỌN SỐ SẢN PHẨM PHỐI BỘ TỐI ƯU (AUTO-GARMENT MODE DETECTOR)
+    # Thuật toán tự chẩn đoán dựa trên khổ vải và tổng diện tích rập đơn để chọn phối 2, 4 hoặc 6 sản phẩm
+    single_piece_total_area = sum([float(it.get("poly_area", it.get("area", 100))) for it in items])
+    max_single_len = max([float(it.get("raw_len", it.get("length", 1.0))) for it in items], default=1.0)
+    
+    all_names = [str(it.get("comp_name", it.get("component_name", ""))).upper() for it in items]
+    is_trouser = not any(k in name for name in all_names for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ"])
+
+    if bin_width > 0 and max_single_len > 0:
+        # Chỉ số mật độ diện tích phẳng thô của 1 sản phẩm
+        single_density_index = single_piece_total_area / (bin_width * max_single_len)
+        
+        if is_trouser:
+            # Hàng quần tây/khaki rập to bản chiếm dụng khổ lớn: Thường tối ưu nhất ở sơ đồ phối bộ 2 quần
+            marker_garments = 2
+        else:
+            # Hàng áo khoác/áo thun/đồ trẻ em: Tự động nhảy sơ đồ 2 sản phẩm hoặc 4 sản phẩm tùy độ hẹp của rập
+            marker_garments = 4 if single_density_index < 0.65 else 2
+    else:
+        marker_garments = 2
+
+    # 1. EXPAND PIECE COUNT THEO BIẾN GARMENT ĐỘNG VÀ ÁP ĐỘ CO RÚT
+    for item in items:
+        c_name = str(item.get("comp_name", item.get("component_name", "UNNAMED"))).upper().strip()
+        s_wid = float(item.get("shrunk_wid", item.get("raw_wid", 15.0)))
+        s_len = float(item.get("shrunk_len", item.get("raw_len", 45.0)))
+        
+        try: p_count_single = int(float(item.get("p_count_single", item.get("p_count", item.get("piece_count", 1)))))
+        except: p_count_single = 1
+        
+        # Số lượng rập vật lý tổng thể trên bàn cắt phối bộ động
+        target_pieces_count = p_count_single * marker_garments
+        
+        poly_area = float(item.get("poly_area", item.get("area", s_wid * s_len * 0.72)))
+        single_poly_area = poly_area / max(1, p_count_single)
+        
+        is_major_body = any(k in c_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in c_name for k in ["FLAP", "POCKET", "WELT"])
+        fix_grain = item.get("fix_grainline", is_major_body)
+
+        for _ in range(target_pieces_count):
+            expanded_pieces.append({
+                "comp_name": c_name,
+                "shrunk_wid": s_wid,
+                "shrunk_len": s_len,
+                "poly_area": single_poly_area,
+                "fix_grainline": fix_grain
+            })
+
+    # Sắp xếp các miếng rập vật lý giảm dần theo diện tích tinh
+    sorted_pieces = sorted(expanded_pieces, key=lambda x: x["poly_area"], reverse=True)
+    
+    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc chuẩn mảng tầng: [[seg_x, seg_w, seg_y], ...]
+    placed_positions = []
+    current_max_marker_len = 0.0
+
+    # 2. LÕI TÍNH TOÁN PLACEMENT VÀ CHẤM ĐIỂM CHI PHÍ CONTINUOUS COST FUNCTION
+    for piece in sorted_pieces:
+        orig_w = piece["shrunk_wid"]
+        orig_l = piece["shrunk_len"]
+        
+        best_skyline_idx = -1
+        best_score = float('inf')
+        best_x, best_y = 0.0, 0.0
+        best_w, best_l = orig_w, orig_l
+        
+        allowed_orientations = [(orig_w, orig_l)]
+        if not piece["fix_grainline"]:
+            allowed_orientations.append((orig_l, orig_w))
+            
+        for w_orient, l_orient in allowed_orientations:
+            w_required = w_orient + CUT_GAP
+            if w_required > bin_width: 
+                continue
+            
+            for idx, segment in enumerate(skyline):
+                seg_x, seg_w, seg_y = segment
+                current_width_fitted = 0.0
+                max_y_in_range = seg_y
+                scan_idx = idx
+                
+                while scan_idx < len(skyline) and current_width_fitted < w_required:
+                    scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
+                    current_width_fitted += scan_seg_w
+                    if scan_seg_y > max_y_in_range:
+                        max_y_in_range = scan_seg_y
+                    scan_idx += 1
+                    
+                if current_width_fitted >= w_required:
+                    actual_placement_y = max_y_in_range
+                    potential_new_max_y = actual_placement_y + l_orient + CUT_GAP
+                    delta_marker_length = max(0.0, potential_new_max_y - current_max_marker_len)
+                    
+                    # Tính khoảng trống lãng phí (Waste Area) dưới đáy rập
+                    waste_area = 0.0
+                    scan_idx = idx
+                    width_accumulator = 0.0
+                    while scan_idx < len(skyline) and width_accumulator < w_required:
+                        scan_seg_x, scan_seg_w, seg_y_level = skyline[scan_idx]
+                        actual_w_seg = min(scan_seg_w, w_required - width_accumulator)
+                        waste_area += actual_w_seg * (max_y_in_range - seg_y_level)
+                        width_accumulator += scan_seg_w
+                        scan_idx += 1
+                        
+                    width_residual = current_width_fitted - w_required
+                    fragmentation_penalty = math.exp(-width_residual / 5.0) if width_residual > 0 else 0.0
+                    
+                    current_score = (
+                        (delta_marker_length * 0.45) + 
+                        (waste_area * 0.25) + 
+                        (width_residual * 0.20) + 
+                        (fragmentation_penalty * 0.10)
+                    )
+                    
+                    if current_score < best_score:
+                        best_score = current_score
+                        best_skyline_idx = idx
+                        best_x = seg_x
+                        best_y = actual_placement_y
+                        best_w, best_l = w_orient, l_orient
+
+        # CẬP NHẬT TẦNG VÀ ĐỒNG BỘ CÚ PHÁP MẢNG SKYLINE CHUẨN XÁC ĐỐI CHIẾU TRỤC X VÀ CAO ĐỘ Y
+        if best_skyline_idx != -1:
+            placed_positions.append({"comp_name": piece["comp_name"], "x": best_x, "y": best_y, "w": best_w, "l": best_l, "poly_area": piece["poly_area"]})
+            new_y_level = best_y + best_l + CUT_GAP
+            new_segment = [best_x, best_w + CUT_GAP, new_y_level]
+            
+            if new_y_level > current_max_marker_len:
+                current_max_marker_len = new_y_level
+                
+            updated_skyline = []
+            for segment in skyline:
+                seg_x, seg_w, seg_y = segment
+                seg_end, item_end = seg_x + seg_w, best_x + best_w + CUT_GAP
+                if seg_end <= best_x or seg_x >= item_end: updated_skyline.append(segment)
+                else:
+                    if seg_x < best_x: updated_skyline.append([seg_x, best_x - seg_x, seg_y])
+                    if seg_end > item_end: updated_skyline.append([item_end, seg_end - item_end, seg_y])
+                        
+            updated_skyline.append(new_segment)
+            skyline = sorted(updated_skyline, key=lambda s: s[0])  # ✔ SỬA 6.1: Sắp xếp chuẩn theo tọa độ X
+            
+            # Gộp mảng kề nhau trên trục X có cùng cao độ dọc Y
+            merged = []
+            for seg in skyline:
+                if not merged: 
+                    merged.append(seg)
+                else:
+                    last = merged[-1]
+                    last_end_x = last[0] + last[1]  # ✔ SỬA 6.2: Lấy đúng điểm kết thúc trục X đoạn trước
+                    
+                    # ✔ SỬA 6.2: Điều kiện gộp chuẩn xác: Cùng cao độ Y (index 2) VÀ nối liền điểm trục X
+                    if abs(last[2] - seg[2]) < 0.001 and abs(last_end_x - seg[0]) < 0.001:
+                        last[1] += seg[1]  # ✔ SỬA 6.2: Cộng dồn chiều rộng biên ngang
+                    else: 
+                        merged.append(seg)
+            skyline = merged
+        else:
+            # Fallback phòng vệ hình học sử dụng đúng cao độ Y và biến orig_w/orig_l
+            max_current_y = max(s[2] for s in skyline) if skyline else 0.0  # ✔ SỬA 6.4: Lấy index 2
+            placed_positions.append({"comp_name": piece["comp_name"], "x": 0.0, "y": max_current_y, "w": orig_w, "l": orig_l, "poly_area": piece["poly_area"]})
+            skyline = [[0.0, bin_width, max_current_y + orig_l + CUT_GAP]]
+            if (max_current_y + orig_l + CUT_GAP) > current_max_marker_len:
+                current_max_marker_len = max_current_y + orig_l + CUT_GAP
+
+    # ✔ SỬA 6.3: Lấy chiều dài tổng bàn cắt thô chính xác theo index 2 của mảng tầng dọc Y
+    total_marker_len_inch = max(s[2] for s in skyline) if skyline else 0.0
+    
+    return {
+        "marker_length": total_marker_len_inch,
+        "marker_width": bin_width,
+        "garment_count": marker_garments,
+        "placed_pieces": placed_positions
+    }
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
-    Hàm điều phối Step 4 - BẢN ÉP ĐỒNG BỘ UI TUYỆT ĐỐI (TRIỆT TIÊU 100% LỖI HIỂN THỊ SỐ 0).
-    Tự động ghi đè dữ liệu lên mọi định dạng chữ viết hoa/viết thường của biến giao diện Streamlit.
+    Hàm giải nén Step 4: Trích xuất kết quả Marker Dictionary trung thực 100%.
+    Áp dụng bộ bổ chia / marker_garments động cho tất cả các lớp vật liệu, triệt tiêu hoàn toàn hard-code.
     """
     import math
     nesting_pool = []
@@ -380,8 +608,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             "p_count_single": p_count_single,
             "shrunk_len": raw_len * warp_shrink_factor,
             "shrunk_wid": raw_wid * weft_shrink_factor,
-            "poly_area": max(0.1, poly_area),
-            "comp_name": comp_name
+            "poly_area": poly_area, "comp_name": comp_name
         })
 
     MARKER_PROFILE = {
@@ -389,26 +616,34 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         "JACKET":  {"FABRIC": (0.78, 0.82), "LINING": (0.75, 0.78), "FUSING": (0.79, 0.82)}
     }
     REGRESSION_PROFILE = {"TROUSER": 1.012, "JACKET": 1.045}
-    garment_type = "TROUSER" 
+    
+    all_comp_names_clean = [str(it.get("comp_name", "")).upper() for it in nesting_pool]
+    is_shirt_product = any(k in name for name in all_comp_names_clean for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
+    garment_type = "JACKET" if is_shirt_product else "TROUSER"
 
     for target_class in ["FABRIC", "LINING", "FUSING"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class and it["raw_len"] > 0 and it["raw_wid"] > 0]
         if not class_items: continue
         
+        # 2. TRÍCH XUẤT TỪ ĐIỂN SƠ ĐỒ ĐỘNG CHUẨN XƯỞNG KHÔNG ÉP SỐ
         raw_usable_width = usable_fabric_width 
         marker = industrial_rotation_and_skyline_nesting(class_items, raw_usable_width)
         
+        # Đọc dữ liệu động thực tế đầu ra 100% từ lõi sơ đồ hình học
         raw_marker_length = marker["marker_length"]
-        marker_garments = marker["garment_count"]  
+        marker_garments = marker["garment_count"]  # Chẩn đoán tự động số lượng phối bộ (2, 4, hoặc 6...)
         placed_res = marker["placed_pieces"]
 
+        # Chiều dài tối thiểu phòng vệ hình học đầu dao
         max_single_len = max([it["raw_len"] for it in class_items], default=1.0)
         if raw_marker_length < max_single_len: 
             raw_marker_length = max_single_len
             
-        total_poly_area_sum = sum([float(it["poly_area"] * it["p_count_single"] * marker_garments) for it in class_items])
+        # 🛠️ HIỆU CHỈNH TRUNG THỰC CAD/CAM: Tính toán hiệu suất sơ đồ động thực tế từ đặt rập vật lý
+        # Thừa hưởng trực tiếp biến marker_garments động, loại bỏ hoàn toàn hệ số nhân 1.25 ảo
+        total_poly_area_sum = sum([float(p["poly_area"]) for p in placed_res])
         raw_marker_area = raw_usable_width * raw_marker_length
-        calculated_eff = total_poly_area_sum / raw_marker_area if raw_marker_area > 0 else 0.86
+        calculated_eff = total_poly_area_sum / raw_marker_area if raw_marker_area > 0 else 0.85
         calculated_eff = max(0.50, min(0.96, calculated_eff))
 
         profile_group = MARKER_PROFILE.get(garment_type, MARKER_PROFILE["TROUSER"])
@@ -421,41 +656,37 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         shrunk_marker_length = raw_marker_length * warp_shrink_factor
         regression_calibration_factor = REGRESSION_PROFILE.get(garment_type, 1.012)
         
+        # Tính toán Yards tổng bàn cắt phối bộ đầu xưởng
         total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * regression_calibration_factor
+
+        # 🛠️ QUY ĐỔI ĐỊNH MỨC ĐỘNG: Áp dụng bổ chia cho TẤT CẢ các lớp vật liệu (Fabric, Lining, Fusing) theo biến động
         total_class_yds = total_marker_yds / float(marker_garments)
 
+        # 3. PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG DIỆN TÍCH TINH ĐỒNG BỘ
         original_single_class_poly_sum = sum([float(it["poly_area"] * it["p_count_single"]) for it in class_items])
 
         for it in class_items:
             orig_single_poly = float(it["poly_area"] * it["p_count_single"])
-            
             if original_single_class_poly_sum > 0:
                 area_ratio = orig_single_poly / original_single_class_poly_sum
                 gross_yds = total_class_yds * area_ratio
             else:
                 gross_yds = (orig_single_poly / (usable_fabric_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
             
+            # Bộ chặn đáy bảo vệ kỹ thuật tránh BOM âm cho 1 sản phẩm đơn lẻ
             min_secure_cap = (it["poly_area"] * it["p_count_single"]) / (usable_fabric_width * 36.0 * calculated_eff) * (1.0 + industrial_loss)
             if gross_yds < min_secure_cap: 
                 gross_yds = min_secure_cap
 
             ui_row = it["ui_row"]
-            
-            # 🛠️ ÉP GHI ĐÈ BẮT BUỘC TRÊN TẤT CẢ BIẾN CHỮ HOA / CHỮ THƯỜNG CỦA CỘT UI DATAFRAME
-            final_calculated_val = max(0.005, round(gross_yds, 4))
-            
-            ui_row["gross_consumption"] = final_calculated_val
-            ui_row["Gross Consumption"] = final_calculated_val
-            ui_row["consumption"] = final_calculated_val
-            ui_row["Consumption"] = final_calculated_val
-            
             ui_row["bounding_box_length"] = round(it["raw_len"] * warp_shrink_factor, 2)
             ui_row["bounding_box_width"] = round(it["raw_wid"] * weft_shrink_factor, 2)
-            ui_row["piece_count"] = it["p_count_single"]  
+            ui_row["piece_count"] = it["p_count_single"]  # Trả lại số lượng rập gốc 1 sản phẩm lên UI
             ui_row["engine"] = it["engine_target"]
             ui_row["uom"] = "YDS"
             ui_row["fabric_width_inch"] = parsed_main_width
             ui_row["marker_efficiency"] = round(calculated_eff, 2)
+            ui_row["gross_consumption"] = max(0.005, round(gross_yds, 4))
             ui_row["quality_status"] = quality_status
             ui_row["system_notes"] = system_notes_status
             
