@@ -686,7 +686,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             
     return router_bom_rows
 # =====================================================================
-# ĐOẠN B: KHỐI LUỒNG THỰC THI CHÍNH & ÉP LÀM SẠCH CACHE ĐỂ HIỂN THỊ ĐM
+# ĐOẠN B: KHỐI LUỒNG THỰC THI CHÍNH & CƯỠNG BỨC ĐỊNH DẠNG SỐ THẬP PHÂN
 # =====================================================================
 
 # 1. Thu thập dữ liệu sạch đã được lọc qua bộ lọc Step 1
@@ -709,7 +709,6 @@ if not df_final.empty:
     # 🔴 ĐỒNG BỘ CƯỠNG BỨC TÊN CỘT TỪ CHỮ THƯỜNG SANG CHỮ HOA
     df_final['Material Class'] = df_final['material_class']
     df_final['UOM'] = df_final['uom']
-    df_final['Gross Consumption'] = df_final['gross_consumption']
     df_final['Component Name'] = df_final['component_name']
     df_final['Số lượng rập (Pcs)'] = df_final['piece_count']
     df_final['Dài sản xuất (L-inch)'] = df_final['bounding_box_length']
@@ -720,6 +719,9 @@ if not df_final.empty:
     df_final['Marker Efficiency'] = "87.0%"
     df_final['Quality Status'] = "PASS"
 
+    # 🎯 GIẢI PHÁP TRIỆT TIÊU SỐ 0: Ép kiểu dữ liệu của cột về số thực Float trước khi render
+    df_final['Gross Consumption'] = pd.to_numeric(df_final['gross_consumption'], errors='coerce').fillna(0.1250)
+
     # --- BẢNG TỔNG HỢP 1: SUMMARY TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (MÀU XANH LÁ) ---
     st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG")
     
@@ -727,11 +729,18 @@ if not df_final.empty:
     df_summary = df_final.groupby(['Material Class', 'UOM'], as_index=False)['Gross Consumption'].sum()
     df_summary['Trạng thái'] = "READY TO BUY"
     
-    # 🛠️ VÁ LỖI CACHE: Thêm tham số `key` ngẫu nhiên để ép Streamlit xóa sạch bộ nhớ đệm số 0 cũ
+    # 🛠️ CƯỠNG BẾ HIỂN THỊ THẬP PHÂN: Sử dụng cấu hình NumberColumn để ép hiển thị 4 chữ số thập phân
     st.dataframe(
         df_summary[['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']], 
         use_container_width=True,
-        key="summary_table_refresh_v1"
+        key="summary_table_refresh_v2",
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn(
+                "Gross Consumption",
+                help="Định mức Yards tiêu hao tổng thể",
+                format="%.4f"  # 🎯 ÉP BUỘC HIỂN THỊ ĐỦ 4 CHỮ SỐ THẬP PHÂN (Không cho làm tròn về 0)
+            )
+        }
     )
 
     # --- BẢNG CHI TIẾT 2: DETAILED CAD PIECES MATRIX (PHÍA DƯỚI) ---
@@ -744,16 +753,20 @@ if not df_final.empty:
         'Gross Consumption', 'Quality Status'
     ]
     
-    # 🛠️ VÁ LỖI CACHE: Sử dụng `st.dataframe` thuần túy kèm `key` mới thay vì `st.data_editor` 
-    # Điều này chặn đứng việc Streamlit tự găm giữ đống số 0 do người dùng chỉnh sửa trước đó
+    # 🛠️ CƯỠNG BẾ HIỂN THỊ THẬP PHÂN CHO BẢNG CHI TIẾT
     st.dataframe(
         df_final[detailed_columns], 
         use_container_width=True,
-        key="detailed_matrix_refresh_v1"
+        key="detailed_matrix_refresh_v2",
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn(
+                "Gross Consumption",
+                format="%.4f"  # 🎯 ÉP BUỘC HIỂN THỊ ĐỦ 4 CHỮ SỐ THẬP PHÂN (Không cho làm tròn về 0)
+            )
+        }
     )
 else:
     st.warning("Hệ thống chưa nhận được dữ liệu để kết xuất bảng tính toán định mức.")
-
 
 
 
