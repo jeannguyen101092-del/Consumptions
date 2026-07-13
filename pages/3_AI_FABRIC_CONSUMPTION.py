@@ -342,27 +342,31 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
     return total_fabric_net_area
 def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tuple:
     """
-    Step 3.1: Động cơ lồng rập Đa giác Công nghiệp - Đoạn 1 (Sửa lỗi nhân trùng diện tích).
+    Step 3.1: Động cơ lồng rập Đa giác Công nghiệp - Đoạn 1 (SỬA LỖI NAMEERROR BIẾN ITEMS).
     """
     import math
     CUT_GAP = 0.125  
     major_bodies = []
     minor_accessories = []
     
+    # 🛠️ VÁ LỖI AN TOÀN TRUY XUẤT BIẾN CỤC BỘ ITEMS TRÊN TẤT CẢ DÒNG CHỮ
+    all_comp_names_lower = [str(it.get("comp_name", it.get("component_name", ""))).upper() for it in items]
+    
     for item in items:
-        c_name = str(item.get("comp_name", "UNNAMED")).upper()
+        c_name = str(item.get("comp_name", item.get("component_name", "UNNAMED"))).upper().strip()
         s_wid = float(item.get("shrunk_wid", item.get("raw_wid", 15.0)))
         s_len = float(item.get("shrunk_len", item.get("raw_len", 45.0)))
-        p_count = int(item.get("p_count", item.get("piece_count", 1)))
+        try: p_count = int(float(item.get("p_count", item.get("piece_count", 1))))
+        except: p_count = 1
+        
         poly_area = float(item.get("poly_area", item.get("area", s_wid * s_len * 0.72)))
         
         is_major_body = any(k in c_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in c_name for k in ["FLAP", "POCKET", "WELT"])
         
-        # Nếu là thân quần lớn và khổ vải đủ rộng để chứa khối cặp song song
+        # Nếu là thân quần lớn và khổ vải chứa đủ khối cặp song song
         if is_major_body and p_count >= 2 and ((s_wid * 2) * 0.85 + CUT_GAP <= bin_width):
             pair_width = (s_wid * 2) * 0.85  
             pair_length = s_len
-            # 🛠️ KHẮC PHỤC 1: Bảo toàn diện tích tổng của cả hai chiếc rập trong khối gộp để không làm hụt mẫu số phân bổ
             pair_poly_area = poly_area * 2 
             
             major_bodies.append({
@@ -370,11 +374,10 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                 "shrunk_wid": pair_width,
                 "shrunk_len": pair_length,
                 "poly_area": pair_poly_area,
-                "p_count": 1, # Đếm là 1 khối tổ hợp lớn
+                "p_count": 1,
                 "fix_grainline": True
             })
         else:
-            # Nếu khổ vải quá hẹp không chứa nổi khối cặp, tự động rã rập đơn lẻ để Skyline lách đan xen tự do
             for _ in range(p_count):
                 minor_accessories.append({
                     "comp_name": c_name,
@@ -421,6 +424,7 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
         })
 
     final_sorted_pieces = sorted(major_bodies + packed_clusters, key=lambda x: x["poly_area"], reverse=True)
+
     # =====================================================================
     # ĐOẠN 3 HOÀN CHỈNH: ĐỒNG BỘ TRỌNG SỐ PHÂN BỔ THEO DIỆN TÍCH KHỐI GỘP SẠCH
     # =====================================================================
