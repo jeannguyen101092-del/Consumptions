@@ -342,92 +342,136 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
     return total_fabric_net_area
 def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tuple:
     """
-    Step 3.1: Thuật toán Skyline 2D tích hợp 180-Degree Industrial Flipping Engine.
-    Tự động thử nghiệm lật ngược đầu đuôi rập quần để đan xen đũng quần, đạt hiệu suất >85%.
+    Step 3.1: Thuật toán Skyline chuyên dụng CAD/CAM - Phiên bản 10/10 (Xóa bỏ Hard-code).
+    Kiến trúc khuyến nghị: Expand Piece Count -> Shrunk Size Driven -> Score-Based Nesting (Height + Waste).
+    Tích hợp CUT_GAP công nghiệp, cấm xoay ngang 90 độ phá canh sợi dọc của Quần.
     """
-    sorted_items = sorted(items, key=lambda x: x["poly_area"], reverse=True)
-    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc: [seg_x, seg_w, seg_y]
+    CUT_GAP = 0.15  # Khoảng hở an toàn đầu dao cắt giữa các chi tiết rập (Inch)
+    expanded_pieces = []
+
+    # 🛠️ NÂNG CẤP 1: BIẾN ĐỔI EXPAND PIECE COUNT (Xếp từng miếng rập vật lý độc lập)
+    for item in items:
+        # Sử dụng trực tiếp kích thước rập đã co rút (shrunk) để mô phỏng chính xác phom dáng
+        s_wid = item["shrunk_wid"]
+        s_len = item["shrunk_len"]
+        p_count = item["p_count"]
+        
+        for _ in range(p_count):
+            expanded_pieces.append({
+                "comp_name": item["comp_name"],
+                "shrunk_wid": s_wid,
+                "shrunk_len": s_len,
+                "poly_area": item["poly_area"] / max(1, p_count), # Chia đều diện tích đa giác cho từng rập đơn
+                "fix_grainline": item.get("fix_grainline", False)
+            })
+
+    # Sắp xếp các miếng rập vật lý độc lập theo diện tích đa giác tinh giảm dần (Xếp chi tiết lớn trước)
+    sorted_pieces = sorted(expanded_pieces, key=lambda x: x["poly_area"], reverse=True)
+    
+    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc mảng Skyline: [seg_x, seg_w, seg_y]
     placed_positions = []
 
-    for item in sorted_items:
-        orig_w = item["raw_wid"]
-        orig_l = item["raw_len"]
+    for piece in sorted_pieces:
+        w_piece = piece["shrunk_wid"]
+        l_piece = piece["shrunk_len"]
         
-        for piece_idx in range(item["p_count"]):
-            best_skyline_idx = -1
-            best_y = float('inf')
-            best_x = 0.0
-            best_w, best_l = orig_w, orig_l
+        best_skyline_idx = -1
+        best_score = float('inf')
+        best_x = 0.0
+        best_y = 0.0
+        
+        # ROTATION ENGINE ĐỘNG: Cho phép hướng gốc (0°) và lật đảo đầu 180° (giữ nguyên trục dọc canh sợi)
+        # Đối với hàng quần sọc/caro, giữ nguyên hướng dọc để tránh lỗi canh sợi ngang phá dáng
+        allowed_orientations = [(w_piece, l_piece)]
+        
+        for w_orient, l_orient in allowed_orientations:
+            # Cộng thêm biên an toàn dao cắt vào chiều ngang chi tiết rập khi lách sơ đồ
+            w_required = w_orient + CUT_GAP
+            if w_required > bin_width: 
+                continue
             
-            # 🛠️ CẢI TIẾN 1: Mở rộng hướng xoay công nghiệp (0 độ, xoay ngang 90 độ, lật đảo đầu 180 độ)
-            # Đối với quần, việc lật đảo đầu (orig_w, orig_l) được giả lập lách khoảng trống qua thuật toán Skyline diện tích
-            if item.get("fix_grainline", False):
-                allowed_orientations = [(orig_w, orig_l)]
-            else:
-                # Thử nghiệm đan xen hướng chiều dài và chiều rộng để tìm góc lách đũng quần tốt nhất
-                allowed_orientations = [(orig_w, orig_l), (orig_l, orig_w)]
-            
-            for w_item, l_item in allowed_orientations:
-                if w_item > bin_width: 
-                    continue
+            for idx, segment in enumerate(skyline):
+                seg_x, seg_w, seg_y = segment
+                current_width_fitted = 0.0
+                max_y_in_range = seg_y
+                scan_idx = idx
                 
-                for idx, segment in enumerate(skyline):
-                    seg_x, seg_w, seg_y = segment
-                    current_width_fitted = 0.0
-                    max_y_in_range = seg_y
-                    scan_idx = idx
+                # Quét dọc theo các đoạn cao độ của mảng Skyline xem có đủ chỗ chứa chiều rộng rập không
+                while scan_idx < len(skyline) and current_width_fitted < w_required:
+                    scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
+                    current_width_fitted += scan_seg_w
+                    if scan_seg_y > max_y_in_range:
+                        max_y_in_range = scan_seg_y
+                    scan_idx += 1
                     
-                    while scan_idx < len(skyline) and current_width_fitted < w_item:
+                if current_width_fitted >= w_required:
+                    # 🛠️ NÂNG CẤP 2: THUẬT TOÁN CHẤM ĐIỂM SƠ ĐỒ ĐA TIÊU CHÍ (SCORE-BASED EVALUATION)
+                    # Tính toán lượng khoảng trống lãng phí (Waste Area) bên dưới rập nếu đặt vào vị trí này
+                    waste_area = 0.0
+                    scan_idx = idx
+                    width_accumulator = 0.0
+                    while scan_idx < len(skyline) and width_accumulator < w_required:
                         scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
-                        current_width_fitted += scan_seg_w
-                        if scan_seg_y > max_y_in_range:
-                            max_y_in_range = scan_seg_y
+                        actual_w_segment = min(scan_seg_w, w_required - width_accumulator)
+                        # Khoảng trống lãng phí = Diện tích chênh lệch cao độ đáy
+                        waste_area += actual_w_segment * (max_y_in_range - scan_seg_y)
+                        width_accumulator += scan_seg_w
                         scan_idx += 1
-                        
-                    if current_width_fitted >= w_item:
-                        # Thêm hệ số giảm tải hình học giả lập lật đối đầu (giảm 15% cao độ chiếm dụng khi lách đũng quần)
-                        adjusted_y = max_y_in_range * 0.85 if not item["fix_grainline"] and piece_idx > 0 else max_y_in_range
-                        if adjusted_y < best_y:
-                            best_y = adjusted_y
-                            best_skyline_idx = idx
-                            best_x = seg_x
-                            best_w, best_l = w_item, l_item
+                    
+                    # Trọng số chấm điểm: Ưu tiên chiều cao Y thấp (70%) và diện tích lãng phí nhỏ để lấp đầy chiều ngang (30%)
+                    current_score = (max_y_in_range * 0.70) + (waste_area * 0.30)
+                    
+                    if current_score < best_score:
+                        best_score = current_score
+                        best_skyline_idx = idx
+                        best_x = seg_x
+                        best_y = max_y_in_range
 
-            if best_skyline_idx != -1:
-                placed_positions.append({"item": item, "x": best_x, "y": best_y, "w": best_w, "l": best_l})
-                new_segment = [best_x, best_w, best_y + best_l]
-                
-                updated_skyline = []
-                for segment in skyline:
-                    seg_x, seg_w, seg_y = segment
-                    seg_end, item_end = seg_x + seg_w, best_x + best_w
-                    if seg_end <= best_x or seg_x >= item_end:
-                        updated_skyline.append(segment)
-                    else:
-                        if seg_x < best_x:
-                            updated_skyline.append([seg_x, best_x - seg_x, seg_y])
-                        if seg_end > item_end:
-                            updated_skyline.append([item_end, seg_end - item_end, seg_y])
-                            
-                updated_skyline.append(new_segment)
-                skyline = sorted(updated_skyline, key=lambda s: s)
-                
-                merged = []
-                for seg in skyline:
-                    if not merged: merged.append(seg)
-                    else:
-                        last = merged[-1]
-                        if abs(last[2] - seg[2]) < 0.001 and abs((last[0] + last[1]) - seg[0]) < 0.001:
-                            last[1] += seg[1]
-                        else: merged.append(seg)
-                skyline = merged
-            else:
-                max_current_y = max([s[2] for s in skyline]) if skyline else 0.0
-                placed_positions.append({"item": item, "x": 0.0, "y": max_current_y, "w": orig_w, "l": orig_l})
-                skyline = [[0.0, bin_width, max_current_y + orig_l]]
+        # Tiến hành cập nhật mảng Skyline thực tế (Không sử dụng hệ số nhân 0.78 ảo, chống xuyên chi tiết)
+        if best_skyline_idx != -1:
+            placed_positions.append({"item": piece, "x": best_x, "y": best_y, "w": w_piece, "l": l_piece})
+            
+            # Cao độ mới sau khi đặt rập đã được tính cộng thêm khoảng cách an toàn dao cắt CUT_GAP
+            new_y_level = best_y + l_piece + CUT_GAP
+            new_segment = [best_x, w_piece + CUT_GAP, new_y_level]
+            
+            updated_skyline = []
+            for segment in skyline:
+                seg_x, seg_w, seg_y = segment
+                seg_end, item_end = seg_x + seg_w, best_x + w_piece + CUT_GAP
+                if seg_end <= best_x or seg_x >= item_end:
+                    updated_skyline.append(segment)
+                else:
+                    if seg_x < best_x:
+                        updated_skyline.append([seg_x, best_x - seg_x, seg_y])
+                    if seg_end > item_end:
+                        updated_skyline.append([item_end, seg_end - item_end, seg_y])
+                        
+            updated_skyline.append(new_segment)
+            skyline = sorted(updated_skyline, key=lambda s: s[0])
+            
+            # Gộp các đoạn Skyline có cùng cao độ liền kề nhau trên trục X
+            merged = []
+            for seg in skyline:
+                if not merged: 
+                    merged.append(seg)
+                else:
+                    last = merged[-1]
+                    last_end_x = last[0] + last[1]
+                    if abs(last[2] - seg[2]) < 0.001 and abs(last_end_x - seg[0]) < 0.001:
+                        last[1] += seg[1]  # Cộng dồn chiều rộng an toàn
+                    else: 
+                        merged.append(seg)
+            skyline = merged
+        else:
+            # Phương án dự phòng khi không tìm thấy khoảng trống lách rập ngang
+            max_current_y = max([s[2] for s in skyline]) if skyline else 0.0
+            placed_positions.append({"item": piece, "x": 0.0, "y": max_current_y, "w": w_piece, "l": l_piece})
+            skyline = [[0.0, bin_width, max_current_y + l_piece + CUT_GAP]]
 
     total_marker_len_inch = max([s[2] for s in skyline]) if skyline else 0.0
     return placed_positions, total_marker_len_inch
+
 
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
