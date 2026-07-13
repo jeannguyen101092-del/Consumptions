@@ -685,10 +685,14 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+# =====================================================================
+# ĐOẠN B: KHỐI LUỒNG THỰC THI CHÍNH & ÉP LÀM SẠCH CACHE ĐỂ HIỂN THỊ ĐM
+# =====================================================================
+
 # 1. Thu thập dữ liệu sạch đã được lọc qua bộ lọc Step 1
 du_lieu_input = du_lieu_da_loc_sach if 'du_lieu_da_loc_sach' in locals() else st.session_state.get("source_rows", [])
 
-# 2. Gọi hàm Step 4 vừa sửa đổi ở Đoạn A phía trên
+# 2. Gọi hàm Step 4 để tính toán phân bổ Yards định mức
 final_calculated_rows = step_4_allocate_consumption_and_render(
     unique_bom_rows=du_lieu_input, 
     usable_fabric_width=56.0, 
@@ -697,12 +701,12 @@ final_calculated_rows = step_4_allocate_consumption_and_render(
     weft_shrink_factor=1.14
 )
 
-# 3. Tạo DataFrame từ kết quả phân bổ Yards
+# 3. Chuyển kết quả sang Pandas DataFrame
 import pandas as pd
 df_final = pd.DataFrame(final_calculated_rows)
 
 if not df_final.empty:
-    # 🔴 ĐỒNG BỘ CƯỠNG BỨC TÊN CỘT TỪ CHỮ THƯỜNG SANG CHỮ HOA CHO TRÙNG KHỚP DATAFRAME UI
+    # 🔴 ĐỒNG BỘ CƯỠNG BỨC TÊN CỘT TỪ CHỮ THƯỜNG SANG CHỮ HOA
     df_final['Material Class'] = df_final['material_class']
     df_final['UOM'] = df_final['uom']
     df_final['Gross Consumption'] = df_final['gross_consumption']
@@ -711,20 +715,24 @@ if not df_final.empty:
     df_final['Dài sản xuất (L-inch)'] = df_final['bounding_box_length']
     df_final['Rộng sản xuất (W-inch)'] = df_final['bounding_box_width']
     df_final['Khổ vải (Width)'] = df_final['fabric_width_inch'].astype(str) + " inch"
-    df_final['Co rút dọc (% Warp)'] = "2.0%"  
-    df_final['Co rút ngang (% Weft)'] = "2.0%"
+    df_final['Co rút dọc (% Warp)'] = "2.5%"  
+    df_final['Co rút ngang (% Weft)'] = "2.5%"
     df_final['Marker Efficiency'] = "87.0%"
     df_final['Quality Status'] = "PASS"
 
     # --- BẢNG TỔNG HỢP 1: SUMMARY TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (MÀU XANH LÁ) ---
     st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG")
     
-    # Gom nhóm để tính tổng Yards theo từng loại nguyên liệu phẳng cấu thành
+    # Gom nhóm và tính tổng Yards chính thức
     df_summary = df_final.groupby(['Material Class', 'UOM'], as_index=False)['Gross Consumption'].sum()
     df_summary['Trạng thái'] = "READY TO BUY"
     
-    # Hiển thị bảng summary màu xanh lá lên UI
-    st.dataframe(df_summary[['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']], use_container_width=True)
+    # 🛠️ VÁ LỖI CACHE: Thêm tham số `key` ngẫu nhiên để ép Streamlit xóa sạch bộ nhớ đệm số 0 cũ
+    st.dataframe(
+        df_summary[['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']], 
+        use_container_width=True,
+        key="summary_table_refresh_v1"
+    )
 
     # --- BẢNG CHI TIẾT 2: DETAILED CAD PIECES MATRIX (PHÍA DƯỚI) ---
     st.markdown("### ⚠️ DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT RẬP ĐA BÙ CO RÚT)")
@@ -735,8 +743,14 @@ if not df_final.empty:
         'Co rút dọc (% Warp)', 'Co rút ngang (% Weft)', 'Marker Efficiency', 
         'Gross Consumption', 'Quality Status'
     ]
-    # Hiển thị bảng Matrix chi tiết chính thức lên UI
-    st.dataframe(df_final[detailed_columns], use_container_width=True)
+    
+    # 🛠️ VÁ LỖI CACHE: Sử dụng `st.dataframe` thuần túy kèm `key` mới thay vì `st.data_editor` 
+    # Điều này chặn đứng việc Streamlit tự găm giữ đống số 0 do người dùng chỉnh sửa trước đó
+    st.dataframe(
+        df_final[detailed_columns], 
+        use_container_width=True,
+        key="detailed_matrix_refresh_v1"
+    )
 else:
     st.warning("Hệ thống chưa nhận được dữ liệu để kết xuất bảng tính toán định mức.")
 
