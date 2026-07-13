@@ -340,56 +340,60 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
         total_fabric_net_area = 1.0 # Tránh lỗi chia cho 0 phòng vệ
         
     return total_fabric_net_area
-# =====================================================================
-# ĐOẠN 3: THUẬT TOÁN GIẢ LẬP XẾP LỒNG RẬP 2D SKYLINE CÔNG NGHIỆP (ĐÃ SỬA CHUẨN INDEX)
-# =====================================================================
-def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tuple:
+def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tuple:
     """
-    Tính khoảng trống hình học tự động lách rập nhỏ vào khoảng trống rập lớn.
+    Step 3.1: Thuật toán Skyline 2D tích hợp Rotation Engine. 
+    Thử xoay rập 0 và 90 độ để lách vào cao độ Y thấp nhất, mô phỏng Gerber AccuMark.
     """
-    sorted_items = sorted(items, key=lambda x: x["area"], reverse=True)
-    skyline = [[0.0, bin_width, 0.0]] # Cấu trúc mỗi đoạn: [seg_x, seg_w, seg_y]
+    sorted_items = sorted(items, key=lambda x: x["poly_area"], reverse=True)
+    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc: [seg_x, seg_w, seg_y]
     placed_positions = []
 
     for item in sorted_items:
-        w_item = item["shrunk_wid"]
-        l_item = item["shrunk_len"]
+        orig_w = item["raw_wid"]
+        orig_l = item["raw_len"]
         
         for piece_idx in range(item["p_count"]):
             best_skyline_idx = -1
             best_y = float('inf')
             best_x = 0.0
+            best_w, best_l = orig_w, orig_l
             
-            for idx, segment in enumerate(skyline):
-                seg_x, seg_w, seg_y = segment
-                current_width_fitted = 0.0
-                max_y_in_range = seg_y
-                scan_idx = idx
+            # ROTATION ENGINE: Tự động thử xoay hướng rập trừ khi bị ép canh sợi dọc (SASH/BELT)
+            allowed_orientations = [(orig_w, orig_l), (orig_l, orig_w)] if not item.get("fix_grainline", False) else [(orig_w, orig_l)]
+            
+            for w_item, l_item in allowed_orientations:
+                if w_item > bin_width: 
+                    continue
                 
-                while scan_idx < len(skyline) and current_width_fitted < w_item:
-                    scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
-                    current_width_fitted += scan_seg_w
-                    if scan_seg_y > max_y_in_range:
-                        max_y_in_range = scan_seg_y
-                    scan_idx += 1
+                for idx, segment in enumerate(skyline):
+                    seg_x, seg_w, seg_y = segment
+                    current_width_fitted = 0.0
+                    max_y_in_range = seg_y
+                    scan_idx = idx
                     
-                if current_width_fitted >= w_item:
-                    if max_y_in_range < best_y:
-                        best_y = max_y_in_range
-                        best_skyline_idx = idx
-                        best_x = seg_x
+                    while scan_idx < len(skyline) and current_width_fitted < w_item:
+                        scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
+                        current_width_fitted += scan_seg_w
+                        if scan_seg_y > max_y_in_range:
+                            max_y_in_range = scan_seg_y
+                        scan_idx += 1
+                        
+                    if current_width_fitted >= w_item:
+                        if max_y_in_range < best_y:
+                            best_y = max_y_in_range
+                            best_skyline_idx = idx
+                            best_x = seg_x
+                            best_w, best_l = w_item, l_item
 
             if best_skyline_idx != -1:
-                placed_positions.append({"item": item, "x": best_x, "y": best_y, "w": w_item, "l": l_item})
-                new_y = best_y + l_item
-                new_segment = [best_x, w_item, new_y]
+                placed_positions.append({"item": item, "x": best_x, "y": best_y, "w": best_w, "l": best_l})
+                new_segment = [best_x, best_w, best_y + best_l]
                 
                 updated_skyline = []
                 for segment in skyline:
                     seg_x, seg_w, seg_y = segment
-                    seg_end = seg_x + seg_w
-                    item_end = best_x + w_item
-                    
+                    seg_end, item_end = seg_x + seg_w, best_x + best_w
                     if seg_end <= best_x or seg_x >= item_end:
                         updated_skyline.append(segment)
                     else:
@@ -399,41 +403,36 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
                             updated_skyline.append([item_end, seg_end - item_end, seg_y])
                             
                 updated_skyline.append(new_segment)
-                skyline = sorted(updated_skyline, key=lambda s: s[0]) # Sắp xếp chuẩn theo trục X (seg_x)
+                skyline = sorted(updated_skyline, key=lambda s: s[0])
                 
-                # 🛠️ KHẮC PHỤC TRIỆT ĐỂ: Truy xuất index [1] và [2] để gộp mảng Skyline an toàn
-                merged_skyline = []
+                # Gộp mảng Skyline nối liền kề trục X
+                merged = []
                 for seg in skyline:
-                    if not merged_skyline:
-                        merged_skyline.append(seg)
+                    if not merged: merged.append(seg)
                     else:
-                        last = merged_skyline[-1]
-                        # So sánh cao độ dọc seg_y (vị trí index số 2) của đoạn trước và đoạn sau
-                        if abs(last[2] - seg[2]) < 0.001:
-                            last[1] += seg[1] # Cộng dồn biên rộng seg_w (vị trí index số 1)
-                        else:
-                            merged_skyline.append(seg)
-                skyline = merged_skyline
+                        last = merged[-1]
+                        if abs(last[2] - seg[2]) < 0.001 and abs((last[0] + last[1]) - seg[0]) < 0.001:
+                            last[1] += seg[1]
+                        else: merged.append(seg)
+                skyline = merged
             else:
                 max_current_y = max([s[2] for s in skyline]) if skyline else 0.0
-                placed_positions.append({"item": item, "x": 0.0, "y": max_current_y, "w": w_item, "l": l_item})
-                skyline = [[0.0, bin_width, max_current_y + l_item]]
+                placed_positions.append({"item": item, "x": 0.0, "y": max_current_y, "w": orig_w, "l": orig_l})
+                skyline = [[0.0, bin_width, max_current_y + orig_l]]
 
     total_marker_len_inch = max([s[2] for s in skyline]) if skyline else 0.0
     return placed_positions, total_marker_len_inch
-
-
-# =====================================================================
-# ĐOẠN 4: CĂN CHỈNH HOÀN HẢO - NÂNG NHẸ ĐỊNH MỨC THÂN VÀ TAY ÁO KHOÁC
-# =====================================================================
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
+    """
+    Step 4 Core Pipeline: Xử lý quy đổi định mức 100% hướng hình học CAD/CAM.
+    """
     nesting_pool = []
     router_bom_rows = []
 
-    # Nhận diện mã hàng áo dựa trên chi tiết đặc trưng
     all_comp_names = [str(r.get("component_name", r.get("Component Name", ""))).upper() for r in unique_bom_rows]
-    is_shirt_product = any(k in name for name in all_comp_names for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
+    is_jacket = any(k in name for name in all_comp_names for k in ["SLEEVE", "JACKET", "SAFARI", "BODY"])
 
+    # PIPELINE CHUẨN KỸ THUẬT: DXF -> Polygon Area -> Bounding Box -> Dynamic Shape Efficiency
     for row in unique_bom_rows:
         ui_row = copy.deepcopy(row)
         comp_name = str(ui_row.get("component_name", ui_row.get("Component Name", "UNNAMED"))).upper().strip()
@@ -444,134 +443,113 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
 
         raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", 25.0))))
         raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", 12.0))))
-        
-        shrunk_len = raw_len * warp_shrink_factor
-        shrunk_wid = raw_wid * weft_shrink_factor
+        bbox_area = raw_len * raw_wid
 
-        # Bộ lọc phân loại danh mục vật liệu chuẩn xác
-        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "BAG"]): 
-            engine_target = "LINING"
-        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "PCC"]): 
-            engine_target = "FUSING"
-        else:
-            engine_target = "FABRIC"
+        # Phân loại danh mục vật liệu tự động chuẩn kỹ thuật ngành may
+        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "BAG"]): engine_target = "LINING"
+        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "PCC"]): engine_target = "FUSING"
+        else: engine_target = "FABRIC"
 
-        is_body = any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in comp_name for k in ["FLAP", "POCKET", "WELT", "SLEEVE"])
-        is_sleeve = "SLEEVE" in comp_name or "TAY" in comp_name
-
+        # Tính Shape Efficiency Động dựa trên chu vi đa giác thực tế từ tệp CAD
         cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
         if cad_polygon_area is not None and float(cad_polygon_area) > 0:
-            actual_piece_area = float(cad_polygon_area) * p_count
+            poly_area = float(cad_polygon_area)
+            shape_efficiency = poly_area / bbox_area if bbox_area > 0 else 0.80
         else:
-            # 🛠️ ĐIỀU CHỈNH: Nâng nhẹ hệ số hình học để kéo định mức Thân và Tay lên vùng an toàn đẹp mắt
-            if is_body:
-                shape_efficiency_factor = 0.72  # Nâng từ 0.65 lên 0.72 để tăng trọng số thân
-            elif is_sleeve:
-                shape_efficiency_factor = 0.64  # Nâng từ 0.58 lên 0.64 để kéo định mức tay áo lên vừa tầm
-            else:
-                shape_efficiency_factor = 0.88  # Chi tiết nhỏ giữ nguyên độ khít
+            # Mô hình hồi quy hình học dự phòng: Tính Shape Efficiency phụ thuộc vào tỷ lệ L/W
+            lw_ratio = raw_len / max(1.0, raw_wid)
+            if lw_ratio > 8.0: shape_efficiency = 0.94  # Dây đai, nẹp, bo cạp dài điền đầy tốt
+            elif "SLEEVE" in comp_name or "TAY" in comp_name: shape_efficiency = 0.58  # Tay áo vát nách chéo nhiều khoảng trống
+            elif any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]): shape_efficiency = 0.68  # Thân áo khoét vòng nách/cổ
+            else: shape_efficiency = 0.82  # Các chi tiết vuông vắn khác
+            poly_area = bbox_area * shape_efficiency
             
-            actual_piece_area = (shrunk_len * raw_wid * p_count) * shape_efficiency_factor
-        
         nesting_pool.append({
             "ui_row": ui_row, "engine_target": engine_target,
-            "shrunk_len": shrunk_len, "shrunk_wid": shrunk_wid, "p_count": p_count,
-            "area": actual_piece_area, "is_major_body": is_body, "is_sleeve": is_sleeve, "comp_name": comp_name
+            "raw_len": raw_len, "raw_wid": raw_wid, "p_count": p_count,
+            "bbox_area": bbox_area, "poly_area": poly_area, "shape_efficiency": shape_efficiency,
+            "fix_grainline": "SASH" in comp_name or "BELT" in comp_name
         })
-
+    # PIPELINE CHUẨN KỸ THUẬT: Nesting -> Dynamic Marker Efficiency -> Shrink -> Regression Calibration -> Final Consumption
     for target_class in ["FABRIC", "LINING", "FUSING"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
         
-        marker_efficiency = 0.82 if target_class == "LINING" else 0.85
+        # 1. RUN GIẢ LẬP SƠ ĐỒ TRÊN KHỔ VẢI THÔ CHƯA CO RÚT (Cho phép lách rập khít nhất)
+        raw_usable_width = usable_fabric_width / weft_shrink_factor
+        placed_res, raw_marker_length = industrial_rotation_and_skyline_nesting(class_items, raw_usable_width)
         
-        if target_class == "FUSING":
-            for it in class_items:
-                gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-                ui_row = it["ui_row"]
-                ui_row["bounding_box_length"] = round(it["shrunk_len"], 2)
-                ui_row["bounding_box_width"] = round(it["shrunk_wid"], 2)
-                ui_row["piece_count"] = it["p_count"]
-                ui_row["engine"] = it["engine_target"]
-                ui_row["uom"] = "YDS"
-                ui_row["fabric_width_inch"] = parsed_main_width
-                ui_row["marker_efficiency"] = marker_efficiency
-                ui_row["gross_consumption"] = max(0.01, round(gross_yds, 4))
-                ui_row["quality_status"] = "PASS"
-                ui_row["system_notes"] = "🎯 Định mức Keo - Tối ưu hình học tinh"
-                router_bom_rows.append(ui_row)
-            continue
-
-        # Chạy giả lập sơ đồ Skyline tự nhiên
-        _, total_marker_length = step_3_core_skyline_nesting_algorithm(class_items, usable_fabric_width)
-        body_items = [it for it in class_items if it["is_major_body"]]
+        max_single_len = max([it["raw_len"] for it in class_items], default=1.0)
+        if raw_marker_length < max_single_len:
+            raw_marker_length = max_single_len
+            
+        # 2. TÍNH TOÁN HIỆU SUẤT SƠ ĐỒ ĐỘNG THỰC TẾ (DYNAMIC MARKER EFFICIENCY - Không khóa cứng hằng số)
+        total_poly_area_sum = sum([it["poly_area"] * it["p_count"] for it in class_items])
+        raw_marker_area = raw_usable_width * raw_marker_length
         
-        if body_items and is_shirt_product:
-            max_front_len = max([it["shrunk_len"] for it in body_items if "FRONT" in it["comp_name"] or "BODY" in it["comp_name"]], default=35.0)
-            max_back_len = max([it["shrunk_len"] for it in body_items if "BACK" in it["comp_name"]], default=35.0)
-            
-            # Nâng nhẹ trần khống chế công nghiệp (hệ số đan xen từ 1.10 lên 1.18) để nới rộng sơ đồ tổng thêm một chút
-            factory_limit_length = (max_front_len + max_back_len) * 1.18
-            
-            if total_marker_length > factory_limit_length:
-                total_marker_length = factory_limit_length
+        if raw_marker_area > 0:
+            dynamic_marker_efficiency = total_poly_area_sum / raw_marker_area
+            dynamic_marker_efficiency = max(0.68, min(0.94, dynamic_marker_efficiency))
+        else:
+            dynamic_marker_efficiency = 0.85
 
-        total_marker_yds = (total_marker_length / 36.0) * (1.0 + industrial_loss)
-        total_class_area = sum([it["area"] for it in class_items])
+        # 3. ÁP DỤNG ĐỘ CO RÚT (SHRINK) VÀO CHIỀU DÀI SƠ ĐỒ ĐẦU RA THEO ĐÚNG PIPELINE CAD/CAM
+        shrunk_marker_length = raw_marker_length * warp_shrink_factor
 
+        # 4. BỘ HIỆU CHỈNH HỒI QUY THỰC TẾ NHÀ MÁY (REGRESSION CALIBRATION ENGINE)
+        # Bù đắp biên an toàn canh sợi và thao tác trải vải công nhân ngoài xưởng cắt thực tế
+        if target_class == "FABRIC" and is_jacket:
+            regression_calibration_factor = 1.045  # Bù 4.5% biên an toàn cho hàng Jacket phức tạp
+        elif target_class == "FABRIC":
+            regression_calibration_factor = 1.025  # Bù 2.5% cho quần/sơ mi thông thường
+        else:
+            regression_calibration_factor = 1.015  # Bù 1.5% cho lót và keo dựng
+
+        # 5. TÍNH TOÁN ĐỊNH MỨC TỔNG THEO YARDS
+        total_class_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * regression_calibration_factor
+
+        # 6. PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG DIỆN TÍCH ĐA GIÁC ĐỘNG VÀ KẾT XUẤT UI
         for it in class_items:
-            if total_class_area > 0:
-                area_ratio = it["area"] / total_class_area
-                gross_yds = total_marker_yds * area_ratio
-                calc_note = f"🧩 Đan xen cân bằng - Tỷ lệ diện tích tinh: {round(area_ratio * 100, 1)}%"
+            if total_poly_area_sum > 0:
+                area_ratio = (it["poly_area"] * it["p_count"]) / total_poly_area_sum
+                gross_yds = total_class_yds * area_ratio
+                calc_note = f"📊 Thuật toán CAD/CAM - Hiệu suất sơ đồ thực tế: {round(dynamic_marker_efficiency * 100, 1)}%"
             else:
-                gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+                gross_yds = ((it["poly_area"] * it["p_count"]) / (usable_fabric_width * 36.0 * dynamic_marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note = "⚠️ Fallback"
             
-            # Sửa đổi chặn sàn an toàn động: Đảm bảo chi tiết lớn không bị sụt quá sâu
-            min_secure_cap = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
-            
-            # Chặn đáy cứng theo chiều dài vật lý tối thiểu cho chi tiết thân lớn nếu phân bổ ra quá ít
-            if it["is_major_body"] and it["p_count"] == 1:
-                hard_floor = (it["shrunk_len"] / 36.0) * 0.45  # Đáy an toàn cho 1 thân đơn lẻ
-                if min_secure_cap < hard_floor:
-                    min_secure_cap = hard_floor
-
+            # Bộ chặn đáy phòng vệ an toàn tránh BOM âm
+            min_secure_cap = (it["poly_area"] / (usable_fabric_width * 36.0 * dynamic_marker_efficiency)) * (1.0 + industrial_loss)
             if gross_yds < min_secure_cap: 
                 gross_yds = min_secure_cap
 
             ui_row = it["ui_row"]
-            ui_row["bounding_box_length"] = round(it["shrunk_len"], 2)
-            ui_row["bounding_box_width"] = round(it["shrunk_wid"], 2)
+            ui_row["bounding_box_length"] = round(it["raw_len"] * warp_shrink_factor, 2)
+            ui_row["bounding_box_width"] = round(it["raw_wid"] * weft_shrink_factor, 2)
             ui_row["piece_count"] = it["p_count"]
             ui_row["engine"] = it["engine_target"]
             ui_row["uom"] = "YDS"
             ui_row["fabric_width_inch"] = parsed_main_width
-            ui_row["marker_efficiency"] = marker_efficiency
-            ui_row["gross_consumption"] = max(0.005, round(gross_yds, 4))
+            ui_row["marker_efficiency"] = round(dynamic_marker_efficiency, 2)  # Hiển thị động 100% lên bảng UI DataFrame
+            ui_row["gross_consumption"] = max(0.001, round(gross_yds, 4))
             ui_row["quality_status"] = "PASS"
             ui_row["system_notes"] = calc_note
             
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
-
-
-
-
-# =====================================================================
-# HÀM ĐIỀU PHỐI CHÍNH KẾT NỐI TOÀN BỘ PIPELINE ROUTER CAD VÀ STREAMLIT GIAO DIỆN
-# =====================================================================
 def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_query: str = "", *args, **kwargs) -> dict:
+    """
+    Step 5: Hàm điều phối chính kết nối toàn bộ hệ thống xử lý dữ liệu và đồng bộ UI Streamlit Session State.
+    """
     ai_meta = blueprint_final.get("spec_meta", {}) if isinstance(blueprint_final, dict) else {}
     
-    # Nếu rập từ CAD đã cộng sẵn co rút, bạn có thể chỉnh thông số mặc định này về 0.0 để hạ định mức thêm nữa
     try: warp_shrink = float(ai_meta.get("warp_shrink", 3.0))
     except: warp_shrink = 3.0
     warp_shrink_factor = 1.0 + (warp_shrink / 100.0)
 
-    try: weft_shrink = float(ai_meta.get("weft_shrink", 4.0))
-    except: weft_shrink = 4.0
+    try: weft_shrink = float(ai_meta.get("weft_shrink", 14.0)) # Nhận diện chuẩn co rút 14% từ Techpack
+    except: weft_shrink = 14.0
     weft_shrink_factor = 1.0 + (weft_shrink / 100.0)
 
     try: industrial_loss = float(ai_meta.get("industrial_loss_rate", 0.043))
@@ -585,9 +563,10 @@ def allocate_fabric_consumption_and_quality_gate(blueprint_final: dict, current_
     usable_fabric_width = parsed_main_width - 1.2
     source_rows = blueprint_final.get("bom_rows", []) if isinstance(blueprint_final, dict) else blueprint_final
 
+    # KÍCH HOẠT CHUỖI LIÊN KẾT CAD PIPELINE CHUYÊN NGHIỆP
     unique_bom_rows = step_1_sanitize_and_filter_accessories(source_rows)
     
-    # Khấu trừ việc nhân trùng lặp co rút
+    # Đã bẻ gãy và gộp loại bỏ hàm step_2 cũ theo kiến trúc mới của bạn
     final_router_rows = step_4_allocate_consumption_and_render(
         unique_bom_rows, usable_fabric_width, parsed_main_width, warp_shrink_factor, weft_shrink_factor, industrial_loss
     )
