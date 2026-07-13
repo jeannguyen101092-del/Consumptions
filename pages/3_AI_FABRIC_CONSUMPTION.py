@@ -424,7 +424,7 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
 
 
 # =====================================================================
-# ĐOẠN 4: QUY ĐỔI ĐỊNH MỨC THEO TỶ LỆ DIỆN TÍCH PHẲNG (ĐÃ TỐI ƯU HẠ ĐỊNH MỨC)
+# ĐOẠN 4: TỐI ƯU SÂU THEO DIỆN TÍCH ĐA GIÁC THỰC TẾ (POLYGON NET AREA)
 # =====================================================================
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.04, industrial_loss: float = 0.043) -> list:
     nesting_pool = []
@@ -445,17 +445,28 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]): 
             engine_target = "FUSING"
 
-        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", ui_row.get("Dài sản xuất (L-inch)", 25.0)))))
-        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", ui_row.get("Rộng sản xuất (W-inch)", 12.0)))))
+        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", 25.0))))
+        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", 12.0))))
         
-        # 🛠️ KHẮC PHỤC 1: Bỏ cộng bù 1.0 Inch quá tay, dùng biên an toàn nhỏ hơn (ví dụ: 0.1 Inch) nếu thực sự cần thiết
-        shrunk_len = (raw_len + 0.1) * warp_shrink_factor
-        shrunk_wid = (raw_wid + 0.1) * weft_shrink_factor
+        # Áp dụng độ co rút cho kích thước bao để chạy giả lập sơ đồ Skyline
+        shrunk_len = raw_len * warp_shrink_factor
+        shrunk_wid = raw_wid * weft_shrink_factor
+        
+        # 🛠️ CẢI TIẾN CỐT LÕI: Lấy diện tích đa giác thực tế từ CAD (polygon_area hoặc net_area) nếu có
+        # Nếu không có, thuật toán mới dùng diện tích bao quanh hình chữ nhật làm dự phòng
+        cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
+        if cad_polygon_area is not None and float(cad_polygon_area) > 0:
+            # Diện tích đa giác thực tế đã bao gồm co rút rập từ file CAD gốc
+            actual_piece_area = float(cad_polygon_area) * p_count
+        else:
+            # Nếu không có dữ liệu đa giác, áp dụng hệ số sử dụng diện tích trung bình của thân quần (khoảng 68%)
+            shape_efficiency_factor = 0.68 if any(k in comp_name for k in ["PANEL", "THÂN"]) else 0.85
+            actual_piece_area = (shrunk_len * shrunk_wid * p_count) * shape_efficiency_factor
         
         nesting_pool.append({
             "ui_row": ui_row, "engine_target": engine_target, "uom_target": uom_target,
             "shrunk_len": shrunk_len, "shrunk_wid": shrunk_wid, "p_count": p_count,
-            "area": shrunk_len * shrunk_wid * p_count,  # Tổng diện tích của nhóm chi tiết này
+            "area": actual_piece_area, # Sử dụng diện tích tinh để phân bổ
             "raw_len": raw_len, "raw_wid": raw_wid
         })
 
@@ -463,25 +474,27 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
         
-        # Chạy giả lập xếp sơ đồ thu về tổng chiều dài thực tế (inch)
         placed_res, marker_total_length = step_3_core_skyline_nesting_algorithm(class_items, usable_fabric_width)
         marker_efficiency = 0.82 if target_class == "LINING" else 0.87
         
-        # Tính tổng diện tích hình chữ nhật bao quanh của tất cả các rập trong nhóm này
-        total_class_area = sum([it["area"] for it in class_items])
-        
-        # Quy đổi tổng chiều dài sơ đồ ra Yards tổng (đã bao gồm hao hụt công nghiệp)
+        # Tổng diện tích tinh của cả nhóm vật liệu
+        total_class_shapes_area = sum([it["area"] for it in class_items])
         total_marker_yds = (marker_total_length / 36.0) * (1.0 + industrial_loss)
-        
+
         for it in class_items:
-            # 🛠️ KHẮC PHỤC 2: Phân bổ Yard theo tỷ lệ đóng góp diện tích thực tế thay vì lấy Khoảng cách Y đầu cuối
-            if total_class_area > 0:
-                area_ratio = it["area"] / total_class_area
+            # Phân bổ định mức dựa trên tỷ lệ diện tích đa giác thực tế tinh khiết
+            if total_class_shapes_area > 0 and total_marker_yds > 0:
+                area_ratio = it["area"] / total_class_shapes_area
                 gross_yds = total_marker_yds * area_ratio
-                calc_note = f"🧩 Phân bổ Skyline - Tỷ lệ diện tích: {round(area_ratio * 100, 1)}%"
+                calc_note = f"🧩 Phân bổ đa giác Tinh - Tỷ lệ: {round(area_ratio * 100, 1)}%"
             else:
-                gross_yds = (it["area"] / (usable_fabric_width * 36.0)) * (1.0 + industrial_loss)
+                gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note = "⚠️ Fallback - Diện tích phẳng"
+            
+            # Chặn đáy phòng vệ kỹ thuật để tránh thiếu vải
+            min_secure_cap = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+            if gross_yds < min_secure_cap: 
+                gross_yds = min_secure_cap
 
             ui_row = it["ui_row"]
             ui_row["bounding_box_length"] = round(it["shrunk_len"], 2)
@@ -498,6 +511,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+
 
 # =====================================================================
 # HÀM ĐIỀU PHỐI CHÍNH KẾT NỐI TOÀN BỘ PIPELINE ROUTER CAD VÀ STREAMLIT GIAO DIỆN
