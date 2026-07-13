@@ -463,8 +463,8 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
     return router_bom_rows
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
-    Hàm giải nén Step 4: Trích xuất kết quả Marker Dictionary trung thực 100%.
-    Áp dụng bộ bổ chia / marker_garments động cho tất cả các lớp vật liệu, triệt tiêu hoàn toàn hard-code.
+    Hàm điều phối Step 4 - BẢN VÁ TRIỆT ĐỂ LỖI ĐỊNH MỨC BẰNG 0.
+    Tự động kích hoạt cơ chế Fallback diện tích bao quanh nếu file CAD thiếu thông số net_area.
     """
     import math
     nesting_pool = []
@@ -487,12 +487,13 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "PCC"]): engine_target = "FUSING"
         else: engine_target = "FABRIC"
 
+        # Tính toán diện tích đa giác tinh động an toàn (Cam kết luôn lớn hơn 0)
         cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
         if cad_polygon_area is not None and float(cad_polygon_area) > 0:
             poly_area = float(cad_polygon_area)
         else:
             lw_ratio = raw_len / max(1.0, raw_wid)
-            shape_efficiency = 0.94 if lw_ratio > 8.0 else (0.68 if any(k in comp_name for k in ["PANEL", "THÂN"]) else 0.82)
+            shape_efficiency = 0.94 if lw_ratio > 8.0 else (0.68 if any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK"]) else 0.82)
             poly_area = bbox_area * shape_efficiency
             
         nesting_pool.append({
@@ -501,7 +502,8 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             "p_count_single": p_count_single,
             "shrunk_len": raw_len * warp_shrink_factor,
             "shrunk_wid": raw_wid * weft_shrink_factor,
-            "poly_area": poly_area, "comp_name": comp_name
+            "poly_area": max(0.1, poly_area), # Chặn dưới an toàn phòng vệ chống số 0
+            "comp_name": comp_name
         })
 
     MARKER_PROFILE = {
@@ -522,21 +524,18 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         raw_usable_width = usable_fabric_width 
         marker = industrial_rotation_and_skyline_nesting(class_items, raw_usable_width)
         
-        # Đọc dữ liệu động thực tế đầu ra 100% từ lõi sơ đồ hình học
         raw_marker_length = marker["marker_length"]
-        marker_garments = marker["garment_count"]  # Chẩn đoán tự động số lượng phối bộ (2, 4, hoặc 6...)
+        marker_garments = marker["garment_count"]  
         placed_res = marker["placed_pieces"]
 
-        # Chiều dài tối thiểu phòng vệ hình học đầu dao
         max_single_len = max([it["raw_len"] for it in class_items], default=1.0)
         if raw_marker_length < max_single_len: 
             raw_marker_length = max_single_len
             
-        # 🛠️ HIỆU CHỈNH TRUNG THỰC CAD/CAM: Tính toán hiệu suất sơ đồ động thực tế từ đặt rập vật lý
-        # Thừa hưởng trực tiếp biến marker_garments động, loại bỏ hoàn toàn hệ số nhân 1.25 ảo
-        total_poly_area_sum = sum([float(p["poly_area"]) for p in placed_res])
+        # 🛠️ VÁ LỖI TOÁN HỌC: Đảm bảo tổng diện tích poly_area_sum luôn đồng bộ với số lượng phối bộ g_count động
+        total_poly_area_sum = sum([float(it["poly_area"] * it["p_count_single"] * marker_garments) for it in class_items])
         raw_marker_area = raw_usable_width * raw_marker_length
-        calculated_eff = total_poly_area_sum / raw_marker_area if raw_marker_area > 0 else 0.85
+        calculated_eff = total_poly_area_sum / raw_marker_area if raw_marker_area > 0 else 0.86
         calculated_eff = max(0.50, min(0.96, calculated_eff))
 
         profile_group = MARKER_PROFILE.get(garment_type, MARKER_PROFILE["TROUSER"])
@@ -549,17 +548,19 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         shrunk_marker_length = raw_marker_length * warp_shrink_factor
         regression_calibration_factor = REGRESSION_PROFILE.get(garment_type, 1.012)
         
-        # Tính toán Yards tổng bàn cắt phối bộ đầu xưởng
+        # Tính toán Yards tổng bàn cắt phối bộ
         total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * regression_calibration_factor
 
-        # 🛠️ QUY ĐỔI ĐỊNH MỨC ĐỘNG: Áp dụng bổ chia cho TẤT CẢ các lớp vật liệu (Fabric, Lining, Fusing) theo biến động
+        # Quy đổi bổ chia động theo garment_count (Xóa bỏ chia cứng cho số 2)
         total_class_yds = total_marker_yds / float(marker_garments)
 
-        # 3. PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG DIỆN TÍCH TINH ĐỒNG BỘ
+        # 3. PHÂN BỔ ĐỊNH MỨC CHI TIẾT TRUNG THỰC (AN TOÀN TUYỆT ĐỐI CHỐNG SỐ 0)
         original_single_class_poly_sum = sum([float(it["poly_area"] * it["p_count_single"]) for it in class_items])
 
         for it in class_items:
             orig_single_poly = float(it["poly_area"] * it["p_count_single"])
+            
+            # Khắc phục lỗi chia tỷ lệ: Bảo toàn phép chia luôn trả về giá trị thực tế > 0
             if original_single_class_poly_sum > 0:
                 area_ratio = orig_single_poly / original_single_class_poly_sum
                 gross_yds = total_class_yds * area_ratio
@@ -574,18 +575,19 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             ui_row = it["ui_row"]
             ui_row["bounding_box_length"] = round(it["raw_len"] * warp_shrink_factor, 2)
             ui_row["bounding_box_width"] = round(it["raw_wid"] * weft_shrink_factor, 2)
-            ui_row["piece_count"] = it["p_count_single"]  # Trả lại số lượng rập gốc 1 sản phẩm lên UI
+            ui_row["piece_count"] = it["p_count_single"]  
             ui_row["engine"] = it["engine_target"]
             ui_row["uom"] = "YDS"
             ui_row["fabric_width_inch"] = parsed_main_width
             ui_row["marker_efficiency"] = round(calculated_eff, 2)
-            ui_row["gross_consumption"] = max(0.005, round(gross_yds, 4))
+            ui_row["gross_consumption"] = max(0.005, round(gross_yds, 4)) # Cam kết xuất kết quả số dương chuẩn xác
             ui_row["quality_status"] = quality_status
             ui_row["system_notes"] = system_notes_status
             
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+
 
 
 
