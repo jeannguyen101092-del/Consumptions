@@ -424,61 +424,66 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
     return placed_positions, total_marker_len_inch
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
-    Step 4 Core Pipeline: Xử lý quy đổi định mức 100% hướng hình học CAD/CAM.
+    Step 4 Core Pipeline: Xử lý quy đổi định mức hình học CAD/CAM hướng dữ liệu 100%.
     """
     nesting_pool = []
     router_bom_rows = []
 
-    all_comp_names = [str(r.get("component_name", r.get("Component Name", ""))).upper() for r in unique_bom_rows]
-    is_jacket = any(k in name for name in all_comp_names for k in ["SLEEVE", "JACKET", "SAFARI", "BODY"])
-
-    # PIPELINE CHUẨN KỸ THUẬT: DXF -> Polygon Area -> Bounding Box -> Dynamic Shape Efficiency
+    # 1. BƯỚC QUÉT VÀ TÍNH DIỆN TÍCH TINH ĐỘNG (CAD GEOMETRY SCANNER)
     for row in unique_bom_rows:
         ui_row = copy.deepcopy(row)
-        comp_name = str(ui_row.get("component_name", ui_row.get("Component Name", "UNNAMED"))).upper().strip()
-        mat_class = str(ui_row.get("material_class", ui_row.get("Material Class", "FABRIC"))).upper().strip()
+        
+        # Lấy tên chi tiết từ mọi Key có thể xuất hiện trong hệ thống của bạn
+        comp_name = str(ui_row.get("component_name", ui_row.get("Component Name", ui_row.get("Component", "UNNAMED")))).upper().strip()
+        mat_class = str(ui_row.get("material_class", ui_row.get("Material Class", ui_row.get("Material", "FABRIC")))).upper().strip()
         
         try: p_count = int(float(ui_row.get("piece_count", ui_row.get("Số lượng rập (Pcs)", 1))))
         except: p_count = 1
 
-        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", 25.0))))
-        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", 12.0))))
+        raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", ui_row.get("Dài sản xuất (L-inch)", 25.0)))))
+        raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", ui_row.get("Rộng sản xuất (W-inch)", 12.0)))))
         bbox_area = raw_len * raw_wid
 
-        # Phân loại danh mục vật liệu tự động chuẩn kỹ thuật ngành may
-        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "BAG"]): engine_target = "LINING"
-        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "PCC"]): engine_target = "FUSING"
-        else: engine_target = "FABRIC"
+        # Phân loại danh mục vật liệu tự động
+        if any(k in comp_name or k in mat_class for k in ["LÓT", "LINING", "POCKETING", "BAG"]): 
+            engine_target = "LINING"
+        elif any(k in comp_name or k in mat_class for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "PCC"]): 
+            engine_target = "FUSING"
+        else:
+            engine_target = "FABRIC"
 
-        # Tính Shape Efficiency Động dựa trên chu vi đa giác thực tế từ tệp CAD
+        is_body = any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in comp_name for k in ["FLAP", "POCKET", "WELT", "SLEEVE"])
+        is_sleeve = "SLEEVE" in comp_name or "TAY" in comp_name
+
+        # Tính toán Shape Efficiency động
         cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
         if cad_polygon_area is not None and float(cad_polygon_area) > 0:
             poly_area = float(cad_polygon_area)
             shape_efficiency = poly_area / bbox_area if bbox_area > 0 else 0.80
         else:
-            # Mô hình hồi quy hình học dự phòng: Tính Shape Efficiency phụ thuộc vào tỷ lệ L/W
             lw_ratio = raw_len / max(1.0, raw_wid)
-            if lw_ratio > 8.0: shape_efficiency = 0.94  # Dây đai, nẹp, bo cạp dài điền đầy tốt
-            elif "SLEEVE" in comp_name or "TAY" in comp_name: shape_efficiency = 0.58  # Tay áo vát nách chéo nhiều khoảng trống
-            elif any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]): shape_efficiency = 0.68  # Thân áo khoét vòng nách/cổ
-            else: shape_efficiency = 0.82  # Các chi tiết vuông vắn khác
+            if lw_ratio > 8.0: shape_efficiency = 0.94  
+            elif is_sleeve: shape_efficiency = 0.58  
+            elif is_body: shape_efficiency = 0.68  
+            else: shape_efficiency = 0.82  
             poly_area = bbox_area * shape_efficiency
             
+        # ĐỒNG BỘ KEY LƯU TRỮ TRONG MẢNG ĐỆM AN TOÀN
         nesting_pool.append({
-            "ui_row": ui_row, "engine_target": engine_target,
-            "raw_len": raw_len, "raw_wid": raw_wid, "p_count": p_count,
-            "bbox_area": bbox_area, "poly_area": poly_area, "shape_efficiency": shape_efficiency,
+            "ui_row": ui_row, 
+            "engine_target": engine_target,
+            "raw_len": raw_len, 
+            "raw_wid": raw_wid, 
+            "p_count": p_count,
+            "bbox_area": bbox_area, 
+            "poly_area": poly_area, 
+            "shape_efficiency": shape_efficiency,
+            "is_major_body": is_body,
+            "comp_name": comp_name,  # Khóa chuẩn viết thường đồng bộ
             "fix_grainline": "SASH" in comp_name or "BELT" in comp_name
         })
-    # PIPELINE CHUẨN KỸ THUẬT: Nesting -> Dynamic Marker Efficiency -> Shrink -> Regression Calibration -> Final Consumption
-       # =====================================================================
-      # =====================================================================
-        # =====================================================================
-        # =====================================================================
-    # ĐOẠN 3 SỬA LỖI NAMEERROR: BENCHMARK PROFILE & REGRESSION LEARNING
-    # =====================================================================
-    
-    # 🔴 HỒ SƠ THAM CHIẾU HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP (INDUSTRY BENCHMARK PROFILE)
+
+    # 2. ĐÁNH GIÁ CHẤT LƯỢNG & TÍNH ĐỊNH MỨC THEO PROFILE (QUALITY GATE & BENCHMARK)
     MARKER_PROFILE = {
         "TROUSER": {"FABRIC": (0.85, 0.88), "LINING": (0.78, 0.82), "FUSING": (0.82, 0.85)},
         "SHIRT":   {"FABRIC": (0.83, 0.86), "LINING": (0.80, 0.82), "FUSING": (0.84, 0.86)},
@@ -486,12 +491,10 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         "KNIT":    {"FABRIC": (0.86, 0.90), "LINING": (0.80, 0.85), "FUSING": (0.87, 0.89)}
     }
 
-    # 🛠️ VÁ LỖI ĐỊNH NGHĨA BIẾN: Khởi tạo biến nhận diện loại sản phẩm từ danh sách rập đầu vào
-    all_comp_names_lower = [str(it["comp_name"]).upper() for it in nesting_pool]
-    is_shirt_product = any(k in name for name in all_comp_names_lower for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
-
-    # Xác định dòng hàng động dựa trên đặc trưng hình học và từ khóa chi tiết rập
+    # Kiểm tra loại sản phẩm an toàn thông qua mảng pool đã đồng bộ hóa
+    is_shirt_product = any(k in str(it.get("comp_name", "")).upper() for it in nesting_pool for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
     garment_type = "JACKET" if is_shirt_product else "TROUSER"
+    
     if not is_shirt_product and any("KNIT" in str(r.get("material_class", "")).upper() for r in unique_bom_rows):
         garment_type = "KNIT"
 
@@ -499,17 +502,16 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
         
-        # Khổ vải hữu dụng thực tế
         raw_usable_width = usable_fabric_width 
         
-        # 1. RUN SKYLINE NESTING + ROTATION ENGINE (Tính toán chiều dài hình học gốc)
+        # Chạy thuật toán giả lập sơ đồ Skyline 2D hình học gốc
         placed_res, raw_marker_length = industrial_rotation_and_skyline_nesting(class_items, raw_usable_width)
         
         max_single_len = max([it["raw_len"] for it in class_items], default=1.0)
         if raw_marker_length < max_single_len:
             raw_marker_length = max_single_len
             
-        # 2. TÍNH HIỆU SUẤT SƠ ĐỒ THỰC TẾ (CAD MARKER EFFICIENCY - GIỮ TRUNG THỰC 100%)
+        # Tính toán hiệu suất sơ đồ thực tế (CAD Marker Efficiency trung thực)
         total_poly_area_sum = sum([it["poly_area"] * it["p_count"] for it in class_items])
         raw_marker_area = raw_usable_width * raw_marker_length
         
@@ -519,7 +521,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         else:
             calculated_eff = 0.85
 
-        # 3. ĐÁNH GIÁ CHẤT LƯỢNG SƠ ĐỒ DỰA TRÊN INDUSTRY BENCHMARK (QUALITY GATE)
+        # So sánh khoảng chuẩn nhà máy (Quality Gate)
         profile_group = MARKER_PROFILE.get(garment_type, MARKER_PROFILE["JACKET"])
         low_bound, high_bound = profile_group.get(target_class, (0.80, 0.85))
         
@@ -533,22 +535,21 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             quality_status = "PASS"
             system_notes_status = f"📊 Sơ đồ đạt chuẩn sản xuất (Hiệu suất động: {round(calculated_eff*100, 1)}%)"
 
-        # 4. ÁP DỤNG ĐỘ CO RÚT DỌC (SHRINK) SAU KHI ĐÃ CÓ CHIỀU DÀI SƠ ĐỒ GỐC
+        # Áp dụng độ co rút dọc (Warp Shrink)
         shrunk_marker_length = raw_marker_length * warp_shrink_factor
 
-        # 5. BỘ HỒI QUY HIỆU CHỈNH TỰ ĐỘNG THEO SAI LỆCH BENCHMARK (REGRESSION LEARNING ENGINE)
+        # Bộ hồi quy hiệu chỉnh tự động mềm dẻo (Regression Learning Engine)
         benchmark_midpoint = (low_bound + high_bound) / 2.0
-        
         if calculated_eff < benchmark_midpoint:
             regression_calibration_factor = benchmark_midpoint / calculated_eff
             regression_calibration_factor = min(1.07, regression_calibration_factor)
         else:
             regression_calibration_factor = 1.015 
 
-        # 6. TÍNH TOÁN ĐỊNH MỨC TỔNG THEO YARDS
+        # Tính định mức tổng Yard
         total_class_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * regression_calibration_factor
 
-        # 7. PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG VÀ KẾT XUẤT UI DATAFRAME
+        # Phân bổ định mức và lưu kết quả UI
         for it in class_items:
             if total_poly_area_sum > 0:
                 area_ratio = (it["poly_area"] * it["p_count"]) / total_poly_area_sum
@@ -556,7 +557,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             else:
                 gross_yds = ((it["poly_area"] * it["p_count"]) / (usable_fabric_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
             
-            # Bộ chặn đáy phòng vệ an toàn tránh BOM âm
             min_secure_cap = (it["poly_area"] / (usable_fabric_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
             if gross_yds < min_secure_cap: 
                 gross_yds = min_secure_cap
