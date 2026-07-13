@@ -342,47 +342,90 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
     return total_fabric_net_area
 def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tuple:
     """
-    Step 3.1: Động cơ lồng rập Đa giác Động - Phiên bản 10/10 chuẩn Gerber AccuMark.
-    Kiến trúc khuyến nghị: Expand Pieces -> Polygon Boundary Interlocking -> Continuous Cost Function.
-    Loại bỏ 100% hệ số ép Y cố định. Sửa toàn bộ lỗi Index hình học.
+    Step 3.1: Động cơ lồng rập Đa giác Công nghiệp - Đoạn 1 (Xử lý tiền sơ đồ).
+    Kiến trúc nâng cấp: Pair Nesting (Ghép cặp thân đối đầu) -> Cluster Packing (Gom cụm chi tiết nhỏ).
     """
+    import math
     CUT_GAP = 0.125  # Khoảng hở an toàn đầu dao cắt thực tế (Inch)
-    expanded_pieces = []
-
-    # 1. EXPAND PIECE COUNT (Tách thành các miếng rập vật lý độc lập)
+    major_bodies = []
+    minor_accessories = []
+    
+    # 🛠️ MODULE 1: INDUSTRIAL PAIR NESTING (Ghép cặp thân trước / thân sau đối đầu)
     for item in items:
+        c_name = str(item.get("comp_name", "UNNAMED")).upper()
         s_wid = float(item.get("shrunk_wid", item.get("raw_wid", 15.0)))
         s_len = float(item.get("shrunk_len", item.get("raw_len", 45.0)))
+        p_count = int(item.get("p_count", 1))
+        poly_area = float(item.get("poly_area", item.get("area", s_wid * s_len * 0.72)))
         
-        try: p_count = int(float(item.get("p_count", item.get("piece_count", 1))))
-        except: p_count = 1
-        
-        c_name = str(item.get("comp_name", "UNNAMED")).upper()
-        # Nhận diện chi tiết thân lớn cần khóa nghiêm ngặt trục dọc canh sợi (TROUSER BODY)
+        # Nhận diện chính xác Thân chính (Front/Back Panel)
         is_major_body = any(k in c_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in c_name for k in ["FLAP", "POCKET", "WELT"])
-        fix_grain = item.get("fix_grainline", is_major_body)
-
-        total_poly = float(item.get("poly_area", item.get("area", s_wid * s_len * 0.72)))
-        single_poly_area = total_poly / max(1, p_count)
         
-        for _ in range(p_count):
-            expanded_pieces.append({
-                "comp_name": c_name,
-                "shrunk_wid": s_wid,
-                "shrunk_len": s_len,
-                "poly_area": single_poly_area,
-                "is_major_body": is_major_body,
-                "fix_grainline": fix_grain
+        if is_major_body and p_count >= 2:
+            # Ép 2 thân lật đối đầu đầu-gấu song song để lách hõm đũng quần thật
+            pair_width = (s_wid * 2) * 0.85  # Khấu trừ 15% diện tích vát âm của đũng quần
+            pair_length = s_len
+            pair_poly_area = poly_area
+            
+            major_bodies.append({
+                "comp_name": f"PAIR_{c_name}",
+                "shrunk_wid": pair_width,
+                "shrunk_len": pair_length,
+                "poly_area": pair_poly_area,
+                "fix_grainline": True
             })
+        else:
+            for _ in range(p_count):
+                minor_accessories.append({
+                    "comp_name": c_name,
+                    "shrunk_wid": s_wid,
+                    "shrunk_len": s_len,
+                    "poly_area": poly_area / max(1, p_count),
+                    "fix_grainline": item.get("fix_grainline", False)
+                })
 
-    # Sắp xếp rập vật lý giảm dần theo diện tích tinh để định khung chi tiết lớn trước
-    sorted_pieces = sorted(expanded_pieces, key=lambda x: x["poly_area"], reverse=True)
+    # 🛠️ MODULE 2: CLUSTER PACKING (Gom các chi tiết nhỏ thành Block ngang để lấp đầy 22 inch dư)
+    packed_clusters = []
+    minor_accessories = sorted(minor_accessories, key=lambda x: x["shrunk_wid"])
     
-    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc: [[seg_x, seg_w, seg_y], ...]
+    current_cluster = []
+    current_cluster_width = 0.0
+    
+    for acc in minor_accessories:
+        if current_cluster_width + acc["shrunk_wid"] + CUT_GAP < 22.0:
+            current_cluster.append(acc)
+            current_cluster_width += acc["shrunk_wid"] + CUT_GAP
+        else:
+            if current_cluster:
+                max_len_in_cluster = max([p["shrunk_len"] for p in current_cluster])
+                packed_clusters.append({
+                    "comp_name": "ACC_CLUSTER_BLOCK",
+                    "shrunk_wid": current_cluster_width,
+                    "shrunk_len": max_len_in_cluster,
+                    "poly_area": sum([p["poly_area"] for p in current_cluster]),
+                    "fix_grainline": False
+                })
+            current_cluster = [acc]
+            current_cluster_width = acc["shrunk_wid"] + CUT_GAP
+            
+    if current_cluster:
+        max_len_in_cluster = max([p["shrunk_len"] for p in current_cluster])
+        packed_clusters.append({
+            "comp_name": "ACC_CLUSTER_BLOCK",
+            "shrunk_wid": current_cluster_width,
+            "shrunk_len": max_len_in_cluster,
+            "poly_area": sum([p["poly_area"] for p in current_cluster]),
+            "fix_grainline": False
+        })
+
+    # Trộn hợp nhất và sắp xếp giảm dần theo diện tích tinh
+    final_sorted_pieces = sorted(major_bodies + packed_clusters, key=lambda x: x["poly_area"], reverse=True)
+    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc chuẩn: [[seg_x, seg_w, seg_y], ...]
     placed_positions = []
     current_max_marker_len = 0.0
 
-    for piece in sorted_pieces:
+    # 🛠️ MODULE 3: LÕI CHẤM ĐIỂM CHI PHÍ ĐA TIÊU CHÍ ĐỘNG CHO TỪNG KHỐI RẬP ĐÃ GOM
+    for piece in final_sorted_pieces:
         orig_w = piece["shrunk_wid"]
         orig_l = piece["shrunk_len"]
         
@@ -391,7 +434,6 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
         best_x, best_y = 0.0, 0.0
         best_w, best_l = orig_w, orig_l
         
-        # ROTATION CANDIDATE ENGINE: Thân khóa trục dọc, rập nhỏ thử xoay 90 độ lách khe ngang
         allowed_orientations = [(orig_w, orig_l)]
         if not piece["fix_grainline"]:
             allowed_orientations.append((orig_l, orig_w))
@@ -407,7 +449,6 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                 max_y_in_range = seg_y
                 scan_idx = idx
                 
-                # Quét kiểm tra nhịp Skyline ngang
                 while scan_idx < len(skyline) and current_width_fitted < w_required:
                     scan_seg_x, scan_seg_w, scan_seg_y = skyline[scan_idx]
                     current_width_fitted += scan_seg_w
@@ -416,29 +457,13 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                     scan_idx += 1
                     
                 if current_width_fitted >= w_required:
-                    # 🛠️ MÔ PHỎNG VA CHẠM BIÊN DẠNG ĐA GIÁC (POLYGON PROFILE INTERLOCKING)
-                    # Tính toán độ lõm hình học thật (Độ vát đũng quần hoặc khoét eo)
-                    bbox_area = w_orient * l_orient
-                    packing_ratio = piece["poly_area"] / bbox_area if bbox_area > 0 else 0.70
-                    concavity = max(0.0, min(0.45, 1.0 - packing_ratio))
-                    
-                    # Mô phỏng dịch chuyển Polygon va chạm (Collision Detection Approximation)
-                    # Khoảng cách lách khít tối đa dựa trên hình học thực, chỉ kích hoạt khi có chi tiết lớn phối bộ đối đầu
-                    if piece["is_major_body"] and any(p["item"]["is_major_body"] for p in placed_positions):
-                        max_physical_interlock = concavity * l_orient
-                        actual_placement_y = max(0.0, max_y_in_range - max_physical_interlock)
-                    elif not piece["is_major_body"] and max_y_in_range > 0:
-                        # Rập nhỏ ký sinh lọt hoàn toàn vào phần hõm đáy của đũng quần thân trước/sau
-                        max_physical_interlock = concavity * l_orient * 1.5
-                        actual_placement_y = max(0.0, max_y_in_range - max_physical_interlock)
-                    else:
-                        actual_placement_y = max_y_in_range
+                    actual_placement_y = max_y_in_range
 
-                    # 1. TÍNH DELTA MARKER LENGTH (Chi phí tăng chiều dài tổng bàn cắt)
+                    # 1. ΔMARKER LENGTH COST (45% Trọng số quyết định)
                     potential_new_max_y = actual_placement_y + l_orient + CUT_GAP
                     delta_marker_length = max(0.0, potential_new_max_y - current_max_marker_len)
                     
-                    # 2. TÍNH WASTE AREA (Diện tích lãng phí dưới đáy rập)
+                    # 2. WASTE AREA COST (25% Trọng số)
                     waste_area = 0.0
                     scan_idx = idx
                     width_accumulator = 0.0
@@ -449,13 +474,13 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                         width_accumulator += scan_seg_w
                         scan_idx += 1
                         
-                    # 3. TÍNH WIDTH RESIDUAL CHUẨN XÁC (Khe hở ngang còn lại trên phân đoạn)
+                    # 3. WIDTH RESIDUAL COST TRÊN PHÂN ĐOẠN (20% Trọng số)
                     width_residual = current_width_fitted - w_required
                     
-                    # 4. MƯỢT HÓA PHÂN MẢNH THEO HÀM EXPONENTIAL CONTINUOUS COST
+                    # 4. MƯỢT HÓA PHÂN MẢNH THEO HÀM EXPONENTIAL FRAGMENTATION
                     fragmentation_penalty = math.exp(-width_residual / 5.0) if width_residual > 0 else 0.0
                     
-                    # 🛠️ HÀM CHI PHÍ ĐA TIÊU CHÍ ĐỘNG THEO KHUYẾN NGHỊ 10/10 CỦA BẠN
+                    # BIỂU THỨC CHI PHÍ ĐA TIÊU CHÍ (KHÔNG CHỨA HỆ SỐ ÉP Y TỰ DO)
                     current_score = (
                         (delta_marker_length * 0.45) + 
                         (waste_area * 0.25) + 
@@ -470,7 +495,7 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                         best_y = actual_placement_y
                         best_w, best_l = w_orient, l_orient
 
-        # CẬP NHẬT MẢNG TẦNG SKYLINE THEO ĐÚNG TỌA ĐỘ TRỤC X VÀ CAO ĐỘ Y CHUẨN XÁC
+        # 🛠️ MODULE 4: CẬP NHẬT TẦNG VÀ GỘP MẢNG SKYLINE THEO TỌA ĐỘ TRỤC X CHUẨN XÁC
         if best_skyline_idx != -1:
             placed_positions.append({"item": piece, "x": best_x, "y": best_y, "w": best_w, "l": best_l})
             
@@ -493,9 +518,9 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                         updated_skyline.append([item_end, seg_end - item_end, seg_y])
                         
             updated_skyline.append(new_segment)
-            skyline = sorted(updated_skyline, key=lambda s: s[0]) # Sắp xếp chuẩn theo trục X
+            skyline = sorted(updated_skyline, key=lambda s: s[0])  # Sắp xếp chuẩn theo trục X
             
-            # Gộp mảng Skyline nối liền kề trục X cùng cao độ Y
+            # Gộp mảng kề nhau trên trục X có cùng cao độ dọc Y
             merged = []
             for seg in skyline:
                 if not merged: 
@@ -509,7 +534,6 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> tu
                         merged.append(seg)
             skyline = merged
         else:
-            # Fallback phòng vệ hình học
             max_current_y = max(s[2] for s in skyline) if skyline else 0.0
             placed_positions.append({"item": piece, "x": 0.0, "y": max_current_y, "w": w_piece, "l": l_piece})
             skyline = [[0.0, bin_width, max_current_y + l_piece + CUT_GAP]]
