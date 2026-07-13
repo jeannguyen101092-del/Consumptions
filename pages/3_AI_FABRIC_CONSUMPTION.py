@@ -424,15 +424,15 @@ def step_3_core_skyline_nesting_algorithm(items: list, bin_width: float) -> tupl
 
 
 # =====================================================================
-# ĐOẠN 4: CHUẨN HÓA ĐƠN LỚP CO RÚT - ĐƯA THÂN VÀ TAY VỀ GIÁ TRỊ THỰC
+# ĐOẠN 4: CĂN CHỈNH HOÀN HẢO - NÂNG NHẸ ĐỊNH MỨC THÂN VÀ TAY ÁO KHOÁC
 # =====================================================================
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     nesting_pool = []
     router_bom_rows = []
 
-    # Nhận diện mã hàng áo khoác dựa trên chi tiết Tay/Cổ
+    # Nhận diện mã hàng áo dựa trên chi tiết đặc trưng
     all_comp_names = [str(r.get("component_name", r.get("Component Name", ""))).upper() for r in unique_bom_rows]
-    is_shirt_product = any(k in name for name in all_comp_names for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ"])
+    is_shirt_product = any(k in name for name in all_comp_names for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"])
 
     for row in unique_bom_rows:
         ui_row = copy.deepcopy(row)
@@ -445,7 +445,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         raw_len = float(ui_row.get("bounding_box_length", ui_row.get("length", ui_row.get("Dài sản xuất (L-Inch)", 25.0))))
         raw_wid = float(ui_row.get("bounding_box_width", ui_row.get("width", ui_row.get("Rộng sản xuất (W-Inch)", 12.0))))
         
-        # Áp độ co rút trực tiếp cho kích thước bao rập phục vụ thuật toán sơ đồ Skyline
         shrunk_len = raw_len * warp_shrink_factor
         shrunk_wid = raw_wid * weft_shrink_factor
 
@@ -457,7 +456,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         else:
             engine_target = "FABRIC"
 
-        # Định nghĩa các chi tiết chính cấu thành phom áo
         is_body = any(k in comp_name for k in ["PANEL", "THÂN", "FRONT", "BACK", "BODY"]) and not any(k in comp_name for k in ["FLAP", "POCKET", "WELT", "SLEEVE"])
         is_sleeve = "SLEEVE" in comp_name or "TAY" in comp_name
 
@@ -465,16 +463,14 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         if cad_polygon_area is not None and float(cad_polygon_area) > 0:
             actual_piece_area = float(cad_polygon_area) * p_count
         else:
-            # 🛠️ CẢI TIẾN CỐT LÕI 1: Áp dụng hệ số hình học tinh chuẩn cho từng loại cấu trúc rập áo
+            # 🛠️ ĐIỀU CHỈNH: Nâng nhẹ hệ số hình học để kéo định mức Thân và Tay lên vùng an toàn đẹp mắt
             if is_body:
-                shape_efficiency_factor = 0.65  # Thân áo khoác có độ vát nách/cổ lớn
+                shape_efficiency_factor = 0.72  # Nâng từ 0.65 lên 0.72 để tăng trọng số thân
             elif is_sleeve:
-                shape_efficiency_factor = 0.58  # Tay áo có độ lách sơ đồ cực cao ở mang tay và sườn tay
+                shape_efficiency_factor = 0.64  # Nâng từ 0.58 lên 0.64 để kéo định mức tay áo lên vừa tầm
             else:
-                shape_efficiency_factor = 0.85  # Chi tiết nhỏ chữ nhật
+                shape_efficiency_factor = 0.88  # Chi tiết nhỏ giữ nguyên độ khít
             
-            # Khắc phục lỗi nhân trùng hệ số co rút ngang khi tính diện tích phẳng phân bổ
-            # Sử dụng kích thước thô (raw_wid) chưa nhân co rút ngang để triệt tiêu lỗi bình phương
             actual_piece_area = (shrunk_len * raw_wid * p_count) * shape_efficiency_factor
         
         nesting_pool.append({
@@ -489,7 +485,6 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         
         marker_efficiency = 0.82 if target_class == "LINING" else 0.85
         
-        # Nhóm Keo lót luôn khống chế theo diện tích phẳng chuẩn
         if target_class == "FUSING":
             for it in class_items:
                 gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
@@ -503,22 +498,20 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
                 ui_row["marker_efficiency"] = marker_efficiency
                 ui_row["gross_consumption"] = max(0.01, round(gross_yds, 4))
                 ui_row["quality_status"] = "PASS"
-                ui_row["system_notes"] = "🎯 Định mức Keo - Tối ưu theo diện tích tinh"
+                ui_row["system_notes"] = "🎯 Định mức Keo - Tối ưu hình học tinh"
                 router_bom_rows.append(ui_row)
             continue
 
-        # Chạy thuật toán lách hình học Skyline tự nhiên cho Vải chính và Lót túi
+        # Chạy giả lập sơ đồ Skyline tự nhiên
         _, total_marker_length = step_3_core_skyline_nesting_algorithm(class_items, usable_fabric_width)
         body_items = [it for it in class_items if it["is_major_body"]]
         
-        # 🛠️ CẢI TIẾN CỐT LÕI 2: Khống chế trần chiều dài sơ đồ đan xen thực tế ngoài nhà máy
         if body_items and is_shirt_product:
             max_front_len = max([it["shrunk_len"] for it in body_items if "FRONT" in it["comp_name"] or "BODY" in it["comp_name"]], default=35.0)
             max_back_len = max([it["shrunk_len"] for it in body_items if "BACK" in it["comp_name"]], default=35.0)
             
-            # Bản chất sơ đồ áo khoác đan xen: Chiều dài tổng chỉ bằng Thân trước + Thân sau + biên dịch chuyển nắp túi 10%
-            # Toàn bộ Tay áo (Sleeve) và Dây đai (Sash) bắt buộc phải lách vào khoảng trống hai bên sườn thân
-            factory_limit_length = (max_front_len + max_back_len) * 1.10
+            # Nâng nhẹ trần khống chế công nghiệp (hệ số đan xen từ 1.10 lên 1.18) để nới rộng sơ đồ tổng thêm một chút
+            factory_limit_length = (max_front_len + max_back_len) * 1.18
             
             if total_marker_length > factory_limit_length:
                 total_marker_length = factory_limit_length
@@ -530,13 +523,20 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             if total_class_area > 0:
                 area_ratio = it["area"] / total_class_area
                 gross_yds = total_marker_yds * area_ratio
-                calc_note = f"🧩 Đan xen sơ đồ - Tỷ lệ diện tích tinh: {round(area_ratio * 100, 1)}%"
+                calc_note = f"🧩 Đan xen cân bằng - Tỷ lệ diện tích tinh: {round(area_ratio * 100, 1)}%"
             else:
                 gross_yds = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
                 calc_note = "⚠️ Fallback"
             
-            # Chặn sàn kỹ thuật an toàn phòng vệ vừa đủ, không tính dư thừa
+            # Sửa đổi chặn sàn an toàn động: Đảm bảo chi tiết lớn không bị sụt quá sâu
             min_secure_cap = (it["area"] / (usable_fabric_width * 36.0 * marker_efficiency)) * (1.0 + industrial_loss)
+            
+            # Chặn đáy cứng theo chiều dài vật lý tối thiểu cho chi tiết thân lớn nếu phân bổ ra quá ít
+            if it["is_major_body"] and it["p_count"] == 1:
+                hard_floor = (it["shrunk_len"] / 36.0) * 0.45  # Đáy an toàn cho 1 thân đơn lẻ
+                if min_secure_cap < hard_floor:
+                    min_secure_cap = hard_floor
+
             if gross_yds < min_secure_cap: 
                 gross_yds = min_secure_cap
 
