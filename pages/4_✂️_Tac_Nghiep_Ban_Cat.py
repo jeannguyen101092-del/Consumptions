@@ -93,7 +93,8 @@ else:
             st.session_state["consumption_activated"] = True
             st.rerun()
         # =============================================================================
-        # TẦNG 3: XOAY TRỤC MA TRẬN ĐỂ HIỂN THỊ ĐÚNG CHUẨN FORM EXCEL CỦA NHÀ MÁY
+                # =============================================================================
+        # TẦNG 3: ĐỔI TRỤC MA TRẬN ĐƯA GIÀNG, SIZE, SL THÀNH TIÊU ĐỀ DÒNG BÊN TRÁI
         # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
@@ -105,6 +106,7 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
+            # 1. Bóc tách ma trận size phẳng
             parsed_size_columns = []
             for col_name in active_sizes:
                 col_clean = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
@@ -124,22 +126,24 @@ else:
                 if size_val == "": size_val = col_clean
                 parsed_size_columns.append({"original": col_name, "size": size_val, "giang": giang_val})
 
+            # 2. Xây dựng bảng tỷ lệ bàn cắt sơ đồ
             matrix_data = [{"BÀN CẮT/TÊN SƠ ĐỒ": item["Sơ đồ / Trạng thái"], **{sz: item["Ratios"].get(sz, 0) for sz in active_sizes}} for item in st.session_state["auto_cutting_results"]]
             df_matrix = pd.DataFrame(matrix_data).set_index("BÀN CẮT/TÊN SƠ ĐỒ")
 
-            # Xoay bảng phẳng đưa size ra làm Index dọc bên trái
-            df_matrix_rotated = df_matrix.T
-            giang_list, size_list, po_qty_list = [], [], []
-            for orig_key in df_matrix_rotated.index:
-                p_info = next(i for i in parsed_size_columns if i["original"] == orig_key)
-                giang_list.append(p_info["giang"])
-                size_list.append(p_info["size"])
-                po_qty_list.append(int(size_breakdown_main.get(orig_key, 0)))
-                
-            df_matrix_rotated.insert(0, "SẢN LƯỢNG", po_qty_list)
-            df_matrix_rotated.insert(0, "SIZE", size_list)
-            df_matrix_rotated.insert(0, "GIÀNG", giang_list)
-            df_excel_style = df_matrix_rotated.set_index(["GIÀNG", "SIZE", "SẢN LƯỢNG"]).T
+            # 3. KỸ THUẬT ÉP TRỤC: Tạo bảng phụ chứa thông tin 3 tầng dòng dọc
+            labels_rows = {
+                "GIÀNG": [i["giang"] for i in parsed_size_columns],
+                "SIZE": [i["size"] for i in parsed_size_columns],
+                "SẢN LƯỢNG": [int(size_breakdown_main.get(i["original"], 0)) for i in parsed_size_columns]
+            }
+            df_labels = pd.DataFrame(labels_rows, index=active_sizes)
+
+            # Ghép nối bảng nhãn (Giàng/Size/SL) song song với ma trận tỷ lệ đã được xoay ngang
+            df_rotated = pd.concat([df_labels, df_matrix.T], axis=1)
+            
+            # Đưa 3 cột nhãn này vào làm Trục Tiêu Đề Dòng bên trái (Index)
+            df_excel_style = df_rotated.set_index(["GIÀNG", "SIZE", "SẢN LƯỢNG"])
+            # 4. Tính toán thông số kỹ thuật (Số lớp, số bàn...)
             tech_rows = []
             total_fabric_m, total_cut_pcs_sum = 0.0, 0
             for item in st.session_state["auto_cutting_results"]:
@@ -153,18 +157,27 @@ else:
                 dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
                 tech_rows.append({"SƠ LỚP": layers, "SỐ BÀN": tables, "DÀI SƠ ĐỒ": m_len, "SỐ SP/SĐ": sp_sd, "Đ.MỨC SĐ": round(dm_sd, 3), "VẢI CẦN (M)": round(vail_can_m, 1)})
                 
-            df_tech = pd.DataFrame(tech_rows, index=df_excel_style.index)
-            df_final_report = pd.concat([df_excel_style, df_tech], axis=1)
+            df_tech = pd.DataFrame(tech_rows, index=df_matrix.index).T
+            
+            # Gộp ma trận tỷ lệ và các cột kỹ thuật thành bảng báo cáo cuối cùng nằm ngang hoàn chỉnh
+            df_final_report = pd.concat([df_excel_style, df_tech], axis=0)
 
+            # Thiết lập định dạng CSS đổ màu cho tiêu đề dòng dọc (Index) bên trái
             st.markdown("""<style>
-                th.row_heading.level1 { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; }
-                th.row_heading.level0 { background-color: #CBD5E1 !important; color: #1E293B !important; font-weight: 800 !important; }
+                /* Cột GIÀNG bên trái nhuộm màu xám công nghiệp */
+                th.row_heading.level0 { background-color: #CBD5E1 !important; color: #1E293B !important; font-weight: 800 !important; font-size: 13px !important; border: 1px solid #94A3B8 !important; }
+                /* Cột KÍCH CỠ (SIZE) nhuộm màu VÀNG CHUẨN như ảnh Excel mẫu của bạn */
+                th.row_heading.level1 { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; font-size: 13px !important; border: 1px solid #EAB308 !important; }
+                /* Cột SẢN LƯỢNG nhuộm màu xám nhẹ có phân tách nền */
+                th.row_heading.level2 { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; border: 1px solid #CBD5E1 !important; }
+                /* Thanh tiêu đề cột ngang chứa tên sơ đồ nhuộm màu Mint nhạt */
                 th.col_heading { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; border: 1px solid #A7F3D0 !important; }
             </style>""", unsafe_allow_html=True)
 
-            st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 GIAO DIỆN BÀN CẮT ĐA GIÀNG ĐỒNG BỘ MẪU EXCEL NHÀ MÁY DNA</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True)
             
+            # --- HIỂN THỊ CÁC THẺ ĐO LƯỜNG KPI ---
             st.markdown("---")
             final_avg_yield = (total_fabric_m * 1.09361) / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
             m_col1, m_col2, m_col3 = st.columns(3)
