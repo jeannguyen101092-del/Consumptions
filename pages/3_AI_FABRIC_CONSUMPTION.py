@@ -689,135 +689,88 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
 
 
 # =====================================================================
-# 🟩 ĐOẠN 5: KHỐI ĐIỀU KHIỂN CHÍNH VÀ HIỂN THỊ GIAO DIỆN STREAMLIT 🟩
+# 🎯 BẢN VÁ HIỂN THỊ: ÉP ĐỒNG BỘ ĐỊNH MỨC THỰC TẾ LÊN GIAO DIỆN BẢNG
 # =====================================================================
-import pandas as pd
-import streamlit as st
 
-def main_render_pipeline(raw_uploaded_rows: list, config_width: float):
-    """
-    Hàm xử lý dòng chảy dữ liệu đầu cuối tương thích Pydantic Schema:
-    Chạy tuần tự Step 1 -> Step 2 -> Step 4 -> Vẽ giao diện đồ họa.
-    """
-    st.markdown("### ⚙️ HỆ THỐNG XỬ LÝ ĐỊNH MỨC TỰ ĐỘNG (ENGINE RUNNING...)")
-    
-    if not raw_uploaded_rows:
-        st.warning("⚠️ Không tìm thấy dữ liệu đầu vào. Vui lòng tải lên tệp CAD/BOM.")
-        return
+# Đảm bảo bạn lấy đúng DataFrame kết quả sau khi đã chạy qua hàm preprocess_bom_and_execute
+# Ví dụ biến chứa kết quả của bạn tên là updated_bom_results hoặc df_giao_dien:
 
-    # 1. Chạy Step 1: Làm sạch phụ liệu và chuẩn hóa key dữ liệu gốc
-    cleaned_rows = step_1_sanitize_and_filter_accessories(raw_uploaded_rows)
-    
-    if not cleaned_rows:
-        st.error("❌ Sau khi lọc phụ liệu, không còn chi tiết rập nào hợp lệ để tính toán!")
-        return
+if 'updated_bom_results' in locals() and updated_bom_results:
+    df_active = pd.DataFrame(updated_bom_results)
+elif 'blueprint_final' in locals() and isinstance(blueprint_final, dict) and "bom_rows" in blueprint_final:
+    df_active = pd.DataFrame(blueprint_final["bom_rows"])
+else:
+    df_active = None
 
-    # 2. Chạy Step 2: Quét tổng diện tích phẳng vải chính phòng vệ hệ thống
-    # Hệ số co rút dọc/ngang mặc định lấy từ UI (Ví dụ: 3.0% tương ứng 0.03)
-    total_net_area = step_2_geometry_driven_area_scan(
-        unique_bom_rows=cleaned_rows, 
-        warp_shrink_factor=0.03, 
-        weft_shrink_factor=0.03
-    )
+if df_active is not None and not df_active.empty:
+    # 🌟 ÉP ĐỒNG BỘ: Chuyển dữ liệu từ khóa viết thường sang khóa viết hoa hiển thị trên UI
+    for col_name in ['gross_consumption', 'calculated_consumption_yards']:
+        if col_name in df_active.columns:
+            df_active['Gross Consumption'] = df_active[col_name].astype(float)
+            
+    # Chuẩn hóa cột Material Class tiếng Việt để đồng bộ với tiêu đề bảng Summary màu xanh của bạn
+    for idx in df_active.index:
+        mat_raw = str(df_active.at[idx, 'material_class']).upper()
+        if "FABRIC" in mat_raw:
+            df_active.at[idx, 'Material Class'] = "VẢI CHÍNH (MAIN FABRIC)"
+            df_active.at[idx, 'Material Class Display'] = "FABRIC"
+        elif "LINING" in mat_raw:
+            df_active.at[idx, 'Material Class'] = "VẢI LÓT TÚI (POCKETING LINING)"
+            df_active.at[idx, 'Material Class Display'] = "LINING"
+        elif "FUSING" in mat_raw:
+            df_active.at[idx, 'Material Class'] = "KEO LÓT / DỰNG (INTERLINING)"
+            df_active.at[idx, 'Material Class Display'] = "FUSING"
+        else:
+            df_active.at[idx, 'Material Class'] = "THREAD"
+            df_active.at[idx, 'Material Class Display'] = "THREAD"
 
-    # 3. Chạy Step 4 (Tự động lồng thuật toán Skyline Nesting của Step 3 bên trong)
-    final_calculated_rows = step_4_allocate_consumption_and_render(
-        unique_bom_rows=cleaned_rows,
-        usable_fabric_width=config_width,     # Khổ vải hữu dụng cấu hình 56.0 inch
-        parsed_main_width=config_width,
-        warp_shrink_factor=0.03,
-        weft_shrink_factor=0.03,
-        industrial_loss=0.043                 # Hao hụt sản xuất mặc định 4.3%
-    )
+    # Phòng vệ cột UOM viết hoa
+    df_active['UOM'] = "YDS"
 
-    # 4. Chuyển đổi mảng dữ liệu Pydantic Object / Dict sang Pandas DataFrame
-    # Hỗ trợ unbox cấu trúc dữ liệu nếu rows đang bọc trong Pydantic Class (.dict())
-    clean_list = [row.dict() if hasattr(row, 'dict') else row for row in final_calculated_rows]
-    df_final = pd.DataFrame(clean_list)
-    
-    if df_final.empty:
-        st.error("❌ Lỗi hệ thống: Không thể khởi tạo bảng dữ liệu định mức tính toán.")
-        return
-
-    # Chuẩn hóa ép chặt toàn bộ tên cột viết thường để khớp logic xử lý Pydantic
-    df_final.columns = [str(c).strip().lower() for c in df_final.columns]
-    
-    # Phòng vệ nếu thiếu cột đơn vị tính, gán cứng YDS cho hệ thống
-    if 'polygon_unit' not in df_final.columns:
-        df_final['polygon_unit'] = "YDS"
-
-    st.success("🟩 Hệ thống sơ đồ Tổng (Marker-Based) đã xử lý thành công!")
-
-    # =================================================================
-    # 🔴 KHỐI HIỂN THỊ BẢNG 1: SUMMARY - TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU
-    # =================================================================
-    st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: 30)")
-    
-    # Tiến hành Groupby tính tổng lượng định mức tiêu hao thực tế theo nhóm cấu trúc viết thường
-    df_summary = df_final.groupby(['material_class', 'polygon_unit'], as_index=False)['gross_consumption'].sum()
-    df_summary['trạng thái'] = "READY TO BUY"
+    # 🔴 1. VẼ LẠI BẢNG XANH LÁ (SUMMARY) SẠCH SỐ 0
+    st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: 32)")
+    df_summary_clean = df_active.groupby(['Material Class', 'UOM'], as_index=False)['Gross Consumption'].sum()
+    df_summary_clean['Trạng thái'] = "READY TO BUY"
     
     st.dataframe(
-        df_summary[['material_class', 'polygon_unit', 'gross_consumption', 'trạng thái']], 
+        df_summary_clean[['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']],
         use_container_width=True,
-        key="streamlit_pydantic_summary_v10",
-        column_config={
-            "material_class": "Material Class",
-            "polygon_unit": "UOM",
-            "gross_consumption": st.column_config.NumberColumn(
-                "Gross Consumption",
-                help="Tổng định mức tiêu hao nguyên liệu sau sơ đồ (Yards)",
-                format="%.4f" # Định dạng hiển thị chuẩn xác 4 số thập phân khác 0
-            ),
-            "trạng thái": "Trạng thái"
-        }
+        key="summary_fixed_final_v12",
+        column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")}
     )
 
-    # =================================================================
-    # 🔴 KHỐI HIỂN THỊ BẢNG 2: DETAILED CAD PIECES MATRIX CHI TIẾT
-    # =================================================================
+    # 🔴 2. VẼ LẠI BẢNG CHI TIẾT (DETAILED CAD MATRIX) SẠCH SỐ 0
     st.markdown("### 📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT ĐÃ BÙ LẠI & ĐƯỜNG MAY)")
     
-    # Định nghĩa cấu hình các cột hiển thị bắt buộc khớp phông chữ viết thường của Pydantic
-    detailed_target_cols = [
-        'component_name', 'material_class', 'polygon_unit', 'piece_count', 
-        'bounding_box_length', 'bounding_box_width', 'gross_consumption'
+    # Đặt lại tên cột rập bao chuẩn tiếng Việt cho giao diện của bạn
+    if 'bounding_box_length' in df_active.columns:
+        df_active['Dài sản xuất (L-inch)'] = df_active['bounding_box_length']
+    if 'bounding_box_width' in df_active.columns:
+        df_active['Rộng sản xuất (W-inch)'] = df_active['bounding_box_width']
+    if 'piece_count' in df_active.columns:
+        df_active['Số lượng rập (Pcs)'] = df_active['piece_count']
+
+    detailed_cols_show = [
+        'Material Class Display', 'UOM', 'Số lượng rập (Pcs)', 
+        'Dài sản xuất (L-inch)', 'Rộng sản xuất (W-inch)', 'fabric_width_inch', 
+        'marker_efficiency', 'Gross Consumption', 'quality_status'
     ]
     
-    # Lọc phòng vệ, chỉ hiển thị các cột thực sự tồn tại trong bộ nhớ DataFrame
-    available_cols = [col for col in detailed_target_cols if col in df_final.columns]
+    # Lọc các cột thực sự có mặt để tránh lỗi crash hạ tầng
+    valid_cols = [c for c in detailed_cols_show if c in df_active.columns]
     
     st.dataframe(
-        df_final[available_cols], 
+        df_active[valid_cols],
         use_container_width=True,
-        key="streamlit_pydantic_matrix_v10",
+        key="matrix_fixed_final_v12",
         column_config={
-            "component_name": "Component Name",
-            "material_class": "Material Class",
-            "polygon_unit": "UOM",
-            "piece_count": "Số lượng rập (Pcs)",
-            "bounding_box_length": "Dài sản xuất (L-inch)",
-            "bounding_box_width": "Rộng sản xuất (W-inch)",
-            "gross_consumption": st.column_config.NumberColumn(
-                "Gross Consumption", 
-                help="Định mức chi tiết từng dòng chi tiết rập (Yards)",
-                format="%.4f"
-            )
+            "Material Class Display": "Material Class",
+            "fabric_width_inch": "Khổ vải (Width)",
+            "marker_efficiency": "Marker Efficiency",
+            "quality_status": "Quality Status",
+            "Gross Consumption": st.column_config.NumberColumn(format="%.4f")
         }
     )
-
-# 🎯 KHỐI GHIM TRIGGER TỰ ĐỘNG CHẠY KHI ĐƯỢC LOAD VÀO APP.PY CỦA BẠN
-# data_source: Là mảng dữ liệu thô bạn đọc từ File Excel / CAD ban đầu trước khi render
-if 'unique_bom_rows_source' in locals() or 'uploaded_data' in locals() or 'bom_rows' in locals():
-    if 'unique_bom_rows_source' in locals():
-        data_source = unique_bom_rows_source
-    elif 'uploaded_data' in locals():
-        data_source = uploaded_data
-    else:
-        data_source = bom_rows
-        
-    # Kích hoạt toàn bộ đường ống xử lý thuật toán đồ họa lên UI
-    main_render_pipeline(raw_uploaded_rows=data_source, config_width=56.0)
 
 
 
