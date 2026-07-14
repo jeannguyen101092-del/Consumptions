@@ -324,8 +324,8 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
 def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> dict:
     """
     Step 3: Động cơ lồng rập Đa giác Công nghiệp Skyline Nesting Engine.
-    👑 CẤU TRÚC HOÀN HẢO: Chịu trách nhiệm độc nhất về tính toán sơ đồ, 
-    bắt buộc sinh ra component_metrics và class_efficiency thực tế từ quá trình lồng rập.
+    🎯 ĐÃ SỬA LỖI CÚ PHÁP: Vá triệt để lỗi trừ mảng list gây ra TypeError,
+    so sánh rạch ròi từng tọa độ phần tử của tầng Skyline [x, w, y].
     """
     import math
     CUT_GAP = 0.125  # Khoảng hở an toàn đầu dao cắt thực tế (Inch)
@@ -367,7 +367,7 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
             })
 
     sorted_pieces = sorted(expanded_pieces, key=lambda x: x["poly_area"], reverse=True)
-    skyline = [[0.0, bin_width, 0.0]]  
+    skyline = [[0.0, bin_width, 0.0]]  # Cấu trúc: [x_start, width, y_level]
     placed_positions = []
     current_max_marker_len = 0.0
 
@@ -429,17 +429,22 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
             updated_skyline.append([best_x, best_w + CUT_GAP, new_y_level])
             skyline = sorted(updated_skyline, key=lambda s: s)
             
+            # 🎯 VÁ LỖI CHÍ MẠNG: Kiểm tra và gộp tầng Skyline theo trục hoành X và cao độ Y rạch ròi
             merged = []
             for seg in skyline:
-                if not merged: merged.append(seg)
+                if not merged: 
+                    merged.append(seg)
                 else:
                     last = merged[-1]
-                    if abs(last - seg) < 0.001 and abs((last + last) - seg) < 0.001: last += seg
-                    else: merged.append(seg)
+                    # last[2] là Y-level của đoạn trước, seg[2] là Y-level của đoạn sau
+                    # last[0] + last[1] là điểm cuối trục X của đoạn trước kề sát điểm bắt đầu seg[0] của đoạn sau
+                    if abs(last[2] - seg[2]) < 0.001 and abs((last[0] + last[1]) - seg[0]) < 0.001:
+                        last[1] += seg[1]  # Mở rộng độ rộng đoạn gộp trục ngang thành công
+                    else: 
+                        merged.append(seg)
             skyline = merged
 
-    # 🎯 TRÍCH XUẤT TOPOLOGY THỰC TẾ ĐÚNG BẢN CHẤT CỦA GERBER:
-    # Đo lường chính xác không gian hình chữ nhật bao phủ (Footprint) chiếm dụng thực tế của từng linh kiện sau khi chèn lách xoay rập
+    # Trích xuất không gian che phủ (Footprint) chiếm dụng thực tế của từng linh kiện rập sau khi chen lách
     total_marker_area = bin_width * current_max_marker_len
     total_class_poly_area = sum([float(p["poly_area"]) for p in placed_positions])
     class_efficiency = total_class_poly_area / total_marker_area if total_marker_area > 0 else 0.85
@@ -451,14 +456,12 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
         comp_pieces = [p for p in placed_positions if p["comp_name"] == comp]
         comp_poly_area_sum = sum([float(p["poly_area"]) for p in comp_pieces])
         
-        # 🎯 Xác định biên giới hạn tọa độ thực tế của linh kiện trên sơ đồ hình học phẳng
+        # Xác định biên giới hạn tọa độ thực tế của linh kiện trên sơ đồ
         min_x = min([float(p["x"]) for p in comp_pieces])
         max_x = max([float(p["x"] + p["w"]) for p in comp_pieces])
         min_y = min([float(p["y"]) for p in comp_pieces])
         max_y = max([float(p["y"] + p["l"]) for p in comp_pieces])
         
-        # Không gian hình chữ nhật thực tế mà linh kiện này chiếm giữ trên marker (Footprint Area)
-        # Đảm bảo phản ánh đúng 100% việc xoay rập, đan xen hay chèn lách túi vào háng quần lớn
         comp_occupied_area = (max_x - min_x) * (max_y - min_y)
         if comp_occupied_area <= 0 or comp_occupied_area < comp_poly_area_sum:
             comp_occupied_area = comp_poly_area_sum / max(0.50, class_efficiency)
