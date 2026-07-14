@@ -12,7 +12,8 @@ if not st.session_state.get("purchase_ready"):
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size (Regular, Missy, Petite) để hệ thống tự động bẻ ma trận 3 tầng.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-        if file_sbd_c2:
+    
+    if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
             with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
@@ -21,7 +22,6 @@ if not st.session_state.get("purchase_ready"):
                 else: 
                     gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
-                # SỬA LỖI TẠI ĐÂY: Sử dụng đúng cú pháp thư viện google-genai mới nhất
                 from google import genai
                 from google.genai import types
                 
