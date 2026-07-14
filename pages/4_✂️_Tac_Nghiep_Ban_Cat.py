@@ -93,8 +93,8 @@ else:
             st.session_state["consumption_activated"] = True
             st.rerun()
                 # =============================================================================
-                # =============================================================================
-        # TẦNG 3: SỬA LỖI VALUEERROR - CHUẨN HÓA KHUNG DỮ LIỆU PHẲNG CHUẨN APACHE ARROW
+               # =============================================================================
+        # TẦNG 3: XOAY TRỤC CHUẨN - ĐƯA GIÀNG, SIZE, SL LÊN THANH TIÊU ĐỀ NGANG TRÊN CÙNG
         # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
@@ -106,11 +106,8 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
-            # 1. Thuật toán phân rã chuỗi để bẻ dấu ngoặc đơn rác (Tuple)
-            giang_list = []
-            size_list = []
-            po_qty_list = []
-            
+            # 1. Thuật toán phân rã chuỗi để dựng ma trận 3 tầng nằm ngang
+            web_multi_cols = []
             for col_name in active_sizes:
                 col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                 giang_val = "None"
@@ -126,23 +123,26 @@ else:
                     size_val = parts_clean[0]
                     
                 po_val = int(size_breakdown_main.get(col_name, 0))
-                giang_list.append(f"GIÀNG {giang_val}" if giang_val != "None" else "None")
-                size_list.append(size_val)
-                po_qty_list.append(f"{po_val:,}")
+                # Tạo Tuple 3 tầng: Tầng 1 là GIÀNG, Tầng 2 là SIZE, Tầng 3 là SẢN LƯỢNG PO tổng
+                web_multi_cols.append((
+                    f"GIÀNG: {giang_val}" if giang_val != "None" else "None", 
+                    f"SIZE: {size_val}", 
+                    f"SL: {po_val:,}"
+                ))
 
-            # 2. Thu thập dữ liệu tỷ lệ ma trận từ kết quả thuật toán
+            # 2. Thu thập ma trận dữ liệu tỷ lệ theo từng dòng Sơ đồ / Bàn cắt
             matrix_rows = []
-            col_headers = []
+            row_headers = []
             for item in st.session_state["auto_cutting_results"]:
                 r_name = str(item["Sơ đồ / Trạng thái"]).strip()
                 if r_name.lower() == "balance": continue
                 
-                col_headers.append(r_name)
+                row_headers.append(r_name)
                 matrix_rows.append([item["Ratios"].get(sz, 0) for sz in active_sizes])
                 
-            # Tạo DataFrame ma trận tỷ lệ đã xoay trục nằm ngang
-            df_matrix_transposed = pd.DataFrame(matrix_rows, index=col_headers, columns=active_sizes).T
-            # 3. Tính toán thông số kỹ thuật (Số lớp, số bàn...) chạy ngang theo mã sơ đồ
+            # Dựng DataFrame ma trận tỷ lệ gốc với tiêu đề cột là ma trận 3 tầng MultiIndex chạy ngang
+            df_ratios_matrix = pd.DataFrame(matrix_rows, index=row_headers, columns=pd.MultiIndex.from_tuples(web_multi_cols))
+            # 3. Tính toán 6 cột thông số kỹ thuật tác nghiệp ở phía bên phải bảng
             tech_cols_dict = {"SƠ LỚP": [], "SỐ BÀN": [], "DÀI SƠ ĐỒ": [], "SỐ SP/SĐ": [], "Đ.MỨC SĐ": [], "VẢI CẦN (M)": []}
             total_fabric_m, total_cut_pcs_sum = 0.0, 0
             
@@ -166,37 +166,28 @@ else:
                 tech_cols_dict["Đ.MỨC SĐ"].append(round(dm_sd, 3))
                 tech_cols_dict["VẢI CẦN (M)"].append(round(vail_can_m, 1))
 
-            # 4. KỸ THUẬT TIÊN QUYẾT: Dựng bảng phẳng hoàn chỉnh bằng Dictionary để tránh lỗi đồng bộ của Pandas
-            flat_report_data = {
-                "GIÀNG": giang_list,
-                "SIZE": size_list,
-                "SẢN LƯỢNG": po_qty_list
-            }
+            # Dựng DataFrame cho khối kỹ thuật tác nghiệp bên phải bảng
+            df_tech_side = pd.DataFrame(tech_cols_dict, index=row_headers)
+            # Gán MultiIndex giả cho khối kỹ thuật để khớp trục hình học khi dùng pd.concat ghép cột ngang
+            df_tech_side.columns = pd.MultiIndex.from_tuples([("THÔNG SỐ TÁC NGHIỆP", c, "") for c in df_tech_side.columns])
+
+            # Ghép nối Ma trận tỷ lệ (bên trái) và Các cột kỹ thuật (bên phải) theo trục cột ngang (axis=1)
+            df_final_report = pd.concat([df_ratios_matrix, df_tech_side], axis=1)
             
-            # Đổ dữ liệu ma trận tỷ lệ sơ đồ vào khung phẳng
-            for idx, h_name in enumerate(col_headers):
-                flat_report_data[str(h_name)] = df_matrix_transposed[h_name].tolist()
-                
-            # Đổ dữ liệu các cột kỹ thuật chạy ngang vào khung phẳng
-            for tech_key in ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]:
-                # Tạo mảng trống điền đầy cho các hàng nhãn Giàng/Size để không lệch cấu trúc hình học
-                flat_report_data[tech_key] = tech_cols_dict[tech_key] + [""] * (len(active_sizes) - len(valid_items))
+            # Đưa cột tên sơ đồ P04, P05 ngoài cùng bên trái về dạng cột phẳng sạch sẽ
+            df_final_report = df_final_report.reset_index().rename(columns={"index": ("BÀN CẮT / TÊN SƠ ĐỒ", "", "")})
 
-            # Chuyển đổi sang DataFrame Index phẳng sạch hoàn toàn
-            df_final_report = pd.DataFrame(flat_report_data)
-            df_final_report.columns = df_final_report.columns.astype(str) # Ép kiểu chuỗi toàn bộ tiêu đề cột
-
-            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU NỀN CỘT DỌC BÊN TRÁI THEO THỨ TỰ (MẪU EXCEL DNA) ---
+            # --- THIẾT LẬP MÃ CSS ĐỔ MÀU TIÊU ĐỀ NẰM NGANG TRÊN CÙNG ĐÚNG CHUẨN FORM EXCEL ---
             st.markdown("""<style>
-                /* Đổ màu nền xám cho cột GIÀNG (Cột số 1 bên trái) */
-                td:nth-child(1) { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; }
-                /* Đổ màu VÀNG CHUẨN EXCEL cho cột kích cỡ SIZE (Cột số 2 bên trái) */
-                td:nth-child(2) { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; }
-                /* Đổ màu xám nhẹ cho cột SẢN LƯỢNG PO (Cột số 3 bên trái) */
-                td:nth-child(3) { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 600 !important; text-align: center !important; }
+                /* TẦNG 1 (Trên cùng - GIÀNG): Nhuộm nền màu xám công nghiệp */
+                th.col_heading.level0 { background-color: #CBD5E1 !important; color: #1E293B !important; font-weight: 800 !important; font-size: 13px !important; border: 1px solid #94A3B8 !important; text-align: center !important; }
+                /* TẦNG 2 (Ở giữa - SIZE): Nhuộm màu VÀNG CHUẨN bứt phá thị giác như file mẫu */
+                th.col_heading.level1 { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; font-size: 13px !important; border: 1px solid #EAB308 !important; text-align: center !important; }
+                /* TẦNG 3 (Dưới cùng - SẢN LƯỢNG): Nhuộm nền xám nhẹ dịu mát mắt */
+                th.col_heading.level2 { background-color: #F1F5F9 !important; color: #475569 !important; font-weight: 700 !important; font-size: 11px !important; border: 1px solid #CBD5E1 !important; text-align: center !important; }
                 
-                /* Tiêu đề thanh ngang chứa mã sơ đồ nhuộm màu Mint nhạt chuyên nghiệp */
-                th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; border: 1px solid #A7F3D0 !important; text-align: center !important; }
+                /* Cột đầu tiên chứa tên sơ đồ nhuộm màu Xanh Mint */
+                td:nth-child(1) { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
