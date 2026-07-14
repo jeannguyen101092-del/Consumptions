@@ -119,7 +119,7 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (AI GIẢI MA TRẬN TỶ LỆ)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang phân tích dữ liệu SBD gốc, dồn cụm ma trận theo cấu trúc Kim tự tháp ngược..."):
+            with st.spinner("🤖 AI đang chạy mô hình thuật toán may mặc để giải quyết triệt tiêu đầu khúc..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -130,36 +130,34 @@ else:
                 
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # NÂNG CẤP PROMPT ÉP BUỘC ĐỒNG BỘ KHÓA KEY SIZE GỐC VÀ DỒN CỤM TỶ LỆ LỚN
+                # BỔ SUNG YÊU CẦU TOÁN HỌC KHẮT KHE ĐỂ DIỆT LƯỢNG DƯ ĐẦU KHÚC
                 ai_cutting_prompt = f"""
-                Bạn là chuyên gia lập kế hoạch bàn cắt công nghiệp dệt may đại tài. 
-                Hãy tính toán tổ hợp sơ đồ phối size dồn cụm cho đơn hàng này theo đúng nguyên lý sản xuất thực tế.
-
-                DANH SÁCH KHÓA SIZE GỐC BẮT BUỘC SỬ DỤNG: {json.dumps(list(size_breakdown_main.keys()))}
-                MA TRẬN SẢN LƯỢNG PO THỰC TẾ: {json.dumps(size_breakdown_main)}
-                THÔNG SỐ GIỚI HẠN XƯỞNG:
+                Bạn là một kỹ sư toán học điều độ bàn cắt công nghiệp dệt may. Hãy lập phương án sơ đồ phối size cho đơn hàng này.
+                
+                DANH SÁCH SIZE GỐC BẮT BUỘC SỬ DỤNG LÀM KEY: {json.dumps(list(size_breakdown_main.keys()))}
+                SẢN LƯỢNG ĐƠN HÀNG GỐC CẦN TRIỆT TIÊU: {json.dumps(size_breakdown_main)}
+                
+                THÔNG SỐ GIỚI HẠN FORM:
                 - Chiều dài gia tối đa bàn vải cho phép: {max_table_length} Mét
                 - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs
-                - Khổ vải đi sơ đồ: {cuttable_width_inch} Inches
+                - Khổ cắt: {cuttable_width_inch} Inches
                 - Loại vải tác nghiệp: {fabric_type_input}
 
-                QUY TẮC PHỐI TỶ LỆ ÉP BUỘC (CẤU TRÚC KIM TỰ THÁP NGƯỢC):
-                1. ĐỒNG BỘ KHÓA KEY: Khi viết mảng "Ratios", bạn PHẢI sử dụng chính xác 100% nguyên văn chuỗi ký tự nằm trong danh sách khóa size gốc được cung cấp ở trên (Ví dụ nếu khóa gốc là "['26']" hoặc "SIZE: 26" thì phải viết nguyên văn như vậy, TUYỆT ĐỐI không được tự ý làm sạch thành "26").
-                2. DỒN CỤM TỶ LỆ LỚN (BÀN ĐẦU): Gom các size sát cạnh nhau có sản lượng lớn lại đi chung sơ đồ gộp có tổng tỷ lệ lớn (Ví dụ tỉ lệ: 2, 3, 4 quần/size) sao cho chiều dài đạt sát trần {max_table_length}m nhằm giải quyết nhanh PO.
-                3. SƠ ĐỒ VÉT VUỐT ĐUÔI (BÀN CUỐI): Trừ lùi sản lượng lũy tiến. Ở các bàn cuối cùng, bẻ nhỏ sơ đồ lại thành sơ đồ vét chỉ chứa tỷ lệ 1 quần cho các cỡ nhỏ hoặc cỡ biên mồ côi còn sót lại để triệt tiêu số lượng 'CÒN LẠI' về đúng số 0.
+                QUY TẮC TOÁN HỌC BẮT BUỘC ĐỂ TRIỆT TIÊU ĐẦU KHÚC:
+                1. Hãy làm một phép toán trừ lùi lũy tiến (Lượng dư còn lại = Sản lượng gốc - Tỉ lệ * Số lớp * Số bàn).
+                2. AI PHẢI tính toán số lớp (Layers) và chọn tỷ lệ gộp lớn (Ví dụ tỉ lệ: 2, 3, 4 quần) ở các bàn đầu (c01, c02) sao cho sản lượng của các size có số lượng lớn được triệt tiêu nhanh nhất.
+                3. BÀN VÉT (ĐẦU KHÚC CUỐI): Ở các sơ đồ cuối, khi sản lượng gần hết, bạn PHẢI bẻ nhỏ sơ đồ về tỉ lệ 1 quần (Sơ đồ vét) kết hợp hạ số lớp xuống thấp để vét sạch sẽ các sản phẩm mồ côi còn sót lại.
+                4. ĐIỀU KIỆN TIÊN QUYẾT: Tổng sản lượng hoàn thành của tất cả các bàn cộng lại phải khớp chính xác 100% với sản lượng PO ban đầu. Dòng 'CÒN LẠI' ở sơ đồ cuối cùng PHẢI TIẾN VỀ BẰNG 0 cho toàn bộ các size. Không được để sót lại đầu khúc dư thừa.
 
-                Trả về duy nhất mảng JSON gốc sạch sẽ, không giải thích văn bản rác:
+                Trả về duy nhất mảng JSON sạch cấu trúc mẫu, không viết chữ giải thích rác:
                 [
-                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 3 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 5}}
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 2 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 4}}
                 ]
                 """
                 try:
-                    res_cutting = client_ai.models.generate_content(
-                        model='gemini-2.5-flash', 
-                        contents=[ai_cutting_prompt]
-                    )
+                    res_cutting = client_ai.models.generate_content(model='gemini-2.5-flash', contents=[ai_cutting_prompt])
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    st.success("🎯 AI đã đồng bộ khóa mã size và tối ưu tổ hợp Kim tự tháp ngược thành công!")
+                    st.success("🎯 AI đã giải mã toán ma trận phối size gộp và vét đầu khúc thành công!")
                 except Exception:
                     st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
@@ -249,6 +247,7 @@ else:
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
             # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số [INDEX]
             # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số [INDEX]
+            # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số
             def highlight_ratios(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                 num_size_cols = len(active_sizes)
@@ -261,7 +260,7 @@ else:
                         if c <= num_size_cols:
                             val = x.iloc[r, c]
                             try:
-                                # SỬA LỖI TẠI ĐÂY: Ép kiểu sang số thực để nhận diện chính xác giá trị tỉ lệ > 0 [INDEX]
+                                # Chỉ bôi vàng rực rỡ khi ô đó thực sự nhảy số tỷ lệ lớn hơn 0
                                 if pd.notna(val) and float(val) > 0:
                                     color_df.iloc[r, c] = 'background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; border: 1px solid #EAB308 !important; text-align: center !important;'
                             except (ValueError, TypeError): pass
@@ -269,16 +268,12 @@ else:
 
             styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
 
-            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG CHUẨN THƯƠNG MẠI IN ẤN ---
+            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG CHUẨN THƯƠNG MẠI ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
-                    
-                    workbook  = writer.book
-                    worksheet = writer.sheets["TacNghiepBanCat"]
-                    
-                    # Thiết lập các định dạng ô lưới chuẩn xưởng
+                    workbook = writer.book; worksheet = writer.sheets["TacNghiepBanCat"]
                     fmt_header = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#D1FAE5', 'font_color': '#065F46', 'border': 1})
                     fmt_giang = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#CBD5E1', 'border': 1})
                     fmt_size = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE047', 'border': 1})
@@ -286,17 +281,12 @@ else:
                     fmt_ratio_active = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FEF08A', 'font_color': '#991B1B', 'border': 1})
                     fmt_normal = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1})
                     fmt_con_lai = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'fg_color': '#EFF6FF', 'font_color': '#1E40AF', 'border': 1})
-                    
-                    # Khóa độ rộng cột tự động
                     worksheet.set_column(0, 0, 35)
                     worksheet.set_column(1, len(clean_headers)-1, 12)
-                    
-                    # Đóng khung tô màu định dạng từng hàng dữ liệu trong Excel
                     for r_idx in range(len(df_final_report)):
                         row_title = str(df_final_report.iloc[r_idx, 0]).strip().upper()
                         for c_idx in range(len(df_final_report.columns)):
                             val = df_final_report.iloc[r_idx, c_idx]
-                            
                             if r_idx == 0: worksheet.write(r_idx + 1, c_idx, val, fmt_giang)
                             elif r_idx == 1: worksheet.write(r_idx + 1, c_idx, val, fmt_size)
                             elif r_idx == 2: worksheet.write(r_idx + 1, c_idx, val, fmt_sl)
@@ -304,17 +294,8 @@ else:
                             else:
                                 if c_idx > 0 and c_idx <= len(active_sizes) and pd.notna(val) and str(val).replace('.','',1).isdigit() and float(val) > 0:
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_ratio_active)
-                                else:
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_normal)
-                                    
-                st.download_button(
-                    label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN",
-                    data=buffer.getvalue(),
-                    file_name=f"PHIEU_TAC_NGHIEP_BAN_CAT_{style_id_input}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="excel_download_btn_final_v109"
-                )
+                                else: worksheet.write(r_idx + 1, c_idx, val, fmt_normal)
+                st.download_button(label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN", data=buffer.getvalue(), file_name=f"PHIEU_TAC_NGHIEP_BAN_CAT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v109")
             except Exception: pass
 
             # --- KHÓA CHẶT CSS ĐƯỜNG BIÊN EXCEL SẠCH SẼ KHÔNG CHE KHUẤT CHỮ ---
@@ -331,11 +312,11 @@ else:
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #E2E8F0 !important; color: #000000 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
-                /* Hàng CÒN LẠI nhuộm màu nền xanh lam nhạt, chữ xanh đậm rõ nét */
+                /* Hàng CÒN LẠI nhuộm màu nền xanh lam nhạt, chữ xanh đậm rất rõ nét */
                 tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; text-align: center !important; }
                 
-                /* Định dạng các ô tỷ lệ bằng 0 hoặc trống ở hàng thường giữ màu nền trắng chữ xám nhẹ */
-                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #475569 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
+                /* ĐÃ SỬA LỖI TẠI ĐÂY: Ép toàn bộ các ô hàng thường có số 0 hoặc trống về nền trắng tinh khôi chữ xám */
+                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #94A3B8 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
                 
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
@@ -344,6 +325,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Giao diện ma trận màu vàng rực rỡ và nút bấm xuất file Excel đóng khung in ấn đã sẵn sàng!")
+            st.success("🎉 Hệ thống ma trận đã quét sạch lấp lánh và tích hợp bẫy toán triệt tiêu đầu khúc thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
