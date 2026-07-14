@@ -63,13 +63,16 @@ else:
             st.rerun()
 
         st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
-        input_col1, input_col2, input_col3 = st.columns(3)
+        
+        # Thiết kế 4 ô nhập liệu độc lập hàng ngang để người dùng tự gõ
+        input_col1, input_col2, input_col3, input_col_color = st.columns(4)
         with input_col1: style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
         with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
         with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
+        with input_col_color: color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK") # Tổ trưởng tự gõ chữ vào đây
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
-        with input_col5: fabric_type_input = st.selectbox("🧵 Loại vải tác nghiệp:", ["CHÍNH", "LÓT", "PHỐI"], key="c2_fabric_type_select")
+        with input_col5: fabric_type_input = st.text_input("🧵 Tự gõ Loại vải:", value="CHÍNH") # Tổ trưởng tự gõ chữ CHÍNH, LÓT, PHỐI...
         with input_col6: cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
         
         cad_paste_zone = st.text_area("Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", placeholder="Ví dụ dán bảng từ Excel CAD:\n5844-c01 1.05\n5844-c02 10", height=90, key="cad_bulk_paste_c2")
@@ -97,10 +100,10 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
-            color_display = st.session_state.get("sbd_parsed_data", {}).get("color", "BLACK")
-            t_header_ma_hang = ["Mã hàng:", f" {style_id_input}"]
-            t_header_mau = ["Màu:", f" {color_display}"]
-            t_header_loai_vai = ["Loại vải:", f" {fabric_type_input}"]
+            # Đọc giá trị động từ các ô tự gõ phía trên để nạp thẳng vào tiêu đề bảng Excel
+            t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"]
+            t_header_mau = ["Màu:", f" {color_input.strip().upper()}"]
+            t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"]
 
             t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
             po_qty_matrix = []
@@ -110,8 +113,8 @@ else:
                 parts = re.split(r'[\sXx\-\/:]+', col_str)
                 parts_clean = [p.strip() for p in parts if p.strip()]
                 
-                if len(parts_clean) >= 2: giang_val, size_val = parts_clean, parts_clean
-                elif len(parts_clean) == 1: size_val = parts_clean
+                if len(parts_clean) >= 2: giang_val, size_val = parts_clean[0], parts_clean[1]
+                elif len(parts_clean) == 1: size_val = parts_clean[0]
                 po_val = int(size_breakdown_main.get(col_name, 0))
                 po_qty_matrix.append(po_val)
                 
@@ -135,7 +138,6 @@ else:
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
                 pcs_cut_marker = sum(item["Ratios"].values()) * layers * tables
-                dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
@@ -147,7 +149,7 @@ else:
                     if item["Ratios"].get(sz, 0) > 0: active_ratio_parts.append(f"{sz_clean}/{item['Ratios'].get(sz, 0)}")
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
-                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
+                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, "", round(vail_can_m, 1)]
                 matrix_body_rows.append(ratio_row)
                 
                 remaining_row = ["CÒN LẠI"]
@@ -161,6 +163,7 @@ else:
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; }
+                tr:nth-color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { background-color: #E2E8F0 !important; color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 tr:nth-child(4) td { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
@@ -174,6 +177,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Tác nghiệp bàn cắt đồng bộ động loại vải CHÍNH/LÓT thương mại thành công!")
+            st.success("🎉 Tác nghiệp bàn cắt đồng bộ động loại vải tự gõ thương mại thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
