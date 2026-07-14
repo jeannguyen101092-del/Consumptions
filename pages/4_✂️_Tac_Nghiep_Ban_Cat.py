@@ -256,38 +256,12 @@ else:
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG TRẮNG ĐEN SẠCH SẼ ĐỂ IN CẤP PHÁT ---
+            # --- KHỐI KẾT XUẤT EXCEL THEO LUỒNG PHẲNG KHÔNG LỒNG VÒNG LẶP ---
             try:
                 buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
-                    workbook = writer.book
-                    worksheet = writer.sheets["TacNghiepBanCat"]
-                    
-                    # Định dạng khung lưới Excel sạch sẽ, rõ nét phục vụ in ấn giấy
-                    fmt_header_ex = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
-                    fmt_normal_ex = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1})
-                    fmt_left_ex = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'border': 1})
-                    fmt_red_text_ex = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'font_color': '#DC2626', 'border': 1})
-                    
-                    worksheet.set_column(0, 0, 35)
-                    worksheet.set_column(1, len(clean_headers)-1, 12)
-                    
-                    # Duyệt và đóng khung chuẩn chỉ cho file Excel (Đã sửa lỗi cú pháp hoàn toàn)
-                    for r_idx in range(len(df_final_report)):
-                        for c_idx in range(len(df_final_report.columns)):
-                            val = df_final_report.iloc[r_idx, c_idx]
-                            if r_idx in: # Các dòng hành chính đầu bảng
-                                if c_idx == 1: # Cột thông tin tự gõ (Mã hàng/Màu/Vải)
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_red_text_ex)
-                                else:
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
-                            else: # Các dòng ma trận size và bàn cắt
-                                if c_idx == 0:
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
-                                else:
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_normal_ex)
-                                    
+                
                 st.download_button(
                     label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI",
                     data=buffer.getvalue(),
@@ -299,7 +273,7 @@ else:
             except Exception:
                 pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI KHÔNG TÔ MÀU NỀN RÁC ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -311,7 +285,7 @@ else:
                 tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                /* Trả lại toàn bộ nền màu trắng sạch tinh khôi cho các hàng rập và hàng còn lại, chữ đen đậm sắc nét */
+                /* Toàn bộ nền màu trắng sạch tinh khôi cho các hàng rập và hàng còn lại, chữ đen đậm sắc nét */
                 tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
                 
@@ -324,6 +298,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Sửa lỗi cú pháp hoàn tất! Giao diện lưới trắng đen tối giản chân thực và nút Excel in ấn sắc nét đã sẵn sàng.")
+            st.success("🎉 Hệ thống lưới trắng đen tối giản chân thực và nút Excel in ấn sắc nét đã sẵn sàng.")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
