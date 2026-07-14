@@ -1140,7 +1140,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & XỬ LÝ LÕI MÁY
+# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & CHUẨN HÓA KHÓA BỘ NHỚ
 # =====================================================================
 import pandas as pd
 import re
@@ -1149,10 +1149,8 @@ import streamlit as st
 import copy
 from openpyxl import Workbook
 
-# =====================================================================
-# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & XỬ LÝ LÕI MÁY ĐỘNG
-# =====================================================================
 if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
+    # Sao chép bản dựng thô độc lập từ tài liệu Techpack quét được
     blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
     
     chat_txt = ""
@@ -1162,18 +1160,42 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
         chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
         
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
-    extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
+    extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "32")).upper().strip()
     
-    # 🎯 FIX CHÍ MẠNG: Gọi trực tiếp bộ phân rã chi tiết để loại bỏ phép toán chia đều
-    blueprint_processed = copy.deepcopy(blueprint_worker)
-    if 'preprocess_bom_and_execute' in globals() and blueprint_processed.get("bom_rows"):
-        prod_type = blueprint_processed.get("detected_product_type", "JEANS")
+    # 🎯 GIẢI PHÁP PHÒNG VỆ: Chuẩn hóa toàn diện tên khóa của mảng bom_rows gốc trước khi tính
+    raw_bom_rows_init = blueprint_worker.get("bom_rows", [])
+    clean_bom_rows_init = []
+    
+    for r_init in raw_bom_rows_init:
+        if not r_init or not isinstance(r_init, dict): continue
+        r_init_low = {str(k).strip().lower(): v for k, v in r_init.items()}
+        
+        # Đồng bộ ép chặt về cấu trúc key chuẩn tiếng Anh viết thường phục vụ Core Engine
+        r_init["component_name"] = r_init_low.get("component_name", r_init.get("Component Name", "UNNAMED"))
+        r_init["material_class"] = r_init_low.get("material_class", r_init.get("Material Class", "FABRIC"))
+        r_init["uom"] = r_init_low.get("uom", r_init.get("UOM", "YDS"))
+        r_init["piece_count"] = r_init_low.get("piece_count", r_init.get("Số lượng rập (Pcs)", 1))
+        r_init["bounding_box_length"] = r_init_low.get("bounding_box_length", r_init.get("Dài sản xuất (L-inch)", 0.0))
+        r_init["bounding_box_width"] = r_init_low.get("bounding_box_width", r_init.get("Rộng sản xuất (W-inch)", 0.0))
+        clean_bom_rows_init.append(r_init)
+        
+    blueprint_worker["bom_rows"] = clean_bom_rows_init
+
+    # Kích hoạt bộ xử lý Wrapper để nạp dữ liệu chạy Core Engine v59.0
+    if 'preprocess_bom_and_execute' in globals() and clean_bom_rows_init:
+        prod_type = blueprint_worker.get("detected_product_type", "JEANS")
+        blueprint_processed = copy.deepcopy(blueprint_worker)
         blueprint_processed["bom_rows"] = preprocess_bom_and_execute(blueprint_processed, product_type=prod_type)
     else:
         blueprint_processed = blueprint_worker
 
     st.session_state["bom_data"] = blueprint_processed
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
+
+if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
+    with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
+        st.json(st.session_state["raw_ai_debug_payload"])
+
 
 # =====================================================================
 # ĐOẠN 7b - PHẦN 2: LỌC VÀ TÍNH TOÁN TRỰC TIẾP TRÊN UI CHẶN ĐỨNG GHI ĐÈ
