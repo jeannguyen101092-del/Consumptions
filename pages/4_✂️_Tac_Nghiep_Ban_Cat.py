@@ -6,12 +6,32 @@ import re
 
 st.set_page_config(layout="wide")
 
-# KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
+# =============================================================================
+# TẦNG 1: SỐ HÓA FILE SBD ĐẦU VÀO TRÍCH XUẤT CẤU TRÚC SIZE CHỨA CHỮ X BẰNG AI GỐC
+# =============================================================================
 if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size để hệ thống tự động số hóa ma trận.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
+    
+    if file_sbd_c2:
+        trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
+        if trigger_btn_c2:
+            with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                
+                from google import genai
+                from google.genai import types
+                
+                client_ai = genai.Client(api_key=gemini_key)
+                sbd_bytes = file_sbd_c2.getvalue()
+                sbd_content_str = ""
+                sbd_parts_payload = []
+                
                 if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -22,7 +42,7 @@ if not st.session_state.get("purchase_ready"):
                 elif file_sbd_c2.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                # NÂNG CẤP PROMPT ÉP AI SỐ HÓA MA TRẬN PHỐI GIÀNG CHỨA KÝ TỰ 'X' CỦA BIỂU MẪU ĐƠN HÀNG
+                # NÂNG CẤP PROMPT ÉP AI SỐ HÓA MA TRẬN PHỐI GIÀNG CHỨA KÝ TỰ 'X' CỦA BIỂU MẪU ĐƠN HÀNG GỐC
                 sbd_prompt = """
                 Bạn là một chuyên gia số hóa tài liệu ngành dệt may. Hãy phân tích bảng 'Quantity Details' trong tài liệu được cung cấp.
                 1. Trích xuất mã hàng nằm ở mục 'Key Item' hoặc 'Style' (Ví dụ: '6082').
@@ -62,6 +82,7 @@ if not st.session_state.get("purchase_ready"):
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+
 
 # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
