@@ -181,7 +181,7 @@ else:
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
                 
-                # 🎯 THUẬT TOÁN ĐỘNG: Tạo chuỗi bẻ thông tin dạng "CHÍNH1: 30-32/2 30-30/1" [INDEX]
+                # 🎯 THUẬT TOÁN ĐỘNG: Tự động đổi cấu trúc thành dạng SIZE TRƯỚC - GIÀNG SAU [INDEX]
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
                 fabric_prefix = f"{fabric_type_input.strip().upper()}{marker_num_str}:"
@@ -192,12 +192,13 @@ else:
                     if r_val > 0:
                         sz_clean = str(sz).strip().replace("'", "").replace('"', '').replace("[", "").replace("]", "")
                         
-                        # Chuyển đổi cấu trúc 'SIZE X GIÀNG' từ PDF thành dạng 'GIÀNG-SIZE' cho xưởng [INDEX]
+                        # Bóc tách chuỗi 'SIZE X GIÀNG' từ tệp SBD đầu vào [INDEX]
                         if "X" in sz_clean:
                             parts = sz_clean.split("X")
                             s_size = parts[0].strip()
                             s_giang = parts[1].strip()
-                            size_tag = f"{s_giang}-{s_size}"
+                            # ĐẢO TRỤC CHUẨN XƯỞNG: Ép buộc Size đứng trước - Giàng đứng sau [INDEX]
+                            size_tag = f"{s_size}-{s_giang}"
                         else:
                             size_tag = sz_clean
                             
@@ -215,74 +216,34 @@ else:
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
-            # KHAI BÁO TIÊU ĐỀ NGANG VÀ MẢNG PHẲNG ĐỒNG BỘ ĐỂ KHỬ SẠCH LỖI NAMEERROR
+            # KHAI BÁO TIÊU ĐỀ NGANG VÀ MẢNG PHẲNG ĐỒNG BỘ
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
-            # 🎯 THUẬT TOÁN ĐỒNG BỘ ĐỔI MÀU CHỮ: Ô có tỷ lệ > 0 chữ ĐỎ ĐẬM, ô số 0 chữ XÁM MỜ [INDEX]
-            def highlight_ratios_clean(x):
-                color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                num_size_cols = len(active_sizes)
-                
-                for r in range(len(x)):
-                    if r < 6: continue
-                    if str(x.iloc[r, 0]).strip().upper() == "CÒN LẠI": continue
-                    
-                    for c in range(1, len(x.columns)):
-                        if c <= num_size_cols:
-                            val = x.iloc[r, c]
-                            try:
-                                if pd.notna(val) and int(val) > 0:
-                                    color_df.iloc[r, c] = 'background-color: #FFFFFF !important; color: #E11D48 !important; font-weight: 900 !important; font-size: 14px !important; text-align: center !important;'
-                                else:
-                                    color_df.iloc[r, c] = 'background-color: #FFFFFF !important; color: #94A3B8 !important; font-weight: 400 !important; text-align: center !important;'
-                            except (ValueError, TypeError): pass
-                return color_df
-
-            styled_report_df = df_final_report.style.apply(highlight_ratios_clean, axis=None)
 
             # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG VIỀN LƯỚI CHUẨN THƯƠNG MẠI IN ẤN ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
-                    
-                    workbook  = writer.book
+                    workbook = writer.book
                     worksheet = writer.sheets["TacNghiepBanCat"]
                     
-                    # 1. Định nghĩa bộ mã khuôn đóng khung viền lưới đen sắc nét từng ô cho Excel [INDEX]
-                    border_format = workbook.add_format({
-                        'border': 1,              # Thiết lập kẻ viền dày 1 ô lưới [INDEX]
-                        'align': 'center',        # Căn chữ nằm chính giữa ô [INDEX]
-                        'valign': 'vcenter',      # Căn chữ nằm giữa chiều cao dòng [INDEX]
-                        'text_wrap': True         # Tự động xuống dòng khi text quá dài [INDEX]
-                    })
+                    # Cấu hình đóng khung lưới đen sắc nét bao quanh từng ô trong Excel [INDEX]
+                    border_format = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+                    admin_text_format = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter', 'bold': True, 'font_color': '#DC2626'})
                     
-                    # Định dạng riêng chữ đỏ in đậm căn trái cho các hàng hành chính đầu bảng [INDEX]
-                    admin_text_format = workbook.add_format({
-                        'border': 1,
-                        'align': 'left',
-                        'valign': 'vcenter',
-                        'bold': True,
-                        'font_color': '#DC2626'   # Chữ màu đỏ rực thương mại [INDEX]
-                    })
+                    # Căn giãn biên rộng cột tự động tránh lỗi khuất chữ [INDEX]
+                    worksheet.set_column(0, 0, 42)
+                    worksheet.set_column(1, len(df_final_report.columns)-1, 12)
                     
-                    # 2. Tự động căn giãn độ rộng cột ngang để chuỗi phối size không bị khuất chữ [INDEX]
-                    worksheet.set_column(0, 0, 42)                              # Cột thứ nhất (Tên sơ đồ) rộng 42 [INDEX]
-                    worksheet.set_column(1, len(df_final_report.columns)-1, 12)  # Các cột kích cỡ và thông số rộng 12 [INDEX]
-                    
-                    # 3. KỸ THUẬT TIÊN QUYẾT: Ép toàn bộ ma trận bảng Excel tự động kẻ viền lưới dày dặn [INDEX]
+                    # Quét ép đóng viền lưới đen công nghiệp cho file tải về [INDEX]
                     max_row, max_col = df_final_report.shape
-                    worksheet.conditional_format(0, 0, max_row, max_col - 1, {
-                        'type': 'no_errors',
-                        'format': border_format
-                    })
+                    worksheet.conditional_format(0, 0, max_row, max_col - 1, {'type': 'no_errors', 'format': border_format})
                     
-                    # Điền riêng định dạng chữ đỏ căn trái cho cột số 2 của 3 hàng hành chính đầu bảng [INDEX]
-                    worksheet.write(1, 1, str(df_final_report.iloc[0, 1]), admin_text_format) # Hàng Mã hàng [INDEX]
-                    worksheet.write(2, 1, str(df_final_report.iloc[1, 1]), admin_text_format) # Hàng Màu [INDEX]
-                    worksheet.write(3, 1, str(df_final_report.iloc[2, 1]), admin_text_format) # Hàng Loại vải [INDEX]
+                    worksheet.write(1, 1, str(df_final_report.iloc[0, 1]), admin_text_format)
+                    worksheet.write(2, 1, str(df_final_report.iloc[1, 1]), admin_text_format)
+                    worksheet.write(3, 1, str(df_final_report.iloc[2, 1]), admin_text_format)
                     
                 st.download_button(
                     label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN",
@@ -292,14 +253,12 @@ else:
                     use_container_width=True,
                     key="excel_download_btn_final_v112"
                 )
-            except Exception:
-                pass
+            except Exception: pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN TUYỆT ĐỐI CHỮ ĐEN NGOÀI WEB ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN CHỮ ĐEN NGOÀI WEB ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
-                /* Ghép ghim cố định 6 dòng hành chính và ma trận size lên trần bảng khi kéo cuộn */
                 tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
@@ -307,11 +266,8 @@ else:
                 tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FFFFFF !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #FFFFFF !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                /* ÉP PHẲNG TRẦN: Trả lại toàn bộ nền màu trắng và chữ đen thuần túy cho từng ô lưới ngoài web */
                 tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
-                
-                /* Chỉ bôi đỏ duy nhất văn bản Màu và Vải tự gõ ở dòng 2 và dòng 3 để phân biệt hành chính */
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
@@ -321,6 +277,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống kết xuất tệp Excel đóng khung lưới bo viền in ấn và giao diện Web tối giản đã sẵn sàng hoàn toàn!")
+            st.success("🎉 Hệ thống đã đảo trục về đúng cấu trúc Size trước - Giàng sau và ghim trần lưới trắng thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
