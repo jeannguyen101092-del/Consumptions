@@ -1243,7 +1243,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 1: BẢN VÁ KHỬ CACHE KHÓA BỘ NHỚ (CRITICAL CACHE BUSTER)
+# ĐOẠN 7b - PHẦN 1: BẢN VÁ FIX BUG ATTRIBUTEERROR & KHỬ CACHE CŨ (V12)
 # =====================================================================
 import pandas as pd
 import re
@@ -1276,7 +1276,14 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     # 🎯 BƯỚC 2: Ép chạy Step 4 phiên bản mới để gọt định mức Yards thực tế
     if 'step_4_allocate_consumption_and_render' in globals() and updated_rows:
         ai_meta_data = blueprint_worker.get("spec_meta", {})
-        parsed_w = float(blueprint_worker.get("bom_rows", [{}]).get("fabric_width_inch", 56.0)) if blueprint_worker.get("bom_rows") else 56.0
+        
+        # 🎯 ĐÃ VÁ LỖI CÚ PHÁP: Trích xuất khổ vải động từ phần tử đầu tiên trong danh sách (Tránh lỗi AttributeError)
+        raw_bom_list = blueprint_worker.get("bom_rows", [])
+        if isinstance(raw_bom_list, list) and len(raw_bom_list) > 0:
+            first_row = raw_bom_list[0]
+            parsed_w = float(first_row.get("fabric_width_inch", 56.0)) if isinstance(first_row, dict) else 56.0
+        else:
+            parsed_w = 56.0
         
         final_bom_rows = step_4_allocate_consumption_and_render(
             unique_bom_rows=updated_rows,
@@ -1293,7 +1300,6 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
         blueprint_processed = blueprint_worker
 
     # 🎯 🧹 KHỐI KHỬ CACHE CHÍ MẠNG: Xóa sạch hoàn toàn bộ nhớ găm giữ cũ trên RAM của Streamlit Cloud
-    # Ép buộc hệ thống phải ghi đè mảng dữ liệu mới đã được gọt Yards phẳng của Step 4 vào session
     st.session_state["bom_data"] = copy.deepcopy(blueprint_processed)
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
 
