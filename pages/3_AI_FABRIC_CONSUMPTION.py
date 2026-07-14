@@ -1225,8 +1225,8 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
                 
     return blueprint_worker
 # =====================================================================
-# ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V125.0)
-# 🌟 ĐỒNG BỘ TUYỆT ĐỐI VỚI THUẬT TOÁN SƠ ĐỒ TỔNG GERBER / LECTRA
+# 🟩 ĐOẠN 7a - PHẦN 1 & 10: SINGLE-CALL PIPELINE CHỐNG TRÀO REQUEST (V125.0)
+# 🌟 ĐỒNG BỘ TUYỆT ĐỐI VỚI HỆ THỐNG ĐOẠN 5 TỰ ĐỘNG PHÂN BỔ ĐỊNH MỨC THỰC TẾ
 # =====================================================================
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
@@ -1323,7 +1323,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             if blueprint_worker and isinstance(blueprint_worker, dict) and "bom_rows" in blueprint_worker:
                 blueprint_worker["calculated_on_size"] = target_size_cmd
                 
-                # 🌟 Chuẩn hóa sạch dữ liệu thô ngay trước khi đẩy vào bộ não sơ đồ tổng
+                # Chuẩn hóa sạch dữ liệu thô ngay trước khi đẩy vào bộ não sơ đồ tổng
                 for row in blueprint_worker.get("bom_rows", []):
                     if not row or not isinstance(row, dict): continue
                     if "component_name" in row:
@@ -1336,12 +1336,13 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                     except: row["piece_count"] = 1
                     row["fabric_width_inch"] = float(active_width)
                 
-                # 🔥 ĐỒNG BỘ: Chuyển tiếp thẳng dữ liệu thô vào bộ não sơ đồ tổng gộp Gerber/Lectra
-                if "allocate_fabric_consumption_and_quality_gate" in globals():
-                    blueprint_final = allocate_fabric_consumption_and_quality_gate(
-                        blueprint_worker, 
-                        current_query=current_query
-                    )
+                # 🎯 BẢN VÁ KÍCH HOẠT: Bẻ lái dòng chảy dữ liệu thô thẳng vào bộ render ĐOẠN 5 mới sửa
+                raw_bom_list = blueprint_worker.get("bom_rows", [])
+                
+                if "main_render_pipeline" in globals() and raw_bom_list:
+                    # Kích hoạt Đoạn 5 tự động lồng sơ đồ hình học thực tế khác 0 lên UI
+                    main_render_pipeline(raw_uploaded_rows=raw_bom_list, config_width=active_width)
+                    blueprint_final = blueprint_worker
                 else:
                     blueprint_final = blueprint_worker
             else:
@@ -1351,7 +1352,6 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             st.session_state.blueprint_final = blueprint_final
             st.session_state.last_active_blueprint = blueprint_final
             
-            # 🌟 ĐÃ FIX LỖI: Kiểm tra phòng vệ an toàn tuyệt đối tránh lỗi NoneType / List / Dict chéo cấu trúc
             if blueprint_final and isinstance(blueprint_final, dict):
                 total_extracted_pieces = len(blueprint_final.get("bom_rows", []))
             elif isinstance(blueprint_final, list):
@@ -1359,25 +1359,20 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             else:
                 total_extracted_pieces = 0
 
-            # Khôi phục hoàn chỉnh chuỗi thông báo và đóng khối câu lệnh
-            ai_response_text = (
-                f"✅ **Hệ thống Sơ đồ Tổng (Marker-Based) đã xử lý thành công!** \n\n"
-                f"📊 Đã gộp và phân bổ tỷ lệ diện tích phẳng cho {total_extracted_pieces} chi tiết rập.\n"
-                f"▪️ Mã hàng: Định mức tính theo chiều dài dọc cây khung nền chuẩn.\n"
-                f"▪️ Cỡ (Size): **{target_size_cmd}** | Khổ hữu dụng: **{active_width}\"**"
-            )
+            # Khôi phục hoàn chỉnh chuỗi văn bản thông báo kết thúc luồng
+            ai_response_text = f"✅ **Hệ thống Sơ đồ Tổng (Marker-Based) đã xử lý thành công định mức thực tế cho {total_extracted_pieces} chi tiết!**"
             
+            # Cập nhật nhật ký hội thoại để tránh hiện tượng trào request lặp lại
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
             
-            # Ép lệnh đổi giao diện ngay lập tức để giải phóng các lỗi về lặp dữ liệu trên UI
+            # Buộc ứng dụng Streamlit tải lại giao diện hiển thị kết quả mới lập tức
             st.rerun()
 
         except Exception as e:
-            import traceback
-            st.error(f"❌ Pipeline Lỗi: {str(e)}")
-            st.code(traceback.format_exc())
+            st.error(f"❌ Lỗi xử lý luồng AI Pipeline: {str(e)}")
+
 
 
 # =====================================================================
