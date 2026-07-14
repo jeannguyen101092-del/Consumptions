@@ -87,7 +87,7 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (AI GIẢI MA TRẬN TỶ LỆ)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang tính toán tổ hợp sơ đồ theo cấu trúc Kim tự tháp ngược..."):
+            with st.spinner("🤖 AI đang phân tích dữ liệu SBD gốc, dồn cụm ma trận theo cấu trúc Kim tự tháp ngược..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -98,25 +98,27 @@ else:
                 
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # NÂNG CẤP PROMPT ÉP AI GIẢI THEO NGUYÊN LÝ KIM TỰ THÁP NGƯỢC
+                # NÂNG CẤP PROMPT ÉP BUỘC ĐỒNG BỘ KHÓA KEY SIZE GỐC VÀ DỒN CỤM TỶ LỆ LỚN
                 ai_cutting_prompt = f"""
-                Bạn là chuyên gia điều độ bàn cắt may mặc công nghiệp. Hãy lập kế hoạch sơ đồ bàn cắt cho đơn hàng này.
-                - Ma trận sản lượng PO cần cắt: {json.dumps(size_breakdown_main)}
-                - Chiều dài bàn vải tối đa cho phép: {max_table_length} Mét
+                Bạn là chuyên gia lập kế hoạch bàn cắt công nghiệp dệt may đại tài. 
+                Hãy tính toán tổ hợp sơ đồ phối size dồn cụm cho đơn hàng này theo đúng nguyên lý sản xuất thực tế.
+
+                DANH SÁCH KHÓA SIZE GỐC BẮT BUỘC SỬ DỤNG: {json.dumps(list(size_breakdown_main.keys()))}
+                MA TRẬN SẢN LƯỢNG PO THỰC TẾ: {json.dumps(size_breakdown_main)}
+                THÔNG SỐ GIỚI HẠN XƯỞNG:
+                - Chiều dài gia tối đa bàn vải cho phép: {max_table_length} Mét
                 - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs
-                - Khổ vải cắt: {cuttable_width_inch} Inches
-                - Loại vải: {fabric_type_input}
-                
+                - Khổ vải đi sơ đồ: {cuttable_width_inch} Inches
+                - Loại vải tác nghiệp: {fabric_type_input}
+
                 QUY TẮC PHỐI TỶ LỆ ÉP BUỘC (CẤU TRÚC KIM TỰ THÁP NGƯỢC):
-                1. SƠ ĐỒ CHÍNH (BÀN ĐẦU): Gom các size có sản lượng lớn lại với nhau để đi các sơ đồ gộp có tổng tỷ lệ lớn nhất (ví dụ: tổng tỷ lệ bằng 8, 10 hoặc 12 quần trên 1 sơ đồ) sao cho chiều dài sơ đồ đạt sát mức tối đa {max_table_length}m nhằm giải quyết nhanh số lượng lớn.
-                2. TRIỆT TIÊU DẦN SẢN LƯỢNG: Trừ lùi sản lượng lũy tiến qua từng bàn, ép sản lượng các size lớn về 0 trước.
-                3. SƠ ĐỒ VÉT DƯỚI ĐUÔI (KIM TỰ THÁP NGƯỢC): Ở các bàn cuối cùng, khi sản lượng của các size lớn đã hết, sơ đồ PHẢI vuốt đuôi nhỏ lại, chỉ phối các sơ đồ vét ngắn chứa 1 quần (hoặc tối đa 2 quần) cho các size nhỏ/size lẻ mồ côi còn lại để vét sạch sản lượng.
-                
-                Đảm bảo số dư 'CÒN LẠI' ở dòng cuối cùng của bảng phải bằng 0 tuyệt đối cho tất cả các cỡ.
-                Trả về kết quả duy nhất dạng mảng JSON gốc sạch sẽ:
+                1. ĐỒNG BỘ KHÓA KEY: Khi viết mảng "Ratios", bạn PHẢI sử dụng chính xác 100% nguyên văn chuỗi ký tự nằm trong danh sách khóa size gốc được cung cấp ở trên (Ví dụ nếu khóa gốc là "['26']" hoặc "SIZE: 26" thì phải viết nguyên văn như vậy, TUYỆT ĐỐI không được tự ý làm sạch thành "26").
+                2. DỒN CỤM TỶ LỆ LỚN (BÀN ĐẦU): Gom các size sát cạnh nhau có sản lượng lớn lại đi chung sơ đồ gộp có tổng tỷ lệ lớn (Ví dụ tỉ lệ: 2, 3, 4 quần/size) sao cho chiều dài đạt sát trần {max_table_length}m nhằm giải quyết nhanh PO.
+                3. SƠ ĐỒ VÉT VUỐT ĐUÔI (BÀN CUỐI): Trừ lùi sản lượng lũy tiến. Ở các bàn cuối cùng, bẻ nhỏ sơ đồ lại thành sơ đồ vét chỉ chứa tỷ lệ 1 quần cho các cỡ nhỏ hoặc cỡ biên mồ côi còn sót lại để triệt tiêu số lượng 'CÒN LẠI' về đúng số 0.
+
+                Trả về duy nhất mảng JSON gốc sạch sẽ, không giải thích văn bản rác:
                 [
-                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_A": 3, "Tên_Size_B": 4, "Tên_Size_C": 3}}, "Số lớp": 100, "Số bàn": 1, "Số sp/SĐ": 10}},
-                    {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"Tên_Size_D": 1}}, "Số lớp": 10, "Số bàn": 1, "Số sp/SĐ": 1}}
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 3 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 5}}
                 ]
                 """
                 try:
@@ -125,9 +127,8 @@ else:
                         contents=[ai_cutting_prompt]
                     )
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    st.success("🎯 AI đã tối ưu thành công hệ thống sơ đồ theo phom Kim tự tháp ngược!")
+                    st.success("🎯 AI đã đồng bộ khóa mã size và tối ưu tổ hợp Kim tự tháp ngược thành công!")
                 except Exception:
-                    # Khối dự phòng nếu mất kết nối
                     st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
         if trigger_consumption:
