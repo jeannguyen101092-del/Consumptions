@@ -180,20 +180,35 @@ else:
                 layers, tables, sp_sd = item["Số lớp"], item["Số bàn"], item["Số sp/SĐ"]
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
-                pcs_cut_marker = sum(item["Ratios"].values()) * layers * tables
-                dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
+                # 🎯 THUẬT TOÁN ĐỘNG: Tạo chuỗi bẻ thông tin dạng "CHÍNH1: 30-32/2 30-30/1"
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
                 fabric_prefix = f"{fabric_type_input.strip().upper()}{marker_num_str}:"
                 
                 active_ratio_parts = []
                 for sz in active_sizes:
-                    sz_clean = str(sz).strip().split(":")[-1].split("/")[-1].split(" ")[-1]
-                    if item["Ratios"].get(sz, 0) > 0: active_ratio_parts.append(f"{sz_clean}/{item['Ratios'].get(sz, 0)}")
+                    r_val = int(item["Ratios"].get(sz, 0))
+                    if r_val > 0:
+                        # Làm sạch chuỗi kích cỡ gốc từ PDF (Ví dụ: '30 X 32' -> làm sạch dấu cách)
+                        sz_clean = str(sz).strip().replace("'", "").replace('"', '').replace("[", "").replace("]", "")
+                        
+                        # Chuyển đổi định dạng cấu trúc 'SIZE X GIÀNG' từ PDF thành dạng 'GIÀNG-SIZE' cho xưởng
+                        if "X" in sz_clean:
+                            parts = sz_clean.split("X")
+                            s_size = parts[0].strip()
+                            s_giang = parts[1].strip()
+                            # Đảo ngược cấu trúc chuẩn: Giàng - Size / Tỷ lệ [INDEX]
+                            size_tag = f"{s_giang}-{s_size}"
+                        else:
+                            size_tag = sz_clean
+                            
+                        active_ratio_parts.append(f"{size_tag}/{r_val}")
+                        
+                # Gộp thành chuỗi hoàn chỉnh hiển thị đầu hàng ngang [INDEX]
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
-                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
+                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round((vail_can_m * 1.09361) / (sum(item["Ratios"].values()) * layers * tables) if sum(item["Ratios"].values()) > 0 else 0, 3), round(vail_can_m, 1)]
                 matrix_body_rows.append(ratio_row)
                 
                 remaining_row = ["CÒN LẠI"]
@@ -204,8 +219,8 @@ else:
                 matrix_body_rows.append(remaining_row)
 
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
+
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
