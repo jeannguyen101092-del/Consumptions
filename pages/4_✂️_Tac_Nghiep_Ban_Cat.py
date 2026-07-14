@@ -87,7 +87,7 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (AI GIẢI MA TRẬN TỶ LỆ)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang phân tích Form nhập liệu, tiến hành lập sơ đồ chính dài tối đa và sơ đồ vét..."):
+            with st.spinner("🤖 AI đang tính toán tổ hợp sơ đồ theo cấu trúc Kim tự tháp ngược..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -98,29 +98,25 @@ else:
                 
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # ÉP TOÀN BỘ RÀNG BUỘC THÔNG SỐ TRÊN FORM VÀO PROMPT CHO AI GIẢI
+                # NÂNG CẤP PROMPT ÉP AI GIẢI THEO NGUYÊN LÝ KIM TỰ THÁP NGƯỢC
                 ai_cutting_prompt = f"""
-                Bạn là chuyên gia điều độ bàn cắt công nghiệp dệt may đại tài. Hãy tính toán ma trận phân bổ sơ đồ cho đơn hàng này.
-                
-                DỮ LIỆU ĐẦU VÀO TỪ FORM CỦA TỔ TRƯỞNG:
-                - Ma trận cỡ và sản lượng đơn hàng PO: {json.dumps(size_breakdown_main)}
-                - Chiều dài gia tối đa bàn vải cho phép: {max_table_length} Mét
+                Bạn là chuyên gia điều độ bàn cắt may mặc công nghiệp. Hãy lập kế hoạch sơ đồ bàn cắt cho đơn hàng này.
+                - Ma trận sản lượng PO cần cắt: {json.dumps(size_breakdown_main)}
+                - Chiều dài bàn vải tối đa cho phép: {max_table_length} Mét
                 - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs
-                - Khổ cắt sơ đồ: {cuttable_width_inch} Inches
-                - Loại vải tác nghiệp: {fabric_type_input}
+                - Khổ vải cắt: {cuttable_width_inch} Inches
+                - Loại vải: {fabric_type_input}
                 
-                QUY TẮC ĐIỀU ĐỘ BÀN CẮT BẮT BUỘC:
-                1. Tính toán số lượng sản phẩm tối đa trên 1 sơ đồ chính (Max Pcs/SĐ) = Chiều dài tối đa ({max_table_length}m) chia cho Định mức (~{consumption_input}yd). 
-                   Ví dụ nếu {max_table_length}m tương đương ~13 yards, định mức 1.14yd thì sơ đồ lớn nhất có thể chứa khoảng 11 đến 12 sản phẩm gộp (Pcs/SĐ).
-                2. ƯU TIÊN SƠ ĐỒ CHÍNH: Quét các size có sản lượng lớn, gộp chúng lại với nhau để đi các sơ đồ gộp có tổng tỉ lệ (Số sp/SĐ) đạt mức tối đa như trên nhằm giải quyết nhanh PO.
-                3. SƠ ĐỒ VÉT (BALANCE): Các lượng dư lẻ, lệch giàng hoặc size mồ côi không thể gộp vào sơ đồ lớn, hãy tự động gom chúng xuống các sơ đồ vét (sơ đồ đuôi) ở các bàn cuối cùng với số lớp thấp hơn để vét sạch sản lượng.
+                QUY TẮC PHỐI TỶ LỆ ÉP BUỘC (CẤU TRÚC KIM TỰ THÁP NGƯỢC):
+                1. SƠ ĐỒ CHÍNH (BÀN ĐẦU): Gom các size có sản lượng lớn lại với nhau để đi các sơ đồ gộp có tổng tỷ lệ lớn nhất (ví dụ: tổng tỷ lệ bằng 8, 10 hoặc 12 quần trên 1 sơ đồ) sao cho chiều dài sơ đồ đạt sát mức tối đa {max_table_length}m nhằm giải quyết nhanh số lượng lớn.
+                2. TRIỆT TIÊU DẦN SẢN LƯỢNG: Trừ lùi sản lượng lũy tiến qua từng bàn, ép sản lượng các size lớn về 0 trước.
+                3. SƠ ĐỒ VÉT DƯỚI ĐUÔI (KIM TỰ THÁP NGƯỢC): Ở các bàn cuối cùng, khi sản lượng của các size lớn đã hết, sơ đồ PHẢI vuốt đuôi nhỏ lại, chỉ phối các sơ đồ vét ngắn chứa 1 quần (hoặc tối đa 2 quần) cho các size nhỏ/size lẻ mồ côi còn lại để vét sạch sản lượng.
                 
-                Hãy tính toán chính xác để tổng sản lượng cắt (Tỉ lệ * Số lớp * Số bàn) của tất cả sơ đồ cộng lại phải trùng khớp 100% với sản lượng PO ban đầu. Lượng dư 'CÒN LẠI' ở dòng cuối cùng phải tiến về bằng 0.
-                
-                Trả về kết quả duy nhất ở dạng mảng JSON gốc, không kèm từ giải thích, không bọc dấu nháy mã:
+                Đảm bảo số dư 'CÒN LẠI' ở dòng cuối cùng của bảng phải bằng 0 tuyệt đối cho tất cả các cỡ.
+                Trả về kết quả duy nhất dạng mảng JSON gốc sạch sẽ:
                 [
-                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_A": 2, "Tên_Size_B": 3, "Tên_Size_C": 2}}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 7}},
-                    {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"Tên_Size_A": 1}}, "Số lớp": 15, "Số bàn": 1, "Số sp/SĐ": 1}}
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_A": 3, "Tên_Size_B": 4, "Tên_Size_C": 3}}, "Số lớp": 100, "Số bàn": 1, "Số sp/SĐ": 10}},
+                    {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"Tên_Size_D": 1}}, "Số lớp": 10, "Số bàn": 1, "Số sp/SĐ": 1}}
                 ]
                 """
                 try:
@@ -129,9 +125,9 @@ else:
                         contents=[ai_cutting_prompt]
                     )
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    st.success("🎯 AI đã tính toán thành công hệ thống sơ đồ chính phối dài và sơ đồ vét dư dựa theo thông số Form!")
+                    st.success("🎯 AI đã tối ưu thành công hệ thống sơ đồ theo phom Kim tự tháp ngược!")
                 except Exception:
-                    # Khử sạch chữ thừa dính liền tại đây
+                    # Khối dự phòng nếu mất kết nối
                     st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
         if trigger_consumption:
@@ -206,31 +202,63 @@ else:
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
-            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
-            clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-            df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
+            # 🎯 THUẬT TOÁN TÔ MÀU VÀNG CHO Ô CHỨA TỶ LỆ SƠ ĐỒ (RATIOS > 0)
+            def highlight_ratios(x):
+                # Tạo một DataFrame trống có cùng kích thước để chứa mã màu
+                color_df = pd.DataFrame('', index=x.index, columns=x.columns)
+                
+                # Xác định phạm vi các cột kích cỡ (Từ cột số 2 đến hết số lượng active_sizes)
+                num_size_cols = len(active_sizes)
+                
+                # Vòng lặp quét qua từng dòng và từng cột để nhuộm màu
+                for r in range(len(x)):
+                    # Bỏ qua không tô màu tỷ lệ cho 3 hàng hành chính và 3 hàng ma trận size đầu bảng
+                    if r < 6: continue
+                    # Bỏ qua các hàng hiển thị số dư "CÒN LẠI"
+                    if str(x.iloc[r, 0]).strip().upper() == "CÒN LẠI": continue
+                    
+                    for c in range(1, len(x.columns)):
+                        # Chỉ tô màu trong phạm vi các cột kích cỡ
+                        if c <= num_size_cols:
+                            val = x.iloc[r, c]
+                            try:
+                                # Nếu ô chứa số tỷ lệ nhảy rập lớn hơn 0 thì nhuộm nền vàng chữ đỏ
+                                if pd.notna(val) and float(val) > 0:
+                                    color_df.iloc[r, c] = 'background-color: #FEF08A !important; color: #991B1B !important; font-weight: 800 !important; border: 1px solid #FDE047 !important;'
+                            except ValueError:
+                                pass
+                return color_df
+
+            # Áp dụng hàm tô màu vào DataFrame báo cáo
+            styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
+
+            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU CHỮ ĐỎ VÀ CẶP DÒNG PHÂN BIỆT EXCEL ---
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
                 
-                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { position: sticky; z-index: 9; background-color: #E2E8F0 !important; color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
-                tr:nth-child(1) td { top: 25px; }
-                tr:nth-child(2) td { top: 55px; }
-                tr:nth-child(3) td { top: 85px; }
+                /* Ghép tọa độ ghim cứng cho 6 hàng hành chính và ma trận size đầu bảng */
+                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
+                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
+                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
+                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
-                tr:nth-child(4) td { position: sticky; top: 115px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
-                tr:nth-child(6) td { position: sticky; top: 175px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
-                
+                /* Các hàng CÒN LẠI (Tất cả hàng chẵn bắt đầu từ dòng 7) nhuộm màu xanh dương dịu xưởng */
                 tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; }
+                
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            st.dataframe(df_final_report, use_container_width=True, hide_index=True)
+            
+            # ÉP IN BẢNG ĐÃ ĐƯỢC ĐỔ MÀU TỶ LỆ ĐỘNG (.style) LÊN GIAO DIỆN WEB
+            st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Tác nghiệp bàn cắt đồng bộ động loại vải tự gõ thương mại và ghim trần thành công!")
+            st.success("🎉 Hệ thống ma trận tỷ lệ nhảy rập đã được bôi nền vàng chữ đỏ trực quan thương mại thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
