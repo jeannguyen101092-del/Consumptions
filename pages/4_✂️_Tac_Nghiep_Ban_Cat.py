@@ -237,6 +237,40 @@ else:
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
+            # --- KHỐI XỬ LÝ LƯU TRỮ LÊN SUPABASE (ĐÓNG GÓI JSONB TỐI ƯU) ---
+            st.markdown("---")
+            st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ DỮ LIỆU TÁC NGHIỆP SẢN XUẤT</p>", unsafe_allow_html=True)
+            
+            trigger_save_supabase = st.button("💾 KÍCH HOẠT LƯU PHIẾU TÁC NGHIỆP BÀN CẮT NÀY LÊN SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
+            
+            if trigger_save_supabase:
+                with st.spinner("🚀 Hệ thống đang đóng gói ma trận phẳng và đồng bộ lên Cloud Supabase..."):
+                    matrix_json_string = df_final_report.to_json(orient="records")
+                    
+                    supabase_payload = {
+                        "style_id": str(style_id_input).strip().upper(),
+                        "color": str(color_input).strip().upper(),
+                        "fabric_type": str(fabric_type_input).strip().upper(),
+                        "total_po_qty": int(po_qty_input),
+                        "proposal_yield": float(consumption_input),
+                        "max_table_len": float(max_table_length),
+                        "cuttable_width": float(cuttable_width_inch),
+                        "cutting_matrix_data": json.loads(matrix_json_string)
+                    }
+                    
+                    try:
+                        if "get_secure_supabase_client" in globals():
+                            supabase_client = get_secure_supabase_client()
+                        else:
+                            from supabase import create_client
+                            supabase_url = st.secrets["SUPABASE_URL"]
+                            supabase_key = st.secrets["SUPABASE_KEY"]
+                            supabase_client = create_client(supabase_url, supabase_key)
+                        
+                        response_db = supabase_client.table("cutting_orders_db").insert(supabase_payload).execute()
+                        st.success(f"🎉 Đã lưu trữ thành công phiếu tác nghiệp mã hàng {style_id_input} - Loại vải {fabric_type_input} lên hệ thống Cloud Supabase!")
+                    except Exception as e:
+                        st.error(f"⚠️ Không thể kết nối với Supabase. Lỗi: {str(e)}")
 
             # --- PHÂN HỆ SÁNG TẠO: XUẤT EXCEL ĐỔ MÀU PHÂN KHỐI CÔNG NGHIỆP TUYỆT ĐẸP ---
             try:
