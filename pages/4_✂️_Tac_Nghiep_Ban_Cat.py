@@ -323,8 +323,11 @@ else:
             trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU PHIẾU VẢI {fabric_type_input.upper()} LÊN SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
             
             if trigger_save_supabase:
-                with st.spinner(f"🚀 Hệ thống đang đồng bộ vải {fabric_type_input} lên Supabase..."):
-                    matrix_json_string = df_final_report.to_json(orient="records")
+                with st.spinner(f"🚀 Hệ thống đang chuẩn hóa cấu trúc chuỗi và đồng bộ vải {fabric_type_input} lên Supabase..."):
+                    # 🎯 KỸ THUẬT TIÊN QUYẾT: Ép toàn bộ DataFrame sang dạng chuỗi thuần ký tự trước khi chuyển sang JSON để khử sạch lỗi ArrowTypeError [INDEX]
+                    df_clean_string = df_final_report.astype(str)
+                    matrix_json_string = df_clean_string.to_json(orient="records")
+                    
                     supabase_payload = {
                         "style_id": str(style_id_input).strip().upper(),
                         "color": str(color_input).strip().upper(),
@@ -339,10 +342,11 @@ else:
                         from supabase import create_client
                         supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                         
-                        # Sử dụng kỹ thuật upsert: Nếu trùng Mã hàng + Loại vải thì ghi đè cập nhật mới, nếu chưa có thì thêm dòng mới [INDEX]
-                        response_db = supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
-                        st.success(f"🎉 Đã đồng bộ thành công phiếu tác nghiệp vải {fabric_type_input} lên Cloud Supabase!")
-                    except Exception as e: st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
+                        # Sử dụng lệnh insert thuần túy để đẩy Payload dữ liệu sạch lên hệ thống Cloud [INDEX]
+                        response_db = supabase_client.table("cutting_orders_db").insert(supabase_payload).execute()
+                        st.success(f"🎉 Đã đồng bộ thành công dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase!")
+                    except Exception as e: 
+                        st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
             st.markdown("---")
             st.success("🎉 Hệ thống phân hệ đa loại vải và kết xuất gộp Sheet Excel thương mại đã sẵn sàng vận hành!")
         else:
