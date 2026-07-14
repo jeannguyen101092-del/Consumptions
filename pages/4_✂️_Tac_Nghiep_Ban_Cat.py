@@ -237,7 +237,7 @@ else:
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-            # --- KHỐI XỬ LÝ LƯU TRỮ LÊN SUPABASE (ĐÓNG GÓI JSONB TỐI ƯU) ---
+             # --- KHỐI XỬ LÝ LƯU TRỮ LÊN SUPABASE (DÁN TRỰC TIẾP KEY VÀO CODE) ---
             st.markdown("---")
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ DỮ LIỆU TÁC NGHIỆP SẢN XUẤT</p>", unsafe_allow_html=True)
             
@@ -263,9 +263,10 @@ else:
                             supabase_client = get_secure_supabase_client()
                         else:
                             from supabase import create_client
-                            supabase_url = st.secrets["SUPABASE_URL"]
-                            supabase_key = st.secrets["SUPABASE_KEY"]
-                            supabase_client = create_client(supabase_url, supabase_key)
+                            # DÁN TRỰC TIẾP THÔNG TIN ĐƯỜNG DẪN VÀ KHÓA TOKEN CỦA BẠN VÀO ĐÂY
+                            url_direct = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+                            key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
+                            supabase_client = create_client(url_direct, key_direct)
                         
                         response_db = supabase_client.table("cutting_orders_db").insert(supabase_payload).execute()
                         st.success(f"🎉 Đã lưu trữ thành công phiếu tác nghiệp mã hàng {style_id_input} - Loại vải {fabric_type_input} lên hệ thống Cloud Supabase!")
