@@ -356,12 +356,12 @@ else:
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
+                tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             
-            # 🎯 MỞ KHÓA HOÀN TOÀN LUỒNG LƯU: Cho phép lưu thô ở Lần 1 và lưu đè cập nhật định mức ở Lần 2 [INDEX]
             st.markdown("---")
             st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
             trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
@@ -383,9 +383,9 @@ else:
                     }
                     try:
                         from supabase import create_client
-                        supabase_client = create_client("https://ewqqodsfvlvnrzsylawy.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
+                        supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                         
-                        # Sử dụng kỹ thuật lệnh upsert thông minh để tự động nhận diện: Nếu chưa có thì lưu mới (Lần 1), nếu gõ mét CAD cũ thì ghi đè chồng lên dữ liệu cũ của chính loại vải đó (Lần 2) [INDEX]
+                        # Đã cập nhật chỉ định trực tiếp tên khóa style_fabric_unique_key phục vụ upsert [INDEX]
                         response_db = supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                         st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} của mã hàng {style_id_input} vào kho thành công!")
                     except Exception as e: 
