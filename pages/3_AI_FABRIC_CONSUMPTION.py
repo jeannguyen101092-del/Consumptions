@@ -165,70 +165,63 @@ def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tupl
     return round(gross_consumption_yards, 4), round(gross_consumption_yards * 0.9144, 4), geo_source
 def preprocess_bom_and_execute(agent_output_json: dict, product_type: str) -> list:
     """
-    Pipeline Wrapper v41.0: 100% Data-Driven & Pydantic Compliant.
-    🌟 SỬA TRIỆT ĐỂ LỖI 0.0000: Đồng bộ hóa toàn diện dữ liệu số thực, 
-    quét sạch dòng CHỈ MAY lọt lưới bằng EXCLUDE_HARDWARE_KEYS.
+    Pipeline Wrapper v42.0 - ARCHITECTURE OPTIMIZED (PURE PREPROCESSOR).
+    🌟 SỬA SAI KIẾN TRÚC: Loại bỏ hoàn toàn compute_fabric_engine() khỏi wrapper.
+    Chỉ làm nhiệm vụ tiền xử lý, ép kiểu số thực và lọc phụ liệu bằng EXCLUDE_HARDWARE_KEYS.
     """
-    # Trích xuất dữ liệu sạch từ JSON cấu trúc của Agent
-    ai_meta = agent_output_json.get("spec_meta", {})
     bom_rows = agent_output_json.get("bom_rows", [])
-    
-    # Ép kiểu dữ liệu an toàn chặn đứng hoàn toàn lỗi chuỗi văn bản từ PDF
-    spec_meta = {
-        "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
-        "weft_shrink": float(ai_meta.get("weft_shrink", 3.0)),
-        "gather_ratio": float(ai_meta.get("gather_ratio", 1.00)),
-        "has_stripe": bool(ai_meta.get("has_stripe", False)),
-        "fabric_group": str(ai_meta.get("fabric_group", "WOVEN")).upper().strip()
-    }
-
     updated_bom_results = []
     
     for row in bom_rows:
         if not row: 
             continue
             
-        # Hỗ trợ nhận diện linh hoạt cả đối tượng Pydantic (.dict()) lẫn Dictionary thô
+        # Hỗ trợ unbox linh hoạt đối tượng Pydantic Schema sang Dictionary
         r_dict = row.dict() if hasattr(row, 'dict') else copy.deepcopy(row)
         
+        # 🎯 1. CHUẨN HÓA VIẾT HOA ĐỂ QUÉT BỘ LỌC PHỤ LIỆU CỨNG CỦA BẠN
         comp_name = str(r_dict.get("component_name", r_dict.get("Component Name", ""))).upper().strip()
         mat_class = str(r_dict.get("material_class", r_dict.get("Material Class", ""))).upper().strip()
         
-        # 🎯 1. CHẶN CHỈ MAY VÀ PHỤ LIỆU CỨNG TRIỆT ĐỂ: Bám sát danh mục EXCLUDE_HARDWARE_KEYS bạn gửi
+        # Sàng lọc chặn đứng Chỉ May (THREAD) và Hardware ngay tại cửa ngõ đầu vào
         if any(k in comp_name or k in mat_class for k in EXCLUDE_HARDWARE_KEYS):
             continue
             
-        # 🎯 2. ĐỒNG BỘ TRƯỚC KEY KÍCH THƯỚC CHỮ THƯỜNG CHO BỘ NÃO CORE ENGINE V59.6
-        # Tránh lỗi trượt khóa Tiếng Việt làm nhảy vào block chặn sàn cào bằng 0.3425
-        calc_row = {
-            "component_name": comp_name,
-            "material_class": mat_class,
-            "piece_count": int(float(str(r_dict.get("piece_count", r_dict.get("Số lượng rập (Pcs)", 1))).strip())),
-            "bounding_box_length": float(str(r_dict.get("bounding_box_length", r_dict.get("Dài sản xuất (L-inch)", 43.5))).strip()),
-            "bounding_box_width": float(str(r_dict.get("bounding_box_width", r_dict.get("Rộng sản xuất (W-inch)", 14.88))).strip()),
-            "fabric_width_inch": float(str(r_dict.get("fabric_width_inch", r_dict.get("Khổ vải (Width)", 56.0))).replace("inch","").strip())
-        }
+        # 🎯 2. ÉP KIỂU SỐ THỰC CHUẨN ĐỒNG BỘ VỚI PYDANTIC SCHEMA CHO CÁC STEP SAU
+        try: p_count = int(float(str(r_dict.get("piece_count", r_dict.get("Số lượng rập (Pcs)", 1))).strip()))
+        except: p_count = 1
             
-        # 🎯 3. KÍCH HOẠT BỘ NÃO TOÁN HỌC LIÊN TỤC V59.6 ĐỂ TÍNH ĐỊNH MỨC THỰC TẾ CHI TIẾT
-        yards, meters, source = compute_fabric_engine(calc_row, product_type, spec_meta)
+        try: b_length = float(str(r_dict.get("bounding_box_length", r_dict.get("Dài sản xuất (L-inch)", 0.0))).strip())
+        except: b_length = 0.0
+            
+        try: b_width = float(str(r_dict.get("bounding_box_width", r_dict.get("Rộng sản xuất (W-inch)", 0.0))).strip())
+        except: b_width = 0.0
+            
+        try: fabric_w = float(str(r_dict.get("fabric_width_inch", r_dict.get("Khổ vải (Width)", 56.0))).replace("inch","").strip())
+        except: fabric_w = 56.0
+
+        # Khóa phòng vệ hình học nền nếu AI trích xuất bị thiếu kích thước từ PDF
+        if b_length <= 0.0 or b_width <= 0.0:
+            b_length, b_width = (45.0, 15.0) if any(k in comp_name for k in ["PANEL", "THÂN"]) else (6.0, 2.5)
+
+        # Ghi lại cấu trúc trường dữ liệu sạch viết thường tương thích 100% Pydantic
+        r_dict["component_name"] = comp_name
+        r_dict["material_class"] = mat_class
+        r_dict["piece_count"] = p_count
+        r_dict["bounding_box_length"] = b_length
+        r_dict["bounding_box_width"] = b_width
+        r_dict["fabric_width_inch"] = fabric_w
+        r_dict["uom"] = str(r_dict.get("uom", "YDS")).upper().strip()
         
-        # Đẩy ngược kết quả số thực Yards sạch vào Dictionary đầu ra
-        r_dict["gross_consumption"] = yards
-        r_dict["Gross Consumption"] = yards  # Dự phòng trường hợp UI tìm Key viết hoa
-        r_dict["calculated_consumption_yards"] = yards
-        r_dict["calculated_consumption_meters"] = meters
-        r_dict["geometry_source_audit"] = source
-        r_dict["marker_efficiency"] = calc_row.get("marker_efficiency", "87.5%")
-        
-        # Trả lại kích thước hiển thị đẹp tiếng Việt cho bảng Matrix
-        r_dict["Dài sản xuất (L-inch)"] = calc_row["bounding_box_length"]
-        r_dict["Rộng sản xuất (W-inch)"] = calc_row["bounding_box_width"]
-        r_dict["Số lượng rập (Pcs)"] = calc_row["piece_count"]
-        r_dict["Khổ vải (Width)"] = f"{calc_row['fabric_width_inch']} inch"
+        # Khởi tạo trường định mức rỗng để chờ Step 4 điền số thực tế độc nhất vào
+        r_dict["gross_consumption"] = 0.0
+        r_dict["Gross Consumption"] = 0.0
+        r_dict["marker_efficiency"] = "0.0%"
         
         updated_bom_results.append(r_dict)
         
     return updated_bom_results
+
 
 
 
