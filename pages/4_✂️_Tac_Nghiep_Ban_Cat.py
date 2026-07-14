@@ -204,6 +204,7 @@ else:
 
             # 🎯 THUẬT TOÁN TÔ MÀU VÀNG CHO Ô CHỨA TỶ LỆ SƠ ĐỒ (RATIOS > 0)
             # 🎯 THUẬT TOÁN ĐỒNG BỘ BIẾN: Tô màu nền vàng cho ô chứa tỷ lệ sơ đồ (Ratios > 0)
+            # 🎯 THUẬT TOÁN ĐỒNG BỘ: Tô màu nền vàng cho ô chứa tỷ lệ sơ đồ (Ratios > 0)
             def highlight_ratios(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                 num_size_cols = len(active_sizes)
@@ -221,14 +222,9 @@ else:
                             except ValueError: pass
                 return color_df
 
-            # Đã đồng bộ tên biến trùng khớp hoàn toàn 100% để triệt tiêu lỗi NameError
+            # Ép gán chính xác một tên biến duy nhất xuyên suốt
             styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
 
-
-            # Áp dụng hàm tô màu vào DataFrame báo cáo
-            styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
-
-            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU CHỮ ĐỎ VÀ CẶP DÒNG PHÂN BIỆT EXCEL ---
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -236,7 +232,7 @@ else:
                 tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
                 tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
                 tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
+                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
                 tr:nth-child(6) td { position: sticky; top: 175px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #CBD5E1 !important; }
@@ -249,7 +245,7 @@ else:
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             
-            # Khởi chạy nạp bảng biến sạch
+            # Gọi chính xác tên biến styled_report_df đã khai báo ở trên để hiển thị lên Web
             st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
             st.success("🎉 Hệ thống ma trận tỷ lệ nhảy rập đã được bôi nền vàng chữ đỏ trực quan thương mại thành công!")
