@@ -87,35 +87,57 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (AI GIẢI MA TRẬN TỶ LỆ)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
-            with st.spinner("🤖 Trí tuệ nhân tạo AI đang giải toán ma trận chia tỉ lệ sơ đồ phối size tối ưu..."):
-                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
-                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+            with st.spinner("🤖 AI đang phân tích Form nhập liệu, tiến hành lập sơ đồ chính dài tối đa và sơ đồ vét..."):
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
                 from google import genai
                 from google.genai import types
                 
                 client_ai = genai.Client(api_key=gemini_key)
+                
+                # ÉP TOÀN BỘ RÀNG BUỘC THÔNG SỐ TRÊN FORM VÀO PROMPT CHO AI GIẢI
                 ai_cutting_prompt = f"""
-                Bạn là chuyên gia điều độ bàn cắt ngành may mặc. Hãy lập kế hoạch phân bổ sơ đồ phối size cho đơn hàng này.
-                - Danh sách các size và sản lượng cần cắt: {json.dumps(size_breakdown_main)}
-                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét
-                - Khổ vải đi sơ đồ: {cuttable_width_inch} inches
-                Hãy tính toán, gom cụm các size/giàng lại tạo ra các sơ đồ phối tối ưu. Trả về kết quả duy nhất ở dạng mảng JSON gốc có cấu trúc:
+                Bạn là chuyên gia điều độ bàn cắt công nghiệp dệt may đại tài. Hãy tính toán ma trận phân bổ sơ đồ cho đơn hàng này.
+                
+                DỮ LIỆU ĐẦU VÀO TỪ FORM CỦA TỔ TRƯỞNG:
+                - Ma trận cỡ và sản lượng đơn hàng PO: {json.dumps(size_breakdown_main)}
+                - Chiều dài gia tối đa bàn vải cho phép: {max_table_length} Mét
+                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs
+                - Khổ cắt sơ đồ: {cuttable_width_inch} Inches
+                - Loại vải tác nghiệp: {fabric_type_input}
+                
+                QUY TẮC ĐIỀU ĐỘ BÀN CẮT BẮT BUỘC:
+                1. Tính toán số lượng sản phẩm tối đa trên 1 sơ đồ chính (Max Pcs/SĐ) = Chiều dài tối đa ({max_table_length}m) chia cho Định mức (~{consumption_input}yd). 
+                   Ví dụ nếu {max_table_length}m tương đương ~13 yards, định mức 1.14yd thì sơ đồ lớn nhất có thể chứa khoảng 11 đến 12 sản phẩm gộp (Pcs/SĐ).
+                2. ƯU TIÊN SƠ ĐỒ CHÍNH: Quét các size có sản lượng lớn, gộp chúng lại với nhau để đi các sơ đồ gộp có tổng tỉ lệ (Số sp/SĐ) đạt mức tối đa như trên nhằm giải quyết nhanh PO.
+                3. SƠ ĐỒ VÉT (BALANCE): Các lượng dư lẻ, lệch giàng hoặc size mồ côi không thể gộp vào sơ đồ lớn, hãy tự động gom chúng xuống các sơ đồ vét (sơ đồ đuôi) ở các bàn cuối cùng với số lớp thấp hơn để vét sạch sản lượng.
+                
+                Hãy tính toán chính xác để tổng sản lượng cắt (Tỉ lệ * Số lớp * Số bàn) của tất cả sơ đồ cộng lại phải trùng khớp 100% với sản lượng PO ban đầu. Lượng dư 'CÒN LẠI' ở dòng cuối cùng phải tiến về bằng 0.
+                
+                Trả về kết quả duy nhất ở dạng mảng JSON gốc, không kèm từ giải thích, không bọc dấu nháy mã:
                 [
-                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_1": 1, "Tên_Size_2": 2}}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 3}}
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_A": 2, "Tên_Size_B": 3, "Tên_Size_C": 2}}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 7}},
+                    {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"Tên_Size_A": 1}}, "Số lớp": 15, "Số bàn": 1, "Số sp/SĐ": 1}}
                 ]
-                Không kèm từ giải thích, chỉ trả ra JSON sạch.
                 """
                 try:
-                    res_cutting = client_ai.models.generate_content(model='gemini-2.5-flash', contents=[ai_cutting_prompt])
+                    res_cutting = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[ai_cutting_prompt]
+                    )
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    st.success("🎯 AI đã hoàn thành việc chia tổ hợp sơ đồ thương mại thành công!")
+                    st.success("🎯 AI đã tính toán thành công hệ thống sơ đồ chính phối dài và sơ đồ vét dư dựa theo thông số Form!")
                 except Exception:
-                    st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
+                    # Khối dự phòng phẳng nếu AI nghẽn mạng
+                    st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizesPosition}}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
+
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
             if cad_paste_zone.strip() and st.session_state.get("consumption_activated"):
