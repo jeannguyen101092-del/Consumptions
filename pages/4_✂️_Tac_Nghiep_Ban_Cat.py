@@ -97,7 +97,8 @@ else:
                # =============================================================================
                # =============================================================================
                 # =============================================================================
-        # TẦNG 3: ÉP PHẲNG TUYỆT ĐỐI - CHUYỂN GIÀNG, SIZE, SL THÀNH 3 DÒNG NGANG ĐẦU BẢNG
+               # =============================================================================
+        # TẦNG 3: NHÂN BẢN CẶP DÒNG TỶ LỆ & CÒN LẠI THEO CHUẨN FORM EXCEL DNA
         # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
@@ -109,11 +110,12 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
-            # 1. Thuật toán bóc tách mảng phẳng từ file SBD đơn hàng
+            # 1. Khởi tạo 3 dòng đầu bảng: GIÀNG, SIZE, SẢN LƯỢNG
             t1_giang_row = ["GIÀNG"]
             t2_size_row = ["SIZE"]
-            t3_sl_row = ["SẢN LƯỢNG PO"]
+            t3_sl_row = ["SẢN LƯỢNG"]
             
+            po_qty_matrix = [] # Lưu trữ số lượng ban đầu để tính toán dòng CÒN LẠI lũy tiến
             for col_name in active_sizes:
                 col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                 giang_val = "None"
@@ -129,96 +131,91 @@ else:
                     size_val = parts_clean[0]
                     
                 po_val = int(size_breakdown_main.get(col_name, 0))
+                po_qty_matrix.append(po_val)
                 
                 t1_giang_row.append(f"{giang_val}" if giang_val != "None" else "None")
                 t2_size_row.append(f"{size_val}")
                 t3_sl_row.append(f"{po_val:,}")
 
-            # Chèn thêm ô trống cho các cột thông số tác nghiệp kỹ thuật cuối bảng
+            # Đính thêm các ô trống ở cuối cho cột kỹ thuật tác nghiệp
             for _ in range(6):
                 t1_giang_row.append("")
                 t2_size_row.append("")
                 t3_sl_row.append("")
 
-            # 2. Thu thập ma trận tỷ lệ nhảy sơ đồ từ thuật toán bàn cắt
-            matrix_body_data = []
-            for item in st.session_state["auto_cutting_results"]:
-                r_name = str(item["Sơ đồ / Trạng thái"]).strip()
-                if r_name.lower() == "balance": continue
-                
-                # Tạo hàng ngang chứa tên sơ đồ ở cột đầu và tỷ lệ sơ đồ ở các cột tiếp theo
-                row_list = [r_name] + [item["Ratios"].get(sz, 0) for sz in active_sizes]
-                matrix_body_data.append(row_list)
-            # 3. Tính toán 6 cột thông số kỹ thuật tác nghiệp cấp phát vải ở đuôi bên phải bảng
-            tech_cols_dict = {"SƠ LỚP": [], "SỐ BÀN": [], "DÀI SƠ ĐỒ": [], "SỐ SP/SĐ": [], "Đ.MỨC SĐ": [], "VẢI CẦN (M)": []}
-            total_fabric_m, total_cut_pcs_sum = 0.0, 0
+            # 2. Thuật toán lũy tiến: Tạo cặp dòng TỶ LỆ & CÒN LẠI cho từng sơ đồ/bàn cắt
+            matrix_body_rows = []
+            remaining_balances = list(po_qty_matrix) # Bản sao mảng phẳng số lượng gốc để trừ lùi
             
             valid_items = [i for i in st.session_state["auto_cutting_results"] if str(i["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
+            
+            # Cấu hình tính toán kỹ thuật tác nghiệp chạy dọc theo từng sơ đồ
+            tech_cols_dict = {"SƠ LỚP": [], "SỐ BÀN": [], "DÀI SƠ ĐỒ": [], "SỐ SP/SĐ": [], "Đ.MỨC SĐ": [], "VẢI CẦN (M)": []}
             for item in valid_items:
-                s_name = str(item["Sơ đồ / Trạng thái"]).strip()
-                layers, tables, sp_sd = item["Số lớp"], item["Số bàn"], item["Số sp/SĐ"]
+                s_name = str(item["Sơ đồ / Trạng thái"]).strip().upper()
+                layers = item["Số lớp"]
+                tables = item["Số bàn"]
+                sp_sd = item["Số sp/SĐ"]
                 
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
-                total_fabric_m += vail_can_m
+                total_ratios_sum = sum(item["Ratios"].values())
+                pcs_cut_marker = total_ratios_sum * layers * tables
+                dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
-                pcs_cut = sum(item["Ratios"].values()) * layers * tables
-                total_cut_pcs_sum += pcs_cut
-                dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
+                # A. TẠO DÒNG TỶ LỆ SƠ ĐỒ: Chứa nhãn tên sơ đồ và số tỷ lệ nhảy size
+                ratio_row = [f"{s_name} TỶ LỆ"]
+                for sz in active_sizes:
+                    ratio_row.append(item["Ratios"].get(sz, 0))
+                # Điền thông tin kỹ thuật tác nghiệp vào đuôi dòng Tỷ lệ
+                ratio_row.extend([layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)])
+                matrix_body_rows.append(ratio_row)
                 
-                tech_cols_dict["SƠ LỚP"].append(layers)
-                tech_cols_dict["SỐ BÀN"].append(tables)
-                tech_cols_dict["DÀI SƠ ĐỒ"].append(m_len)
-                tech_cols_dict["SỐ SP/SĐ"].append(sp_sd)
-                tech_cols_dict["Đ.MỨC SĐ"].append(round(dm_sd, 3))
-                tech_cols_dict["VẢI CẦN (M)"].append(round(vail_can_m, 1))
+                # B. TẠO DÒNG CÒN LẠI LŨY TIẾN: Trừ đi số lượng đã cắt (Tỷ lệ * Số lớp * Số bàn)
+                remaining_row = ["CÒN LẠI"]
+                for idx, sz in enumerate(active_sizes):
+                    current_ratio = item["Ratios"].get(sz, 0)
+                    allocated_pcs = current_ratio * layers * tables
+                    remaining_balances[idx] = max(0, remaining_balances[idx] - allocated_pcs)
+                    remaining_row.append(f"{remaining_balances[idx]:,}")
+                # Dòng còn lại để trống các cột kỹ thuật tác nghiệp phía sau giống Excel mẫu
+                remaining_row.extend(["", "", "", "", "", ""])
+                matrix_body_rows.append(remaining_row)
 
-            # Ghép mảng kỹ thuật vào đuôi của từng dòng sơ đồ tương ứng
-            for idx, row_item in enumerate(matrix_body_data):
-                row_item.append(tech_cols_dict["SƠ LỚP"][idx])
-                row_item.append(tech_cols_dict["SỐ BÀN"][idx])
-                row_item.append(tech_cols_dict["DÀI SƠ ĐỒ"][idx])
-                row_item.append(tech_cols_dict["SỐ SP/SĐ"][idx])
-                row_item.append(tech_cols_dict["Đ.MỨC SĐ"][idx])
-                row_item.append(tech_cols_dict["VẢI CẦN (M)"][idx])
+            # 3. Gộp toàn bộ các dòng cấu trúc dữ liệu phẳng
+            final_table_rows = [t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
 
-            # 4. TIÊN QUYẾT CHÈN 3 DÒNG LÊN ĐẦU: Xếp thứ tự Giàng, Size, Sản lượng làm 3 dòng dữ liệu đầu bảng
-            final_table_rows = [t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_data
-
-            # Định hình thanh tiêu đề ngang tối giản để kích hoạt CSS sạch
+            # Thiết lập hàng tiêu đề phẳng tối giản để khóa màu
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU NỀN THEO TỪNG DÒNG (GIỐNG 100% EXCEL MẪU) ---
+            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU ĐẬM ĐÀ FORM EXCEL (XÁM, VÀNG, XANH) ---
             st.markdown("""<style>
-                /* Tiêu đề cột ngang trên cùng nhuộm màu Mint nhạt */
+                /* Thanh tiêu đề ngang trên cùng nhuộm màu Mint nhạt */
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; }
                 
-                /* DÒNG 1 (GIÀNG): ÉP ĐỔ MÀU XÁM cho toàn bộ hàng ngang số 1 */
+                /* DÒNG 1 (GIÀNG): Nền xám chữ đen đậm */
                 tr:nth-child(1) td { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
                 
-                /* DÒNG 2 (SIZE): ÉP ĐỔ MÀU VÀNG CHUẨN cho toàn bộ hàng ngang số 2 */
+                /* DÒNG 2 (SIZE): Nền VÀNG CHUẨN bứt phá */
                 tr:nth-child(2) td { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
                 
-                /* DÒNG 3 (SẢN LƯỢNG PO): ÉP ĐỔ MÀU XÁM NHẸ cho toàn bộ hàng ngang số 3 */
-                tr:nth-child(3) td { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                /* DÒNG 3 (SẢN LƯỢNG): Nền xanh xám nhạt */
+                tr:nth-child(3) td { background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                /* Cột đầu tiên chứa tên sơ đồ (c01, c02...) nhuộm màu Xanh Mint làm điểm nhấn dọc */
-                td:nth-child(1) { font-weight: 700 !important; text-align: center !important; background-color: #F8FAFC; }
-                tr:nth-child(n+4) td:nth-child(1) { background-color: #E0F2FE !important; color: #0369A1 !important; border: 1px solid #93C5FD !important; }
+                /* CÁC DÒNG CÒN LẠI: Nhuộm nền xanh dương nhạt dịu cho toàn bộ hàng CÒN LẠI */
+                tr:nth-child(even):nth-child(n+4) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; }
+                
+                /* Cột đầu tiên chứa tên nhãn sơ đồ/CÒN LẠI căn giữa chuẩn chỉ */
+                td:nth-child(1) { font-weight: 700 !important; text-align: center !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             
-            # --- KHỐI THẺ KPI ĐO LƯỜNG TỔNG HỢP ---
+            # --- KHỐI THẺ KPI ĐO LƯỜNG TỔNG HỢP CUỐI TRANG ---
             st.markdown("---")
-            final_avg_yield = (total_fabric_m * 1.09361) / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
-            m_col1, m_col2, m_col3 = st.columns(3)
-            with m_col1: st.metric("Tổng vải tiêu thụ tự động", f"{total_fabric_m:,.1f} Mét")
-            with m_col2: st.metric("Định mức trung bình (Đ.Mức TB)", f"{final_avg_yield:.3f} Yds/Pcs" if st.session_state.get("consumption_activated") else "0.000 Yds/Pcs")
-            with m_col3:
-                variance = final_avg_yield - consumption_input if total_fabric_m > 0 and st.session_state.get("consumption_activated") else 0.0
-                st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state.get("consumption_activated") else "0.000", delta_color="inverse" if variance > 0 else "normal")
+            total_fabric_m_sum = sum([float(x) for x in tech_cols_dict["VẢI CẦN (M)"] if x != ""]) if "valid_items" in locals() else 0.0
+            st.info("💡 Quy trình: Nhập dữ liệu và kiểm tra các cặp dòng Tỷ lệ / Còn lại luỹ tiến tương tác trực quan.")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
