@@ -6,9 +6,7 @@ import re
 
 st.set_page_config(layout="wide")
 
-# =============================================================================
-# TẦNG 1: SỐ HÓA FILE SBD ĐẦU VÀO
-# =============================================================================
+# KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
 if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size để hệ thống tự động bẻ ma trận nằm ngang giống Excel.</p></div>""", unsafe_allow_html=True)
@@ -28,7 +26,6 @@ if not st.session_state.get("purchase_ready"):
                 sbd_bytes = file_sbd_c2.getvalue()
                 sbd_content_str = ""
                 sbd_parts_payload = []
-                
                 if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -50,9 +47,7 @@ if not st.session_state.get("purchase_ready"):
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
-# =============================================================================
-# TẦNG 2: MÀN HÌNH TÁC NGHIỆP FORM NHẬP LIỆU
-# =============================================================================
+# KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
     if isinstance(sbd_data_store, dict) and sbd_data_store:
@@ -72,56 +67,6 @@ else:
         with input_col1: style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
         with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
         with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
-
-        input_col4, input_col6 = st.columns(2)
-        with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
-        with input_col6: cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
-        
-        cad_paste_zone = st.text_area("Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", placeholder="Ví dụ dán bảng từ Excel CAD:\n5844-c01 1.05\n5844-c02 10", height=90, key="cad_bulk_paste_c2")
-        
-        active_sizes = [str(k) for k, v in size_breakdown_main.items() if int(v) > 0]
-        if not active_sizes: active_sizes = ["S", "M", "L", "XL", "2XL", "3XL"]
-        
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (THUẬT TOÁN THUẦN)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
-        with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
-
-        if trigger_auto_cutting:
-            mock_results = [{"Sơ đồ / Trạng thái": f"P{str(i+4).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
-            st.session_state["auto_cutting_results"] = mock_results
-        if trigger_consumption:
-            st.session_state["consumption_activated"] = True
-            st.rerun()
-                # =============================================================================
-               # =============================================================================
-               # =============================================================================
-               # =============================================================================
-                # =============================================================================
-               # =============================================================================
-       # =============================================================================
-# =============================================================================
-# TẦNG 2: MÀN HÌNH TÁC NGHIỆP FORM NHẬP LIỆU
-# =============================================================================
-else:
-    sbd_data_store = st.session_state.get("sbd_parsed_data", {})
-    if isinstance(sbd_data_store, dict) and sbd_data_store:
-        detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
-        detected_total_po = sbd_data_store.get("total_quantity", 0)
-        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
-
-        if st.button("🔄 Tải lên File SBD Khác", type="secondary"):
-            st.session_state["purchase_ready"] = False
-            st.session_state["sbd_parsed_data"] = {}
-            st.session_state["consumption_activated"] = False
-            st.session_state["auto_cutting_results"] = None
-            st.rerun()
-
-        st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
-        input_col1, input_col2, input_col3 = st.columns(3)
-        with input_col1: style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
-        with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
-        with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
-
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
         with input_col5: fabric_type_input = st.selectbox("🧵 Loại vải tác nghiệp:", ["CHÍNH", "LÓT", "PHỐI"], key="c2_fabric_type_select")
@@ -142,9 +87,6 @@ else:
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
-        # =============================================================================
-        # TẦNG 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD VÀ PHÂN TÁCH MA TRẬN PHẲNG
-        # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
             if cad_paste_zone.strip() and st.session_state.get("consumption_activated"):
@@ -162,7 +104,6 @@ else:
 
             t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
             po_qty_matrix = []
-            
             for col_name in active_sizes:
                 col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                 giang_val, size_val = "None", col_str
@@ -215,11 +156,9 @@ else:
                     remaining_row.append(f"{remaining_balances[idx]:,}")
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
-
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { background-color: #E2E8F0 !important; color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
