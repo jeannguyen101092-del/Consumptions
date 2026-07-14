@@ -216,12 +216,10 @@ else:
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
-            # KHAI BÁO TIÊU ĐỀ NGANG VÀ MẢNG PHẲNG ĐỒNG BỘ
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG VIỀN LƯỚI CHUẨN THƯƠNG MẠI IN ẤN ---
+            # --- PHÂN HỆ SÁNG TẠO: XUẤT EXCEL ĐỔ MÀU PHÂN KHỐI CÔNG NGHIỆP TUYỆT ĐẸP ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
@@ -229,33 +227,56 @@ else:
                     workbook = writer.book
                     worksheet = writer.sheets["TacNghiepBanCat"]
                     
-                    # Cấu hình đóng khung lưới đen sắc nét bao quanh từng ô trong Excel [INDEX]
-                    border_format = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
-                    admin_text_format = workbook.add_format({'border': 1, 'align': 'left', 'valign': 'vcenter', 'bold': True, 'font_color': '#DC2626'})
+                    # 1. ĐỊNH NGHĨA BẢNG MÀU CHUẨN XƯỞNG GIỐNG 100% ẢNH MẪU EXCEL BẠN GỬI
+                    f_admin = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'fg_color': '#FFD966', 'border': 1, 'font_size': 11}) # Màu vàng gold khối hành chính dòng 1-6
+                    f_giang = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#BDD7EE', 'border': 1, 'font_size': 11}) # Màu xanh lam nhạt khối GIÀNG
+                    f_size = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FFF2CC', 'border': 1, 'font_size': 11}) # Màu vàng kem khối nhãn SIZE
+                    f_sl_po = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#E2EFDA', 'font_color': '#375623', 'border': 1}) # Màu xanh lục nhạt khối SẢN LƯỢNG
+                    f_tyle_cell = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'fg_color': '#FFFFFF', 'border': 1}) # Nền trắng mặc định cho dòng TỶ LỆ thường
+                    f_con_lai = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#D9E1F2', 'font_color': '#1F4E78', 'border': 1}) # Nền xanh dương dịu xưởng khối CÒN LẠI
+                    f_ratio_active = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FEF08A', 'font_color': '#C00000', 'border': 1}) # Nền vàng chanh chữ đỏ in nổi cho ô có tỉ lệ > 0
+                    f_title_col = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'border': 1, 'fg_color': '#F2F2F2'}) # Cột tên sơ đồ ngoài cùng
                     
-                    # Căn giãn biên rộng cột tự động tránh lỗi khuất chữ [INDEX]
+                    # Tự động giãn cột ngang bao phủ diện tích hiển thị máy in
                     worksheet.set_column(0, 0, 42)
-                    worksheet.set_column(1, len(df_final_report.columns)-1, 12)
+                    worksheet.set_column(1, len(clean_headers)-1, 11)
                     
-                    # Quét ép đóng viền lưới đen công nghiệp cho file tải về [INDEX]
-                    max_row, max_col = df_final_report.shape
-                    worksheet.conditional_format(0, 0, max_row, max_col - 1, {'type': 'no_errors', 'format': border_format})
-                    
-                    worksheet.write(1, 1, str(df_final_report.iloc[0, 1]), admin_text_format)
-                    worksheet.write(2, 1, str(df_final_report.iloc[1, 1]), admin_text_format)
-                    worksheet.write(3, 1, str(df_final_report.iloc[2, 1]), admin_text_format)
-                    
+                    # 2. VÒNG LẶP ĐỔ MÀU TOÀN DIỆN CHO TỪNG CAO ĐỘ HÀNG EXCEL
+                    for r_idx in range(len(df_final_report)):
+                        row_vals = df_final_report.iloc[r_idx].tolist()
+                        row_title = str(row_vals[0]).strip().upper()
+                        
+                        for c_idx, val in enumerate(row_vals):
+                            # Ép điều kiện phân lớp màu theo cấu trúc hình học
+                            if r_idx in: # Dòng 1-3 hành chính gõ tay
+                                worksheet.write(r_idx + 1, c_idx, val, f_admin)
+                            elif r_idx == 3: # Dòng 4: GIÀNG
+                                worksheet.write(r_idx + 1, c_idx, val, f_giang)
+                            elif r_idx == 4: # Dòng 5: SIZE
+                                worksheet.write(r_idx + 1, c_idx, val, f_size)
+                            elif r_idx == 5: # Dòng 6: SẢN LƯỢNG PO tổng
+                                worksheet.write(r_idx + 1, c_idx, val, f_sl_po)
+                            elif "CÒN LẠI" in row_title: # Dòng số dư CÒN LẠI đổ màu xanh dương nhạt dịu mát mắt giống hình mẫu
+                                worksheet.write(r_idx + 1, c_idx, val, f_con_lai)
+                            else: # Hàng TỶ LỆ sơ đồ bàn cắt vải
+                                if c_idx == 0:
+                                    worksheet.write(r_idx + 1, c_idx, val, f_title_col)
+                                elif c_idx <= len(active_sizes) and pd.notna(val) and str(val).isdigit() and int(val) > 0:
+                                    worksheet.write(r_idx + 1, c_idx, int(val), f_ratio_active) # Bật phông nền vàng chữ đỏ cho ô nhảy số tỷ lệ rập
+                                else:
+                                    worksheet.write(r_idx + 1, c_idx, int(val) if str(val).isdigit() else val, f_tyle_cell)
+                                    
                 st.download_button(
-                    label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN",
+                    label="📥 IN FILE EXCEL ĐỔ MÀU PHÂN KHỐI CÔNG NGHIỆP (MẪU TNC-DNA CHUẨN)",
                     data=buffer.getvalue(),
-                    file_name=f"PHIEU_TAC_NGHIEP_BAN_CAT_{style_id_input}.xlsx",
+                    file_name=f"PHIEU_TAC_NGHIEP_BÀN_CẮT_MÀU_{style_id_input}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
-                    key="excel_download_btn_final_v112"
+                    key="excel_download_btn_final_v120_colorful"
                 )
             except Exception: pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN CHỮ ĐEN NGOÀI WEB ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN CHỮ ĐEN TRÊN WEB (DỄ NHÌN ĐIỀU ĐỘ) ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -277,6 +298,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống đã đảo trục về đúng cấu trúc Size trước - Giàng sau và ghim trần lưới trắng thành công!")
+            st.success("🎉 Đã tích hợp cấu hình đổ màu phân vùng công nghiệp chuẩn phiến TNC mẫu mới vào file Excel tải xuống thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
