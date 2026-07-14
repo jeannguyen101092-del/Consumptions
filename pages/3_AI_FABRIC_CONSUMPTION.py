@@ -1198,7 +1198,7 @@ if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug
 
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 2: LỌC VÀ TÍNH TOÁN TRỰC TIẾP TRÊN UI CHẶN ĐỨNG GHI ĐÈ
+# ĐOẠN 7b - PHẦN 2: LỌC PHỤ LIỆU VÀ DỰNG ĐỒ HỌA GIAO DIỆN HAI BẢNG UI
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
@@ -1209,41 +1209,50 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     current_weft_shrink = f"{ai_meta_data.get('weft_shrink', 3.0)}%"
     
     if 'extracted_size' not in locals():
-        extracted_size = str(bom_source.get("calculated_on_size", "30")).upper().strip()
+        extracted_size = str(bom_source.get("calculated_on_size", "32")).upper().strip()
 
     display_data = []
+    # Danh sách từ khóa quét loại bỏ phụ liệu lọt lưới tầng hiển thị cuối
     HARDCORE_EXCLUDE_UI = ["THREAD", "CHỈ", "ZIPPER", "BUTTON", "NÚT", "KÉO"]
 
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         
-        comp_name_check = str(r.get("component_name", r.get("Component Name", ""))).upper().strip()
-        mat_class_check = str(r.get("material_class", r.get("Material Class", ""))).upper().strip()
+        # Trích xuất linh hoạt chống Key lỗi chữ hoa chữ thường
+        r_low = {str(k).strip().lower(): v for k, v in r.items()}
         
-        # 1. Chặn chỉ may và phụ liệu cứng
+        comp_name_check = str(r_low.get("component_name", r.get("Component Name", "UNNAMED"))).upper().strip()
+        mat_class_check = str(r_low.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+        
+        # Chặn đứng phụ liệu may rời lọt vào bảng chi tiết
         if any(k in comp_name_check or k in mat_class_check for k in HARDCORE_EXCLUDE_UI):
             continue
-
-        # 2. 🎯 TÍNH TOÁN TRỰC TIẾP TẠI ĐÂY - CHỐNG CHIA ĐỀU VÀ CÀO BẰNG 0.3425
-        # Ép hệ thống chạy Core Engine v58.5 ngay trên RAM giao diện
+            
+        # 🎯 KÍCH HOẠT TÍNH ĐỘNG CƯỠNG BỨC TẠI TẦNG RENDER: Gọi trực tiếp Core Engine v59.0 dựa trên metadata
         if 'compute_fabric_engine' in globals():
             prod_type_calc = bom_source.get("detected_product_type", "JEANS")
-            yards, meters, source = compute_fabric_engine(r, prod_type_calc, ai_meta_data)
+            # Đồng bộ khóa dữ liệu đầu vào tạm thời phục vụ hàm toán học liên tục
+            calc_row = {
+                "Material Class": mat_class_check, "Component Name": comp_name_check,
+                "piece_count": r_low.get("piece_count", 1),
+                "bounding_box_length": r_low.get("bounding_box_length", 0.0),
+                "bounding_box_width": r_low.get("bounding_box_width", 0.0),
+                "fabric_width_inch": r_low.get("fabric_width_inch", 56.0)
+            }
+            yards, meters, source = compute_fabric_engine(calc_row, prod_type_calc, ai_meta_data)
             current_gross = yards
-            eff_dynamic = r.get('marker_efficiency', "87.0%")
+            eff_dynamic = calc_row.get('marker_efficiency', "87.0%")
         else:
-            current_gross = r.get("gross_consumption", r.get("calculated_consumption_yards", 0.3425))
-            eff_dynamic = r.get('marker_efficiency', "87.0%")
+            current_gross = r_low.get("gross_consumption", r_low.get("calculated_consumption_yards", 0.0))
+            eff_dynamic = r_low.get('marker_efficiency', "87.0%")
 
-        engine_target = str(r.get("material_class", "FABRIC")).upper().strip()
-        uom_display = str(r.get("uom", "YDS")).upper().strip()
+        uom_display = str(r_low.get("uom", "YDS")).upper().strip()
+        b_len_val = r_low.get("bounding_box_length", 0.0)
+        b_wid_val = r_low.get("bounding_box_width", 0.0)
+        p_count_val = r_low.get("piece_count", 1)
 
-        b_len_val = r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", 0.0))
-        b_wid_val = r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", 0.0))
-        p_count_val = r.get("piece_count", r.get("Số lượng rập (Pcs)", 1))
-
-        if any(k in engine_target for k in ["FABRIC", "LINING", "FUSING"]):
-            raw_width = r.get("fabric_width_inch", 56.0)
+        if any(k in mat_class_check for k in ["FABRIC", "LINING", "FUSING"]):
+            raw_width = r_low.get("fabric_width_inch", 56.0)
             cut_width_val = f"{str(raw_width).replace('inch','').strip()} inch"
             warp_dynamic, weft_dynamic = current_warp_shrink, current_weft_shrink
         else:
@@ -1251,7 +1260,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         display_data.append({
             "Component Name": comp_name_check,
-            "Material Class": engine_target, 
+            "Material Class": mat_class_check, 
             "UOM": uom_display, 
             "Số lượng rập (Pcs)": p_count_val,
             "Dài sản xuất (L-inch)": b_len_val, 
@@ -1262,13 +1271,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Marker Efficiency": eff_dynamic,
             "Gross Consumption": float(current_gross), 
             "Quality Status": "PASS", 
-            "System Calculation Notes": "Mô phỏng CAD Gerber v58.5"
+            "System Calculation Notes": "Analytical Geometric Model v59.0"
         })
         
     if display_data:
         df_bom = pd.DataFrame(display_data)
         
-        # BẢNG 1: SUMMARY XANH LÁ (Tính tổng từ dữ liệu thực tế vừa ép tính)
+        # BẢNG 1: SUMMARY XANH LÁ TỔNG HỢP MUA HÀNG
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header" style="background-color: #27AE60;">📦 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: {extracted_size})</div>', unsafe_allow_html=True)
         
@@ -1293,7 +1302,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.markdown(f'<div class="cad-header">📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT RẬP ĐÃ BÙ LAI & ĐƯỜNG MAY)</div>', unsafe_allow_html=True)
         
         df_bom_display = df_bom.copy()
-        # Định cấu hình định dạng hiển thị số thực 4 chữ số thập phân cho Gross Consumption trên giao diện
         st.dataframe(
             df_bom_display, 
             use_container_width=True, 
