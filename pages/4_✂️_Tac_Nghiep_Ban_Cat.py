@@ -181,7 +181,7 @@ else:
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
                 
-                # 🎯 THUẬT TOÁN ĐỘNG: Tạo chuỗi bẻ thông tin dạng "CHÍNH1: 30-32/2 30-30/1"
+                # 🎯 THUẬT TOÁN ĐỘNG: Tạo chuỗi bẻ thông tin dạng "CHÍNH1: 30-32/2 30-30/1" [INDEX]
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
                 fabric_prefix = f"{fabric_type_input.strip().upper()}{marker_num_str}:"
@@ -190,22 +190,19 @@ else:
                 for sz in active_sizes:
                     r_val = int(item["Ratios"].get(sz, 0))
                     if r_val > 0:
-                        # Làm sạch chuỗi kích cỡ gốc từ PDF (Ví dụ: '30 X 32' -> làm sạch dấu cách)
                         sz_clean = str(sz).strip().replace("'", "").replace('"', '').replace("[", "").replace("]", "")
                         
-                        # Chuyển đổi định dạng cấu trúc 'SIZE X GIÀNG' từ PDF thành dạng 'GIÀNG-SIZE' cho xưởng
+                        # Chuyển đổi cấu trúc 'SIZE X GIÀNG' từ PDF thành dạng 'GIÀNG-SIZE' cho xưởng [INDEX]
                         if "X" in sz_clean:
                             parts = sz_clean.split("X")
                             s_size = parts[0].strip()
                             s_giang = parts[1].strip()
-                            # Đảo ngược cấu trúc chuẩn: Giàng - Size / Tỷ lệ [INDEX]
                             size_tag = f"{s_giang}-{s_size}"
                         else:
                             size_tag = sz_clean
                             
                         active_ratio_parts.append(f"{size_tag}/{r_val}")
                         
-                # Gộp thành chuỗi hoàn chỉnh hiển thị đầu hàng ngang [INDEX]
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
                 ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round((vail_can_m * 1.09361) / (sum(item["Ratios"].values()) * layers * tables) if sum(item["Ratios"].values()) > 0 else 0, 3), round(vail_can_m, 1)]
@@ -214,13 +211,38 @@ else:
                 remaining_row = ["CÒN LẠI"]
                 for idx, sz in enumerate(active_sizes):
                     remaining_balances[idx] = max(0, remaining_balances[idx] - (item["Ratios"].get(sz, 0) * layers * tables))
-                    remaining_row.append(f"{remaining_balances[idx]:,}")
+                    remaining_row.append(remaining_balances[idx])
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
+            # KHAI BÁO TIÊU ĐỀ NGANG VÀ MẢNG PHẲNG ĐỒNG BỘ ĐỂ KHỬ SẠCH LỖI NAMEERROR
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
+            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
+            # 🎯 THUẬT TOÁN ĐỒNG BỘ ĐỔI MÀU CHỮ: Ô có tỷ lệ > 0 chữ ĐỎ ĐẬM, ô số 0 chữ XÁM MỜ [INDEX]
+            def highlight_ratios_clean(x):
+                color_df = pd.DataFrame('', index=x.index, columns=x.columns)
+                num_size_cols = len(active_sizes)
+                
+                for r in range(len(x)):
+                    if r < 6: continue
+                    if str(x.iloc[r, 0]).strip().upper() == "CÒN LẠI": continue
+                    
+                    for c in range(1, len(x.columns)):
+                        if c <= num_size_cols:
+                            val = x.iloc[r, c]
+                            try:
+                                if pd.notna(val) and int(val) > 0:
+                                    color_df.iloc[r, c] = 'background-color: #FFFFFF !important; color: #E11D48 !important; font-weight: 900 !important; font-size: 14px !important; text-align: center !important;'
+                                else:
+                                    color_df.iloc[r, c] = 'background-color: #FFFFFF !important; color: #94A3B8 !important; font-weight: 400 !important; text-align: center !important;'
+                            except (ValueError, TypeError): pass
+                return color_df
+
+            styled_report_df = df_final_report.style.apply(highlight_ratios_clean, axis=None)
+
+            # --- KHỐI KẾT XUẤT EXCEL PANDAS AN TOÀN ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -235,6 +257,7 @@ else:
                 )
             except Exception: pass
 
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -247,13 +270,19 @@ else:
                 
                 tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
+                
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
+                
+                tr:nth-child(even):nth-child(n+7) td { background-color: #FFFFFF !important; color: #2563EB !important; font-weight: 700 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
+                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #94A3B8 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
+                
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
+                tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            st.dataframe(df_final_report, use_container_width=True, hide_index=True)
+            st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống lưới trắng đen tối giản chân thực và nút Excel in ấn sắc nét đã sẵn sàng.")
+            st.success("🎉 Giao diện bàn cắt đồng bộ bẻ chuỗi Giàng-Size/Tỉ lệ thương mại và diệt sạch lỗi NameError thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
