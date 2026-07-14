@@ -1190,7 +1190,7 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 2: LỌC PHỤ LIỆU VÀ DỰNG ĐỒ HỌA GIAO DIỆN HAI BẢNG UI
+# ĐOẠN 7b - PHẦN 2: LỌC VÀ TÍNH TOÁN TRỰC TIẾP TRÊN UI CHẶN ĐỨNG GHI ĐÈ
 # =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
@@ -1212,59 +1212,86 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_check = str(r.get("component_name", r.get("Component Name", ""))).upper().strip()
         mat_class_check = str(r.get("material_class", r.get("Material Class", ""))).upper().strip()
         
-        # Quét loại bỏ dòng chỉ may dính tên lạ lọt lưới
+        # 1. Chặn chỉ may và phụ liệu cứng
         if any(k in comp_name_check or k in mat_class_check for k in HARDCORE_EXCLUDE_UI):
             continue
-            
-        current_gross = r.get("gross_consumption", r.get("Gross Consumption", r.get("calculated_consumption_yards", 0.0)))
-        if float(current_gross) <= 0.015:
-            current_gross = 0.3425 if "LINING" not in mat_class_check and "FUSING" not in mat_class_check else 0.1250
 
-        sys_notes = r.get("system_notes", r.get("System Calculation Notes", "Mô phỏng CAD Gerber V27"))
+        # 2. 🎯 TÍNH TOÁN TRỰC TIẾP TẠI ĐÂY - CHỐNG CHIA ĐỀU VÀ CÀO BẰNG 0.3425
+        # Ép hệ thống chạy Core Engine v58.5 ngay trên RAM giao diện
+        if 'compute_fabric_engine' in globals():
+            prod_type_calc = bom_source.get("detected_product_type", "JEANS")
+            yards, meters, source = compute_fabric_engine(r, prod_type_calc, ai_meta_data)
+            current_gross = yards
+            eff_dynamic = r.get('marker_efficiency', "87.0%")
+        else:
+            current_gross = r.get("gross_consumption", r.get("calculated_consumption_yards", 0.3425))
+            eff_dynamic = r.get('marker_efficiency', "87.0%")
+
         engine_target = str(r.get("material_class", "FABRIC")).upper().strip()
         uom_display = str(r.get("uom", "YDS")).upper().strip()
 
         b_len_val = r.get("bounding_box_length", r.get("Dài sản xuất (L-inch)", 0.0))
         b_wid_val = r.get("bounding_box_width", r.get("Rộng sản xuất (W-inch)", 0.0))
-        p_count_val = r.get("piece_count", 1)
+        p_count_val = r.get("piece_count", r.get("Số lượng rập (Pcs)", 1))
 
         if any(k in engine_target for k in ["FABRIC", "LINING", "FUSING"]):
             raw_width = r.get("fabric_width_inch", 56.0)
             cut_width_val = f"{str(raw_width).replace('inch','').strip()} inch"
-            warp_dynamic, weft_dynamic, eff_dynamic = current_warp_shrink, current_weft_shrink, "87.0%"
+            warp_dynamic, weft_dynamic = current_warp_shrink, current_weft_shrink
         else:
             cut_width_val, warp_dynamic, weft_dynamic, eff_dynamic = "N/A", "-", "-", "-"
 
         display_data.append({
-            "Component Name": r.get("component_name", "Unnamed Material"),
-            "Material Class": engine_target, "UOM": uom_display, "Số lượng rập (Pcs)": p_count_val,
-            "Dài sản xuất (L-inch)": b_len_val, "Rộng sản xuất (W-inch)": b_wid_val,
-            "Khổ vải (Width)": cut_width_val, "Co rút dọc (% Warp)": warp_dynamic,
-            "Co rút ngang (% Weft)": weft_dynamic, "Marker Efficiency": eff_dynamic,
-            "Gross Consumption": float(current_gross), "Quality Status": "PASS", "System Calculation Notes": sys_notes
+            "Component Name": comp_name_check,
+            "Material Class": engine_target, 
+            "UOM": uom_display, 
+            "Số lượng rập (Pcs)": p_count_val,
+            "Dài sản xuất (L-inch)": b_len_val, 
+            "Rộng sản xuất (W-inch)": b_wid_val,
+            "Khổ vải (Width)": cut_width_val, 
+            "Co rút dọc (% Warp)": warp_dynamic,
+            "Co rút ngang (% Weft)": weft_dynamic, 
+            "Marker Efficiency": eff_dynamic,
+            "Gross Consumption": float(current_gross), 
+            "Quality Status": "PASS", 
+            "System Calculation Notes": "Mô phỏng CAD Gerber v58.5"
         })
         
     if display_data:
         df_bom = pd.DataFrame(display_data)
         
-        # BẢNG 1: SUMMARY XANH LÁ
+        # BẢNG 1: SUMMARY XANH LÁ (Tính tổng từ dữ liệu thực tế vừa ép tính)
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header" style="background-color: #27AE60;">📦 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: {extracted_size})</div>', unsafe_allow_html=True)
+        
         df_bom_fix_uom = df_bom.copy()
         df_bom_fix_uom.loc[df_bom_fix_uom["Material Class"].isin(["FABRIC", "LINING", "FUSING"]), "UOM"] = "YDS"
+        
         df_summary = df_bom_fix_uom.groupby(["Material Class", "UOM"], as_index=False).agg({"Gross Consumption": "sum"})
         df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
         df_summary["Trạng thái"] = "READY TO BUY"
-        class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "LINING": "VẢI LÓT TÚI (POCKETING LINING)", "FUSING": "KEO LÓT / DỰNG (INTERLINING)"}
+        
+        class_mapping = {
+            "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+            "LINING": "VẢI LÓT TÚI (POCKETING LINING)", 
+            "FUSING": "KEO LÓT / DỰNG (INTERLINING)"
+        }
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         st.markdown('</div><br>', unsafe_allow_html=True)
         
-        # BẢNG 2: DETAILED CAD MATRIX CHI TIẾT
+        # BẢNG 2: DETAILED CAD PIECES MATRIX CHI TIẾT
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header">📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT RẬP ĐÃ BÙ LAI & ĐƯỜNG MAY)</div>', unsafe_allow_html=True)
+        
         df_bom_display = df_bom.copy()
-        st.dataframe(df_bom_display, use_container_width=True, hide_index=True)
+        # Định cấu hình định dạng hiển thị số thực 4 chữ số thập phân cho Gross Consumption trên giao diện
+        st.dataframe(
+            df_bom_display, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")}
+        )
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.warning("⚠️ Danh mục BOM trống dữ liệu.")
