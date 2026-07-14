@@ -280,53 +280,69 @@ else:
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-            # --- 🎯 PHÂN HỆ ĐA SHEET EXCEL: Tự động gom toàn bộ Chính, Lót, Keo từ Supabase xuất chung 1 file ---
-            try:
-                buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    from supabase import create_client
-                    sb_ex_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
-                    
-                    # Quét nhanh xem mã hàng này đang có những loại vải nào đã được lưu trữ
-                    res_all_fabs = sb_ex_client.table("cutting_orders_db").select("*").eq("style_id", style_id_input).execute()
-                    
-                    if res_all_fabs.data and len(res_all_fabs.data) > 0:
-                        # Vòng lặp dựng Sheet động cho từng loại vải tìm thấy [INDEX]
-                        for r_record in res_all_fabs.data:
-                            f_type_name = str(r_record.get("fabric_type", "CHÍNH")).upper()
-                            
-                            # Tái cấu trúc ma trận phẳng từ JSON ngược thành DataFrame tạm thời
-                            raw_matrix = r_record.get("cutting_matrix_data", [])
-                            if raw_matrix:
-                                df_sheet_temp = pd.DataFrame(raw_matrix)
-                                df_sheet_temp.to_excel(writer, sheet_name=f"VẢI {f_type_name}", index=False)
-                                
-                                # Thiết lập bảng màu đóng khung y hệt mẫu cho từng Sheet tương ứng
-                                workbook = writer.book; worksheet = writer.sheets[f"VẢI {f_type_name}"]
-                                f_admin = workbook.add_format({'bold': True, 'fg_color': '#FFD966', 'border': 1})
-                                f_giang = workbook.add_format({'bold': True, 'fg_color': '#BDD7EE', 'border': 1})
-                                f_size = workbook.add_format({'bold': True, 'fg_color': '#FFF2CC', 'border': 1})
-                                f_sl_po = workbook.add_format({'bold': True, 'fg_color': '#E2EFDA', 'border': 1})
-                                f_con_lai = workbook.add_format({'bold': True, 'fg_color': '#D9E1F2', 'border': 1})
-                                f_ratio_active = workbook.add_format({'bold': True, 'fg_color': '#FEF08A', 'font_color': '#C00000', 'border': 1})
-                                f_normal_cell = workbook.add_format({'border': 1, 'align': 'center'})
-                                
-                                worksheet.set_column(0, 0, 42)
-                                worksheet.set_column(1, 20, 11)
-                                
-                                for r_i in range(len(df_sheet_temp)):
-                                    r_vals = df_sheet_temp.iloc[r_i].tolist()
-                                    for c_i, v_val in enumerate(row_vals):
-                                        if r_i <= 2: worksheet.write(r_i + 1, c_i, v_val, f_admin)
-                                        elif r_i == 3: worksheet.write(r_i + 1, c_i, v_val, f_giang)
-                                        elif r_i == 4: worksheet.write(r_i + 1, c_i, v_val, f_size)
-                                        elif r_i == 5: worksheet.write(r_i + 1, c_i, v_val, f_sl_po)
-                    else:
-                        # Nếu chưa kịp lưu, lấy luôn bảng hiện tại ghi ra Sheet mặc định
-                        df_final_report.to_excel(writer, sheet_name=f"VẢI {fabric_type_input}", index=False)
+            # --- 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐẸP MẮT THEO ĐÚNG TIÊU CHUẨN ĐIỀU KIỆN ---
+            excel_generated_status = False
+            buffer = io.BytesIO()
+            
+            # CHỈ CHO PHÉP XUẤT EXCEL KHI ĐÃ NHẢY SỐ ĐỊNH MỨC CAD (NÚT 2) HOẶC ĐANG GỌI MÃ CŨ TỪ KHO
+            if st.session_state.get("consumption_activated") or ("auto_cutting_results_recovered" in st.session_state):
+                try:
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        from supabase import create_client
+                        sb_ex_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
+                        res_all_fabs = sb_ex_client.table("cutting_orders_db").select("*").eq("style_id", style_id_input).execute()
                         
-                st.download_button(label="📥 XUẤT 1 FILE EXCEL GỘP ĐỦ TẤT CẢ CÁC SHEET LOẠI VẢI", data=buffer.getvalue(), file_name=f"MA_TRAN_GOP_DA_VAI_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_multi_sheet_btn")
-            except Exception: pass
+                        if res_all_fabs.data and len(res_all_fabs.data) > 0:
+                            for r_record in res_all_fabs.data:
+                                f_type_name = str(r_record.get("fabric_type", "CHÍNH")).upper()
+                                raw_matrix = r_record.get("cutting_matrix_data", [])
+                                if raw_matrix:
+                                    df_sheet_temp = pd.DataFrame(raw_matrix)
+                                    df_sheet_temp.to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
+                                    workbook = writer.book; worksheet = writer.sheets[f"VAI {f_type_name}"]
+                                    
+                                    f_admin = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'fg_color': '#FFD966', 'border': 1, 'font_size': 11})
+                                    f_giang = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#BDD7EE', 'border': 1, 'font_size': 11})
+                                    f_size = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FFF2CC', 'border': 1, 'font_size': 11})
+                                    f_sl_po = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#E2EFDA', 'font_color': '#375623', 'border': 1})
+                                    f_tyle_cell = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'fg_color': '#FFFFFF', 'border': 1})
+                                    f_con_lai = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#D9E1F2', 'font_color': '#1F4E78', 'border': 1})
+                                    f_ratio_active = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FEF08A', 'font_color': '#C00000', 'border': 1})
+                                    f_title_col = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'border': 1, 'fg_color': '#F2F2F2'})
+                                    
+                                    worksheet.set_column(0, 0, 42)
+                                    worksheet.set_column(1, 25, 11)
+                                    
+                                    for r_i in range(len(df_sheet_temp)):
+                                        r_vals = df_sheet_temp.iloc[r_i].tolist()
+                                        r_title = str(r_vals).strip().upper()
+                                        for c_i, v_val in enumerate(r_vals):
+                                            if str(v_val) == "None" or pd.isna(v_val): v_val = ""
+                                            if r_i <= 2: worksheet.write(r_i + 1, c_i, v_val, f_admin)
+                                            elif r_i == 3: worksheet.write(r_i + 1, c_i, v_val, f_giang)
+                                            elif r_i == 4: worksheet.write(r_i + 1, c_i, v_val, f_size)
+                                            elif r_i == 5: worksheet.write(r_i + 1, c_i, v_val, f_sl_po)
+                                            elif "CÒN LẠI" in r_title: worksheet.write(r_i + 1, c_i, v_val, f_con_lai)
+                                            else:
+                                                if c_i == 0: worksheet.write(r_i + 1, c_i, v_val, f_title_col)
+                                                elif c_i <= len(active_sizes) and str(v_val).replace('.','',1).isdigit() and int(float(v_val)) > 0:
+                                                    worksheet.write(r_i + 1, c_i, int(float(v_val)), f_ratio_active)
+                                                else: worksheet.write(r_i + 1, c_i, int(float(v_val)) if str(v_val).replace('.','',1).isdigit() else v_val, f_tyle_cell)
+                            excel_generated_status = True
+                        else:
+                            df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
+                            excel_generated_status = True
+                except Exception: pass
+
+            if excel_generated_status:
+                st.download_button(
+                    label="📥 XUẤT 1 FILE EXCEL ĐỒNG BỘ ĐỦ TẤT CẢ CÁC SHEET LOẠI VẢI (CHÍNH-LÓT-KEO)",
+                    data=buffer.getvalue(),
+                    file_name=f"PHIEU_TAC_NGHIEP_TONG_HOP_{style_id_input}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="excel_multi_sheet_btn_final_v5"
+                )
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
@@ -344,36 +360,37 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             
-            st.markdown("---")
-            st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ TÁC NGHIỆP VẢI {fabric_type_input.upper()}</p>", unsafe_allow_html=True)
-            trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU PHIẾU VẢI {fabric_type_input.upper()} LÊN SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
-            
-            if trigger_save_supabase:
-                with st.spinner(f"🚀 Hệ thống đang chuẩn hóa cấu trúc chuỗi và đồng bộ vải {fabric_type_input} lên Supabase..."):
-                    # 🎯 KỸ THUẬT TIÊN QUYẾT: Ép toàn bộ DataFrame sang dạng chuỗi thuần ký tự trước khi chuyển sang JSON để khử sạch lỗi ArrowTypeError [INDEX]
-                    df_clean_string = df_final_report.astype(str)
-                    matrix_json_string = df_clean_string.to_json(orient="records")
-                    
-                    supabase_payload = {
-                        "style_id": str(style_id_input).strip().upper(),
-                        "color": str(color_input).strip().upper(),
-                        "fabric_type": str(fabric_type_input).strip().upper(),
-                        "total_po_qty": int(po_qty_input),
-                        "proposal_yield": float(consumption_input),
-                        "max_table_len": float(max_table_length),
-                        "cuttable_width": float(cuttable_width_inch),
-                        "cutting_matrix_data": json.loads(matrix_json_string)
-                    }
-                    try:
-                        from supabase import create_client
-                        supabase_client = create_client("https://ewqqodsfvlvnrzsylawy.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
+            # 🎯 KỸ THUẬT CHẶT QUY TRÌNH: CHỈ HIỆN NÚT LƯU KHI ĐÃ QUA BƯỚC CAD HOẶC ĐANG TRUY VẤN MÃ CŨ ĐỂ CHỈNH SỬA
+            if st.session_state.get("consumption_activated") or ("auto_cutting_results_recovered" in st.session_state):
+                st.markdown("---")
+                st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ VÀ CẬP NHẬT TÁC NGHIỆP VẢI {fabric_type_input.upper()}</p>", unsafe_allow_html=True)
+                trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU/CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO CLOUD", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
+                
+                if trigger_save_supabase:
+                    with st.spinner(f"🚀 Hệ thống đang đồng bộ ghi đè vải {fabric_type_input} lên kho dữ liệu Supabase..."):
+                        df_clean_string = df_final_report.astype(str)
+                        matrix_json_string = df_clean_string.to_json(orient="records")
                         
-                        # Sử dụng lệnh insert thuần túy để đẩy Payload dữ liệu sạch lên hệ thống Cloud [INDEX]
-                        response_db = supabase_client.table("cutting_orders_db").insert(supabase_payload).execute()
-                        st.success(f"🎉 Đã đồng bộ thành công dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase!")
-                    except Exception as e: 
-                        st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
+                        supabase_payload = {
+                            "style_id": str(style_id_input).strip().upper(),
+                            "color": str(color_input).strip().upper(),
+                            "fabric_type": str(fabric_type_input).strip().upper(),
+                            "total_po_qty": int(po_qty_input),
+                            "proposal_yield": float(consumption_input),
+                            "max_table_len": float(max_table_length),
+                            "cuttable_width": float(cuttable_width_inch),
+                            "cutting_matrix_data": json.loads(matrix_json_string)
+                        }
+                        try:
+                            from supabase import create_client
+                            supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
+                            
+                            # Dùng lệnh upsert để tự động ghi đè bản sửa đổi mới lên kho dữ liệu cũ của mã hàng
+                            response_db = supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
+                            st.success(f"🎉 Đã lưu và cập nhật thành công dữ liệu mảng phẳng vải {fabric_type_input} của mã hàng {style_id_input} vào kho lưu trữ!")
+                        except Exception as e: 
+                            st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
             st.markdown("---")
-            st.success("🎉 Hệ thống phân hệ đa loại vải và kết xuất gộp Sheet Excel thương mại đã sẵn sàng vận hành!")
+            st.success("🎉 Quy trình điều độ ban cắt thông minh đa loại vải ghim trần đã đồng bộ hoàn tất!")
         else:
             st.info("💡 Quy trình: Lập tác nghiệp từng loại vải ➡️ Ấn Lưu ➡️ Chuyển loại vải khác làm tiếp ➡️ Ấn Xuất Excel gộp chung.")
