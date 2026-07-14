@@ -13,10 +13,10 @@ if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) để tính toán tác nghiệp mới, HOẶC chọn tra cứu nhanh phiếu cũ bên dưới.</p></div>""", unsafe_allow_html=True)
     
-    # 🎯 ĐƯA BỘ TRA CỨU RA NGOÀI TRẦN: Kết nối Supabase gọi lịch sử mã hàng lập tức [INDEX]
+    # 🎯 KẾT NỐI CLOUD SUPABASE ĐỂ LÔI LỊCH SỬ MÃ HÀNG [INDEX]
     from supabase import create_client
-    url_direct = "https://supabase.co"
-    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678"
+    url_direct = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
     sb_load_client = create_client(url_direct, key_direct)
     
     history_styles = ["-- Chọn mã hàng cũ đã lưu trên Supabase --"]
@@ -28,24 +28,23 @@ if not st.session_state.get("purchase_ready"):
                 if label not in history_styles: history_styles.append(label)
     except Exception: pass
     
-    # Ô tra cứu lịch sử độc lập xuất hiện ngay màn hình tải file ban đầu [INDEX]
+    # Ô tra cứu lịch sử xuất hiện trên đỉnh trang đầu [INDEX]
     selected_old_record = st.selectbox("📂 Xem lại phiếu tác nghiệp cũ từ Supabase (Không cần up file):", history_styles, key="sb_outside_history_select")
     
     # Bẫy logic khôi phục dữ liệu từ nút bấm ngoài màn hình chính [INDEX]
     if selected_old_record != "-- Chọn mã hàng cũ đã lưu trên Supabase --":
         try:
             parts_str = selected_old_record.split(" - VẢI: ")
-            st_id_search = str(parts_str).strip()
-            fb_tp_search = str(parts_str).strip()
+            st_id_search = str(parts_str[0]).strip()
+            fb_tp_search = str(parts_str[1]).strip()
             
             res_detail = sb_load_client.table("cutting_orders_db").select("*").eq("style_id", st_id_search).eq("fabric_type", fb_tp_search).limit(1).execute()
             if res_detail.data and len(res_detail.data) > 0:
-                old_data = res_detail.data
-                # Nạp thông tin khôi phục vào session_state [INDEX]
+                old_data = res_detail.data[0]
                 st.session_state["sbd_parsed_data"] = {
                     "style_id": old_data.get("style_id"),
                     "total_quantity": old_data.get("total_po_qty"),
-                    "size_breakdown": {} # Tránh lỗi logic
+                    "size_breakdown": {} 
                 }
                 if "cutting_matrix_data" in old_data and old_data["cutting_matrix_data"]:
                     st.session_state["auto_cutting_results_recovered"] = old_data["cutting_matrix_data"]
@@ -56,6 +55,10 @@ if not st.session_state.get("purchase_ready"):
         except Exception: pass
         
     st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
+    
+    # 🎯 KHÔI PHỤC NÚT BẤM KÉO THẢ TỆP TIN PDF/EXCEL TẠI ĐÂY [INDEX]
+    file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
+
 # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
