@@ -242,47 +242,85 @@ else:
 
             styled_report_df = df_final_report.style.apply(highlight_ratios_clean, axis=None)
 
-            # --- KHỐI KẾT XUẤT EXCEL PANDAS AN TOÀN ---
+            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG VIỀN LƯỚI CHUẨN THƯƠNG MẠI IN ẤN ---
             try:
                 buffer = io.BytesIO()
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
+                    
+                    workbook  = writer.book
+                    worksheet = writer.sheets["TacNghiepBanCat"]
+                    
+                    # 1. Định nghĩa bộ mã khuôn đóng khung viền lưới đen sắc nét từng ô cho Excel [INDEX]
+                    border_format = workbook.add_format({
+                        'border': 1,              # Thiết lập kẻ viền dày 1 ô lưới [INDEX]
+                        'align': 'center',        # Căn chữ nằm chính giữa ô [INDEX]
+                        'valign': 'vcenter',      # Căn chữ nằm giữa chiều cao dòng [INDEX]
+                        'text_wrap': True         # Tự động xuống dòng khi text quá dài [INDEX]
+                    })
+                    
+                    # Định dạng riêng chữ đỏ in đậm căn trái cho các hàng hành chính đầu bảng [INDEX]
+                    admin_text_format = workbook.add_format({
+                        'border': 1,
+                        'align': 'left',
+                        'valign': 'vcenter',
+                        'bold': True,
+                        'font_color': '#DC2626'   # Chữ màu đỏ rực thương mại [INDEX]
+                    })
+                    
+                    # 2. Tự động căn giãn độ rộng cột ngang để chuỗi phối size không bị khuất chữ [INDEX]
+                    worksheet.set_column(0, 0, 42)                              # Cột thứ nhất (Tên sơ đồ) rộng 42 [INDEX]
+                    worksheet.set_column(1, len(df_final_report.columns)-1, 12)  # Các cột kích cỡ và thông số rộng 12 [INDEX]
+                    
+                    # 3. KỸ THUẬT TIÊN QUYẾT: Ép toàn bộ ma trận bảng Excel tự động kẻ viền lưới dày dặn [INDEX]
+                    max_row, max_col = df_final_report.shape
+                    worksheet.conditional_format(0, 0, max_row, max_col - 1, {
+                        'type': 'no_errors',
+                        'format': border_format
+                    })
+                    
+                    # Điền riêng định dạng chữ đỏ căn trái cho cột số 2 của 3 hàng hành chính đầu bảng [INDEX]
+                    worksheet.write(1, 1, str(df_final_report.iloc[0, 1]), admin_text_format) # Hàng Mã hàng [INDEX]
+                    worksheet.write(2, 1, str(df_final_report.iloc[1, 1]), admin_text_format) # Hàng Màu [INDEX]
+                    worksheet.write(3, 1, str(df_final_report.iloc[2, 1]), admin_text_format) # Hàng Loại vải [INDEX]
+                    
                 st.download_button(
-                    label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI",
+                    label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN",
                     data=buffer.getvalue(),
-                    file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx",
+                    file_name=f"PHIEU_TAC_NGHIEP_BAN_CAT_{style_id_input}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
-                    key="excel_download_btn_final_v105"
+                    key="excel_download_btn_final_v112"
                 )
-            except Exception: pass
+            except Exception:
+                pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG LƯỚI TRẮNG TỐI GIẢN TUYỆT ĐỐI CHỮ ĐEN NGOÀI WEB ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
+                /* Ghép ghim cố định 6 dòng hành chính và ma trận size lên trần bảng khi kéo cuộn */
                 tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
-                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
-                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
-                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #FFFFFF !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FFFFFF !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #FFFFFF !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
+                /* ÉP PHẲNG TRẦN: Trả lại toàn bộ nền màu trắng và chữ đen thuần túy cho từng ô lưới ngoài web */
+                tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
                 
+                /* Chỉ bôi đỏ duy nhất văn bản Màu và Vải tự gõ ở dòng 2 và dòng 3 để phân biệt hành chính */
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
-                
-                tr:nth-child(even):nth-child(n+7) td { background-color: #FFFFFF !important; color: #2563EB !important; font-weight: 700 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
-                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #94A3B8 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
                 
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
+            st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Giao diện bàn cắt đồng bộ bẻ chuỗi Giàng-Size/Tỉ lệ thương mại và diệt sạch lỗi NameError thành công!")
+            st.success("🎉 Hệ thống kết xuất tệp Excel đóng khung lưới bo viền in ấn và giao diện Web tối giản đã sẵn sàng hoàn toàn!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
