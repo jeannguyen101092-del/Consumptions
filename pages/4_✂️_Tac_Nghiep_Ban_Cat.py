@@ -254,10 +254,6 @@ else:
                 matrix_body_rows.append(remaining_row)
 
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
-            df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-            # 🎯 BẢNG PHẲNG TỐI GIẢN - GIỮ NÚT XUẤT FILE EXCEL CHO NHÀ MÁY IN ẤN
-            clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
             # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG TRẮNG ĐEN SẠCH SẼ ĐỂ IN CẤP PHÁT ---
@@ -277,11 +273,12 @@ else:
                     worksheet.set_column(0, 0, 35)
                     worksheet.set_column(1, len(clean_headers)-1, 12)
                     
+                    # Duyệt và đóng khung chuẩn chỉ cho file Excel
                     for r_idx in range(len(df_final_report)):
                         for c_idx in range(len(df_final_report.columns)):
                             val = df_final_report.iloc[r_idx, c_idx]
                             if r_idx in:
-                                if c_idx == 1 and r_idx in: # Bôi màu chữ đỏ cho Màu và Loại vải trong file Excel
+                                if c_idx == 1 and r_idx in:
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_red_text_ex)
                                 else:
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
@@ -299,7 +296,8 @@ else:
                     use_container_width=True,
                     key="excel_download_btn_final_v105"
                 )
-            except Exception: pass
+            except Exception:
+                pass
 
             # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI KHÔNG TÔ MÀU NỀN ---
             st.markdown("""<style>
@@ -324,8 +322,6 @@ else:
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            
-            # Đẩy bảng phẳng tối giản không lem màu lên Streamlit Web
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
             st.success("🎉 Giữ nút bấm tải file Excel thương mại thành công! Giao diện Web đã chuyển về dạng lưới xưởng tối giản trắng đen.")
