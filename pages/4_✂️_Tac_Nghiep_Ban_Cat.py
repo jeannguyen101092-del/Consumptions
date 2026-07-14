@@ -176,23 +176,34 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
+            color_display = st.session_state.get("sbd_parsed_data", {}).get("color", "BLACK")
             t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"]
             t_header_mau = ["Màu:", f" {color_input.strip().upper()}"]
             t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"]
 
-            t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
+            # 🎯 KỸ THUẬT BẺ ĐÔI CHUỖI KHỬ DẤU NGOẶC ĐƠN TUPLE RÁC
+            t1_giang_row = ["GIÀNG"]
+            t2_size_row = ["SIZE"]
+            t3_sl_row = ["SẢN LƯỢNG"]
             po_qty_matrix = []
+
             for col_name in active_sizes:
-                col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                giang_val, size_val = "None", col_str
-                parts = re.split(r'[\sXx\-\/:]+', col_str)
-                parts_clean = [p.strip() for p in parts if p.strip()]
-                if len(parts_clean) >= 2: giang_val, size_val = parts_clean, parts_clean
-                elif len(parts_clean) == 1: size_val = parts_clean
+                col_str = str(col_name).strip().upper()
+                
+                # Cấu hình bẫy chuỗi tách đôi chữ X (Ví dụ: 26 X 30 -> Size 26, Giàng 30)
+                if "X" in col_str:
+                    parts = col_str.split("X")
+                    size_val = parts[0].strip().replace("[","").replace("]","").replace("'","")
+                    giang_val = parts[1].strip().replace("[","").replace("]","").replace("'","")
+                else:
+                    size_val = col_str.replace("[","").replace("]","").replace("'","")
+                    giang_val = "None"
+                    
                 po_val = int(size_breakdown_main.get(col_name, 0))
                 po_qty_matrix.append(po_val)
-                t1_giang_row.append(f"{giang_val}" if giang_val != "None" else "None")
-                t2_size_row.append(f"{size_val}")
+                
+                t1_giang_row.append(giang_val)
+                t2_size_row.append(size_val)
                 t3_sl_row.append(f"{po_val:,}")
 
             total_cols_count = 1 + len(active_sizes) + 6
@@ -205,7 +216,7 @@ else:
             matrix_body_rows = []
             remaining_balances = list(po_qty_matrix)
             valid_items = [i for i in st.session_state["auto_cutting_results"] if str(i["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
-            for item in valid_items:
+
                 s_name = str(item["Sơ đồ / Trạng thái"]).strip().upper()
                 layers = int(item.get("Số lớp", 50))
                 tables = int(item.get("Số bàn", 1))
@@ -245,86 +256,78 @@ else:
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-            # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số [INDEX]
-            # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số [INDEX]
-            # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số
-            def highlight_ratios(x):
-                color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                num_size_cols = len(active_sizes)
-                
-                for r in range(len(x)):
-                    if r < 6: continue
-                    if str(x.iloc[r, 0]).strip().upper() == "CÒN LẠI": continue
-                    
-                    for c in range(1, len(x.columns)):
-                        if c <= num_size_cols:
-                            val = x.iloc[r, c]
-                            try:
-                                # Chỉ bôi vàng rực rỡ khi ô đó thực sự nhảy số tỷ lệ lớn hơn 0
-                                if pd.notna(val) and float(val) > 0:
-                                    color_df.iloc[r, c] = 'background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; border: 1px solid #EAB308 !important; text-align: center !important;'
-                            except (ValueError, TypeError): pass
-                return color_df
+            # 🎯 BẢNG PHẲNG TỐI GIẢN - GIỮ NÚT XUẤT FILE EXCEL CHO NHÀ MÁY IN ẤN
+            clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
+            df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-            styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
-
-            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG CHUẨN THƯƠNG MẠI ---
+            # --- KHỐI KẾT XUẤT FILE EXCEL ĐÓNG KHUNG TRẮNG ĐEN SẠCH SẼ ĐỂ IN CẤP PHÁT ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
-                    workbook = writer.book; worksheet = writer.sheets["TacNghiepBanCat"]
-                    fmt_header = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#D1FAE5', 'font_color': '#065F46', 'border': 1})
-                    fmt_giang = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#CBD5E1', 'border': 1})
-                    fmt_size = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE047', 'border': 1})
-                    fmt_sl = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#E2E8F0', 'border': 1})
-                    fmt_ratio_active = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FEF08A', 'font_color': '#991B1B', 'border': 1})
-                    fmt_normal = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1})
-                    fmt_con_lai = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'fg_color': '#EFF6FF', 'font_color': '#1E40AF', 'border': 1})
+                    workbook = writer.book
+                    worksheet = writer.sheets["TacNghiepBanCat"]
+                    
+                    # Định dạng khung lưới Excel sạch sẽ, rõ nét phục vụ in ấn giấy
+                    fmt_header_ex = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
+                    fmt_normal_ex = workbook.add_format({'align': 'center', 'valign': 'vcenter', 'border': 1})
+                    fmt_left_ex = workbook.add_format({'align': 'left', 'valign': 'vcenter', 'border': 1})
+                    fmt_red_text_ex = workbook.add_format({'bold': True, 'align': 'left', 'valign': 'vcenter', 'font_color': '#DC2626', 'border': 1})
+                    
                     worksheet.set_column(0, 0, 35)
                     worksheet.set_column(1, len(clean_headers)-1, 12)
+                    
                     for r_idx in range(len(df_final_report)):
-                        row_title = str(df_final_report.iloc[r_idx, 0]).strip().upper()
                         for c_idx in range(len(df_final_report.columns)):
                             val = df_final_report.iloc[r_idx, c_idx]
-                            if r_idx == 0: worksheet.write(r_idx + 1, c_idx, val, fmt_giang)
-                            elif r_idx == 1: worksheet.write(r_idx + 1, c_idx, val, fmt_size)
-                            elif r_idx == 2: worksheet.write(r_idx + 1, c_idx, val, fmt_sl)
-                            elif "CÒN LẠI" in row_title: worksheet.write(r_idx + 1, c_idx, val, fmt_con_lai)
+                            if r_idx in:
+                                if c_idx == 1 and r_idx in: # Bôi màu chữ đỏ cho Màu và Loại vải trong file Excel
+                                    worksheet.write(r_idx + 1, c_idx, val, fmt_red_text_ex)
+                                else:
+                                    worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
                             else:
-                                if c_idx > 0 and c_idx <= len(active_sizes) and pd.notna(val) and str(val).replace('.','',1).isdigit() and float(val) > 0:
-                                    worksheet.write(r_idx + 1, c_idx, val, fmt_ratio_active)
-                                else: worksheet.write(r_idx + 1, c_idx, val, fmt_normal)
-                st.download_button(label="📥 IN FILE EXCEL TÁC NGHIỆP SẢN XUẤT ĐÓNG KHUNG CHUẨN", data=buffer.getvalue(), file_name=f"PHIEU_TAC_NGHIEP_BAN_CAT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v109")
+                                if c_idx == 0:
+                                    worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
+                                else:
+                                    worksheet.write(r_idx + 1, c_idx, val, fmt_normal_ex)
+                                    
+                st.download_button(
+                    label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI",
+                    data=buffer.getvalue(),
+                    file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="excel_download_btn_final_v105"
+                )
             except Exception: pass
 
-            # --- KHÓA CHẶT CSS ĐƯỜNG BIÊN EXCEL SẠCH SẼ KHÔNG CHE KHUẤT CHỮ ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI KHÔNG TÔ MÀU NỀN ---
             st.markdown("""<style>
-                th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
+                th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
-                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
-                tr:nth-child(2) td { position: sticky; top: 55px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
-                tr:nth-child(3) td { position: sticky; top: 85px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
-                tr:nth-child(4) td { position: sticky; top: 115px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FEF08A !important; color: #991B1B !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #FDE047 !important; }
-                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F1F5F9 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                /* Ghép ghim cố định 6 dòng hành chính và ma trận size lên trần bảng khi kéo cuộn */
+                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
+                tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
+                tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
+                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #E2E8F0 !important; color: #000000 !important; }
+                /* Trả lại toàn bộ nền màu trắng sạch tinh khôi cho các hàng rập và hàng còn lại, chữ đen đậm sắc nét */
+                tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
+                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
+                
+                /* Chỉ bôi màu chữ đỏ rực rỡ in đậm cho thông số Màu và Vải tự gõ ở dòng 2 và dòng 3 */
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
-                /* Hàng CÒN LẠI nhuộm màu nền xanh lam nhạt, chữ xanh đậm rất rõ nét */
-                tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; text-align: center !important; }
-                
-                /* ĐÃ SỬA LỖI TẠI ĐÂY: Ép toàn bộ các ô hàng thường có số 0 hoặc trống về nền trắng tinh khôi chữ xám */
-                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #94A3B8 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
-                
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
-                tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
+            
+            # Đẩy bảng phẳng tối giản không lem màu lên Streamlit Web
+            st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống ma trận đã quét sạch lấp lánh và tích hợp bẫy toán triệt tiêu đầu khúc thành công!")
+            st.success("🎉 Giữ nút bấm tải file Excel thương mại thành công! Giao diện Web đã chuyển về dạng lưới xưởng tối giản trắng đen.")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
