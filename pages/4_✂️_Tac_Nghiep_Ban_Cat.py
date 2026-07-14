@@ -6,15 +6,12 @@ import re
 
 st.set_page_config(layout="wide")
 
-# =============================================================================
-# TẦNG 1: SỐ HÓA FILE SBD ĐẦU VÀO TRÍCH XUẤT CẤU TRÚC SIZE CHỨA CHỮ X BẰNG AI GỐC
-# =============================================================================
+# KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
 if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size để hệ thống tự động số hóa ma trận.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-    
     if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
@@ -31,27 +28,23 @@ if not st.session_state.get("purchase_ready"):
                 sbd_bytes = file_sbd_c2.getvalue()
                 sbd_content_str = ""
                 sbd_parts_payload = []
-                
                 if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                         for sheet_name, df_sheet in excel_data.items():
                             sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    except Exception: 
-                        pass
+                    except Exception: pass
                 elif file_sbd_c2.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                # NÂNG CẤP PROMPT ÉP AI SỐ HÓA MA TRẬN PHỐI GIÀNG CHỨA KÝ TỰ 'X' CỦA BIỂU MẪU ĐƠN HÀNG GỐC
-                sbd_prompt = """
-                Bạn là một chuyên gia số hóa tài liệu ngành dệt may. Hãy phân tích bảng 'Quantity Details' trong tài liệu được cung cấp.
+                sbd_prompt = """Bạn là một chuyên gia số hóa tài liệu ngành dệt may. Hãy phân tích bảng 'Quantity Details' trong tài liệu được cung cấp.
                 1. Trích xuất mã hàng nằm ở mục 'Key Item' hoặc 'Style' (Ví dụ: '6082').
                 2. Trích xuất tổng sản lượng ở mục 'Units' hoặc 'Total' (Ví dụ: 2500).
                 3. Trích xuất toàn bộ danh sách kích cỡ nằm ở hàng tiêu đề của bảng số lượng (Ví dụ: '26 X 30', '28 X 30', '29 X 32').
                 
                 QUY TẮC ÉP KIỂU MA TRẬN SIZE BẮT BUỘC:
                 - Đối với các tiêu đề cột có dạng nối liền như '26 X 30' hoặc '30 X 32', bạn PHẢI giữ nguyên cấu trúc chuỗi văn bản gốc này làm Tên Khóa (Key Name) của mảng 'size_breakdown'. 
-                - Hãy nhặt con số sản lượng thực tế nằm ngay dưới cột cỡ đó (Ví dụ dưới cột '26 X 30' có số '88', dưới cột '28 X 30' có số '156') để điền giá trị. Bỏ qua các hàng trống hoặc các cột tổng.
+                - Hãy nhặt con số sản lượng thực tế nằm ngay dưới cột cỡ đó (Ví dụ dưới cột '26 X 30' có số '88'). Bỏ qua các hàng trống hoặc các cột tổng.
                 
                 Trả về kết quả DUY NHẤT dưới dạng cấu trúc JSON gốc sạch sẽ, không kèm từ giải thích rác:
                 {
@@ -59,31 +52,19 @@ if not st.session_state.get("purchase_ready"):
                     "total_quantity": 2500,
                     "size_breakdown": {
                         "26 X 30": 88,
-                        "28 X 30": 156,
-                        "29 X 30": 150,
-                        "29 X 32": 122
+                        "28 X 30": 156
                     }
-                }
-                """
-                if sbd_content_str: 
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                }"""
+                if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
                 try:
-                    res_sbd = client_ai.models.generate_content(
-                        model='gemini-2.5-flash', 
-                        contents=sbd_parts_payload, 
-                        config=types.GenerateContentConfig(response_mime_type="application/json")
-                    )
+                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
                     st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                except Exception: 
-                    pass
-                
+                except Exception: pass
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
-
-
 # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
@@ -120,40 +101,27 @@ else:
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
             with st.spinner("🤖 AI đang chạy mô hình thuật toán may mặc để giải quyết triệt tiêu đầu khúc..."):
-                if "get_secure_gemini_key" in globals(): 
-                    gemini_key = get_secure_gemini_key()
-                else: 
-                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
+                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
                 from google import genai
                 from google.genai import types
-                
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # BỔ SUNG YÊU CẦU TOÁN HỌC KHẮT KHE ĐỂ DIỆT LƯỢNG DƯ ĐẦU KHÚC
-                ai_cutting_prompt = f"""
-                Bạn là một kỹ sư toán học điều độ bàn cắt công nghiệp dệt may. Hãy lập phương án sơ đồ phối size cho đơn hàng này.
-                
+                ai_cutting_prompt = f"""Bạn là một kỹ sư toán học điều độ bàn cắt công nghiệp dệt may. Hãy lập phương án sơ đồ phối size cho đơn hàng này.
                 DANH SÁCH SIZE GỐC BẮT BUỘC SỬ DỤNG LÀM KEY: {json.dumps(list(size_breakdown_main.keys()))}
                 SẢN LƯỢNG ĐƠN HÀNG GỐC CẦN TRIỆT TIÊU: {json.dumps(size_breakdown_main)}
-                
-                THÔNG SỐ GIỚI HẠN FORM:
-                - Chiều dài gia tối đa bàn vải cho phép: {max_table_length} Mét
-                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs
-                - Khổ cắt: {cuttable_width_inch} Inches
-                - Loại vải tác nghiệp: {fabric_type_input}
+                THÔNG SỐ GIỚI HẠN FORM: Max Length {max_table_length}m, DM {consumption_input}yd, Width {cuttable_width_inch}inch, Fabric {fabric_type_input}
 
                 QUY TẮC TOÁN HỌC BẮT BUỘC ĐỂ TRIỆT TIÊU ĐẦU KHÚC:
-                1. Hãy làm một phép toán trừ lùi lũy tiến (Lượng dư còn lại = Sản lượng gốc - Tỉ lệ * Số lớp * Số bàn).
-                2. AI PHẢI tính toán số lớp (Layers) và chọn tỷ lệ gộp lớn (Ví dụ tỉ lệ: 2, 3, 4 quần) ở các bàn đầu (c01, c02) sao cho sản lượng của các size có số lượng lớn được triệt tiêu nhanh nhất.
-                3. BÀN VÉT (ĐẦU KHÚC CUỐI): Ở các sơ đồ cuối, khi sản lượng gần hết, bạn PHẢI bẻ nhỏ sơ đồ về tỉ lệ 1 quần (Sơ đồ vét) kết hợp hạ số lớp xuống thấp để vét sạch sẽ các sản phẩm mồ côi còn sót lại.
-                4. ĐIỀU KIỆN TIÊN QUYẾT: Tổng sản lượng hoàn thành của tất cả các bàn cộng lại phải khớp chính xác 100% với sản lượng PO ban đầu. Dòng 'CÒN LẠI' ở sơ đồ cuối cùng PHẢI TIẾN VỀ BẰNG 0 cho toàn bộ các size. Không được để sót lại đầu khúc dư thừa.
-
+                1. Hãy làm một phép toán trừ lùi lũy tiến. AI PHẢI tính toán chọn tỷ lệ gộp lớn (Ví dụ tỉ lệ: 2, 3, 4 quần) ở các bàn đầu (c01, c02) để triệt tiêu nhanh nhất.
+                2. BÀN VÉT (ĐẦU KHÚC CUỐI): Ở các sơ đồ cuối, bạn PHẢI bẻ nhỏ sơ đồ về tỉ lệ 1 quần (Sơ đồ vét) kết hợp hạ số lớp xuống thấp để vét sạch sẽ các sản phẩm mồ côi còn sót lại.
+                3. ĐIỀU KIỆN TIÊN QUYẾT: Tổng sản lượng hoàn thành phải khớp chính xác 100% với sản lượng PO ban đầu. Dòng 'CÒN LẠI' ở sơ đồ cuối cùng PHẢI TIẾN VỀ BẰNG 0.
+                
                 Trả về duy nhất mảng JSON sạch cấu trúc mẫu, không viết chữ giải thích rác:
                 [
                     {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 2 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 4}}
-                ]
-                """
+                ]"""
                 try:
                     res_cutting = client_ai.models.generate_content(model='gemini-2.5-flash', contents=[ai_cutting_prompt])
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
@@ -164,8 +132,6 @@ else:
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
-
-
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
             if cad_paste_zone.strip() and st.session_state.get("consumption_activated"):
@@ -181,16 +147,10 @@ else:
             t_header_mau = ["Màu:", f" {color_input.strip().upper()}"]
             t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"]
 
-            # 🎯 KỸ THUẬT BẺ ĐÔI CHUỖI KHỬ DẤU NGOẶC ĐƠN TUPLE RÁC
-            t1_giang_row = ["GIÀNG"]
-            t2_size_row = ["SIZE"]
-            t3_sl_row = ["SẢN LƯỢNG"]
+            t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
             po_qty_matrix = []
-
             for col_name in active_sizes:
                 col_str = str(col_name).strip().upper()
-                
-                # Cấu hình bẫy chuỗi tách đôi chữ X (Ví dụ: 26 X 30 -> Size 26, Giàng 30)
                 if "X" in col_str:
                     parts = col_str.split("X")
                     size_val = parts[0].strip().replace("[","").replace("]","").replace("'","")
@@ -201,7 +161,6 @@ else:
                     
                 po_val = int(size_breakdown_main.get(col_name, 0))
                 po_qty_matrix.append(po_val)
-                
                 t1_giang_row.append(giang_val)
                 t2_size_row.append(size_val)
                 t3_sl_row.append(f"{po_val:,}")
@@ -216,52 +175,41 @@ else:
             matrix_body_rows = []
             remaining_balances = list(po_qty_matrix)
             valid_items = [i for i in st.session_state["auto_cutting_results"] if str(i["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
-
+            for item in valid_items:
                 s_name = str(item["Sơ đồ / Trạng thái"]).strip().upper()
-                layers = int(item.get("Số lớp", 50))
-                tables = int(item.get("Số bàn", 1))
-                sp_sd = int(item.get("Số sp/SĐ", 1))
-                
+                layers, tables, sp_sd = item["Số lớp"], item["Số bàn"], item["Số sp/SĐ"]
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
-                total_ratios_sum = sum(item["Ratios"].values())
-                pcs_cut_marker = total_ratios_sum * layers * tables
+                pcs_cut_marker = sum(item["Ratios"].values()) * layers * tables
                 dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
-                # 🎯 BẺ CHUỖI TÊN BÀN CẮT THƯƠNG MẠI
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
                 fabric_prefix = f"{fabric_type_input.strip().upper()}{marker_num_str}:"
                 
                 active_ratio_parts = []
                 for sz in active_sizes:
-                    sz_clean = str(sz).strip().replace("'", "").replace('"', '').replace("SIZE:", "").strip()
-                    r_val = int(item["Ratios"].get(sz, 0))
-                    if r_val > 0: active_ratio_parts.append(f"{sz_clean}/{r_val}")
+                    sz_clean = str(sz).strip().split(":")[-1].split("/")[-1].split(" ")[-1]
+                    if item["Ratios"].get(sz, 0) > 0: active_ratio_parts.append(f"{sz_clean}/{item['Ratios'].get(sz, 0)}")
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
-                ratio_row = [ratio_row_title] + [int(item["Ratios"].get(sz, 0)) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
+                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
                 matrix_body_rows.append(ratio_row)
                 
-                # B. DÒNG CÒN LẠI LŨY TIẾN TRỪ LÙI SẢN LƯỢNG
                 remaining_row = ["CÒN LẠI"]
                 for idx, sz in enumerate(active_sizes):
-                    current_ratio = int(item["Ratios"].get(sz, 0))
-                    allocated_pcs = current_ratio * layers * tables
-                    remaining_balances[idx] = max(0, remaining_balances[idx] - allocated_pcs)
-                    remaining_row.append(remaining_balances[idx])
+                    remaining_balances[idx] = max(0, remaining_balances[idx] - (item["Ratios"].get(sz, 0) * layers * tables))
+                    remaining_row.append(f"{remaining_balances[idx]:,}")
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
+            final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
-            # --- KHỐI KẾT XUẤT EXCEL THEO LUỒNG PHẲNG KHÔNG LỒNG VÒNG LẶP ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     df_final_report.to_excel(writer, sheet_name="TacNghiepBanCat", index=False)
-                
                 st.download_button(
                     label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI",
                     data=buffer.getvalue(),
@@ -270,14 +218,11 @@ else:
                     use_container_width=True,
                     key="excel_download_btn_final_v105"
                 )
-            except Exception:
-                pass
+            except Exception: pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
-                /* Ghép ghim cố định 6 dòng hành chính và ma trận size lên trần bảng khi kéo cuộn */
                 tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
                 tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #FFFFFF !important; font-weight: 700 !important; }
@@ -285,13 +230,9 @@ else:
                 tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F8FAFC !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                /* Toàn bộ nền màu trắng sạch tinh khôi cho các hàng rập và hàng còn lại, chữ đen đậm sắc nét */
                 tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; }
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; padding-left: 10px !important; }
-                
-                /* Chỉ bôi màu chữ đỏ rực rỡ in đậm cho thông số Màu và Vải tự gõ ở dòng 2 và dòng 3 */
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
-                
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
             </style>""", unsafe_allow_html=True)
 
