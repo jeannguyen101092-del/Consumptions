@@ -474,37 +474,44 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
     Step 4: Phân bổ định mức chi tiết Yards cho từng dòng rập phẳng.
-    👑 KIẾN TRÚC HOÀN HẢO v64.0: THUẦN PHÂN BỔ (PURE POST-NESTING ALLOCATOR).
-    - Giải phóng hoàn toàn các hệ số ước lượng tanh, log, 0.42, 0.76 ra khỏi hàm.
-    - Nhận dữ liệu occupied_ratio vật lý đóng gói 100% từ Nesting Engine Step 3.
-    - Đồng bộ hóa ý nghĩa vật lý: Hiệu suất giảm ➔ Định mức tự động tăng dãn nở chuẩn xác.
+    👑 KIẾN TRÚC HOÀN HẢO v64.5: CHUẨN ĐỘ ĐÓNG GÓP BIÊN TẾ GERBER/LECTRA.
+    🎯 ĐÃ SỬA LỖI CRASH: Bọc khóa phòng vệ mẫu số an toàn tuyệt đối chặn hoàn toàn ZeroDivisionError.
     """
     import copy
+    import math
     router_bom_rows = []
 
+    # 1. TIẾP NHẬN ĐỘ CO RÚT VÀ KHỔ VẢI ĐỘNG CỦA AI TECHPACK
     actual_warp = warp_shrink_factor / 100.0 if warp_shrink_factor >= 1.0 else warp_shrink_factor
     working_width = float(parsed_main_width) if parsed_main_width and float(parsed_main_width) > 0 else (float(usable_fabric_width) if usable_fabric_width else 56.0)
 
-    # 1. TIẾP NHẬN PHÂN LỚP NGUYÊN LIỆU ĐẦU VÀO SẠCH TỪ STEP 2
+    # Khởi tạo mảng pool để phân nhóm nguyên liệu sạch
     nesting_pool = []
     for idx, row in enumerate(unique_bom_rows):
         ui_row = copy.deepcopy(row)
         c_name = str(ui_row.get("component_name", f"CHI-TIET-{idx+1}")).upper().strip()
         mat_class = str(ui_row.get("material_class", "FABRIC")).upper().strip()
         p_count = int(ui_row.get("piece_count", 1))
+        raw_len = float(ui_row.get("bounding_box_length", 0.0))
+        raw_wid = float(ui_row.get("bounding_box_width", 0.0))
         
         engine_target = "LINING" if any(k in mat_class or k in c_name for k in ["LINING", "LÓT", "POCKETING"]) else ("FUSING" if any(k in mat_class or k in c_name for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]) else "FABRIC")
-        
-        # Đọc dữ liệu diện tích rập phẳng nguyên bản do Step 2 chịu trách nhiệm tính độc nhất
-        poly_area_single = float(ui_row.get("net_area", ui_row.get("polygon_net_area", ui_row.get("bounding_box_length", 42.0) * ui_row.get("bounding_box_width", 14.0) * 0.75)))
+
+        # Chuẩn kiến trúc: Lấy 100% dữ liệu net_area từ Step 2 làm Single Source of Truth
+        net_area_polygon = ui_row.get("net_area", ui_row.get("polygon_net_area"))
+        if net_area_polygon is not None and float(net_area_polygon) > 0:
+            poly_area_single = float(net_area_polygon)
+        else:
+            poly_area_single = raw_len * raw_wid * 0.76
 
         nesting_pool.append({
             "ui_row": ui_row, "engine_target": engine_target, "orig_mat_class": ui_row.get("material_class", "FABRIC"),
-            "raw_len": float(ui_row.get("bounding_box_length", 0.0)), "raw_wid": float(ui_row.get("bounding_box_width", 0.0)), "p_count_single": p_count,
+            "raw_len": raw_len, "raw_wid": raw_wid, "p_count_single": p_count,
+            "shrunk_len": raw_len * (1.0 + actual_warp), "shrunk_wid": raw_wid * (1.0 + actual_warp),
             "poly_area": poly_area_single * p_count, "comp_name": c_name
         })
 
-    # 2. KHỐI TRÍCH XUẤT VÀ PHÂN BỔ ĐỊNH MỨC THEO TỶ LỆ CHIẾM DỤNG CAD THỰC TẾ
+    # 2. PHÂN LỚP VÀ TIẾP NHẬN KẾT QUẢ TỪ ĐỘNG CƠ NESTING STEP 3
     for target_class in ["FABRIC", "LINING", "FUSING"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: continue
@@ -512,42 +519,51 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         nesting_items = [it for it in class_items if it["raw_len"] > 0 and it["raw_wid"] > 0]
         
         if nesting_items:
-            # Gọi bộ não sơ đồ của Step 3
+            # Gọi bộ não lồng ghép sơ đồ hình học tổng của Step 3
             marker = industrial_rotation_and_skyline_nesting(nesting_items, working_width)
             raw_marker_length = marker.get("marker_length", 0.0)
             marker_garments = marker.get("garment_count", 2)
+            placed_pieces = marker.get("placed_pieces", [])
             comp_metrics = marker.get("component_metrics", {})
             class_base_eff = marker.get("class_efficiency", 0.85)
             
             if marker_garments <= 0: marker_garments = 2
             max_single_len = max([it["raw_len"] for it in nesting_items], default=1.0)
             if raw_marker_length < max_single_len: raw_marker_length = max_single_len
-            
-            # 🎯 CHUẨN VẬT LÝ TUYỆT ĐỐI: Chỉ co rút trục dọc một lần duy nhất tại mốc chiều dài sơ đồ
+                
             shrunk_marker_length = raw_marker_length * (1.0 + actual_warp)
             
-            # Tính toán tổng Yards tiêu hao của cả nhóm vải dựa trên hao hụt ERP độc lập
-            total_erp_industrial_loss = industrial_loss
-            total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + total_erp_industrial_loss)
+            # Tính toán tổng Yards tiêu hao của cả lớp vải dựa trên hao hụt ERP độc lập
+            total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss)
             total_class_yds = total_marker_yds / float(marker_garments)
             
-            # Khống chế trần hiệu suất hiển thị thực tế đồ Jeans (~78.5% - 81.5%) cho bảng chi tiết đẹp mắt
+            # Khống chế trần hiệu suất hiển thị thực tế đồ Jeans
             class_base_eff = max(0.74, min(0.815 if target_class == "FABRIC" else 0.86, class_base_eff * (1.0 + industrial_loss)))
             system_notes_status = f"📊 Sơ đồ phối bộ {marker_garments} sản phẩm"
         else:
-            class_base_eff, total_class_yds, marker_garments, comp_metrics = 0.82, 0.45, 2, {}
+            class_base_eff, total_class_yds, marker_garments, raw_marker_length, comp_metrics = 0.82, 0.45, 2, 0.0, {}
             system_notes_status = "📐 Định mức ước lượng theo hình học nền"
 
-        # 3. VÒNG LẶP PHÂN BỔ ĐẦU CUỐI LÊN BẢNG HIỂN THỊ UI
+        # Tính tổng đa giác tinh của nhóm để làm phương án phòng vệ
+        total_poly_area_sum = sum([float(p["poly_area"]) for p in class_items])
+        if total_poly_area_sum <= 0: continue
+
+        # 🎯 3. VÒNG LẶP PHÂN BỔ ĐỊNH MỨC AN TOÀN TUYỆT ĐỐI (Đã vá lỗi mẫu số sum bằng 0)
+        # Tính toán trước tổng mẫu số để kiểm tra phòng vệ
+        fallback_sum = len(class_items) if len(class_items) > 0 else 1
+        total_occupied_sum = sum([float(comp_metrics.get(p["comp_name"], {}).get("occupied_ratio", 1.0/fallback_sum)) for p in class_items])
+        if total_occupied_sum <= 0:
+            total_occupied_sum = 1.0
+
         for it in class_items:
+            # Trích xuất 100% tỷ lệ chiếm dụng thực tế từ Step 3
             metrics = comp_metrics.get(it["comp_name"], {})
+            fallback_ratio = float(it["poly_area"]) / total_poly_area_sum if total_poly_area_sum > 0 else (1.0 / fallback_sum)
+            item_occupied_ratio = float(metrics.get("occupied_ratio", fallback_ratio))
             
-            # 🎯 TRÍCH XUẤT 100% TỶ LỆ CHIẾM DỤNG THỰC TẾ (OCCUPIED RATIO) TỪ BỘ NÃO CAD STEP 3
-            # Không tự ý suy luận, xoay rập chen chúc khít háng tự động thu nhỏ ratio chuẩn Gerber/Lectra
-            item_occupied_ratio = float(metrics.get("occupied_ratio", float(it["poly_area"]) / sum([p["poly_area"] for p in class_items])))
-            
-            # Công thức phân bổ tối hậu: Yards gộp nhóm nhân với tỷ lệ chiếm dụng thực của chi tiết
-            gross_yds = total_class_yds * (item_occupied_ratio / sum([comp_metrics.get(p["comp_name"], {}).get("occupied_ratio", 1.0/len(class_items)) for p in class_items]))
+            # Công thức phân bổ an toàn tuyệt đối
+            item_share_ratio = item_occupied_ratio / total_occupied_sum
+            gross_yds = total_class_yds * item_share_ratio
             
             if gross_yds <= 0.001: 
                 gross_yds = 0.001
@@ -556,7 +572,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             ui_row["Material Class"] = str(it["orig_mat_class"]).upper().strip()
             ui_row["UOM"] = str(ui_row.get("uom", "YDS")).upper().strip()
             
-            # Kết xuất dữ liệu sạch lên màn hình hiển thị
+            # Đóng gói kết quả Yards sạch lên RAM hiển thị
             ui_row["gross_consumption"] = round(gross_yds, 4)
             ui_row["Gross Consumption"] = round(gross_yds, 4)
             
