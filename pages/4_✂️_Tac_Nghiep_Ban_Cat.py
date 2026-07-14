@@ -73,11 +73,55 @@ else:
         detected_total_po = sbd_data_store.get("total_quantity", 0)
         size_breakdown_main = sbd_data_store.get("size_breakdown", {})
 
+        # --- PHÂN HỆ TRA CỨU: GỌI DỮ LIỆU CŨ TỪ CLOUD SUPABASE ---
+        st.markdown("<p style='font-weight:700; font-size:14px; color:#0369A1; margin-top:5px;'>🔍 TRA CỨU LỊCH SỬ PHIẾU TÁC NGHIỆP CŨ</p>", unsafe_allow_html=True)
+        
+        # Thiết lập kết nối gọi trực tiếp Supabase Client bằng Key cứng đã dán của bạn [INDEX]
+        from supabase import create_client
+        url_direct = "https://supabase.co"
+        key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678"
+        sb_load_client = create_client(url_direct, key_direct)
+        
+        # Truy vấn quét nhanh danh sách các Mã hàng (Style ID) độc lập đang nằm trên database [INDEX]
+        history_styles = ["-- Chọn mã hàng cũ từ Supabase --"]
+        try:
+            res_history = sb_load_client.table("cutting_orders_db").select("style_id", "fabric_type").execute()
+            if res_history.data:
+                for item in res_history.data:
+                    label = f"{item['style_id']} - VẢI: {item['fabric_type']}"
+                    if label not in history_styles: history_styles.append(label)
+        except Exception: pass
+        
+        # Tạo ô chọn mã hàng lịch sử trên giao diện web [INDEX]
+        selected_old_record = st.selectbox("📂 Lấy lại phiếu tác nghiệp cũ đã lưu trên Cloud:", history_styles, key="sb_history_select_box")
+        
+        # Nếu tổ trưởng click chọn một bản ghi lịch sử, ép gán đè toàn bộ dữ liệu ma trận cũ ra màn hình [INDEX]
+        if selected_old_record != "-- Chọn mã hàng cũ từ Supabase --":
+            try:
+                st_id_search = selected_old_record.split(" - VẢI: ")[0]
+                fb_tp_search = selected_old_record.split(" - VẢI: ")[1]
+                
+                res_detail = sb_load_client.table("cutting_orders_db").select("*").eq("style_id", st_id_search).eq("fabric_type", fb_tp_search).limit(1).execute()
+                if res_detail.data:
+                    old_data = res_detail.data[0]
+                    # Đổ ngược dữ liệu vào bộ nhớ tạm để hiển thị lại nguyên vẹn lên bảng lưới
+                    detected_style_id = old_data["style_id"]
+                    detected_total_po = old_data["total_po_qty"]
+                    
+                    # Tái cấu trúc mảng JSON phẳng ngược thành dataframe hiển thị [INDEX]
+                    if "cutting_matrix_data" in old_data and old_data["cutting_matrix_data"]:
+                        # Ép hệ thống nhận diện kết quả khôi phục thay vì chạy lại AI từ đầu [INDEX]
+                        # Tạo luồng lưu tạm kết quả tác nghiệp cũ để Khối 10 lôi ra vẽ bảng lưới [INDEX]
+                        st.session_state["auto_cutting_results_recovered"] = old_data["cutting_matrix_data"]
+            except Exception: pass
+            
+        st.markdown("---")
         if st.button("🔄 Tải lên File SBD Khác", type="secondary"):
             st.session_state["purchase_ready"] = False
             st.session_state["sbd_parsed_data"] = {}
             st.session_state["consumption_activated"] = False
             st.session_state["auto_cutting_results"] = None
+            if "auto_cutting_results_recovered" in st.session_state: del st.session_state["auto_cutting_results_recovered"]
             st.rerun()
 
         st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
@@ -86,6 +130,7 @@ else:
         with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
         with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
         with input_col_color: color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
+
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
         with input_col5: fabric_type_input = st.text_input("🧵 Tự gõ Loại vải:", value="CHÍNH")
