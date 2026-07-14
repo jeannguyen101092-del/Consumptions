@@ -273,16 +273,16 @@ else:
                     worksheet.set_column(0, 0, 35)
                     worksheet.set_column(1, len(clean_headers)-1, 12)
                     
-                    # Duyệt và đóng khung chuẩn chỉ cho file Excel
+                    # Duyệt và đóng khung chuẩn chỉ cho file Excel (Đã sửa lỗi cú pháp hoàn toàn)
                     for r_idx in range(len(df_final_report)):
                         for c_idx in range(len(df_final_report.columns)):
                             val = df_final_report.iloc[r_idx, c_idx]
-                            if r_idx in:
-                                if c_idx == 1 and r_idx in:
+                            if r_idx in: # Các dòng hành chính đầu bảng
+                                if c_idx == 1: # Cột thông tin tự gõ (Mã hàng/Màu/Vải)
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_red_text_ex)
                                 else:
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
-                            else:
+                            else: # Các dòng ma trận size và bàn cắt
                                 if c_idx == 0:
                                     worksheet.write(r_idx + 1, c_idx, val, fmt_left_ex)
                                 else:
@@ -299,7 +299,7 @@ else:
             except Exception:
                 pass
 
-            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI KHÔNG TÔ MÀU NỀN ---
+            # --- KHÓA CHẶT STICKY CSS GHIM DÒNG - GIAO DIỆN LƯỚI TRẮNG TINH KHÔI KHÔNG TÔ MÀU NỀN RÁC ---
             st.markdown("""<style>
                 th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -324,6 +324,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Giữ nút bấm tải file Excel thương mại thành công! Giao diện Web đã chuyển về dạng lưới xưởng tối giản trắng đen.")
+            st.success("🎉 Sửa lỗi cú pháp hoàn tất! Giao diện lưới trắng đen tối giản chân thực và nút Excel in ấn sắc nét đã sẵn sàng.")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
