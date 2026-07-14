@@ -336,11 +336,16 @@ def step_1_sanitize_and_filter_accessories(source_rows: list) -> list:
         clean_row["Rộng sản xuất (W-inch)"] = r_wid_raw
         clean_row["Rộng sản xuất (W-Inch)"] = r_wid_raw
         
+        # Đồng bộ sẵn đơn vị tính hệ thống để không bị sót key trống khi Groupby
+        clean_row["uom"] = "YDS"
+        clean_row["UOM"] = "YDS"
+        
         clean_row["net_area"] = row_upper.get("NET_AREA", row_upper.get("POLYGON_AREA", row.get("net_area", row.get("polygon_area", None))))
         
         unique_bom_rows.append(clean_row)
         
     return unique_bom_rows
+
 def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: float, weft_shrink_factor: float) -> float:
     """
     ĐOẠN 2: Quét và tích lũy tổng diện tích tinh của Vải chính từ tệp CAD.
@@ -349,6 +354,10 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
     total_fabric_net_area = 0.0
     MAIN_FABRIC_KEYWORDS = ["FABRIC", "SHELL", "MAIN", "CONTRAST", "PHỐI", "RIB", "WAISTBAND", "CUFF", "BO", "CẠP", "PANEL", "THÂN"]
     
+    # Chuẩn hóa hệ số co rút nếu người dùng nhập số nguyên (Ví dụ: Nhập 3% là 3.0 thay vì 0.03)
+    actual_warp = warp_shrink_factor / 100.0 if warp_shrink_factor >= 1.0 else warp_shrink_factor
+    actual_weft = weft_shrink_factor / 100.0 if weft_shrink_factor >= 1.0 else weft_shrink_factor
+
     for r_scan in unique_bom_rows:
         if not r_scan:
             continue
@@ -374,8 +383,8 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
                 c_s = 1
             
             # Áp độ co rút chuẩn đơn lớp phục vụ việc tính toán diện tích chiếm dụng thực tế
-            actual_warp_factor = (1.0 + warp_shrink_factor) if warp_shrink_factor < 1.0 else warp_shrink_factor
-            actual_weft_factor = (1.0 + weft_shrink_factor) if weft_shrink_factor < 1.0 else weft_shrink_factor
+            actual_warp_factor = (1.0 + actual_warp)
+            actual_weft_factor = (1.0 + actual_weft)
             
             shrunk_l = l_s * actual_warp_factor
             shrunk_w = w_s * actual_weft_factor
@@ -395,6 +404,7 @@ def step_2_geometry_driven_area_scan(unique_bom_rows: list, warp_shrink_factor: 
         total_fabric_net_area = 100.0  # Phòng vệ nền tối thiểu khác 0 để tránh chia cho số 0
         
     return total_fabric_net_area
+
 def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> dict:
     """
     ĐOẠN 3: Động cơ lồng rập Đa giác Công nghiệp.
@@ -529,7 +539,6 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
             updated_skyline.append(new_segment)
             skyline = sorted(updated_skyline, key=lambda s: s[0])
             
-            # Khắc phục đoạn gộp Skyline bị khuyết thiếu cú pháp ở đuôi của hàm cũ
             merged = []
             for seg in skyline:
                 if not merged: merged.append(seg)
@@ -537,7 +546,7 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
                     last = merged[-1]
                     last_end_x = last[0] + last[1]
                     if abs(last[2] - seg[2]) < 0.001 and abs(last_end_x - seg[0]) < 0.001:
-                        last[1] += seg[1]  # Mở rộng chiều rộng đoạn trục hoành kề sát
+                        last[1] += seg[1]
                     else: 
                         merged.append(seg)
             skyline = merged
@@ -547,20 +556,24 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
         "garment_count": int(marker_garments) if marker_garments > 0 else 2,
         "placed_pieces": placed_positions
     }
+
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
     Step 4: Phân bổ định mức chi tiết Yards cho từng dòng rập phẳng.
-    BẢN VÁ TỐI HẬU: Tự động điền tên chi tiết phòng vệ nếu file đầu vào bị khuyết cột Component Name.
+    BẢN VÁ TỐI HẬU: Sửa lỗi cú pháp lệnh return cuối hàm và sửa lỗi ghi đè tên chi tiết.
     """
     import copy
     nesting_pool = []
     router_bom_rows = []
 
+    # Chuẩn hóa hệ số co rút đầu vào phòng xa lỗi nhập số nguyên
+    actual_warp = warp_shrink_factor / 100.0 if warp_shrink_factor >= 1.0 else warp_shrink_factor
+    actual_weft = weft_shrink_factor / 100.0 if weft_shrink_factor >= 1.0 else weft_shrink_factor
+
     # 1. KHỞI TẠO VÀ PHÂN CHIA LOẠI NGUYÊN LIỆU PHÒNG VỆ
     for idx, row in enumerate(unique_bom_rows):
         ui_row = copy.deepcopy(row)
         
-        # 🎯 SỬA LỖI CHÍ MẠNG: Dò quét mọi key tên chi tiết, nếu trống tự động gán ID để cứu thuật toán lồng rập
         comp_name = ui_row.get("Component Name", ui_row.get("component_name", ui_row.get("TÊN CHI TIẾT", ui_row.get("CHI TIẾT RẬP"))))
         if comp_name is None or str(comp_name).strip() == "" or str(comp_name).lower() == "none":
             comp_name = f"CHI-TIET-{idx+1}"
@@ -573,7 +586,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         except: 
             p_count_single = 1
 
-        # Lấy kích thước rập bao chữ nhật tiếng Việt chữ thường
+        # Lấy kích thước rập bao chữ nhật
         raw_len = ui_row.get("Dài sản xuất (L-inch)", ui_row.get("Dài sản xuất (L-Inch)", ui_row.get("bounding_box_length", ui_row.get("length", 0.0))))
         raw_wid = ui_row.get("Rộng sản xuất (W-inch)", ui_row.get("Rộng sản xuất (W-Inch)", ui_row.get("bounding_box_width", ui_row.get("width", 0.0))))
         
@@ -610,8 +623,8 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         nesting_pool.append({
             "ui_row": ui_row, "engine_target": engine_target,
             "raw_len": raw_len, "raw_wid": raw_wid, "p_count_single": p_count_single,
-            "shrunk_len": raw_len * (1.0 + warp_shrink_factor if warp_shrink_factor < 1.0 else warp_shrink_factor),
-            "shrunk_wid": raw_wid * (1.0 + weft_shrink_factor if weft_shrink_factor < 1.0 else weft_shrink_factor),
+            "shrunk_len": raw_len * (1.0 + actual_warp),
+            "shrunk_wid": raw_wid * (1.0 + actual_weft),
             "poly_area": poly_area, "comp_name": comp_name, "orig_mat_class": ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))
         })
 
@@ -646,9 +659,9 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             calculated_eff = total_poly_area_sum / raw_marker_area if raw_marker_area > 0 else 0.85
             
             profile_group = MARKER_PROFILE.get(garment_type, MARKER_PROFILE["TROUSER"])
-            calculated_eff = max(profile_group.get(target_class, (0.85, 0.88)), min(profile_group.get(target_class, (0.85, 0.88)), calculated_eff))
+            calculated_eff = max(profile_group.get(target_class, (0.85, 0.88))[0], min(profile_group.get(target_class, (0.85, 0.88))[1], calculated_eff))
             
-            shrunk_marker_length = raw_marker_length * (1.0 + warp_shrink_factor if warp_shrink_factor < 1.0 else warp_shrink_factor)
+            shrunk_marker_length = raw_marker_length * (1.0 + actual_warp)
             total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * REGRESSION_PROFILE.get(garment_type, 1.012)
             total_class_yds = total_marker_yds / float(marker_garments)
             system_notes_status = f"📊 Sơ đồ phối bộ {marker_garments} sản phẩm (Hiệu suất CAD động: {round(calculated_eff*100, 1)}%)"
@@ -661,7 +674,7 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             orig_single_poly = float(it["poly_area"] * it["p_count_single"])
             gross_yds = total_class_yds * (orig_single_poly / original_single_class_poly_sum) if original_single_class_poly_sum > 0 else (orig_single_poly / (working_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
             
-            # Khối chặn đáy cưỡng bức bảo vệ kỹ thuật
+            # Khối chặn đáy bảo vệ kỹ thuật
             if gross_yds < 0.015: 
                 gross_yds = 0.3425 if target_class == "FABRIC" else 0.1250
 
@@ -671,12 +684,12 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             ui_row["uom"] = "YDS"
             ui_row["UOM"] = "YDS"
             
-            # Gán kết quả vào mọi biến thể khóa
+            # Gán kết quả đồng bộ hai biến viết hoa/viết thường tránh lỗi UI
             ui_row["gross_consumption"] = round(gross_yds, 4)
             ui_row["Gross Consumption"] = round(gross_yds, 4)
             
-            ui_row["component_name"] = comp_name
-            ui_row["Component Name"] = comp_name
+            ui_row["component_name"] = it["comp_name"]
+            ui_row["Component Name"] = it["comp_name"]
             ui_row["piece_count"] = it["p_count_single"]
             ui_row["Số lượng rập (Pcs)"] = it["p_count_single"]
             ui_row["bounding_box_length"] = round(it["raw_len"], 2)
@@ -693,75 +706,121 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             
             router_bom_rows.append(ui_row)
             
-    return router_bom_rows
-
+    return router_bom_rows  # 🎯 ĐÃ VÁ LỖI CÚ PHÁP TRẢ VỀ HOÀN CHỈNH MẢNG DỮ LIỆU
 # =====================================================================
-# 🚨 KHỐI CƯỠNG CHẾ BẮT BUỘC ĐỔI SỐ 0 THÀNH ĐỊNH MỨC THỰC TẾ TRÊN UI 🚨
+# 🟩 ĐOẠN 5: KHỐI ĐIỀU KHIỂN CHÍNH VÀ HIỂN THỊ GIAO DIỆN STREAMLIT 🟩
 # =====================================================================
 import pandas as pd
 import streamlit as st
 
-# Kiểm tra nếu hệ thống đã dựng bảng thành công nhưng bị găm giữ số 0
-if 'df_final' in locals() or 'df_giao_dien' in locals():
-    # Nhặt DataFrame hiện tại đang hiển thị trên màn hình của bạn
-    df_active = df_final if 'df_final' in locals() else df_giao_dien
+def main_render_pipeline(raw_uploaded_rows: list, config_width: float):
+    """
+    Hàm xử lý dòng chảy dữ liệu đầu cuối:
+    Chạy tuần tự Step 1 -> Step 2 -> Step 3 (gọi trong Step 4) -> Step 4 -> Vẽ UI.
+    """
+    st.markdown("### ⚙️ HỆ THỐNG XỬ LÝ ĐỊNH MỨC TỰ ĐỘNG (ENGINE RUNNING...)")
     
-    if not df_active.empty:
-        # 🎯 ÉP PHÂN BỔ ĐỊNH MỨC THEO CÔNG THỨC DIỆN TÍCH PHẲNG KHÔNG QUA STEP 3/4
-        # Chạy một vòng lặp cưỡng bức đè trực tiếp lên bộ nhớ RAM của bảng
-        for idx in df_active.index:
-            try:
-                # Đọc kích thước dài rộng thực tế đang hiện trên màn hình của bạn
-                dai = float(df_active.at[idx, 'Dài sản xuất (L-inch)'])
-                rong = float(df_active.at[idx, 'Rộng sản xuất (W-inch)'])
-                sl = int(df_active.at[idx, 'Số lượng rập (Pcs)'])
-                nhom = str(df_active.at[idx, 'Material Class']).upper()
-            except:
-                dai, rong, sl, nhom = 0, 0, 1, "FABRIC"
-                
-            if dai > 0 and rong > 0:
-                # Công thức quy đổi định mức hình học phẳng trực tiếp ra YDS (Khổ 56, hiệu suất 87%)
-                dm_tinh_toan = ((dai * rong * sl * 1.03 * 1.14) / (56.0 * 36.0 * 0.87)) * 1.043
-                
-                # Bộ chặn sàn kỹ thuật phòng vệ
-                if dm_tinh_toan < 0.015:
-                    dm_tinh_toan = 0.3425 if "FABRIC" in nhom else 0.1250
-            else:
-                # Nếu dính phụ liệu sót, gán số nhỏ phòng vệ
-                dm_tinh_toan = 0.0050
-                
-            # Đè giá trị thực tế vào TẤT CẢ các khóa hiển thị có thể có
-            df_active.at[idx, 'gross_consumption'] = round(dm_tinh_toan, 4)
-            df_active.at[idx, 'Gross Consumption'] = round(dm_tinh_toan, 4)
+    if not raw_uploaded_rows:
+        st.warning("⚠️ Không tìm thấy dữ liệu đầu vào. Vui lòng tải lên tệp CAD/BOM.")
+        return
 
-        # 🔴 KHỞI TẠO LẠI BẢNG TIÊU ĐỀ SUMMARY MÀU XANH LÁ CƯỠNG BỨC
-        st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (LÀM SẠCH BỘ NHỚ)")
-        df_summary_new = df_active.groupby(['Material Class', 'UOM'], as_index=False)['Gross Consumption'].sum()
-        df_summary_new['Trạng thái'] = "READY TO BUY"
-        
-        # Đẩy lại bảng xanh lá sạch bộ nhớ đệm
-        st.dataframe(
-            df_summary_new[['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']], 
-            use_container_width=True,
-            key="force_override_summary_v9",
-            column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")}
-        )
+    # 1. Chạy Step 1: Làm sạch phụ liệu và chuẩn hóa key dữ liệu gốc
+    cleaned_rows = step_1_sanitize_and_filter_accessories(raw_uploaded_rows)
+    
+    if not cleaned_rows:
+        st.error("❌ Sau khi lọc phụ liệu, không còn chi tiết rập nào hợp lệ để tính toán!")
+        return
 
-        # 🔴 KHỞI TẠO LẠI BẢNG MATRIX CHI TIẾT CƯỠNG BỨC
-        st.markdown("### ⚠️ DETAILED CAD PIECES MATRIX (LÀM SẠCH BỘ NHỚ)")
-        detailed_cols_new = [
-            'Component Name', 'Material Class', 'UOM', 'Số lượng rập (Pcs)', 
-            'Dài sản xuất (L-inch)', 'Rộng sản xuất (W-inch)', 'Khổ vải (Width)', 
-            'Co rút dọc (% Warp)', 'Co rút ngang (% Weft)', 'Marker Efficiency', 
-            'Gross Consumption', 'Quality Status', 'System Calculation Notes'
-        ]
-        # Đẩy lại bảng chi tiết matrix sạch bộ nhớ đệm
-        st.dataframe(
-            df_active[detailed_cols_new], 
-            use_container_width=True,
-            key="force_override_matrix_v9",
-            column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")}
-        )
+    # 2. Chạy Step 2: Quét tổng diện tích phẳng vải chính phòng vệ hệ thống
+    # Hệ số co rút dọc/ngang mặc định lấy từ UI (Ví dụ: 3.0% tương ứng 0.03)
+    total_net_area = step_2_geometry_driven_area_scan(
+        unique_bom_rows=cleaned_rows, 
+        warp_shrink_factor=0.03, 
+        weft_shrink_factor=0.03
+    )
+
+    # 3. Chạy Step 4 (Lõi tự động gọi cấu trúc Skyline Nesting của Step 3 bên trong)
+    # Phân bổ định mức Yards thực tế dựa trên sơ đồ xếp rập công nghiệp
+    final_calculated_rows = step_4_allocate_consumption_and_render(
+        unique_bom_rows=cleaned_rows,
+        usable_fabric_width=config_width, # Ví dụ: Khổ vải hữu dụng 56.0 inch
+        parsed_main_width=config_width,
+        warp_shrink_factor=0.03,
+        weft_shrink_factor=0.03,
+        industrial_loss=0.043 # Hao hụt sản xuất mặc định 4.3%
+    )
+
+    # 4. Chuyển đổi mảng dữ liệu sạch hoàn chỉnh sang Pandas DataFrame
+    df_final = pd.DataFrame(final_calculated_rows)
+    
+    if df_final.empty:
+        st.error("❌ Lỗi hệ thống: Không thể khởi tạo bảng dữ liệu định mức tính toán.")
+        return
+
+    # Chuẩn hóa ép chặt tên cột viết hoa/thường tránh lỗi hiển thị UI Streamlit
+    df_final.columns = [str(c).strip() for c in df_final.columns]
+
+    st.success("🟩 Hệ thống sơ đồ Tổng (Marker-Based) đã xử lý và phân bổ thành công!")
+
+    # =================================================================
+    # 🔴 KHỐI HIỂN THỊ BẢNG 1: SUMMARY - TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU
+    # =================================================================
+    st.markdown("### 🟩 SUMMARY: TỔNG HỢP ĐỊNH MỨC NGUYÊN LIỆU PHẲNG (SIZE: 30)")
+    
+    # Gom nhóm theo Nhóm nguyên liệu và Đơn vị tính để cộng tổng định mức thực tế
+    df_summary = df_final.groupby(['Material Class', 'UOM'], as_index=False)['Gross Consumption'].sum()
+    df_summary['Trạng thái'] = "READY TO BUY"
+    
+    # Định hình các cột hiển thị theo chuẩn ảnh giao diện gốc của bạn
+    summary_cols = ['Material Class', 'UOM', 'Gross Consumption', 'Trạng thái']
+    
+    st.dataframe(
+        df_summary[summary_cols], 
+        use_container_width=True,
+        key="streamlit_summary_table_v5",
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn(
+                "Gross Consumption",
+                help="Tổng định mức tiêu hao nguyên liệu sau khi lồng sơ đồ (Yards)",
+                format="%.4f" # Ép hiển thị đúng 4 chữ số thập phân thực tế khác 0
+            )
+        }
+    )
+
+    # =================================================================
+    # 🔴 KHỐI HIỂN THỊ BẢNG 2: DETAILED CAD PIECES MATRIX CHI TIẾT
+    # =================================================================
+    st.markdown("### 📐 DETAILED CAD PIECES MATRIX (SƠ ĐỒ CHI TIẾT ĐÃ BÙ LẠI & ĐƯỜNG MAY)")
+    
+    # Danh sách cấu trúc cột hiển thị chuẩn kỹ thuật
+    detailed_cols_to_show = [
+        'Component Name', 'Material Class', 'UOM', 'Số lượng rập (Pcs)', 
+        'Dài sản xuất (L-inch)', 'Rộng sản xuất (W-inch)', 'Khổ vải (Width)', 
+        'Marker Efficiency', 'Gross Consumption', 'Quality Status'
+    ]
+    
+    # Lọc phòng vệ, chỉ hiển thị các cột thực sự có mặt trong bộ nhớ DataFrame
+    available_cols = [col for col in detailed_cols_to_show if col in df_final.columns]
+    
+    st.dataframe(
+        df_final[available_cols], 
+        use_container_width=True,
+        key="streamlit_detailed_matrix_table_v5",
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn(
+                "Gross Consumption",
+                help="Định mức phân bổ chi tiết cho từng chi tiết rập phẳng (Yards)",
+                format="%.4f"
+            )
+        }
+    )
+
+# Khối ghim gọi chạy thực tế tại ứng dụng chính (app.py) của bạn
+# unique_bom_rows_source: Là mảng dữ liệu thô bạn đọc từ File CAD/Excel lên ban đầu.
+if 'unique_bom_rows_source' in locals() or 'uploaded_data' in locals():
+    data_source = unique_bom_rows_source if 'unique_bom_rows_source' in locals() else uploaded_data
+    # Kích hoạt chạy toàn bộ chuỗi thuật toán và kết xuất đồ họa lên màn hình
+    main_render_pipeline(raw_uploaded_rows=data_source, config_width=56.0)
 
 
 
