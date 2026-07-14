@@ -12,15 +12,19 @@ if not st.session_state.get("purchase_ready"):
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size (Regular, Missy, Petite) để hệ thống tự động bẻ ma trận 3 tầng.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-    if file_sbd_c2:
+        if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
             with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
-                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
-                import google.generativeai as genai
+                # SỬA LỖI TẠI ĐÂY: Sử dụng đúng cú pháp thư viện google-genai mới nhất
+                from google import genai
                 from google.genai import types
+                
                 client_ai = genai.Client(api_key=gemini_key)
                 sbd_bytes = file_sbd_c2.getvalue()
                 sbd_content_str = ""
@@ -31,27 +35,34 @@ if not st.session_state.get("purchase_ready"):
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                         for sheet_name, df_sheet in excel_data.items():
                             sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    except Exception: pass
+                    except Exception: 
+                        pass
                 elif file_sbd_c2.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                # Nâng cấp Prompt ép AI trả ra cấu trúc phân tách rõ Giàng (inseam), Nhóm Size (group) và Size Name
                 sbd_prompt = """Extract style_id, total_quantity, and complete flat size breakdown. 
                 Return JSON format ONLY matching schema: 
                 {"style_id": "string", "total_quantity": integer, "size_breakdown": {"Column Header Name": integer}}
                 Important: "Column Header Name" must contain full identifiers from document like '30x28', 'Giàng 32 - Size M', 'Regular-S', or just 'M' if flat."""
                 
-                if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                if sbd_content_str: 
+                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
                 try:
-                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=sbd_parts_payload, 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
                     st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                except Exception: pass
+                except Exception: 
+                    pass
                 
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
     if isinstance(sbd_data_store, dict) and sbd_data_store:
