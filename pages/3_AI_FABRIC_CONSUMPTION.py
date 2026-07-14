@@ -295,12 +295,13 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
 
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
-    Step 4: Phân bổ định mức chi tiết Yards cho từng dòng rập từ sơ đồ hình học phẳng.
-    BẢN VÁ TỐI HẬU: Hạ gục hoàn toàn bộ gán cứng cào bằng 0.3425 trên UI.
+    Step 4: Phân bổ định mức chi tiết Yards cho từng dòng rập phẳng.
+    BẢN VÁ TỐI HẬU V6: Đồng nhất đơn vị co rút và liên kết diện tích phẳng công nghiệp.
     """
     import copy
     import math
-    nesting_pool, router_bom_rows = [], []
+    nesting_pool = []
+    router_bom_rows = []
 
     actual_warp = warp_shrink_factor / 100.0 if warp_shrink_factor >= 1.0 else warp_shrink_factor
     actual_weft = weft_shrink_factor / 100.0 if weft_shrink_factor >= 1.0 else weft_shrink_factor
@@ -316,13 +317,13 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
         bbox_area_single = raw_len * raw_wid
         engine_target = "LINING" if any(k in mat_class or k in c_name for k in ["LINING", "LÓT", "POCKETING"]) else ("FUSING" if any(k in mat_class or k in c_name for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX"]) else "FABRIC")
 
-        # 🎯 ÁP CÔNG THỨC TOÁN HỌC LIÊN TỤC (math.tanh) ĐỂ TÍNH NET FACTOR ĐỘNG CHO FILE PDF TECHPACK
         aspect_ratio = raw_len / max(1.0, raw_wid)
         dynamic_net_factor = 0.62 + 0.18 * math.tanh((aspect_ratio - 2.5) / 2.0)
         if engine_target == "FABRIC" and any(k in c_name for k in ["FRONT", "BACK", "THÂN", "PANEL"]):
-            dynamic_net_factor -= 0.04  # Bù trừ khoét háng quần Jeans
+            dynamic_net_factor -= 0.04
             
-        poly_area = bbox_area_single * max(0.55, min(0.95, dynamic_net_factor))
+        # 🎯 SỬA LỖI SỐ 2: Ép cộng hệ số co rút đồng nhất diện tích phẳng cho cả Step 2, 3, 4
+        poly_area = bbox_area_single * (1.0 + actual_warp) * (1.0 + actual_weft) * max(0.55, min(0.95, dynamic_net_factor))
             
         nesting_pool.append({
             "ui_row": ui_row, "engine_target": engine_target, "orig_mat_class": ui_row.get("material_class", "FABRIC"),
@@ -351,26 +352,32 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             total_marker_yds = (shrunk_marker_length / 36.0) * (1.0 + industrial_loss) * 1.012
             total_class_yds = total_marker_yds / float(marker_garments)
             
-            # 🎯 ÁP HÀM LOGARITHM TỰ NHIÊN ĐỂ TÍNH HIỆU SUẤT ĐAN XEN SƠ ĐỒ ĐỘNG CHUẨN XÁC GIẢM HAO HỤT
-            interlock_loss = 0.90 - 0.08 * math.log(max(1, len(nesting_items)))
-            calculated_eff = max(0.72, min(0.91, 0.85 * (1.0 + (1.0 - interlock_loss) * 0.12)))
-            system_notes_status = f"📊 Sơ đồ phối bộ {marker_garments} sản phẩm (Hiệu suất CAD động: {round(calculated_eff*100, 1)}%)"
+            # 🎯 SỬA LỖI SỐ 1: Tính diện tích sơ đồ dựa trên chiều dài đã co rút (shrunk_marker_length) để đồng nhất đơn vị
+            total_poly_area_sum = sum([float(p["poly_area"] * p["p_count_single"]) for p in nesting_items])
+            marker_area = working_width * shrunk_marker_length
+            if marker_area > 0:
+                class_base_eff = total_poly_area_sum / marker_area
+                class_base_eff = max(0.72, min(0.92, class_base_eff * (1.0 + industrial_loss)))
+            else:
+                class_base_eff = 0.85
+                
+            system_notes_status = f"📊 Sơ đồ phối bộ {marker_garments} sản phẩm"
         else:
-            calculated_eff, total_class_yds, system_notes_status = 0.85, 0.35, "📐 Định mức ước lượng theo hình học nền"
+            class_base_eff, total_class_yds, marker_garments, raw_marker_length, total_marker_yds = 0.85, 0.35, 2, 0.0, 0.0
+            system_notes_status = "📐 Định mức ước lượng theo hình học nền"
 
         original_single_class_poly_sum = sum([float(it["poly_area"] * it["p_count_single"]) for it in class_items])
+        if original_single_class_poly_sum <= 0:
+            continue
+
+        print("====== CAD ENGINE MONITOR ======")
+        print(f"Class: {target_class} | Marker Length: {raw_marker_length} | Class Yds: {total_class_yds} | Eff: {round(class_base_eff * 100, 1)}%")
+        print("================================")
 
         for it in class_items:
             orig_single_poly = float(it["poly_area"] * it["p_count_single"])
-            gross_yds = total_class_yds * (orig_single_poly / original_single_class_poly_sum) if original_single_class_poly_sum > 0 else (orig_single_poly / (working_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
-            
-            # 🎯 FIX CHÍ MẠNG: Hạ trần gán sàn cứng để các chi tiết nhỏ bung số Yards siêu khít thực tế (0.01 - 0.04)
-            is_item_major = any(k in it["comp_name"] for k in ["FRONT", "BACK", "THÂN", "PANEL"]) and it["raw_len"] > 25.0
-            if gross_yds <= 0.001 or not is_item_major:
-                if target_class == "FABRIC":
-                    gross_yds = 0.4550 if is_item_major else (0.0215 if "LOOP" in it["comp_name"] else 0.0485)
-                else:
-                    gross_yds = 0.0150
+            gross_yds = total_class_yds * (orig_single_poly / original_single_class_poly_sum)
+            if gross_yds <= 0.001: gross_yds = 0.001
 
             ui_row = it["ui_row"]
             ui_row["Material Class"] = str(it["orig_mat_class"]).upper().strip()
@@ -384,13 +391,14 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             ui_row["Dài sản xuất (L-inch)"] = round(it["raw_len"], 2)
             ui_row["Rộng sản xuất (W-inch)"] = round(it["raw_wid"], 2)
             ui_row["Khổ vải (Width)"] = f"{working_width} inch"
-            ui_row["Marker Efficiency"] = f"{round(calculated_eff * 100, 1)}%"
+            ui_row["Marker Efficiency"] = f"{round(class_base_eff * 100, 1)}%"
             ui_row["Quality Status"] = "PASS"
             ui_row["System Calculation Notes"] = system_notes_status
             
             router_bom_rows.append(ui_row)
             
     return router_bom_rows
+
 
 
 
