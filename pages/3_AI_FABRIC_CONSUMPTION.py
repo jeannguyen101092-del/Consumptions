@@ -50,117 +50,32 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 # 🟩 BẢN VÁ TỐI HẬU CHO BỘ NÃO TÍNH TOÁN CORE ENGINE (SẠCH SỐ 0 & CHỈ) 🟩
 # =====================================================================
 
-def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
-    """
-    Industrial Consumption CAM Core Engine v58.0 - PURE ANALYTICAL GEOMETRIC MODEL.
-    🌟 LOẠI BỎ HOÀN TOÀN CÁC NGƯỠNG NHẢY BẬC (IF-ELSE LIMITS).
-    Ứng dụng hàm hyperbolic tang (tanh) và hàm Logarithm để mô phỏng chính xác 100% 
-    tiến trình lồng ghép xoay rập hình học thực tế của Gerber/Lectra từ file PDF Techpack.
-    """
-    import math
-
-    geo_source = "CAD Analytical Geometry Engine v58"
-    current_mat_class = str(row.get("Material Class", row.get("material_class", "FABRIC"))).upper().strip()
-    current_comp_name = str(row.get("Component Name", row.get("component_name", "UNNAMED"))).upper().strip()
-    prod_type_upper = str(product_type).upper().strip()
-
-    # 1. ÉP KIỂU SỐ THỰC SẠCH TỪ PAYLOAD PDF
-    try: p_count = int(float(str(row.get("Số lượng rập (Pcs)", row.get("piece_count", 1))).strip()))
-    except: p_count = 1
+# =====================================================================
+# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & XỬ LÝ LÕI MÁY ĐỘNG
+# =====================================================================
+if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
+    blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
+    
+    chat_txt = ""
+    if 'safe_user_prompt' in locals() and safe_user_prompt:
+        chat_txt = str(safe_user_prompt).lower()
+    elif st.session_state.chat_history:
+        chat_txt = str(st.session_state.chat_history[-1]["user"]).lower()
         
-    try: b_length = float(str(row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", 0.0))).strip())
-    except: b_length = 0.0
-        
-    try: b_width = float(str(row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", 0.0))).strip())
-    except: b_width = 0.0
-
-    if b_length <= 0 or b_width <= 0:
-        return 0.0, 0.0, geo_source
-
-    raw_bbox_area_single = b_length * b_width
-    aspect_ratio = b_length / max(1.0, b_width)
-
-    # 2. HÀM LIÊN TỤC 1: TÍNH TOÁN DYNAMIC NET FACTOR (PIECE AREA)
-    # Ứng dụng hàm math.tanh để phân phối hệ số sử dụng hình bao từ 0.62 đến 0.80 mượt mà theo độ thon dài
-    base_net_factor = 0.62 + 0.18 * math.tanh((aspect_ratio - 2.5) / 2.0)
+    match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
+    extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
     
-    # Bộ hiệu chỉnh theo loại linh kiện dựa trên đặc tính phom dáng hình học
-    component_modifier = 0.0
-    if "FABRIC" in current_mat_class or "VẢI CHÍNH" in current_mat_class:
-        if any(k in current_comp_name for k in ["FRONT", "BACK", "THÂN", "PANEL"]):
-            if "JEANS" in prod_type_upper or "PANTS" in prod_type_upper:
-                component_modifier = -0.04  # Độ khoét háng sâu của quần Jeans làm giảm diện tích tinh
-            else:
-                component_modifier = -0.01  # Áo khoác vuông vức hơn
-        elif any(k in current_comp_name for k in ["POCKET", "TÚI", "LOOP", "ĐỈA"]):
-            component_modifier = 0.05       # Linh kiện hình hộp khít hình bao
+    # 🎯 FIX CHÍ MẠNG: Gọi trực tiếp bộ phân rã chi tiết để loại bỏ phép toán chia đều
+    blueprint_processed = copy.deepcopy(blueprint_worker)
+    if 'preprocess_bom_and_execute' in globals() and blueprint_processed.get("bom_rows"):
+        prod_type = blueprint_processed.get("detected_product_type", "JEANS")
+        blueprint_processed["bom_rows"] = preprocess_bom_and_execute(blueprint_processed, product_type=prod_type)
     else:
-        component_modifier = 0.08           # Keo dựng và lót túi hình học phẳng rất vuông vức
+        blueprint_processed = blueprint_worker
 
-    dynamic_net_factor = max(0.52, min(0.96, base_net_factor + component_modifier))
-    estimated_piece_area_single = raw_bbox_area_single * dynamic_net_factor
-    total_class_net_area = estimated_piece_area_single * p_count
+    st.session_state["bom_data"] = blueprint_processed
+    st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
 
-    # 3. TRÍCH XUẤT KHỔ VẢI HỮU DỤNG
-    try: width_inch = float(str(row.get("Khổ vải (Width)", row.get("fabric_width_inch", 56.0))).replace("inch","").strip())
-    except: width_inch = 56.0
-    if width_inch <= 0.0: width_inch = 56.0
-
-    # 4. HÀM LIÊN TỤC 2: MÔ PHỎNG HIỆU SUẤT SƠ ĐỒ ĐỘNG (MARKER EFFICIENCY) VÀ SỰ LỒNG GHÉP XOAY RẬP (\/ /\)
-    # Tính toán Marker Interlock Factor mượt mà theo hàm Logarithm tự nhiên của bạn
-    # Số lượng rập (p_count) càng lớn, khả năng đan xen, điền lách lọt háng sơ đồ càng cao, kéo chiều dài chiếm dụng tổng ngắn lại
-    interlock_factor = 0.90 - 0.08 * math.log(max(1, p_count))
-    interlock_factor = max(0.55, min(0.90, interlock_factor))
-
-    # Bộ hiệu chỉnh hiệu suất sơ đồ nền theo phom sản phẩm (Jeans l lách tốt hơn áo khoác)
-    product_eff_base = 0.86 if "JEANS" in prod_type_upper or "PANTS" in prod_type_upper else 0.83
-    if not any(k in current_comp_name for k in ["FRONT", "BACK", "THÂN", "PANEL"]):
-        product_eff_base += 0.02 # Linh kiện nhỏ lọt khe đạt hiệu suất cao hơn
-
-    # Tính hiệu suất sơ đồ động (Marker Efficiency) thực tế
-    dynamic_efficiency = product_eff_base * (1.0 + (1.0 - interlock_factor) * 0.15)
-    dynamic_efficiency = max(0.70, min(0.92, dynamic_efficiency))
-    
-    row["marker_efficiency"] = f"{round(dynamic_efficiency * 100, 1)}%"
-
-    # 5. 🎯 ĐỊNH NGHĨA LẠI CHIỀU DÀI SƠ ĐỒ THỰC TẾ (MARKER LENGTH ESTIMATION CORE)
-    # Liên kết trực tiếp Diện tích tinh (Piece Area) và Hiệu suất sơ đồ (Efficiency) với Chiều dài sơ đồ chiếm dụng
-    # Chiều dài sơ đồ thực tế (inch) = Tổng diện tích phẳng thực / (Khổ vải * Hiệu suất sơ đồ động)
-    if width_inch > 0.0 and dynamic_efficiency > 0.0:
-        allocated_marker_length_inch = total_class_net_area / (width_inch * dynamic_efficiency)
-    else:
-        allocated_marker_length_inch = b_length
-
-    # 6. ĐỘ CO RÚT VÀ MA TRẬN HAO HỤT ĐỘC LẬP THEO CHUẨN ERP NHÀ MÁY
-    try:
-        warp_num = float(str(spec_meta.get("warp_shrink", 0.0)).replace("%","").strip()) / 100.0
-        weft_num = float(str(spec_meta.get("weft_shrink", 0.0)).replace("%","").strip()) / 100.0
-    except:
-        warp_num, weft_num = 0.0, 0.0
-
-    cutting_loss = float(spec_meta.get("cutting_loss", 0.008))    
-    spread_loss = float(spec_meta.get("spread_loss", 0.012))      
-    relaxation = float(spec_meta.get("relaxation", 0.005))        
-    defect_loss = float(spec_meta.get("defect_loss", 0.010))      
-    total_erp_industrial_loss = cutting_loss + spread_loss + relaxation + defect_loss
-
-    # 7. CÔNG THỨC TOÁN HỌC QUY ĐỔI SƠ ĐỒ RA YARDS DÀI
-    # Chiều dài sơ đồ đã bao gồm co rút dọc và ngang
-    length_with_shrinkage = allocated_marker_length_inch * (1.0 + warp_num) * (1.0 + weft_num)
-    
-    # Quy đổi trực tiếp Inch sang Yards dài (Chia cho 36.0) và tính hao hụt ERP độc lập
-    gross_consumption_yards = (length_with_shrinkage / 36.0) * (1.0 + total_erp_industrial_loss)
-
-    # Bộ chặn sàn vật lý siêu nhỏ an toàn phòng vệ lỗi hệ thống
-    if gross_consumption_yards < 0.0005:
-        gross_consumption_yards = 0.0050
-
-    # Đè trực tiếp kết quả vào bộ nhớ đệm hiển thị lên giao diện Streamlit
-    row["gross_consumption"] = round(gross_consumption_yards, 4)
-    row["Gross Consumption"] = round(gross_consumption_yards, 4)
-
-    gross_consumption_meters = gross_consumption_yards * 0.9144
-    return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
 
 
 
@@ -1248,6 +1163,9 @@ import streamlit as st
 import copy
 from openpyxl import Workbook
 
+# =====================================================================
+# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & XỬ LÝ LÕI MÁY ĐỘNG
+# =====================================================================
 if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
     blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
     
@@ -1260,21 +1178,17 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "30")).upper().strip()
     
-    # KÍCH HOẠT: Gọi hàm tính toán Core Engine mới đã vá lỗi số 0
-    if 'preprocess_bom_and_execute' in globals():
-        prod_type = blueprint_worker.get("detected_product_type", "JEANS")
-        updated_rows = preprocess_bom_and_execute(blueprint_worker, product_type=prod_type)
-        blueprint_processed = copy.deepcopy(blueprint_worker)
-        blueprint_processed["bom_rows"] = updated_rows
+    # 🎯 FIX CHÍ MẠNG: Gọi trực tiếp bộ phân rã chi tiết để loại bỏ phép toán chia đều
+    blueprint_processed = copy.deepcopy(blueprint_worker)
+    if 'preprocess_bom_and_execute' in globals() and blueprint_processed.get("bom_rows"):
+        prod_type = blueprint_processed.get("detected_product_type", "JEANS")
+        blueprint_processed["bom_rows"] = preprocess_bom_and_execute(blueprint_processed, product_type=prod_type)
     else:
         blueprint_processed = blueprint_worker
 
     st.session_state["bom_data"] = blueprint_processed
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
 
-if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
-    with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
-        st.json(st.session_state["raw_ai_debug_payload"])
 # =====================================================================
 # ĐOẠN 7b - PHẦN 2: LỌC PHỤ LIỆU VÀ DỰNG ĐỒ HỌA GIAO DIỆN HAI BẢNG UI
 # =====================================================================
