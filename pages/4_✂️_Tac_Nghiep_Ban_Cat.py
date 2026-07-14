@@ -176,37 +176,45 @@ else:
             valid_items = [i for i in st.session_state["auto_cutting_results"] if str(i["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
             for item in valid_items:
                 s_name = str(item["Sơ đồ / Trạng thái"]).strip().upper()
-                layers, tables, sp_sd = item["Số lớp"], item["Số bàn"], item["Số sp/SĐ"]
+                layers = int(item.get("Số lớp", 50))
+                tables = int(item.get("Số bàn", 1))
+                sp_sd = int(item.get("Số sp/SĐ", 1))
+                
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
-                pcs_cut_marker = sum(item["Ratios"].values()) * layers * tables
+                total_ratios_sum = sum(item["Ratios"].values())
+                pcs_cut_marker = total_ratios_sum * layers * tables
                 dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
+                # 🎯 BẺ CHUỖI TÊN BÀN CẮT THƯƠNG MẠI
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
                 fabric_prefix = f"{fabric_type_input.strip().upper()}{marker_num_str}:"
                 
                 active_ratio_parts = []
                 for sz in active_sizes:
-                    sz_clean = str(sz).strip().split(":")[-1].split("/")[-1].split(" ")[-1]
-                    if item["Ratios"].get(sz, 0) > 0: active_ratio_parts.append(f"{sz_clean}/{item['Ratios'].get(sz, 0)}")
+                    sz_clean = str(sz).strip().replace("'", "").replace('"', '').replace("SIZE:", "").strip()
+                    r_val = int(item["Ratios"].get(sz, 0))
+                    if r_val > 0: active_ratio_parts.append(f"{sz_clean}/{r_val}")
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
-                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
+                ratio_row = [ratio_row_title] + [int(item["Ratios"].get(sz, 0)) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
                 matrix_body_rows.append(ratio_row)
                 
+                # B. DÒNG CÒN LẠI LŨY TIẾN TRỪ LÙI SẢN LƯỢNG
                 remaining_row = ["CÒN LẠI"]
                 for idx, sz in enumerate(active_sizes):
-                    remaining_balances[idx] = max(0, remaining_balances[idx] - (item["Ratios"].get(sz, 0) * layers * tables))
-                    remaining_row.append(f"{remaining_balances[idx]:,}")
+                    current_ratio = int(item["Ratios"].get(sz, 0))
+                    allocated_pcs = current_ratio * layers * tables
+                    remaining_balances[idx] = max(0, remaining_balances[idx] - allocated_pcs)
+                    remaining_row.append(remaining_balances[idx])
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
-            # ĐỊNH NGHĨA BIẾN TIÊU ĐỀ NGANG CHUẨN XÁC TẠI ĐÂY ĐỂ DIỆT LỖI NAMEERROR
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-            # 🎯 THUẬT TOÁN ĐỒNG BỘ: Tô màu nền vàng cho các ô chứa tỷ lệ sơ đồ lớn hơn 0
+            # 🎯 THUẬT TOÁN ĐỔI MÀU: Nền vàng chanh chữ đen đậm nổi bật cho ô tỷ lệ nhảy số [INDEX]
             def highlight_ratios(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                 num_size_cols = len(active_sizes)
@@ -219,33 +227,41 @@ else:
                         if c <= num_size_cols:
                             val = x.iloc[r, c]
                             try:
-                                if pd.notna(val) and float(val) > 0:
-                                    color_df.iloc[r, c] = 'background-color: #FEF08A !important; color: #991B1B !important; font-weight: 800 !important; border: 1px solid #FDE047 !important;'
-                            except ValueError: pass
+                                # Ép điều kiện: CHỈ bôi màu vàng rực rỡ khi ô đó thực sự nhảy số tỷ lệ lớn hơn 0 [INDEX]
+                                if pd.notna(val) and int(val) > 0:
+                                    color_df.iloc[r, c] = 'background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; border: 1px solid #EAB308 !important; text-align: center !important;'
+                            except (ValueError, TypeError): pass
                 return color_df
 
             styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
+
+            # --- KHÓA CHẶT CSS ĐƯỜNG BIÊN EXCEL SẠCH SẼ KHÔNG CHE KHUẤT CHỮ ---
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
                 
-                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
-                tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
-                tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
-                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
-                tr:nth-child(6) td { position: sticky; top: 175px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
+                tr:nth-child(2) td { position: sticky; top: 55px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
+                tr:nth-child(3) td { position: sticky; top: 85px; z-index: 9; background-color: #F1F5F9 !important; font-weight: 700 !important; }
+                tr:nth-child(4) td { position: sticky; top: 115px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
+                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FEF08A !important; color: #991B1B !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #FDE047 !important; }
+                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #F1F5F9 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
-                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #E2E8F0 !important; color: #000000 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
-                tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; }
-                td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; }
+                /* Hàng CÒN LẠI nhuộm màu nền xanh lam nhạt, chữ xanh đậm rất rõ nét */
+                tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; text-align: center !important; }
+                
+                /* Định dạng các ô tỷ lệ bằng 0 hoặc trống ở hàng thường giữ màu nền trắng chữ xám nhẹ */
+                tr:nth-child(odd):nth-child(n+7) td { background-color: #FFFFFF !important; color: #94A3B8 !important; text-align: center !important; border: 1px solid #E2E8F0 !important; }
+                
+                td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống ma trận tỷ lệ nhảy rập kim tự tháp ngược ghim trần đã đồng bộ biến thành công!")
+            st.success("🎉 Giao diện ma trận tỷ lệ và màu nền đã được làm sạch, bôi vàng rực rỡ chữ đen vô cùng rõ nét!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
