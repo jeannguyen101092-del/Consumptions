@@ -202,15 +202,10 @@ else:
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
 
-            # Tạo DataFrame phẳng từ danh sách hàng và tiêu đề cột
-            df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
+            # ĐỊNH NGHĨA BIẾN TIÊU ĐỀ NGANG CHUẨN XÁC TẠI ĐÂY ĐỂ DIỆT LỖI NAMEERROR
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-            
-            # Khởi tạo mảng phẳng chứa toàn bộ dữ liệu 6 hàng hành chính và các cặp dòng tác nghiệp
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
             # 🎯 THUẬT TOÁN ĐỒNG BỘ: Tô màu nền vàng cho các ô chứa tỷ lệ sơ đồ lớn hơn 0
             def highlight_ratios(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
@@ -230,7 +225,6 @@ else:
                 return color_df
 
             styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
-            # Ép CSS ghim cứng 6 hàng hành chính và ma trận kích cỡ lên đỉnh trần của bảng
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
                 
@@ -248,11 +242,10 @@ else:
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
+
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
-            
-            # Thực hiện nạp bảng dữ liệu đã đổ màu lên giao diện Streamlit Cloud
             st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Hệ thống ma trận tỷ lệ phối size kim tự tháp ngược đã được sửa đồng bộ toàn diện thành công!")
+            st.success("🎉 Hệ thống ma trận tỷ lệ nhảy rập kim tự tháp ngược ghim trần đã đồng bộ biến thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
