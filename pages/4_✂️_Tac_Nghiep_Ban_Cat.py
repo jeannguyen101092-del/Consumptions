@@ -203,31 +203,27 @@ else:
                 matrix_body_rows.append(remaining_row)
 
             # 🎯 THUẬT TOÁN TÔ MÀU VÀNG CHO Ô CHỨA TỶ LỆ SƠ ĐỒ (RATIOS > 0)
+            # 🎯 THUẬT TOÁN ĐỒNG BỘ BIẾN: Tô màu nền vàng cho ô chứa tỷ lệ sơ đồ (Ratios > 0)
             def highlight_ratios(x):
-                # Tạo một DataFrame trống có cùng kích thước để chứa mã màu
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                
-                # Xác định phạm vi các cột kích cỡ (Từ cột số 2 đến hết số lượng active_sizes)
                 num_size_cols = len(active_sizes)
                 
-                # Vòng lặp quét qua từng dòng và từng cột để nhuộm màu
                 for r in range(len(x)):
-                    # Bỏ qua không tô màu tỷ lệ cho 3 hàng hành chính và 3 hàng ma trận size đầu bảng
                     if r < 6: continue
-                    # Bỏ qua các hàng hiển thị số dư "CÒN LẠI"
                     if str(x.iloc[r, 0]).strip().upper() == "CÒN LẠI": continue
                     
                     for c in range(1, len(x.columns)):
-                        # Chỉ tô màu trong phạm vi các cột kích cỡ
                         if c <= num_size_cols:
                             val = x.iloc[r, c]
                             try:
-                                # Nếu ô chứa số tỷ lệ nhảy rập lớn hơn 0 thì nhuộm nền vàng chữ đỏ
                                 if pd.notna(val) and float(val) > 0:
                                     color_df.iloc[r, c] = 'background-color: #FEF08A !important; color: #991B1B !important; font-weight: 800 !important; border: 1px solid #FDE047 !important;'
-                            except ValueError:
-                                pass
+                            except ValueError: pass
                 return color_df
+
+            # Đã đồng bộ tên biến trùng khớp hoàn toàn 100% để triệt tiêu lỗi NameError
+            styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
+
 
             # Áp dụng hàm tô màu vào DataFrame báo cáo
             styled_report_df = df_final_report.style.apply(highlight_ratios, axis=None)
@@ -236,27 +232,24 @@ else:
             st.markdown("""<style>
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
                 
-                /* Ghép tọa độ ghim cứng cho 6 hàng hành chính và ma trận size đầu bảng */
                 tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
                 tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
                 tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
                 tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
-                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                tr:nth-child(5) td { position: sticky; top: 145px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
+                tr:nth-child(6) td { position: sticky; top: 175px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
                 
                 tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { text-align: left !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
                 
-                /* Các hàng CÒN LẠI (Tất cả hàng chẵn bắt đầu từ dòng 7) nhuộm màu xanh dương dịu xưởng */
                 tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; }
-                
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             
-            # ÉP IN BẢNG ĐÃ ĐƯỢC ĐỔ MÀU TỶ LỆ ĐỘNG (.style) LÊN GIAO DIỆN WEB
+            # Khởi chạy nạp bảng biến sạch
             st.dataframe(styled_report_df, use_container_width=True, hide_index=True)
             st.markdown("---")
             st.success("🎉 Hệ thống ma trận tỷ lệ nhảy rập đã được bôi nền vàng chữ đỏ trực quan thương mại thành công!")
