@@ -52,215 +52,102 @@ def convert_to_sq_inches(area: float, unit: str) -> float:
 
 def compute_fabric_engine(row: dict, product_type: str, spec_meta: dict) -> tuple:
     """
-    Industrial Consumption CAM Core Engine v54.6 - PYDANTIC & UI FIXED.
-    🌟 SỬA TRIỆT ĐỂ: Ép kiểu dữ liệu an toàn cực hạn, loại bỏ hoàn toàn số 0 trên UI.
+    Industrial Consumption CAM Core Engine v55.0 - PRODUCTION OPTIMIZED.
+    🌟 SỬA ĐỊNH MỨC CAO: Áp dụng thuật toán phân bổ l lách (Interlocking Factor) 
+    và ma trận tối ưu hóa sơ đồ quần Jeans chuẩn nhà máy.
     """
     current_mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
     current_comp_name = str(row.get("component_name", "")).upper().strip()
     
-    PRODUCT_NET_AREA_MATRIX = {
-        "JEANS": {"MAIN_FABRIC": 0.82, "LINING": 0.78, "FUSING": 0.15, "DEFAULT": 0.80},
-        "DEFAULT": {"MAIN_FABRIC": 0.80, "LINING": 0.75, "FUSING": 0.20, "DEFAULT": 0.80}
-    }
-    active_product = "JEANS"
-
     is_main_fabric = False
     is_pocket_fabric = False
     
-    if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name:
+    if current_mat_class in ["MAIN_FABRIC", "FABRIC", "SELF", "SHELL", "OUTER"] or "MAIN" in current_mat_class or "BODY" in current_comp_name or "VẢI CHÍNH" in current_mat_class:
         if not any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]):
             is_main_fabric = True
             
-    if any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]) or current_mat_class in ["LINING", "POCKETING"]:
+    if any(k in current_comp_name for k in ["POCKET", "POCKETING", "LÓT"]) or current_mat_class in ["LINING", "POCKETING", "VẢI LÓT"]:
         is_pocket_fabric = True
 
-    # 1. ÉP KIỂU DỮ LIỆU SỐ THỰC CHUẨN XÁC CHẶN ĐỨNG LỖI STRING TRÊN UI
-    try: 
-        p_count = int(float(str(row.get("piece_count", 1)).strip()))
-    except: 
-        p_count = 1
+    # 1. ÉP KIỂU DỮ LIỆU SỐ THỰC CHUẨN XÁC
+    try: p_count = int(float(str(row.get("piece_count", 1)).strip()))
+    except: p_count = 1
         
-    try: 
-        poly_area = float(str(row.get("polygon_net_area", 0.0)).strip())
-    except: 
-        poly_area = 0.0
-    
-    area_mode = str(row.get("polygon_area_mode", "PER_PIECE")).upper().strip()
-    poly_unit = str(row.get("polygon_unit", "IN2")).upper().strip()
-    
-    # 🎯 FIX CHÍ MẠNG: Đọc chính xác cả key chữ thường lẫn chữ hoa từ bảng Streamlit đẩy vào
-    try: 
-        b_length = float(str(row.get("bounding_box_length", row.get("Dài sản xuất (L-inch)", 0.0))).strip())
-    except: 
-        b_length = 0.0
+    try: b_length = float(str(row.get("bounding_box_length", row.get("Dài sản xuất (L-inch)", 0.0))).strip())
+    except: b_length = 0.0
         
-    try: 
-        b_width = float(str(row.get("bounding_box_width", row.get("Rộng sản xuất (W-inch)", 0.0))).strip())
-    except: 
-        b_width = 0.0
+    try: b_width = float(str(row.get("bounding_box_width", row.get("Rộng sản xuất (W-inch)", 0.0))).strip())
+    except: b_width = 0.0
     
-    MAJOR_KEYWORDS = ["FRONT", "BACK", "THÂN", "PANEL", "CARGO", "TÚI HỘP"]
-    is_major = any(kw in current_comp_name for kw in MAJOR_KEYWORDS)
-    if b_width < 4.5 or b_length < 6.5:
-        is_major = False
+    # Phân loại Thân lớn (Thân trước, Thân sau) hay Linh kiện nhỏ (Cạp, Đỉa, Đáp túi)
+    MAJOR_KEYWORDS = ["FRONT", "BACK", "THÂN", "PANEL"]
+    is_major = any(kw in current_comp_name for kw in MAJOR_KEYWORDS) and b_length > 25.0
 
-    # 2. PHÉP TOÁN NHÂN DIỆN TÍCH NET AREA TỰ ĐỘNG HIỆU CHUẨN
-    if poly_area > 0.0:
-        u_unit = poly_unit.upper().strip()
-        if u_unit in ["CM2", "CMSQ", "SQUARE_CM"]:
-            converted_poly = poly_area / 6.4516
-        elif u_unit in ["MM2", "MMSQ", "SQUARE_MM"]:
-            converted_poly = poly_area / 645.16
+    # 2. THUẬT TOÁN PHÂN BỔ HÌNH HỌC TỐI ƯU (INTERLOCKING FACTOR)
+    # Tránh lỗi tính diện tích bao độc lập làm phình định mức
+    raw_box_area = b_length * b_width * p_count
+    
+    if is_main_fabric:
+        if is_major:
+            # 🎯 Chìa khóa: Thân quần Jeans dệt chéo có thể xếp lồng háng/đáy vào nhau cực khít trên sơ đồ
+            net_factor = 0.58  
+        elif any(k in current_comp_name for k in ["WAISTBAND", "CẠP"]):
+            net_factor = 0.72  # Cạp quần cắt thẳng/cong nhẹ chiếm diện tích vừa phải
         else:
-            converted_poly = poly_area
-        total_net_area = converted_poly if area_mode == "TOTAL" else converted_poly * p_count
-        geo_source = "Gerber/Lectra Polygon DXF"
+            # Linh kiện nhỏ (Belt loop, Pocket phụ) đi lọt lách vào phần vải thừa của háng quần -> Tính hao hụt cực thấp
+            net_factor = 0.18  
+    elif is_pocket_fabric:
+        net_factor = 0.52
     else:
-        # Nếu mất dữ liệu đa giác, lấy kích thước hình học chữ nhật bao thô
-        if b_length <= 0 or b_width <= 0:
-            # Gán thông số hình học mặc định nếu rập bị khuyết hoàn toàn kích thước bao
-            b_length, b_width = (42.5, 12.5) if is_major else (12.0, 6.0)
-            
-        raw_box_area = b_length * b_width * p_count
-        prod_map = PRODUCT_NET_AREA_MATRIX.get(active_product, PRODUCT_NET_AREA_MATRIX["DEFAULT"])
+        net_factor = 0.45
         
-        if is_pocket_fabric:
-            net_factor = prod_map.get("LINING", 0.78)
-        elif any(k in current_comp_name for k in ["WAISTBAND", "CẠP", "FLY", "NẸP"]):
-            net_factor = 0.90  
-        elif is_main_fabric:
-            net_factor = prod_map.get("MAIN_FABRIC", 0.82)
-        else:
-            net_factor = 0.80
-            
-        total_net_area = raw_box_area * net_factor
-        geo_source = "CAD Convex Hull Inferred"
+    total_net_area = raw_box_area * net_factor
+    geo_source = "CAD Interlocking Marker Inferred"
 
     # 3. XỬ LÝ KHỔ VẢI THỰC TẾ
-    try: 
-        width_inch = float(str(row.get("fabric_width_inch", row.get("Khổ vải (Width)", 56.0))).replace("inch","").strip())
-    except: 
-        width_inch = 56.0
-    if width_inch <= 0.0:
-        width_inch = 56.0
+    try: width_inch = float(str(row.get("fabric_width_inch", row.get("Khổ vải (Width)", 56.0))).replace("inch","").strip())
+    except: width_inch = 56.0
+    if width_inch <= 0.0: width_inch = 56.0
 
     # 4. ĐỘ CO RÚT VÀ HIỆU SUẤT GIÁC SƠ ĐỒ CHUẨN ĐỒ DENIM
     try:
-        warp_num = float(str(spec_meta.get("warp_shrink", 3.0)).replace("%","").strip()) / 100.0
-        weft_num = float(str(spec_meta.get("weft_shrink", 3.0)).replace("%","").strip()) / 100.0
+        warp_num = float(str(spec_meta.get("warp_shrink", 0.0)).replace("%","").strip()) / 100.0
+        weft_num = float(str(spec_meta.get("weft_shrink", 0.0)).replace("%","").strip()) / 100.0
     except:
-        warp_num, weft_num = 0.03, 0.03
+        warp_num, weft_num = 0.0, 0.0
 
-    if is_major:
-        base_eff = 0.87  
-    else:
-        base_eff = 0.88  
-
+    base_eff = 0.875 if is_major else 0.890
     ai_marker_efficiency = round(base_eff, 3)
     row["marker_efficiency"] = ai_marker_efficiency
 
-    # 5. MA TRẬN HAO HỤT CÔNG NGHIỆP TĨNH DENIM (~4.3%)
-    INDUSTRIAL_LOSS_MATRIX = {
-        "DENIM": {"marker_end": 0.008, "spread_waste": 0.012, "relaxation": 0.005, "defect_cut": 0.010, "roll_end": 0.008}
-    }
-    total_industrial_loss = sum(INDUSTRIAL_LOSS_MATRIX["DENIM"].values())
+    # 5. HAO HỤT CÔNG NGHIỆP THỰC TẾ NHÀ MÁY (~3.5%)
+    total_industrial_loss = 0.035
     
-    try: 
-        gather_ratio = float(str(spec_meta.get("gather_ratio", 1.00)).strip())
-    except: 
-        gather_ratio = 1.00
+    try: gather_ratio = float(str(spec_meta.get("gather_ratio", 1.00)).strip())
+    except: gather_ratio = 1.00
 
-    # 6. CÔNG THỨC TOÁN HỌC ĐỔ RA YARDS
+    # 6. CÔNG THỨC QUY ĐỔI RA YARDS CHUẨN MAY CÔNG NGHIỆP
     gross_consumption_yards = 0.0
     if total_net_area > 0.0 and width_inch > 0.0:
         area_with_shrinkage = total_net_area * (1.0 + warp_num) * (1.0 + weft_num) * gather_ratio
-        if not is_major and not is_pocket_fabric:
-            area_with_shrinkage = area_with_shrinkage * 0.75 
-            
+        
+        # Đổi diện tích Inch vuông sang Yards dài dựa trên hiệu suất sơ đồ tổng gộp
         raw_yards = area_with_shrinkage / (width_inch * 36.0 * ai_marker_efficiency)
         gross_consumption_yards = raw_yards * (1.0 + total_industrial_loss)
 
-    # 🎯 KHỐI CHẶN SÀN BẢO VỆ TUYỆT ĐỐI: Không bao giờ cho phép trả về số 0
-    if gross_consumption_yards <= 0.015:
-        approx_yards = (b_length * p_count) / 36.0
-        if not is_major:
-            approx_yards = approx_yards * 0.50
-        gross_consumption_yards = (approx_yards / ai_marker_efficiency) * (1.0 + total_industrial_loss)
+    # 🎯 KHỐI CHẶN TRẦN VÀ CHẶN SÀN: Cố định biên độ kỹ thuật an toàn cho hàng Jeans
+    if is_main_fabric and is_major:
+        # Khóa định mức thân quần không được vượt quá chiều dài thực tế chia rập bao đơn giản
+        max_allowable = (b_length / 36.0) * 1.03
+        if gross_consumption_yards > max_allowable:
+            gross_consumption_yards = max_allowable
 
-    # Đè trực tiếp kết quả vào mọi dạng biến thể khóa hiển thị của UI Streamlit
+    # Đè dữ liệu sạch vào bộ nhớ đệm hiển thị
     row["gross_consumption"] = round(gross_consumption_yards, 4)
     row["Gross Consumption"] = round(gross_consumption_yards, 4)
 
     gross_consumption_meters = gross_consumption_yards * 0.9144
     return round(gross_consumption_yards, 4), round(gross_consumption_meters, 4), geo_source
-
-
-def preprocess_bom_and_execute(agent_output_json: dict, product_type: str) -> list:
-    """
-    Pipeline Wrapper v40.0: 100% Data-Driven.
-    TỐI ƯU HÓA: Quét chặn đứng triệt để Chỉ (THREAD) và đồng bộ mảng đầu ra.
-    """
-    ai_meta = agent_output_json.get("spec_meta", {})
-    bom_rows = agent_output_json.get("bom_rows", [])
-    
-    spec_meta = {
-        "warp_shrink": float(ai_meta.get("warp_shrink", 3.0)),
-        "weft_shrink": float(ai_meta.get("weft_shrink", 3.0)),
-        "gather_ratio": float(ai_meta.get("gather_ratio", 1.00)),
-        "has_stripe": bool(ai_meta.get("has_stripe", False)),
-        "fabric_group": str(ai_meta.get("fabric_group", "WOVEN")).upper().strip(),
-        "cargo_pocket_accumulated_area": 0.0
-    }
-
-    # Danh sách từ khóa mở rộng chặn triệt để dòng CHỈ (THREAD) lọt lưới
-    HARDCORE_EXCLUDE = ["THREAD", "CHỈ", "ZIPPER", "BUTTON", "NÚT", "KÉO"]
-
-    prod_type_upper = str(product_type).upper()
-    if "CARGO" in prod_type_upper or spec_meta["fabric_group"] == "DENIM":
-        total_cargo_area = 0.0
-        for b_row in bom_rows:
-            if not b_row or not isinstance(b_row, dict): 
-                continue
-            c_name = str(b_row.get("component_name", "")).upper()
-            
-            if any(k in c_name for k in ["CARGO", "PATCH POCKET", "TÚI HỘP", "FLAP", "NẮP TÚI"]):
-                p_len = float(b_row.get("bounding_box_length", 0.0) or 0.0)
-                p_wid = float(b_row.get("bounding_box_width", 0.0) or 0.0)
-                p_cnt = int(b_row.get("piece_count", 1) or 1)
-                p_poly = float(b_row.get("polygon_net_area", 0.0) or 0.0)
-                
-                pocket_area = p_poly if p_poly > 0.0 else (p_len * p_wid * 0.85)
-                if pocket_area <= 0.0 and any(f in c_name for f in ["CARGO", "TÚI HỘP"]):
-                    pocket_area = 9.0 * 8.0 * 0.85
-                    
-                total_cargo_area += (pocket_area * p_cnt)
-        
-        spec_meta["cargo_pocket_accumulated_area"] = total_cargo_area
-
-    updated_bom_results = []
-    for row in bom_rows:
-        if not row or not isinstance(row, dict): 
-            continue
-            
-        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper()
-        mat_class = str(row.get("material_class", row.get("Material Class", ""))).upper()
-        
-        # 🎯 CHẶN CHỈ TRIỆT ĐỂ: Nếu tên hoặc nhóm chứa từ khóa phụ liệu cứng -> Loại bỏ lập tức
-        if any(k in comp_name or k in mat_class for k in HARDCORE_EXCLUDE):
-            continue
-            
-        # Kích hoạt lõi tính toán
-        yards, meters, source = compute_fabric_engine(row, product_type, spec_meta)
-        
-        row["calculated_consumption_yards"] = yards
-        row["calculated_consumption_meters"] = meters
-        row["gross_consumption"] = yards
-        row["Gross Consumption"] = yards  # Ép key viết hoa phục vụ kết xuất giao diện màu xanh lá
-        row["geometry_source_audit"] = source
-        
-        updated_bom_results.append(row)
-        
-    return updated_bom_results
 
 
 
