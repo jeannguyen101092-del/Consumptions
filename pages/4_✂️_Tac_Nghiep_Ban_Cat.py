@@ -8,18 +8,16 @@ st.set_page_config(layout="wide")
 
 # KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
 if not st.session_state.get("purchase_ready"):
-    st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
-    <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
+    <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size (Regular, Missy, Petite) để hệ thống tự động bẻ ma trận 3 tầng.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
     if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
             with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-                if "get_secure_gemini_key" in globals(): 
-                    gemini_key = get_secure_gemini_key()
-                else: 
-                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
+                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
                 import google.generativeai as genai
                 from google.genai import types
@@ -37,7 +35,12 @@ if not st.session_state.get("purchase_ready"):
                 elif file_sbd_c2.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                sbd_prompt = "Extract style_id, total_quantity, and flat size mappings. Return raw JSON matching schema: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size Name\": integer}}"
+                # Nâng cấp Prompt ép AI trả ra cấu trúc phân tách rõ Giàng (inseam), Nhóm Size (group) và Size Name
+                sbd_prompt = """Extract style_id, total_quantity, and complete flat size breakdown. 
+                Return JSON format ONLY matching schema: 
+                {"style_id": "string", "total_quantity": integer, "size_breakdown": {"Column Header Name": integer}}
+                Important: "Column Header Name" must contain full identifiers from document like '30x28', 'Giàng 32 - Size M', 'Regular-S', or just 'M' if flat."""
+                
                 if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
@@ -49,7 +52,6 @@ if not st.session_state.get("purchase_ready"):
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
-# KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
     if isinstance(sbd_data_store, dict) and sbd_data_store:
@@ -75,9 +77,6 @@ else:
         with input_col6: cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
         
         cad_paste_zone = st.text_area("Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", placeholder="Ví dụ dán bảng từ Excel CAD:\n5844-c01 1.05\n5844-c02 10", height=90, key="cad_bulk_paste_c2")
-        
-        if size_breakdown_main:
-            st.dataframe(pd.DataFrame([size_breakdown_main]), use_container_width=True, hide_index=True)
         
         active_sizes = [str(k) for k, v in size_breakdown_main.items() if int(v) > 0]
         if not active_sizes: active_sizes = ["S", "M", "L", "XL", "2XL", "3XL"]
@@ -134,46 +133,100 @@ else:
                 st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
             except Exception: pass
             parsed_size_columns = []
-            is_don_khong_giang = True  
+            
             for col_name in active_sizes:
                 col_clean = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                if "giàng" in col_clean.lower() or any(c in col_clean.lower() for c in ["x", "-", "/"]):
+                
+                # Khởi tạo giá trị mặc định khi không tìm thấy giàng/nhóm phân loại
+                giang_val = "None"
+                size_val = col_clean
+                
+                # 1. Bẫy nhận diện nhóm phân loại size đặc thù ngành may (Regular, Missy, Petite, Tall, Plus...)
+                lower_clean = col_clean.lower()
+                matched_group = None
+                for group_name in ["regular", "missy", "petite", "pety", "tall", "plus", "misy"]:
+                    if group_name in lower_clean:
+                        matched_group = group_name.upper()
+                        break
+                
+                # 2. Bẫy nhận diện ký tự phân tách giàng/mã (Giàng 1, Giàng A, hoặc dấu gạch chéo/gạch ngang)
+                if matched_group:
+                    giang_val = matched_group
+                    # Loại bỏ chữ phân nhóm khỏi tên size chính
+                    size_val = re.sub(r'(regular|missy|petite|pety|tall|plus|misy)[\sXx\-\/:]*', '', col_clean, flags=re.IGNORECASE).strip()
+                elif "giàng" in lower_clean or any(c in lower_clean for c in ["x", "-", "/"]):
                     parts = re.split(r'[\sXx\-\/:]+', col_clean)
                     parts_clean = [p.strip() for p in parts if p.strip().lower() not in ["giàng", "size", "sl", "siz"]]
-                    if len(parts_clean) >= 2: is_don_khong_giang = False; giang_val, size_val = parts_clean[1], parts_clean[0]
-                    elif len(parts_clean) == 1: size_val, giang_val = parts_clean[0], ""
-                    else: size_val, giang_val = col_clean, ""
-                else: size_val, giang_val = col_clean, ""
-                if str(giang_val).lower() in ["none", "nan", ""]: giang_val = ""
-                else: is_don_khong_giang = False
-                parsed_size_columns.append({"original": col_name, "size_num": int(size_val) if str(size_val).isdigit() else size_val, "giang_num": int(giang_val) if str(giang_val).isdigit() else giang_val})
+                    if len(parts_clean) >= 2:
+                        giang_val = f"GIÀNG {parts_clean[0]}" if parts_clean[0].isdigit() else parts_clean[0].upper()
+                        size_val = parts_clean[1]
+                    elif len(parts_clean) == 1:
+                        size_val = parts_clean[0]
+                
+                # Khử các giá trị rỗng hoặc định dạng lỗi
+                if size_val == "": size_val = col_clean
+                
+                parsed_size_columns.append({
+                    "original": col_name, 
+                    "size_num": int(size_val) if str(size_val).isdigit() else size_val, 
+                    "giang_num": giang_val
+                })
+
+            # Sắp xếp thứ tự cột hiển thị theo Giàng trước, Size sau
+            try:
+                parsed_size_columns.sort(key=lambda x: (
+                    0 if x['giang_num'] == "None" else 1,
+                    str(x['giang_num']),
+                    x['size_num'] if isinstance(x['size_num'], int) else str(x['size_num'])
+                ))
+            except Exception:
+                pass
 
             ordered_size_keys = [item["original"] for item in parsed_size_columns]
             df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
 
-            web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
+            # =============================================================================
+            # KHỐI 5B: DỰNG ĐÚNG 3 TẦNG ĐỘC LẬP TRÊN WEB & ĐỔ MÀU CSS MỚI
+            # =============================================================================
+            # Tạo mảng tuple MultiIndex chứa đúng cấu trúc 3 tầng độc lập phân rã dữ liệu
+            web_multi_cols = [("THÔNG TIN", "MÃ SƠ ĐỒ", "SẢN LƯỢNG")]
+            
             for item in parsed_size_columns:
                 po_qty_val = int(size_breakdown_main.get(item['original'], 0))
-                lbl = "SIZE TRẦN" if is_don_khong_giang else f"GIÀNG: {item['giang_num']}"
-                web_multi_cols.append((lbl, f"{item['size_num']}", f"{po_qty_val}"))
-            for col_name in other_tech_keys: web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
+                # Tầng 1: Tên Giàng/Nhóm | Tầng 2: Size sạch | Tầng 3: Số lượng tổng đơn hàng
+                web_multi_cols.append((
+                    f"{item['giang_num']}", 
+                    f"{item['size_num']}", 
+                    f"{po_qty_val:,} Pcs"
+                ))
+                
+            for col_name in other_tech_keys:
+                # Các cột thông số kỹ thuật cuối bảng gộp tiêu đề để bảng nhìn gọn gàng
+                web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
+                
             df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
 
+            # Hàm tô nền màu vàng cho các ô có số tỷ lệ nhảy sơ đồ
             def highlight_ratios_and_headers(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                 for r in range(len(x)):
-                    if x.iloc[r, 0] == "Balance": continue
+                    if str(x.iloc[r, 0]).strip().lower() == "balance": continue
                     for c in range(1, len(x.columns)):
                         val = x.iloc[r, c]
                         if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
                             color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
                 return color_df
 
+            # Khóa mã màu CSS chuyên nghiệp ép đổ nền 3 tầng riêng biệt phân cấp rõ rệt
             st.markdown("""<style>
-                th.col_heading.level0 { background-color: #E0F2FE !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; border: 1px solid #93C5FD !important; }
-                th.col_heading.level1 { background-color: #F8FAFC !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
-                th.col_heading.level2 { background-color: #BAE6FD !important; color: #0369A1 !important; font-weight: 700 !important; font-size: 11px !important; text-align: center !important; border: 1px solid #7DD3FC !important; }
-                th.col_heading.blank { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; border: 1px solid #86EFAC !important; }
+                /* TẦNG 1: HIỂN THỊ GIÀNG / NHÓM SIZE */
+                th.col_heading.level0 { background-color: #CBD5E1 !important; color: #1E293B !important; font-weight: 800 !important; font-size: 13px !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
+                /* TẦNG 2: HIỂN THỊ KÍCH CỠ (SIZE) */
+                th.col_heading.level1 { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; font-size: 13px !important; text-align: center !important; border: 1px solid #EAB308 !important; }
+                /* TẦNG 3: HIỂN THỊ TỔNG SẢN LƯỢNG PO */
+                th.col_heading.level2 { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 700 !important; font-size: 12px !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                /* KHU VỰC CÁC CỘT CUỐI THÔNG SỐ TÁC NGHIỆP */
+                th.col_heading.blank, [class*="blank"] { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; border: 1px solid #86EFAC !important; }
             </style>""", unsafe_allow_html=True)
 
             st.dataframe(df_final_report.style.apply(highlight_ratios_and_headers, axis=None), use_container_width=True, hide_index=True)
