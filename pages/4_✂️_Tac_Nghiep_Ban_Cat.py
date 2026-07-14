@@ -131,12 +131,13 @@ else:
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
                     st.success("🎯 AI đã tính toán thành công hệ thống sơ đồ chính phối dài và sơ đồ vét dư dựa theo thông số Form!")
                 except Exception:
-                    # Khối dự phòng phẳng nếu AI nghẽn mạng
-                    st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizesPosition}}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
+                    # Khử sạch chữ thừa dính liền tại đây
+                    st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
+
 
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
