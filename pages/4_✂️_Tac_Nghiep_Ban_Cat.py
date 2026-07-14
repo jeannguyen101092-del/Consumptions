@@ -12,22 +12,6 @@ if not st.session_state.get("purchase_ready"):
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size để hệ thống tự động số hóa ma trận.</p></div>""", unsafe_allow_html=True)
     
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-    if file_sbd_c2:
-        trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
-        if trigger_btn_c2:
-            with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-                if "get_secure_gemini_key" in globals(): 
-                    gemini_key = get_secure_gemini_key()
-                else: 
-                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-                
-                from google import genai
-                from google.genai import types
-                
-                client_ai = genai.Client(api_key=gemini_key)
-                sbd_bytes = file_sbd_c2.getvalue()
-                sbd_content_str = ""
-                sbd_parts_payload = []
                 if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -38,13 +22,39 @@ if not st.session_state.get("purchase_ready"):
                 elif file_sbd_c2.name.lower().endswith('.pdf'):
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                     
-                sbd_prompt = 'Extract style_id, total_quantity, and complete flat size breakdown. Return JSON format ONLY matching schema: {"style_id": "string", "total_quantity": integer, "size_breakdown": {"Column Header Name": integer}}'
+                # NÂNG CẤP PROMPT ÉP AI SỐ HÓA MA TRẬN PHỐI GIÀNG CHỨA KÝ TỰ 'X' CỦA BIỂU MẪU ĐƠN HÀNG
+                sbd_prompt = """
+                Bạn là một chuyên gia số hóa tài liệu ngành dệt may. Hãy phân tích bảng 'Quantity Details' trong tài liệu được cung cấp.
+                1. Trích xuất mã hàng nằm ở mục 'Key Item' hoặc 'Style' (Ví dụ: '6082').
+                2. Trích xuất tổng sản lượng ở mục 'Units' hoặc 'Total' (Ví dụ: 2500).
+                3. Trích xuất toàn bộ danh sách kích cỡ nằm ở hàng tiêu đề của bảng số lượng (Ví dụ: '26 X 30', '28 X 30', '29 X 32').
+                
+                QUY TẮC ÉP KIỂU MA TRẬN SIZE BẮT BUỘC:
+                - Đối với các tiêu đề cột có dạng nối liền như '26 X 30' hoặc '30 X 32', bạn PHẢI giữ nguyên cấu trúc chuỗi văn bản gốc này làm Tên Khóa (Key Name) của mảng 'size_breakdown'. 
+                - Hãy nhặt con số sản lượng thực tế nằm ngay dưới cột cỡ đó (Ví dụ dưới cột '26 X 30' có số '88', dưới cột '28 X 30' có số '156') để điền giá trị. Bỏ qua các hàng trống hoặc các cột tổng.
+                
+                Trả về kết quả DUY NHẤT dưới dạng cấu trúc JSON gốc sạch sẽ, không kèm từ giải thích rác:
+                {
+                    "style_id": "6082",
+                    "total_quantity": 2500,
+                    "size_breakdown": {
+                        "26 X 30": 88,
+                        "28 X 30": 156,
+                        "29 X 30": 150,
+                        "29 X 32": 122
+                    }
+                }
+                """
                 if sbd_content_str: 
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
                 try:
-                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=sbd_parts_payload, 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
                     st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
                 except Exception: 
                     pass
@@ -52,6 +62,7 @@ if not st.session_state.get("purchase_ready"):
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+
 # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
