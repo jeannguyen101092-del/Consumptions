@@ -100,7 +100,7 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (AI GIẢI MA TRẬN TỶ LỆ)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang phân tích dữ liệu, áp dụng quy tắc chặn số lớp ít - tỷ lệ nhỏ công nghiệp..."):
+            with st.spinner("🤖 AI đang tối ưu: Nâng số lớp sơ đồ chính, dồn cụm tỉ lệ lớn và vét đuôi khúc..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -111,9 +111,9 @@ else:
                 
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # ÉP TOÀN BỘ RÀNG BUỘC SỐ LỚP ÍT KHÔNG ĐƯỢC ĐI TỶ LỆ LỚN VÀO PROMPT [INDEX]
+                # CẤU HÌNH LẠI PROMPT ÉP AI THAY ĐỔI ĐỘNG SỐ LỚP THEO THỰC TẾ SẢN XUẤT [INDEX]
                 ai_cutting_prompt = f"""
-                Bạn là một kỹ sư toán học điều độ bàn cắt công nghiệp dệt may đại tài. Hãy lập phương án sơ đồ phối size cho đơn hàng này.
+                Bạn là chuyên gia lập kế hoạch bàn cắt công nghiệp dệt may đại tài. Hãy tính toán phân bổ sơ đồ cho đơn hàng này.
                 
                 DANH SÁCH SIZE GỐC BẮT BUỘC SỬ DỤNG LÀM KEY: {json.dumps(list(size_breakdown_main.keys()))}
                 SẢN LƯỢNG ĐƠN HÀNG GỐC CẦN TRIỆT TIÊU: {json.dumps(size_breakdown_main)}
@@ -124,28 +124,31 @@ else:
                 - Khổ cắt: {cuttable_width_inch} Inches
                 - Loại vải tác nghiệp: {fabric_type_input}
 
-                QUY TẮC TOÁN HỌC & RÀNG BUỘC KỸ THUẬT BAN CẮT BẮT BUỘC [INDEX]:
-                1. RÀNG BUỘC SỐ LỚP VÀ TỶ LỆ (QUY TẮC CHẶN HAO VẢI ĐẦU KHÚC) [INDEX]: 
-                   - Nếu Số Lớp (Layers) LỚN (Từ 50 lớp trở lên): BẮT BUỘC đi sơ đồ gộp có tổng tỷ lệ lớn (Ví dụ tổng tỉ lệ bằng 3, 4, 5 hoặc 6 quần trên một sơ đồ) để chiều dài sơ đồ đạt sát trần {max_table_length}m nhằm tối ưu năng suất và tiết kiệm vải đầu bàn [INDEX].
-                   - Nếu Số Lớp (Layers) ÍT (Dưới 40 lớp hoặc các bàn vét đuôi lẻ): TUYỆT ĐỐI KHÔNG ĐƯỢC đi sơ đồ gộp có tổng tỷ lệ lớn [INDEX]. Nếu số lớp ít, tổng tỷ lệ của sơ đồ đó CHỈ ĐƯỢC PHÉP bằng 1 quần (Sơ đồ vét đơn) hoặc tối đa là 2 quần để bàn vải không bị quá ngắn, tránh hiện tượng hao phí vải đầu khúc lãng phí [INDEX].
-                2. Hãy làm phép toán trừ lùi lũy tiến (Lượng dư còn lại = Sản lượng gốc - Tỉ lệ * Số lớp * Số bàn) qua từng bàn để ép số dư 'CÒN LẠI' ở sơ đồ cuối cùng về đúng số 0 sạch sẽ [INDEX].
-                3. Tổng sản lượng cắt (Tỉ lệ * Số lớp * Số bàn) của tất cả sơ đồ cộng lại phải trùng khớp chính xác 100% với sản lượng PO ban đầu [INDEX].
+                QUY TẮC PHỐI LẬP SƠ ĐỒ CHUẨN ĐIỀU ĐỘ SẢN XUẤT (KIM TỰ THÁP NGƯỢC) [INDEX]:
+                1. ĐỐI VỚI SƠ ĐỒ CHÍNH (CÁC BÀN ĐẦU c01, c02, c03...): 
+                   - Bạn PHẢI tự động đẩy Số Lớp (Layers) lên mức cao tối đa phù hợp (Ví dụ: 100 lớp, 120 lớp, hoặc 150 lớp) [INDEX].
+                   - Đi kèm với số lớp lớn đó, bạn PHẢI gộp các size sát nhau có sản lượng lớn để đi sơ đồ gộp có tổng tỷ lệ lớn (Ví dụ: tỉ lệ 2, 3, hoặc 4 quần cho mỗi size; tổng số sản phẩm trên sơ đồ đạt khoảng 6 đến 12 quần) sao cho chiều dài sơ đồ đạt sát trần cho phép {max_table_length}m nhằm giải quyết cực nhanh sản lượng PO [INDEX].
+                2. ĐỐI VỚI SƠ ĐỒ VÉT ĐUÔI (CÁC BÀN CUỐI CÙNG):
+                   - Sau khi trừ lùi sản lượng lũy tiến, các lượng dư mồ côi còn sót lại ở đầu khúc cuối, bạn mới được phép hạ Số Lớp (Layers) xuống thấp (Ví dụ: 10, 15, 20 lớp) [INDEX].
+                   - Đi kèm với số lớp ít này, sơ đồ PHẢI vuốt đuôi nhỏ lại thành sơ đồ vét chỉ chứa tỷ lệ 1 quần cho các cỡ lẻ để triệt tiêu số dư CÒN LẠI về đúng số 0 tuyệt đối [INDEX].
+                3. TUYỆT ĐỐI KHÔNG ĐƯỢC mặc định rải đều số lớp 50 cho mọi bàn dẫn đến việc tất cả sơ đồ đều có tỷ lệ lẻ 1 quần [INDEX]. Số lớp phải biến động động theo quy tắc: Sơ đồ gộp đi với số lớp nhiều, sơ đồ vét đi với số lớp ít [INDEX].
 
-                Trả về duy nhất mảng JSON sạch cấu trúc mẫu, không viết chữ giải thích rác:
+                Trả về kết quả DUY NHẤT dưới dạng mảng JSON gốc sạch sẽ:
                 [
-                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 2 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 4}}
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{ "Điền_Đúng_Khóa_Size_Gốc_1": 2, "Điền_Đúng_Khóa_Size_Gốc_2": 3 }}, "Số lớp": 120, "Số bàn": 1, "Số sp/SĐ": 5}}
                 ]
                 """
                 try:
                     res_cutting = client_ai.models.generate_content(model='gemini-2.5-flash', contents=[ai_cutting_prompt])
                     st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    st.success("🎯 AI đã giải mã toán ma trận phối size gộp và vét đầu khúc theo ràng buộc số lớp thành công!")
+                    st.success("🎯 AI đã nâng số lớp và tối ưu tổ hợp tỷ lệ gộp lớn thành công!")
                 except Exception:
                     st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
+
 
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
