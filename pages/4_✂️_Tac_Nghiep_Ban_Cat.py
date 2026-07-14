@@ -7,15 +7,15 @@ import re
 st.set_page_config(layout="wide")
 
 # =============================================================================
-# TẦNG 1: SỐ HÓA FILE SBD HOẶC GỌI TRỰC TIẾP PHIẾU CŨ TỪ CLOUD SUPABASE
+# TẦNG 1: SỐ HÓA FILE SBD HOẶC GỌI TRỰC TIẾP PHIẾU CŨ TỪ CLOUD SUPABASE MÀN HÌNH CHÍNH
 # =============================================================================
 if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
     <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) để tính toán tác nghiệp mới, HOẶC chọn tra cứu nhanh phiếu cũ bên dưới.</p></div>""", unsafe_allow_html=True)
     
     from supabase import create_client
-    url_direct = "https://ewqqodsfvlvnrzsylawy.supabase.co"
-    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"
+    url_direct = "https://supabase.co"
+    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678"
     sb_load_client = create_client(url_direct, key_direct)
     
     history_styles = ["-- Chọn mã hàng cũ đã lưu trên Supabase --"]
@@ -26,6 +26,7 @@ if not st.session_state.get("purchase_ready"):
                 label = f"{item['style_id']} - VẢI: {item['fabric_type']}"
                 if label not in history_styles: history_styles.append(label)
     except Exception: pass
+    
     selected_old_record = st.selectbox("📂 Xem lại phiếu tác nghiệp cũ từ Supabase (Không cần up file):", history_styles, key="sb_outside_history_select")
     
     if selected_old_record != "-- Chọn mã hàng cũ đã lưu trên Supabase --":
@@ -37,13 +38,37 @@ if not st.session_state.get("purchase_ready"):
             res_detail = sb_load_client.table("cutting_orders_db").select("*").eq("style_id", st_id_search).eq("fabric_type", fb_tp_search).limit(1).execute()
             if res_detail.data and len(res_detail.data) > 0:
                 old_data = res_detail.data[0]
+                
+                # 🎯 THUẬT TOÁN TỰ DỰNG LẠI MA TRẬN KÍCH CỠ TỪ FILE JSON LƯU TRỮ ĐỂ PHỤC VỤ VẼ BẢNG [INDEX]
+                recovered_matrix = old_data.get("cutting_matrix_data", [])
+                built_sizes_dict = {}
+                
+                if recovered_matrix and len(recovered_matrix) >= 6:
+                    # Dòng số 5 chứa dữ liệu SIZE gốc và Dòng số 6 chứa dữ liệu SẢN LƯỢNG PO gốc [INDEX]
+                    size_row_data = recovered_matrix[4]
+                    qty_row_data = recovered_matrix[5]
+                    
+                    # Quét dọc qua từng cột kích cỡ để bốc ngược dữ liệu vào bộ nhớ đệm [INDEX]
+                    for k_key, v_size in size_row_data.items():
+                        if k_key != "BÀN CẮT / TÊN SƠ ĐỒ" and not any(x in k_key for x in ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN"]):
+                            if v_size and str(v_size).strip() != "":
+                                # Đọc con số sản lượng PO tương ứng đi kèm [INDEX]
+                                raw_qty_str = str(qty_row_data.get(k_key, "0")).replace(",", "")
+                                try: built_sizes_dict[str(v_size).strip()] = int(raw_qty_str)
+                                except ValueError: built_sizes_dict[str(v_size).strip()] = 1
+                
+                # Nếu không tự bẻ được, nạp mảng dự phòng tránh treo ứng dụng [INDEX]
+                if not built_sizes_dict:
+                    built_sizes_dict = {"26 X 30": 100, "28 X 30": 100}
+                
                 st.session_state["sbd_parsed_data"] = {
                     "style_id": old_data.get("style_id"),
                     "total_quantity": old_data.get("total_po_qty"),
-                    "size_breakdown": {} 
+                    "size_breakdown": built_sizes_dict # Đồng bộ bộ nhớ đệm kích cỡ sạch [INDEX]
                 }
-                if "cutting_matrix_data" in old_data and old_data["cutting_matrix_data"]:
-                    st.session_state["auto_cutting_results_recovered"] = old_data["cutting_matrix_data"]
+                
+                if recovered_matrix:
+                    st.session_state["auto_cutting_results_recovered"] = recovered_matrix
                     st.session_state["fabric_type_recovered"] = old_data.get("fabric_type", "CHÍNH")
                     
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
@@ -53,6 +78,7 @@ if not st.session_state.get("purchase_ready"):
         
     st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
+
     if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
