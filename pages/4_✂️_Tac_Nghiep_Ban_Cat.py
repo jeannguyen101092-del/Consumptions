@@ -6,65 +6,56 @@ import re
 
 st.set_page_config(layout="wide")
 
-# KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
+# =============================================================================
+# TẦNG 1: SỐ HÓA FILE SBD HOẶC GỌI TRỰC TIẾP PHIẾU CŨ TỪ CLOUD SUPABASE MÀN HÌNH CHÍNH
+# =============================================================================
 if not st.session_state.get("purchase_ready"):
     st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG NÂNG CAO</div>
-    <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) chứa thông tin Giàng (Inseam), Nhóm Size để hệ thống tự động số hóa ma trận.</p></div>""", unsafe_allow_html=True)
+    <p style="color: #64748B; font-size:13px; margin:0;">Tải lên File SBD (Excel/PDF) để tính toán tác nghiệp mới, HOẶC chọn tra cứu nhanh phiếu cũ bên dưới.</p></div>""", unsafe_allow_html=True)
     
-    file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-    if file_sbd_c2:
-        trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
-        if trigger_btn_c2:
-            with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-                if "get_secure_gemini_key" in globals(): 
-                    gemini_key = get_secure_gemini_key()
-                else: 
-                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-                
-                from google import genai
-                from google.genai import types
-                
-                client_ai = genai.Client(api_key=gemini_key)
-                sbd_bytes = file_sbd_c2.getvalue()
-                sbd_content_str = ""
-                sbd_parts_payload = []
-                if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
-                    try:
-                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                        for sheet_name, df_sheet in excel_data.items():
-                            sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    except Exception: pass
-                elif file_sbd_c2.name.lower().endswith('.pdf'):
-                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+    # 🎯 ĐƯA BỘ TRA CỨU RA NGOÀI TRẦN: Kết nối Supabase gọi lịch sử mã hàng lập tức [INDEX]
+    from supabase import create_client
+    url_direct = "https://supabase.co"
+    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678"
+    sb_load_client = create_client(url_direct, key_direct)
+    
+    history_styles = ["-- Chọn mã hàng cũ đã lưu trên Supabase --"]
+    try:
+        res_history = sb_load_client.table("cutting_orders_db").select("style_id", "fabric_type").execute()
+        if res_history.data:
+            for item in res_history.data:
+                label = f"{item['style_id']} - VẢI: {item['fabric_type']}"
+                if label not in history_styles: history_styles.append(label)
+    except Exception: pass
+    
+    # Ô tra cứu lịch sử độc lập xuất hiện ngay màn hình tải file ban đầu [INDEX]
+    selected_old_record = st.selectbox("📂 Xem lại phiếu tác nghiệp cũ từ Supabase (Không cần up file):", history_styles, key="sb_outside_history_select")
+    
+    # Bẫy logic khôi phục dữ liệu từ nút bấm ngoài màn hình chính [INDEX]
+    if selected_old_record != "-- Chọn mã hàng cũ đã lưu trên Supabase --":
+        try:
+            parts_str = selected_old_record.split(" - VẢI: ")
+            st_id_search = str(parts_str).strip()
+            fb_tp_search = str(parts_str).strip()
+            
+            res_detail = sb_load_client.table("cutting_orders_db").select("*").eq("style_id", st_id_search).eq("fabric_type", fb_tp_search).limit(1).execute()
+            if res_detail.data and len(res_detail.data) > 0:
+                old_data = res_detail.data
+                # Nạp thông tin khôi phục vào session_state [INDEX]
+                st.session_state["sbd_parsed_data"] = {
+                    "style_id": old_data.get("style_id"),
+                    "total_quantity": old_data.get("total_po_qty"),
+                    "size_breakdown": {} # Tránh lỗi logic
+                }
+                if "cutting_matrix_data" in old_data and old_data["cutting_matrix_data"]:
+                    st.session_state["auto_cutting_results_recovered"] = old_data["cutting_matrix_data"]
                     
-                sbd_prompt = """Bạn là một chuyên gia số hóa tài liệu ngành dệt may. Hãy phân tích bảng 'Quantity Details' trong tài liệu được cung cấp.
-                1. Trích xuất mã hàng nằm ở mục 'Key Item' hoặc 'Style' (Ví dụ: '6082').
-                2. Trích xuất tổng sản lượng ở mục 'Units' hoặc 'Total' (Ví dụ: 2500).
-                3. Trích xuất toàn bộ danh sách kích cỡ nằm ở hàng tiêu đề của bảng số lượng (Ví dụ: '26 X 30', '28 X 30', '29 X 32').
-                
-                QUY TẮC ÉP KIỂU MA TRẬN SIZE BẮT BUỘC:
-                - Đối với các tiêu đề cột có dạng nối liền như '26 X 30' hoặc '30 X 32', bạn PHẢI giữ nguyên cấu trúc chuỗi văn bản gốc này làm Tên Khóa (Key Name) của mảng 'size_breakdown'. 
-                - Hãy nhặt con số sản lượng thực tế nằm ngay dưới cột cỡ đó (Ví dụ dưới cột '26 X 30' có số '88'). Bỏ qua các hàng trống hoặc các cột tổng.
-                
-                Trả về kết quả DUY NHẤT dưới dạng cấu trúc JSON gốc sạch sẽ, không kèm từ giải thích rác:
-                {
-                    "style_id": "6082",
-                    "total_quantity": 2500,
-                    "size_breakdown": {
-                        "26 X 30": 88,
-                        "28 X 30": 156
-                    }
-                }"""
-                if sbd_content_str: sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
-                sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
-                
-                try:
-                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                    st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                except Exception: pass
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+        except Exception: pass
+        
+    st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
 # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
@@ -73,49 +64,7 @@ else:
         detected_total_po = sbd_data_store.get("total_quantity", 0)
         size_breakdown_main = sbd_data_store.get("size_breakdown", {})
 
-        # --- PHÂN HỆ TRA CỨU: GỌI DỮ LIỆU CŨ TỪ CLOUD SUPABASE ---
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#0369A1; margin-top:5px;'>🔍 TRA CỨU LỊCH SỬ PHIẾU TÁC NGHIỆP CŨ</p>", unsafe_allow_html=True)
-        
-        from supabase import create_client
-        url_direct = "https://supabase.co"
-        key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678"
-        sb_load_client = create_client(url_direct, key_direct)
-        
-        # Quét danh sách các mã hàng lịch sử trên Cloud phục vụ ô Selectbox [INDEX]
-        history_styles = ["-- Chọn mã hàng cũ từ Supabase --"]
-        try:
-            res_history = sb_load_client.table("cutting_orders_db").select("style_id", "fabric_type").execute()
-            if res_history.data:
-                for item in res_history.data:
-                    label = f"{item['style_id']} - VẢI: {item['fabric_type']}"
-                    if label not in history_styles: history_styles.append(label)
-        except Exception: pass
-        
-        selected_old_record = st.selectbox("📂 Lấy lại phiếu tác nghiệp cũ đã lưu trên Cloud:", history_styles, key="sb_history_select_box")
-        
-        # SỬA LỖI TẠI ĐÂY: Trích xuất chính xác vị trí mảng [0] và [1] để lấy chuỗi văn bản sạch [INDEX]
-        if selected_old_record != "-- Chọn mã hàng cũ từ Supabase --":
-            try:
-                parts_str = selected_old_record.split(" - VẢI: ")
-                st_id_search = str(parts_str[0]).strip() # Lấy text sạch mã hàng (Ví dụ: 6666) [INDEX]
-                fb_tp_search = str(parts_str[1]).strip() # Lấy text sạch loại vải (Ví dụ: CHÍNH) [INDEX]
-                
-                res_detail = sb_load_client.table("cutting_orders_db").select("*").eq("style_id", st_id_search).eq("fabric_type", fb_tp_search).limit(1).execute()
-                if res_detail.data and len(res_detail.data) > 0:
-                    old_data = res_detail.data[0]
-                    # Ghép đè thông số cấu trúc hành chính ra màn hình [INDEX]
-                    detected_style_id = old_data.get("style_id", detected_style_id)
-                    detected_total_po = old_data.get("total_po_qty", detected_total_po)
-                    
-                    # Nạp mảng dữ liệu ma trận cũ vào bộ nhớ tạm khôi phục [INDEX]
-                    if "cutting_matrix_data" in old_data and old_data["cutting_matrix_data"]:
-                        st.session_state["auto_cutting_results_recovered"] = old_data["cutting_matrix_data"]
-                        st.info(f"📂 Đã nạp thành công bộ nhớ tạm phiếu tác nghiệp mã {st_id_search} từ Cloud!")
-            except Exception as e: 
-                st.error(f"⚠️ Lỗi khôi phục chuỗi: {str(e)}")
-            
-        st.markdown("---")
-        if st.button("🔄 Tải lên File SBD Khác", type="secondary"):
+        if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary"):
             st.session_state["purchase_ready"] = False
             st.session_state["sbd_parsed_data"] = {}
             st.session_state["consumption_activated"] = False
@@ -129,6 +78,7 @@ else:
         with input_col2: po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
         with input_col3: consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
         with input_col_color: color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
+
 
 
         input_col4, input_col5, input_col6 = st.columns(3)
