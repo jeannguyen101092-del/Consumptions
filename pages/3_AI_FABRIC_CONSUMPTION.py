@@ -560,26 +560,27 @@ def industrial_rotation_and_skyline_nesting(items: list, bin_width: float) -> di
 def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_width: float, parsed_main_width: float, warp_shrink_factor: float = 1.03, weft_shrink_factor: float = 1.14, industrial_loss: float = 0.043) -> list:
     """
     Step 4: Phân bổ định mức chi tiết Yards cho từng dòng rập phẳng.
-    BẢN VÁ TỐI HẬU: Sửa lỗi cú pháp lệnh return cuối hàm và sửa lỗi ghi đè tên chi tiết.
+    BẢN VÁ TOÀN DIỆN V2: Sửa lỗi lệch tên nhóm nguyên liệu Material Class giữa tiếng Anh và tiếng Việt.
     """
     import copy
     nesting_pool = []
     router_bom_rows = []
 
-    # Chuẩn hóa hệ số co rút đầu vào phòng xa lỗi nhập số nguyên
+    # Chuẩn hóa hệ số co rút đầu vào phòng xa lỗi nhập số phần trăm nguyên (ví dụ 2.0% thành 0.02)
     actual_warp = warp_shrink_factor / 100.0 if warp_shrink_factor >= 1.0 else warp_shrink_factor
     actual_weft = weft_shrink_factor / 100.0 if weft_shrink_factor >= 1.0 else weft_shrink_factor
 
-    # 1. KHỞI TẠO VÀ PHÂN CHIA LOẠI NGUYÊN LIỆU PHÒNG VỆ
+    # 1. KHỞI TẠO VÀ CHUẨN HÓA ĐỒNG BỘ LOẠI NGUYÊN LIỆU (MAPPING ENGLISH - VIETNAMESE)
     for idx, row in enumerate(unique_bom_rows):
         ui_row = copy.deepcopy(row)
         
-        comp_name = ui_row.get("Component Name", ui_row.get("component_name", ui_row.get("TÊN CHI TIẾT", ui_row.get("CHI TIẾT RẬP"))))
-        if comp_name is None or str(comp_name).strip() == "" or str(comp_name).lower() == "none":
-            comp_name = f"CHI-TIET-{idx+1}"
-        comp_name = str(comp_name).upper().strip()
+        c_name = ui_row.get("Component Name", ui_row.get("component_name", ui_row.get("TÊN CHI TIẾT", ui_row.get("CHI TIẾT RẬP"))))
+        if c_name is None or str(c_name).strip() == "" or str(c_name).lower() == "none":
+            c_name = f"CHI-TIET-{idx+1}"
+        c_name = str(c_name).upper().strip()
         
-        mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))).upper().strip()
+        # Đọc nhóm nguyên liệu gốc
+        orig_mat_class = str(ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))).upper().strip()
         
         try: 
             p_count_single = int(float(str(ui_row.get("Số lượng rập (Pcs)", ui_row.get("piece_count", 1))).strip()))
@@ -600,12 +601,19 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             
         bbox_area = raw_len * raw_wid
 
-        if any(k in mat_class or k in comp_name for k in ["LINING", "LÓT", "POCKETING"]): 
+        # 🎯 MAPPING THÔNG MINH: Đồng bộ hóa toàn diện tên nhóm nguyên liệu tiếng Anh và tiếng Việt
+        if any(k in orig_mat_class or k in c_name for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT"]): 
             engine_target = "LINING"
-        elif any(k in mat_class or k in comp_name for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "TWILL TAPE"]): 
+            display_mat_class = "VẢI LÓT TÚI (POCKETING LINING)"
+        elif any(k in orig_mat_class or k in c_name for k in ["KEO", "DỰNG", "FUSING", "INTERLINING", "MEX", "TWILL TAPE", "LÓT / DỰNG"]): 
             engine_target = "FUSING"
+            display_mat_class = "KEO LÓT / DỰNG (INTERLINING)"
+        elif any(k in orig_mat_class or k in c_name for k in ["THREAD", "CHỈ"]):
+            engine_target = "THREAD"
+            display_mat_class = "THREAD"
         else: 
             engine_target = "FABRIC"
+            display_mat_class = "VẢI CHÍNH (MAIN FABRIC)"
 
         cad_polygon_area = ui_row.get("net_area", ui_row.get("polygon_area"))
         poly = 0.0
@@ -617,30 +625,49 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             poly_area = poly
         else:
             lw_ratio = raw_len / max(1.0, raw_wid)
-            shape_efficiency = 0.94 if lw_ratio > 8.0 else (0.68 if any(k in comp_name for k in ["PANEL", "THÂN"]) else 0.82)
+            shape_efficiency = 0.94 if lw_ratio > 8.0 else (0.68 if any(k in c_name for k in ["PANEL", "THÂN"]) else 0.82)
             poly_area = bbox_area * shape_efficiency
             
         nesting_pool.append({
-            "ui_row": ui_row, "engine_target": engine_target,
-            "raw_len": raw_len, "raw_wid": raw_wid, "p_count_single": p_count_single,
+            "ui_row": ui_row, 
+            "engine_target": engine_target,
+            "display_mat_class": display_mat_class, # Tên nhóm đồng bộ hiển thị lên bảng Summary
+            "raw_len": raw_len, 
+            "raw_wid": raw_wid, 
+            "p_count_single": p_count_single,
             "shrunk_len": raw_len * (1.0 + actual_warp),
             "shrunk_wid": raw_wid * (1.0 + actual_weft),
-            "poly_area": poly_area, "comp_name": comp_name, "orig_mat_class": ui_row.get("Material Class", ui_row.get("material_class", "FABRIC"))
+            "poly_area": poly_area, 
+            "comp_name": c_name
         })
 
     MARKER_PROFILE = {
-        "TROUSER": {"FABRIC": (0.85, 0.88), "LINING": (0.78, 0.82), "FUSING": (0.82, 0.85)},
-        "JACKET":  {"FABRIC": (0.78, 0.82), "LINING": (0.75, 0.78), "FUSING": (0.79, 0.82)}
+        "TROUSER": {"FABRIC": (0.85, 0.88), "LINING": (0.78, 0.82), "FUSING": (0.82, 0.85), "THREAD": (0.85, 0.85)},
+        "JACKET":  {"FABRIC": (0.78, 0.82), "LINING": (0.75, 0.78), "FUSING": (0.79, 0.82), "THREAD": (0.85, 0.85)}
     }
     REGRESSION_PROFILE = {"TROUSER": 1.012, "JACKET": 1.045}
     all_comp_names_clean = [str(it.get("comp_name", "")).upper() for it in nesting_pool]
     garment_type = "JACKET" if any(k in name for name in all_comp_names_clean for k in ["SLEEVE", "COLLAR", "CUFF", "TAY", "CỔ", "BODY"]) else "TROUSER"
 
-    for target_class in ["FABRIC", "LINING", "FUSING"]:
+    # Duyệt qua các nhóm đã được đồng bộ hóa
+    for target_class in ["FABRIC", "LINING", "FUSING", "THREAD"]:
         class_items = [it for it in nesting_pool if it["engine_target"] == target_class]
         if not class_items: 
             continue
         
+        # Nếu là nhóm chỉ may THREAD, gán định mức kỹ thuật mặc định (Vì chỉ không đi lồng sơ đồ hình học phẳng)
+        if target_class == "THREAD":
+            for it in class_items:
+                ui_row = it["ui_row"]
+                ui_row["Material Class"] = it["display_mat_class"]
+                ui_row["Material Class"] = "THREAD" # Giữ nguyên hiển thị ở bảng chi tiết
+                ui_row["UOM"] = "YDS"
+                ui_row["Gross Consumption"] = 0.1550 # Định mức chỉ mặc định/sản phẩm
+                ui_row["Marker Efficiency"] = "100.0%"
+                ui_row["Quality Status"] = "PASS"
+                router_bom_rows.append(ui_row)
+            continue
+
         nesting_items = [it for it in class_items if it["raw_len"] > 0 and it["raw_wid"] > 0]
         working_width = float(usable_fabric_width) if float(usable_fabric_width) > 0 else 56.0
         
@@ -674,39 +701,31 @@ def step_4_allocate_consumption_and_render(unique_bom_rows: list, usable_fabric_
             orig_single_poly = float(it["poly_area"] * it["p_count_single"])
             gross_yds = total_class_yds * (orig_single_poly / original_single_class_poly_sum) if original_single_class_poly_sum > 0 else (orig_single_poly / (working_width * 36.0 * calculated_eff)) * (1.0 + industrial_loss)
             
-            # Khối chặn đáy bảo vệ kỹ thuật
+            # Khối chặn đáy cưỡng bức bảo vệ kỹ thuật tránh định mức rập quá nhỏ bị về 0
             if gross_yds < 0.015: 
                 gross_yds = 0.3425 if target_class == "FABRIC" else 0.1250
 
             ui_row = it["ui_row"]
-            ui_row["material_class"] = it["orig_mat_class"]
-            ui_row["Material Class"] = it["orig_mat_class"]
-            ui_row["uom"] = "YDS"
+            # Gán tên nhóm hiển thị đẹp tiếng Việt cho bảng SUMMARY gom cụm chuẩn xác
+            ui_row["Material Class"] = it["display_mat_class"] 
             ui_row["UOM"] = "YDS"
             
-            # Gán kết quả đồng bộ hai biến viết hoa/viết thường tránh lỗi UI
-            ui_row["gross_consumption"] = round(gross_yds, 4)
+            # Gán kết quả tính toán định mức thực tế khác 0
             ui_row["Gross Consumption"] = round(gross_yds, 4)
+            ui_row["gross_consumption"] = round(gross_yds, 4)
             
-            ui_row["component_name"] = it["comp_name"]
             ui_row["Component Name"] = it["comp_name"]
-            ui_row["piece_count"] = it["p_count_single"]
             ui_row["Số lượng rập (Pcs)"] = it["p_count_single"]
-            ui_row["bounding_box_length"] = round(it["raw_len"], 2)
             ui_row["Dài sản xuất (L-inch)"] = round(it["raw_len"], 2)
-            ui_row["bounding_box_width"] = round(it["raw_wid"], 2)
             ui_row["Rộng sản xuất (W-inch)"] = round(it["raw_wid"], 2)
-            ui_row["fabric_width_inch"] = parsed_main_width
             ui_row["Khổ vải (Width)"] = f"{parsed_main_width} inch"
-            ui_row["marker_efficiency"] = round(calculated_eff, 2)
             ui_row["Marker Efficiency"] = f"{round(calculated_eff * 100, 1)}%"
-            ui_row["quality_status"] = "PASS"
             ui_row["Quality Status"] = "PASS"
-            ui_row["system_notes"] = system_notes_status
             
             router_bom_rows.append(ui_row)
             
-    return router_bom_rows  # 🎯 ĐÃ VÁ LỖI CÚ PHÁP TRẢ VỀ HOÀN CHỈNH MẢNG DỮ LIỆU
+    return router_bom_rows
+
 # =====================================================================
 # 🟩 ĐOẠN 5: KHỐI ĐIỀU KHIỂN CHÍNH VÀ HIỂN THỊ GIAO DIỆN STREAMLIT 🟩
 # =====================================================================
