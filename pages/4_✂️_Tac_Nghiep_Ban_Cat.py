@@ -84,12 +84,51 @@ else:
         with btn_col1: trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (THUẬT TOÁN THUẦN)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: trigger_consumption = st.button("🤖 2. KÍCH HOẠT NHẢY SỐ ĐỊNH MỨC VÀ ĐỐI CHIẾU CAD", type="secondary", use_container_width=True, key="c2_consumption_btn")
 
-        if trigger_auto_cutting:
-            mock_results = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
-            st.session_state["auto_cutting_results"] = mock_results
+                if trigger_auto_cutting:
+            with st.spinner("🤖 Trí tuệ nhân tạo AI đang giải toán ma trận chia tỉ lệ sơ đồ phối size tối ưu..."):
+                if "get_secure_gemini_key" in globals(): gemini_key = get_secure_gemini_key()
+                else: gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                
+                from google import genai
+                from google.genai import types
+                
+                client_ai = genai.Client(api_key=gemini_key)
+                
+                # Truyền toàn bộ thông số thực tế vào Prompt để AI giải ma trận toán học
+                ai_cutting_prompt = f"""
+                Bạn là chuyên gia điều độ bàn cắt ngành may mặc. 
+                Hãy lập kế hoạch phân bổ sơ đồ phối size cho đơn hàng này.
+                - Danh sách các size và sản lượng cần cắt: {json.dumps(size_breakdown_main)}
+                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét
+                - Khổ vải đi sơ đồ: {cuttable_width_inch} inches
+                
+                Hãy tự động tính toán, gom cụm các size/giàng lại với nhau để tạo ra các sơ đồ tối ưu nhất (ví dụ: bàn 1 đi size S tỉ lệ 2, size M tỉ lệ 2; bàn 2 đi giàng khác...).
+                Trả về kết quả duy nhất ở dạng mảng JSON gốc có cấu trúc như sau:
+                [
+                    {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"Tên_Size_1": tỉ_lệ_số_nguyên, "Tên_Size_2": tỉ_lệ_số_nguyên}}, "Số lớp": số_lớp_vải, "Số bàn": 1, "Số sp/SĐ": tổng_sản_phẩm_trên_một_sơ_đồ}},
+                    {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"Tên_Size_1": tỉ_lệ_số_nguyên}}, "Số lớp": số_lớp_vải, "Số bàn": 1, "Số sp/SĐ": tổng_sản_phẩm_trên_một_sơ_đồ}}
+                ]
+                Chú ý: Hãy phân bổ sao cho lượng dư 'CÒN LẠI' cuối cùng tiến về sát số 0 nhất có thể. Không kèm từ giải thích, chỉ trả ra JSON sạch.
+                """
+                try:
+                    res_cutting = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[ai_cutting_prompt], 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    st.session_state["auto_cutting_results"] = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
+                    st.success("🎯 AI đã hoàn thành việc chia tổ hợp sơ đồ thương mại thành công!")
+                except Exception as e:
+                    # Bẫy dự phòng nếu AI lỗi mạng
+                    st.session_state["auto_cutting_results"] = [{"Sơ đồ / Trạng thái": f"c{str(i+1).zfill(2)}", "Ratios": {s: (1 if s == sz else 0) for s in active_sizes}, "Số lớp": 50, "Số bàn": 1, "Số sp/SĐ": 1} for i, sz in enumerate(active_sizes)]
+                    st.warning("⚠️ Đang dùng luồng dự phòng do kết nối AI gián đoạn.")
+                    
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
             st.rerun()
+        # =============================================================================
+        # TẦNG 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD VÀ PHÂN TÁCH MA TRẬN PHẲNG EXCEL DNA
+        # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
             if cad_paste_zone.strip() and st.session_state.get("consumption_activated"):
@@ -100,21 +139,21 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
-            # Đọc giá trị động từ các ô tự gõ phía trên để nạp thẳng vào tiêu đề bảng Excel
             t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"]
             t_header_mau = ["Màu:", f" {color_input.strip().upper()}"]
             t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"]
 
             t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
             po_qty_matrix = []
+            
             for col_name in active_sizes:
                 col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
                 giang_val, size_val = "None", col_str
                 parts = re.split(r'[\sXx\-\/:]+', col_str)
                 parts_clean = [p.strip() for p in parts if p.strip()]
                 
-                if len(parts_clean) >= 2: giang_val, size_val = parts_clean[0], parts_clean[1]
-                elif len(parts_clean) == 1: size_val = parts_clean[0]
+                if len(parts_clean) >= 2: giang_val, size_val = parts_clean, parts_clean
+                elif len(parts_clean) == 1: size_val = parts_clean
                 po_val = int(size_breakdown_main.get(col_name, 0))
                 po_qty_matrix.append(po_val)
                 
@@ -138,6 +177,7 @@ else:
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
                 pcs_cut_marker = sum(item["Ratios"].values()) * layers * tables
+                dm_sd = (vail_can_m * 1.09361) / pcs_cut_marker if pcs_cut_marker > 0 else 0.0
                 
                 marker_num_match = re.search(r'\d+', s_name)
                 marker_num_str = str(int(marker_num_match.group(0))) if marker_num_match else "1"
@@ -146,29 +186,40 @@ else:
                 active_ratio_parts = []
                 for sz in active_sizes:
                     sz_clean = str(sz).strip().split(":")[-1].split("/")[-1].split(" ")[-1]
-                    if item["Ratios"].get(sz, 0) > 0: active_ratio_parts.append(f"{sz_clean}/{item['Ratios'].get(sz, 0)}")
+                    r_val = item["Ratios"].get(sz, 0)
+                    if r_val > 0: active_ratio_parts.append(f"{sz_clean}/{r_val}")
                 ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
 
-                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, "", round(vail_can_m, 1)]
+                ratio_row = [ratio_row_title] + [item["Ratios"].get(sz, 0) for sz in active_sizes] + [layers, tables, m_len, sp_sd, round(dm_sd, 3), round(vail_can_m, 1)]
                 matrix_body_rows.append(ratio_row)
                 
                 remaining_row = ["CÒN LẠI"]
                 for idx, sz in enumerate(active_sizes):
-                    remaining_balances[idx] = max(0, remaining_balances[idx] - (item["Ratios"].get(sz, 0) * layers * tables))
+                    current_ratio = item["Ratios"].get(sz, 0)
+                    remaining_balances[idx] = max(0, remaining_balances[idx] - (current_ratio * layers * tables))
                     remaining_row.append(f"{remaining_balances[idx]:,}")
                 remaining_row.extend(["", "", "", "", "", ""])
                 matrix_body_rows.append(remaining_row)
+
             final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
             clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
             df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
+
+            # 🎯 KỸ THUẬT STICKY CSS: Cố định 6 dòng đầu bảng nằm cứng một chỗ khi cuộn chuột kéo bảng xuống dưới
             st.markdown("""<style>
-                th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; }
-                tr:nth-color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
-                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-child(3) td { background-color: #E2E8F0 !important; color: #000000 !important; font-weight: 700 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
+                th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #A7F3D0 !important; position: sticky; top: 0; z-index: 10; }
+                
+                /* Ghép tọa độ ghim cứng cho 6 hàng hành chính và ma trận size đầu bảng */
+                tr:nth-child(1) td { position: sticky; top: 25px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(2) td { position: sticky; top: 50px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(3) td { position: sticky; top: 75px; z-index: 9; background-color: #E2E8F0 !important; font-weight: 700 !important; }
+                tr:nth-child(4) td { position: sticky; top: 100px; z-index: 9; background-color: #CBD5E1 !important; font-weight: 800 !important; text-align: center !important; }
+                tr:nth-child(5) td { position: sticky; top: 125px; z-index: 9; background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; }
+                tr:nth-child(6) td { position: sticky; top: 150px; z-index: 9; background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; }
+                
+                tr:nth-child(1) td, tr:nth-child(2) td, tr:nth-color: #000000 !important; text-align: left !important; border: 1px solid #CBD5E1 !important; }
                 tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; font-size: 14px !important; }
-                tr:nth-child(4) td { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #94A3B8 !important; }
-                tr:nth-child(5) td { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; border: 1px solid #EAB308 !important; }
-                tr:nth-child(6) td { background-color: #E2E8F0 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
+                
                 tr:nth-child(even):nth-child(n+7) td { background-color: #EFF6FF !important; color: #1E40AF !important; font-weight: 600 !important; border: 1px solid #BFDBFE !important; }
                 td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; }
                 tr:nth-child(even):nth-child(n+7) td:nth-child(1) { text-align: center !important; padding-left: 0px !important; }
@@ -177,6 +228,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             st.markdown("---")
-            st.success("🎉 Tác nghiệp bàn cắt đồng bộ động loại vải tự gõ thương mại thành công!")
+            st.success("🎉 Tác nghiệp bàn cắt đồng bộ động loại vải tự gõ thương mại và ghim trần thành công!")
         else:
             st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
