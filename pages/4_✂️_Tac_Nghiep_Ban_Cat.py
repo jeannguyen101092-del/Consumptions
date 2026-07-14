@@ -186,24 +186,60 @@ else:
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
 
+               # =============================================================================
+        # TẦNG 3: ĐỒNG BỘ LUỒNG EDIT GÕ TAY VÀ ĐÓN NHẬN KẾT QUẢ AI VÉT ĐUÔI TỰ ĐỘNG
+        # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
+        ai_source = st.session_state.get("auto_cutting_results", [])
         
-        if recovered_source:
+        # Luồng 1: Nếu có kết quả vét đuôi tự động từ AI gửi về, ép đổ thẳng số lượng vào các sơ đồ cuối
+        if ai_source:
+            # Tạo bản đồ chuyển đổi nhanh từ mảng AI sang phom bảng ngang
+            for i in range(6):
+                s_code = f"c{str(i+1).zfill(2)}"
+                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
+                
+                # Giữ nguyên các dòng đầu cho người dùng gõ tay hoặc nạp đè dữ liệu cũ
+                if i < len(edited_df) if "edited_df" in locals() else False:
+                    old_row = edited_df.iloc[i]
+                    for sz in active_sizes: item_dict[sz] = int(old_row.get(sz, 0))
+                    item_dict.update({"SƠ LỚP": int(old_row.get("SƠ LỚP", 120)), "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))})
+                else:
+                    # Nếu là các dòng trống phía dưới, bốc ma trận vét của AI đắp vào lập tức
+                    ai_match = [x for x in ai_source if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
+                    if ai_match:
+                        ai_row = ai_match[0]
+                        r_dict = ai_row.get("Ratios", {})
+                        for sz in active_sizes: item_dict[sz] = int(r_dict.get(sz, 0))
+                        item_dict.update({"SƠ LỚP": int(ai_row.get("Số lớp", 20)), "SỐ BÀN": int(ai_row.get("Số bàn", 1)), "DÀI SƠ ĐỒ": 0.0})
+                    else:
+                        for sz in active_sizes: item_dict[sz] = 0
+                        item_dict.update({"SƠ LỚP": 20, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                display_editor_rows.append(item_dict)
+                
+        # Luồng 2: Nếu không có kết quả AI mới, ưu tiên khôi phục dữ liệu lịch sử lôi từ kho cũ ra
+        elif recovered_source:
             for row in recovered_source:
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", ""))
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
-                    display_editor_rows.append(row)
+                    # Chuẩn hóa tên khóa để khớp 100% với trục bảng Grid động
+                    clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
+                    for sz in active_sizes: clean_row[sz] = int(row.get(sz, 0))
+                    clean_row.update({"SƠ LỚP": int(row.get("SƠ LỚP", 120)), "SỐ BÀN": int(row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(row.get("DÀI SƠ ĐỒ", 0.0))})
+                    display_editor_rows.append(clean_row)
+                    
+        # Luồng 3: Mặc định tạo form trống trơn ban đầu để tổ trưởng gõ tay rập từ con số 0
         else:
             for i in range(6):
                 s_code = f"c{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
-                for sz in active_sizes: 
-                    item_dict[sz] = 0
+                for sz in active_sizes: item_dict[sz] = 0
                 item_dict.update({"SƠ LỚP": 120 if i < 3 else 20, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
+
         
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ TAY TRỰC TIẾP Ô DƯỚI)</p>", unsafe_allow_html=True)
         edited_df = st.data_editor(df_editor_base, use_container_width=True, hide_index=True, key="table_manual_data_editor_v1")
