@@ -93,7 +93,8 @@ else:
             st.session_state["consumption_activated"] = True
             st.rerun()
                 # =============================================================================
-        # TẦNG 3: SỬA LỖI GỘP TUPLE - ĐƯA GIÀNG, SIZE, SL THÀNH 3 CỘT DỌC RIÊNG BIỆT
+                # =============================================================================
+        # TẦNG 3: SỬA LỖI VALUEERROR - CHUẨN HÓA KHUNG DỮ LIỆU PHẲNG CHUẨN APACHE ARROW
         # =============================================================================
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
@@ -105,76 +106,56 @@ else:
                         try: cad_lengths_map[match.group(1)] = float(match.group(2))
                         except ValueError: pass
 
-            # 1. Thuật toán bóc tách chuỗi SBD nghiêm ngặt để bẻ dấu ngoặc tuple
+            # 1. Thuật toán phân rã chuỗi để bẻ dấu ngoặc đơn rác (Tuple)
             giang_list = []
             size_list = []
             po_qty_list = []
             
             for col_name in active_sizes:
                 col_str = str(col_name).strip().replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-                
-                # Cấu hình mặc định
                 giang_val = "None"
                 size_val = col_str
                 
-                # Bẫy tách dấu gạch ngang, dấu gạch chéo hoặc chữ x (Ví dụ: 30-26, 30x26, 30/26)
                 parts = re.split(r'[\sXx\-\/:]+', col_str)
                 parts_clean = [p.strip() for p in parts if p.strip()]
                 
                 if len(parts_clean) >= 2:
-                    # Nếu phần tử đầu tiên là số Giàng (Inseam)
                     giang_val = parts_clean[0]
                     size_val = parts_clean[1]
                 elif len(parts_clean) == 1:
                     size_val = parts_clean[0]
                     
-                # Thu nạp sản lượng PO tổng từ SBD
                 po_val = int(size_breakdown_main.get(col_name, 0))
-                
                 giang_list.append(f"GIÀNG {giang_val}" if giang_val != "None" else "None")
                 size_list.append(size_val)
                 po_qty_list.append(f"{po_val:,}")
 
-            # 2. Xây dựng ma trận tỷ lệ bàn cắt sơ đồ nằm ngang
+            # 2. Thu thập dữ liệu tỷ lệ ma trận từ kết quả thuật toán
             matrix_rows = []
+            col_headers = []
             for item in st.session_state["auto_cutting_results"]:
-                r_name = item["Sơ đồ / Trạng thái"]
-                # Bỏ qua dòng số dư Balance để bảng không bị lệch dòng kỹ thuật
-                if str(r_name).strip().lower() == "balance": continue
+                r_name = str(item["Sơ đồ / Trạng thái"]).strip()
+                if r_name.lower() == "balance": continue
                 
-                row_ratios = [item["Ratios"].get(sz, 0) for sz in active_sizes]
-                matrix_rows.append(row_ratios)
+                col_headers.append(r_name)
+                matrix_rows.append([item["Ratios"].get(sz, 0) for sz in active_sizes])
                 
-            # Tạo danh sách tiêu đề cột ngang (c01, c02, c03...)
-            col_headers = [item["Sơ đồ / Trạng thái"] for item in st.session_state["auto_cutting_results"] if str(item["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
-            
-            # Dựng khung ma trận xoay trục nằm ngang giống file Excel DNA
+            # Tạo DataFrame ma trận tỷ lệ đã xoay trục nằm ngang
             df_matrix_transposed = pd.DataFrame(matrix_rows, index=col_headers, columns=active_sizes).T
-            # 3. Tiến hành chèn 3 cột nhãn độc lập vào phía bên trái bảng để phá vỡ lỗi gộp ô (Tuple)
-            df_matrix_transposed.insert(0, "SẢN LƯỢNG", po_qty_list)
-            df_matrix_transposed.insert(0, "SIZE", size_list)
-            df_matrix_transposed.insert(0, "GIÀNG", giang_list)
-            
-            # Đưa bảng về dạng Index phẳng sạch sẽ
-            df_base_report = df_matrix_transposed.reset_index(drop=True)
-
-            # 4. Tính toán và bổ sung các cột thông số kỹ thuật tác nghiệp chạy dọc xuống phía bên phải
+            # 3. Tính toán thông số kỹ thuật (Số lớp, số bàn...) chạy ngang theo mã sơ đồ
             tech_cols_dict = {"SƠ LỚP": [], "SỐ BÀN": [], "DÀI SƠ ĐỒ": [], "SỐ SP/SĐ": [], "Đ.MỨC SĐ": [], "VẢI CẦN (M)": []}
             total_fabric_m, total_cut_pcs_sum = 0.0, 0
             
-            # Chỉ lấy các sơ đồ thực tế (bỏ dòng Balance)
             valid_items = [i for i in st.session_state["auto_cutting_results"] if str(i["Sơ đồ / Trạng thái"]).strip().lower() != "balance"]
-            
             for item in valid_items:
-                s_name = item["Sơ đồ / Trạng thái"]
+                s_name = str(item["Sơ đồ / Trạng thái"]).strip()
                 layers, tables, sp_sd = item["Số lớp"], item["Số bàn"], item["Số sp/SĐ"]
                 
                 m_len = cad_lengths_map.get(s_name.lower().strip(), 0.0) if st.session_state.get("consumption_activated") else 0.0
                 vail_can_m = m_len * layers * tables
                 total_fabric_m += vail_can_m
                 
-                total_ratios_sum = sum(item["Ratios"].values())
-                pcs_cut = total_ratios_sum * layers * tables
+                pcs_cut = sum(item["Ratios"].values()) * layers * tables
                 total_cut_pcs_sum += pcs_cut
                 dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
                 
@@ -184,28 +165,44 @@ else:
                 tech_cols_dict["SỐ SP/SĐ"].append(sp_sd)
                 tech_cols_dict["Đ.MỨC SĐ"].append(round(dm_sd, 3))
                 tech_cols_dict["VẢI CẦN (M)"].append(round(vail_can_m, 1))
-                
-            # Tạo DataFrame phụ cho khối thông số kỹ thuật bên phải và thực hiện xoay trục để gộp nối thẳng dòng
-            df_tech_rotated = pd.DataFrame(tech_cols_dict, index=col_headers).T
-            
-            # Gộp hai mảng dữ liệu (Mảng tỷ lệ bên trái + Mảng kỹ thuật bên phải)
-            df_final_report = pd.concat([df_base_report, df_tech_rotated.reset_index().rename(columns={"index": "GIÀNG"})], axis=1).fillna("")
 
-            # --- THIẾT LẬP CSS ĐỔ MÀU NỀN CỘT DỌC CHUẨN FORM EXCEL CỦA NHÀ MÁY ---
-            st.markdown("""<style>
-                /* Khóa định vị màu nền cho 3 cột tiêu đề dòng độc lập ở phía bên trái bảng */
-                td:nth-child(1) { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; } /* Cột GIÀNG màu xám */
-                td:nth-child(2) { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; } /* Cột SIZE màu vàng chuẩn Excel */
-                td:nth-child(3) { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 600 !important; text-align: center !important; } /* Cột SẢN LƯỢNG màu xám nhẹ */
+            # 4. KỸ THUẬT TIÊN QUYẾT: Dựng bảng phẳng hoàn chỉnh bằng Dictionary để tránh lỗi đồng bộ của Pandas
+            flat_report_data = {
+                "GIÀNG": giang_list,
+                "SIZE": size_list,
+                "SẢN LƯỢNG": po_qty_list
+            }
+            
+            # Đổ dữ liệu ma trận tỷ lệ sơ đồ vào khung phẳng
+            for idx, h_name in enumerate(col_headers):
+                flat_report_data[str(h_name)] = df_matrix_transposed[h_name].tolist()
                 
-                /* Tiêu đề thanh ngang chứa tên các mã sơ đồ nhuộm màu Mint */
+            # Đổ dữ liệu các cột kỹ thuật chạy ngang vào khung phẳng
+            for tech_key in ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]:
+                # Tạo mảng trống điền đầy cho các hàng nhãn Giàng/Size để không lệch cấu trúc hình học
+                flat_report_data[tech_key] = tech_cols_dict[tech_key] + [""] * (len(active_sizes) - len(valid_items))
+
+            # Chuyển đổi sang DataFrame Index phẳng sạch hoàn toàn
+            df_final_report = pd.DataFrame(flat_report_data)
+            df_final_report.columns = df_final_report.columns.astype(str) # Ép kiểu chuỗi toàn bộ tiêu đề cột
+
+            # --- THIẾT LẬP MÃ CSS NHUỘM MÀU NỀN CỘT DỌC BÊN TRÁI THEO THỨ TỰ (MẪU EXCEL DNA) ---
+            st.markdown("""<style>
+                /* Đổ màu nền xám cho cột GIÀNG (Cột số 1 bên trái) */
+                td:nth-child(1) { background-color: #CBD5E1 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; }
+                /* Đổ màu VÀNG CHUẨN EXCEL cho cột kích cỡ SIZE (Cột số 2 bên trái) */
+                td:nth-child(2) { background-color: #FDE047 !important; color: #000000 !important; font-weight: 800 !important; text-align: center !important; }
+                /* Đổ màu xám nhẹ cho cột SẢN LƯỢNG PO (Cột số 3 bên trái) */
+                td:nth-child(3) { background-color: #F1F5F9 !important; color: #334155 !important; font-weight: 600 !important; text-align: center !important; }
+                
+                /* Tiêu đề thanh ngang chứa mã sơ đồ nhuộm màu Mint nhạt chuyên nghiệp */
                 th { background-color: #D1FAE5 !important; color: #065F46 !important; font-weight: 700 !important; border: 1px solid #A7F3D0 !important; text-align: center !important; }
             </style>""", unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP BAN CẮT MULTI-INSEAM CHUẨN EXCEL DNA</p>", unsafe_allow_html=True)
             st.dataframe(df_final_report, use_container_width=True, hide_index=True)
             
-            # --- KHỐI THẺ ĐO LƯỜNG TỔNG HỢP KPIs ---
+            # --- KHỐI THẺ KPI ĐO LƯỜNG TỔNG HỢP ---
             st.markdown("---")
             final_avg_yield = (total_fabric_m * 1.09361) / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
             m_col1, m_col2, m_col3 = st.columns(3)
