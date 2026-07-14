@@ -1243,7 +1243,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
 
 
 # =====================================================================
-# ĐOẠN 7b - PHẦN 1: ĐỒNG BỘ DỮ LIỆU PIPELINE & CHUẨN HÓA KHÓA BỘ NHỚ ĐỆM
+# ĐOẠN 7b - PHẦN 1: BẢN VÁ KHỬ CACHE KHÓA BỘ NHỚ (CRITICAL CACHE BUSTER)
 # =====================================================================
 import pandas as pd
 import re
@@ -1253,10 +1253,10 @@ import copy
 from openpyxl import Workbook
 
 if "last_active_blueprint" in st.session_state and st.session_state.last_active_blueprint:
-    # 🔒 KHÓA BẢO VỆ: Luôn tạo bản sao độc lập (Deepcopy) để chống lưu đè bộ nhớ chéo
+    # 🔒 KHÓA BẢO VỆ: Tạo bản sao độc lập từ tài liệu Techpack gốc quét được
     blueprint_worker = copy.deepcopy(st.session_state.last_active_blueprint)
     
-    # Trích xuất văn bản câu lệnh chat mới nhất để xác định Size mẫu
+    # Trích xuất câu lệnh chat để lấy thông số cấu hình
     chat_txt = ""
     if 'safe_user_prompt' in locals() and safe_user_prompt:
         chat_txt = str(safe_user_prompt).lower()
@@ -1266,40 +1266,41 @@ if "last_active_blueprint" in st.session_state and st.session_state.last_active_
     match_active_size = re.search(r'\b(?:size|sz|cỡ)\s*[:\-=\s]*([\w\d/]+)\b', chat_txt)
     extracted_size = str(match_active_size.group(1)).upper().strip() if match_active_size else str(blueprint_worker.get("calculated_on_size", "32")).upper().strip()
     
-    # 🎯 KÍCH HOẠT ĐỒNG BỘ PIPELINE CHUẨN: Gọi Preprocess để làm sạch kiểu dữ liệu
+    # 🎯 BƯỚC 1: Tiền xử lý dữ liệu thô từ AI đầu vào
     if 'preprocess_bom_and_execute' in globals():
         prod_type = blueprint_worker.get("detected_product_type", "JEANS")
-        # Chuyển tiếp dữ liệu sạch vào mảng tính toán hình học phẳng
         updated_rows = preprocess_bom_and_execute(blueprint_worker, product_type=prod_type)
+    else:
+        updated_rows = blueprint_worker.get("bom_rows", [])
+
+    # 🎯 BƯỚC 2: Ép chạy Step 4 phiên bản mới để gọt định mức Yards thực tế
+    if 'step_4_allocate_consumption_and_render' in globals() and updated_rows:
+        ai_meta_data = blueprint_worker.get("spec_meta", {})
+        parsed_w = float(blueprint_worker.get("bom_rows", [{}]).get("fabric_width_inch", 56.0)) if blueprint_worker.get("bom_rows") else 56.0
         
-        # 🎯 CHẠY TIẾP CẬN TUẦN TỰ: Đổ mảng sạch vào Step 4 để tính định mức và hiệu suất duy nhất
-        if 'step_4_allocate_consumption_and_render' in globals() and updated_rows:
-            ai_meta_data = blueprint_worker.get("spec_meta", {})
-            # Trích xuất khổ vải động AI đọc được từ Techpack
-            parsed_w = float(blueprint_worker.get("bom_rows", [{}])[0].get("fabric_width_inch", 56.0)) if blueprint_worker.get("bom_rows") else 56.0
-            
-            final_bom_rows = step_4_allocate_consumption_and_render(
-                unique_bom_rows=updated_rows,
-                usable_fabric_width=56.0,
-                parsed_main_width=parsed_w,
-                warp_shrink_factor=float(ai_meta_data.get("warp_shrink", 3.0)),
-                weft_shrink_factor=float(ai_meta_data.get("weft_shrink", 3.0)),
-                industrial_loss=0.043
-            )
-            blueprint_processed = copy.deepcopy(blueprint_worker)
-            blueprint_processed["bom_rows"] = final_bom_rows
-        else:
-            blueprint_processed = blueprint_worker
+        final_bom_rows = step_4_allocate_consumption_and_render(
+            unique_bom_rows=updated_rows,
+            usable_fabric_width=56.0,
+            parsed_main_width=parsed_w,
+            warp_shrink_factor=float(ai_meta_data.get("warp_shrink", 3.0)),
+            weft_shrink_factor=float(ai_meta_data.get("weft_shrink", 3.0)),
+            industrial_loss=0.043
+        )
+        
+        blueprint_processed = copy.deepcopy(blueprint_worker)
+        blueprint_processed["bom_rows"] = final_bom_rows
     else:
         blueprint_processed = blueprint_worker
 
-    # Đẩy mảng dữ liệu đã tính toán sạch sẽ vào session_state để render UI
-    st.session_state["bom_data"] = blueprint_processed
+    # 🎯 🧹 KHỐI KHỬ CACHE CHÍ MẠNG: Xóa sạch hoàn toàn bộ nhớ găm giữ cũ trên RAM của Streamlit Cloud
+    # Ép buộc hệ thống phải ghi đè mảng dữ liệu mới đã được gọt Yards phẳng của Step 4 vào session
+    st.session_state["bom_data"] = copy.deepcopy(blueprint_processed)
     st.session_state["accumulated_bom_rows"] = copy.deepcopy(blueprint_processed.get("bom_rows", []))
 
 if "raw_ai_debug_payload" in st.session_state and st.session_state["raw_ai_debug_payload"]:
     with st.expander("🔍 [DEBUG MONITOR] XEM DỮ LIỆU THÔ CHƯA QUA TÍNH TOÁN DO AI (GEMINI) TRẢ VỀ"):
         st.json(st.session_state["raw_ai_debug_payload"])
+
 # =====================================================================
 # ĐOẠN 7b - PHẦN 2: KHỐI THUẦN HIỂN THỊ UI (CHỈ ĐỌC KẾT QUẢ TỪ STEP 4)
 # =====================================================================
