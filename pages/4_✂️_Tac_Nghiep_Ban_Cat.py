@@ -824,37 +824,54 @@ edited_df_raw = st.data_editor(
 )
 
 
+import streamlit as st
+import pandas as pd
+import json
+import re
+import math
+
 # =============================================================================
-# TẦNG 3 - ĐOẠN 7a: KHÓA CHẶN KHỬ LỖI TỰ XOÁ DỮ LIỆU & THUẬT TOÁN ĐIỀU PHỐI ĐỘNG
+# TẦNG 3 - ĐOẠN 7a: ĐỊNH NGHĨA AN TOÀN VÀ THUẬT TOÁN ĐIỀU PHỐI KIM TỰ THÁP NGƯỢC
 # =============================================================================
+
+# Khai báo lại hàm helper để tránh lỗi NameError trên toàn phân hệ
+def safe_int_final(value, default=0):
+    if value is None: return default
+    try:
+        clean_val = str(value).replace(",", "").strip()
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")[0] # Trích xuất phần nguyên chuẩn xác
+        return int(clean_val)
+    except (ValueError, TypeError):
+        return default
+
 final_snapshot_rows = []
 
-# Khởi tạo mảng sản lượng đơn hàng gốc (PO) làm gốc khấu trừ cuốn chiếu liên tục
+# 1. Khởi tạo mảng sản lượng đơn hàng gốc (PO) làm gốc kế thừa khấu trừ cuốn chiếu liên tục
 current_order_balances = {}
 for sz in active_sizes:
     current_order_balances[sz] = safe_int_final(size_breakdown_main.get(sz, 0))
 
 consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-# KIỂM TRA ĐIỀU KIỆN KÍCH HOẠT: Quét xem thợ cắt đã chủ động gõ chiều dài cho dòng sản xuất hàng loạt chưa
-has_user_input_production = False
+# HÀM KHÓA CHẶN RESET: Quét xem thợ cắt đã nhập bất kỳ thông số nào lớn hơn 0 trên lưới chưa
+user_is_actively_planning = False
 for idx, row in edited_df_raw.iterrows():
     s_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-    if "CHÍNH" in s_name or "C0" in s_name:
+    if s_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
         if safe_int_final(row.get("SƠ LỚP", 0)) > 0 or float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0) > 0:
-            has_user_input_production = True
+            user_is_actively_planning = True
 
 # 🚨 TRƯỜNG HỢP A: CHƯA KÍCH HOẠT SẢN XUẤT HÀNG LOẠT -> HIỂN THỊ ĐÚNG SỐ LIỆU NHẬP TAY, KHÔNG XOÁ MẤT SỐ [INDEX]
-if not has_user_input_production and not st.session_state.get("consumption_activated", False):
+if not user_is_actively_planning and not st.session_state.get("consumption_activated", False):
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         item_dict = {
             "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": safe_int_final(row.get("SƠ LỚP", 0)), 
-            "SỐ BÀN": safe_int_final(row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",","").strip() or 0.0), 
+            "SỐ BÀN": safe_int_final(row.get("SỐ Bàn", 1)), "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",","").strip() or 0.0), 
             "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0
         }
         
-        # Đọc dữ liệu tỷ lệ phối size sạch
         row_total_ratios = 0
         for sz in active_sizes:
             val_cell = row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0))
@@ -864,7 +881,6 @@ if not has_user_input_production and not st.session_state.get("consumption_activ
             
         if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
             item_dict["TỔNG SẢN LƯỢNG"] = row_total_ratios * item_dict["SƠ LỚP"] * item_dict["SỐ BÀN"]
-            # Thực hiện khấu trừ riêng cho dòng PILOT kể cả khi sơ lớp = 0 [INDEX]
             if "PILOT" in s_row_name or "SS" in s_row_name:
                 eff_layers = item_dict["SƠ LỚP"] if item_dict["SƠ LỚP"] > 0 else 1
                 for sz in active_sizes:
@@ -914,7 +930,7 @@ else:
     max_target_length, max_target_layers = 11.46, 60
 
     if not chinh_rows_input.empty:
-        first_chinh = chinh_rows_input.iloc[0]
+        first_chinh = chinh_rows_input.iloc
         try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
         except Exception: max_target_length = 11.46
         max_target_layers = safe_int_final(first_chinh.get("SƠ LỚP", 60))
@@ -973,7 +989,6 @@ else:
 
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
-
 
 import streamlit as st
 import pandas as pd
