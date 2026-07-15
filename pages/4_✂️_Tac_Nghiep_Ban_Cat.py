@@ -708,7 +708,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
+# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT (SỬA LỖI)
 # =============================================================================
 
 # --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN TRÁNH LỖI NAMERROR ---
@@ -791,7 +791,7 @@ if snapshot and len(snapshot) > 0:
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if not item_name or item_name.strip() == "":
-            item_name = f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
+            item_name = f"{fab_upper} {prefix_letter}{str(len(cleaned_snapshot)-3).zfill(2)}"
             
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
@@ -819,8 +819,8 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Khởi tạo lưu trữ snapshot ban đầu trong session state nếu trống
-if "session_editor_snapshot" not in st.session_state:
+# Khởi tạo lưu trữ snapshot ban đầu trong session state nếu trống để chặn lỗi NoneType
+if st.session_state.get("session_editor_snapshot") is None:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
@@ -843,25 +843,20 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# --- HÀM CALLBACK CẬP NHẬT ĐÃ ĐƯỢC SỬA LỖI NONE TẬN GỐC (DÒNG 856) ---
+# --- HÀM CALLBACK CẬP NHẬT ĐÃ ĐƯỢC SỬA LỖI NONE TẬN GỐC (DÒNG 856 CHỐNG SẬP) ---
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
             
-            # 🎯 FIX TRỌNG TÂM: Lấy dữ liệu snapshot, nếu None hoặc trống thì ép về mảng display_editor_rows mặc định
             raw_snapshot = st.session_state.get("session_editor_snapshot")
             if raw_snapshot is None:
                 raw_snapshot = display_editor_rows
                 
-            # Thực hiện ngắt liên kết vùng nhớ (Deep Copy) an toàn
             current_snapshot = json.loads(json.dumps(raw_snapshot))
             
-            # Tiến hành duyệt và đồng bộ hóa các hàng được chỉnh sửa
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
-                
-                # Kiểm tra độ dài an toàn sau khi đã chắc chắn current_snapshot không phải là None
                 if current_snapshot and r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
                         continue
@@ -882,9 +877,13 @@ def callback_sync_on_the_fly_final():
                             except: pass
                             
                     current_snapshot[r_idx_int].update(clean_changes)
-            
-            # Lưu lại trạng thái an toàn vào bộ nhớ đệm
             st.session_state["session_editor_snapshot"] = current_snapshot
+
+# Render Grid tương tác đồng bộ dữ liệu chuẩn sản xuất
+edited_df_raw = st.data_editor(
+    df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
+    key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
+)
 
 
 
