@@ -529,6 +529,10 @@ from google.genai import types
 # TẦNG 2 - ĐOẠN 2b: SỬA TRIỆT ĐỂ BẰNG ĐỊNH NGHĨA RAW JSON SCHEMA (KHÔNG DÙNG PYDANTIC)
 # =============================================================================
 
+# Đảm bảo active_sizes tồn tại để không gây lỗi NameError khi dựng Schema
+if 'active_sizes' not in locals() and 'active_sizes' not in globals():
+    active_sizes = []
+
 # Thiết lập cấu trúc JSON Schema thủ công loại bỏ hoàn toàn additionalProperties
 gemini_raw_json_schema = {
     "type": "OBJECT",
@@ -572,6 +576,16 @@ gemini_raw_json_schema = {
 
 # Khối xử lý tiếp nối khi người dùng bấm nút gọi AI
 if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
+    # Phòng vệ các biến dữ liệu tính toán đầu vào chống crash hệ thống
+    if 'calculated_balances' not in locals() and 'calculated_balances' not in globals():
+        calculated_balances = {}
+    if 'empty_slots' not in locals() and 'empty_slots' not in globals():
+        empty_slots = []
+    if 'current_grid_structure' not in locals() and 'current_grid_structure' not in globals():
+        current_grid_structure = []
+    if 'snapshot' not in locals() and 'snapshot' not in globals():
+        snapshot = st.session_state.get("session_editor_snapshot", [])
+
     total_remaining_po = sum(calculated_balances.values())
     dinhmuc_met_c2 = round(current_consumption * 0.9144, 3) if 'current_consumption' in locals() else 1.042
 
@@ -615,7 +629,7 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
             
             updated_rows = []
             fab_letter_c2 = "C"
-            fab_upper_c2 = str(current_fabric_type).upper().strip()
+            fab_upper_c2 = str(current_fabric_type).upper().strip() if 'current_fabric_type' in locals() else "CHÍNH"
             if fab_upper_c2 == "LÓT": fab_letter_c2 = "L"
             elif fab_upper_c2 == "KEO": fab_letter_c2 = "K"
             elif fab_upper_c2 == "PHỐI": fab_letter_c2 = "P"
@@ -637,14 +651,18 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                     r_dict = ai_row.get("Ratios", {})
                     
                     total_pants_in_marker = 0
-                    for r_k, r_v in r_dict.items():
-                        try: total_pants_in_marker += int(float(str(r_v).strip()))
-                        except (ValueError, TypeError): continue
                     
+                    # 🎯 ĐIỂM SỬA CHỐT: Gán song song cả Key ảo và Key thực tế để tránh mất dữ liệu hiển thị
                     for idx_sz, sz in enumerate(active_sizes):
                         ai_key_look = f"CỠ {idx_sz+1}"
-                        try: item_dict[sz] = int(float(str(r_dict.get(ai_key_look, 0)).strip()))
-                        except Exception: item_dict[sz] = 0
+                        val_ai = r_dict.get(ai_key_look, r_dict.get(sz, 0))
+                        
+                        try: val_int = int(float(str(val_ai).strip() or 0))
+                        except: val_int = 0
+                        
+                        item_dict[ai_key_look] = val_int
+                        item_dict[sz] = val_int
+                        total_pants_in_marker += val_int
                     
                     try: item_dict["SƠ LỚP"] = int(float(str(ai_row.get("Số lớp", 0)).strip()))
                     except Exception: item_dict["SƠ LỚP"] = 0
@@ -662,7 +680,9 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                     for key_col in old_row_data.keys():
                         item_dict[key_col] = old_row_data[key_col]
                 else:
-                    for sz in active_sizes: item_dict[sz] = 0
+                    for idx_sz, sz in enumerate(active_sizes):
+                        item_dict[f"CỠ {idx_sz+1}"] = 0
+                        item_dict[sz] = 0
                     item_dict["SƠ LỚP"] = 0
                     item_dict["SỐ BÀN"] = 1
                     item_dict["DÀI SƠ ĐỒ"] = 0.0
@@ -676,10 +696,10 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
             st.success("🤖 AI đã tối ưu và vét sạch lượng dư thành công!")
             st.rerun()
         else:
-            st.error("⚠️ AI phản hồi cấu trúc rỗng hoặc không thể tối ưu hóa mảng phân rã sơ đồ.")
+            st.error("⚠️ AI phản hồi cấu trúc rỗng hoặc không thể tối ưu hóa mảng bàn cắt.")
             
     except Exception as e:
-        st.error(f"❌ Lỗi khi phân rã dữ liệu từ AI: {str(e)}")
+        st.error(f"❌ Lỗi xử lý dữ liệu AI: {str(e)}")
 
 
 import streamlit as st
@@ -691,13 +711,20 @@ import re
 # TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
 # =============================================================================
 
-# --- 0. ĐỊNH NGHĨA HÀM ÉP KIỂU AN TOÀN (Sửa lỗi NameError: safe_int_final) ---
-def safe_int_final(val):
+# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN TRÁNH LỖI NAMERROR ---
+def safe_int_final(value, default=0):
+    if value is None: return default
     try:
-        if pd.isna(val): return 0
-        return int(float(str(val).replace(",", "").strip() or 0))
-    except:
-        return 0
+        clean_val = str(value).replace(",", "").strip()
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")[0] # Trích xuất phần nguyên chuẩn xác
+        return int(clean_val)
+    except (ValueError, TypeError):
+        return default
+
+# --- PHÒNG VỆ DỮ LIỆU ĐẦU VÀO TỪ FILE SBD NẾU THIẾU ---
+if 'size_breakdown_main' not in locals() and 'size_breakdown_main' not in globals():
+    size_breakdown_main = {}
 
 # Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
 snapshot = st.session_state.get("session_editor_snapshot")
@@ -707,10 +734,6 @@ prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "
 # 1. Làm sạch và phẳng hóa mảng kích cỡ động từ gốc file SBD
 flattened_active_sizes = []
 flattened_size_breakdown = {}
-
-# Đảm bảo size_breakdown_main có dữ liệu để không lỗi vòng lặp
-if 'size_breakdown_main' not in locals() and 'size_breakdown_main' not in globals():
-    size_breakdown_main = {}
 
 for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
@@ -791,18 +814,18 @@ else:
     display_editor_rows.append(item_pilot)
     
     for i in range(5):
-        item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} C{str(i+1).zfill(2)}", "TỔNG SẢN LƯỢNG": 0}
+        item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}", "TỔNG SẢN LƯỢNG": 0}
         for c_i in range(len(active_sizes)): item_dict[f"CỠ {c_i+1}"] = 0
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Khởi tạo lưu trữ snapshot ban đầu nếu trống để tránh lỗi bất đồng bộ
+# Khởi tạo lưu trữ snapshot ban đầu trong session state nếu trống
 if "session_editor_snapshot" not in st.session_state:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# Ép kiểu dữ liệu số cứng
+# Ép kiểu dữ liệu số cứng cho DataFrame render hiển thị
 for col in clean_headers_top:
     if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
@@ -820,12 +843,12 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# Hàm Callback đồng bộ dữ liệu gõ tay bằng Deep Copy chống lỗi crash vòng lặp (rerun loop)
+# --- HÀM CALLBACK ĐỒNG BỘ DỮ LIỆU TỨ THỜI BẰNG DEEP COPY CHỐNG LẶP RERUN LOOP ---
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            # Dùng kỹ thuật json để tách biệt hoàn toàn vùng nhớ, chống crash khi gõ phím nhanh
+            # Tách biệt vùng nhớ độc lập bằng JSON Serialization tránh crash vòng lặp render
             current_snapshot = json.loads(json.dumps(st.session_state.get("session_editor_snapshot", display_editor_rows)))
             
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
@@ -839,7 +862,10 @@ def callback_sync_on_the_fly_final():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
+                                # Ghi đồng thời Key ảo và Key thực tế để đồng bộ cho toàn bộ các công đoạn xử lý sau
+                                target_size_key = active_sizes[c_num - 1]
                                 clean_changes[f"CỠ {c_num}"] = safe_int_final(new_val)
+                                clean_changes[target_size_key] = safe_int_final(new_val)
                             except: pass
                         elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
                             clean_changes[col_header] = safe_int_final(new_val)
@@ -850,7 +876,7 @@ def callback_sync_on_the_fly_final():
                     current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
-# Hiển thị bảng grid nhập liệu tích hợp
+# Render Grid tương tác đồng bộ dữ liệu chuẩn sản xuất
 edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
