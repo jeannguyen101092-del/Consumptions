@@ -682,13 +682,8 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
         st.error(f"❌ Lỗi khi phân rã dữ liệu từ AI: {str(e)}")
 
 
-import streamlit as st
-import pandas as pd
-import json
-import re
-
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: ĐỒNG BỘ 2 CHIỀU TUYỆT ĐỐI - KHỬ LỖI GÕ SỐ BỊ BIẾN MẤT
+# TẦNG 3 - ĐOẠN 6: SỬA LỖI MAPPING ĐẢO NGƯỢC - KHỬ TRIỆT ĐỂ LỖI GÕ SỐ BỊ BIẾN MẤT
 # =============================================================================
 
 # Khôi phục bộ nhớ đệm snapshot phiên làm việc
@@ -731,8 +726,9 @@ for i, sz in enumerate(active_sizes):
     g_val, s_val = "None", c_str
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2: s_val, g_val = str(parts[0]).strip(), str(parts[1]).strip()
+    elif len(parts) == 1: s_val, g_val = str(parts[0]).strip(), "None"
     
-    # 🔥 ĐIỂM CHỐT 1: Gán dữ liệu tiêu đề phụ khớp chính xác với Key cột ảo "CỠ X" [INDEX]
+    # Gán thông tin hiển thị lên 3 cột ảo
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
     sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
@@ -743,16 +739,21 @@ sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
 display_editor_rows = []
 
-# 3. Đồng bộ bộ đệm snapshot đổ vào ô lưới
+# 3. Đồng bộ bộ đệm snapshot đổ ngược vào DataFrame hiển thị ảo
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        
+        # Nếu tên dòng bị trống, tự động bù nhãn chuẩn để không lỗi thuật toán
+        if not item_name or item_name.strip() == "":
+            item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
+            
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
-        # 🔥 ĐIỂM CHỐT 2: Đọc dữ liệu ra theo đúng định dạng cột ảo CỠ X để không làm mất số [INDEX]
+        # Ép dữ liệu từ Snapshot ra đúng key hiển thị dạng ảo "CỠ X" [INDEX]
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
@@ -767,7 +768,7 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Khởi tạo mặc định nếu bộ nhớ đệm trống
+    # Thiết lập mặc định bảng trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
@@ -780,10 +781,10 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Dựng DataFrame render lên Streamlit
+# Dựng DataFrame
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# Ép kiểu dữ liệu số cứng
+# Ép kiểu số cứng
 for col in clean_headers_top:
     if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
@@ -798,9 +799,8 @@ if is_locked:
 
 st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
 
-# Định cấu hình mở khóa quyền sửa động cho ô số liệu
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"),
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), # Khóa tên cột để tránh thợ xóa nhãn PILOT/CHÍNH
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
     "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0, step=1, format="%d"),
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1, step=1, format="%d"),
@@ -809,7 +809,7 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=is_locked, min_value=0, step=1, format="%d")
 
-# 🔥 ĐIỂM CHỐT 3: Hàm Callback tối ưu giữ nguyên 100% số thợ gõ đổ thẳng vào State trung tâm [INDEX]
+# 🔥 HÀM CALLBACK DỊCH MAPPING CHUẨN XÁC: Chuyển "CỠ X" ảo về lại "SIZE THẬT" của đơn hàng [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -820,7 +820,19 @@ def callback_sync_on_the_fly_final():
                 r_idx_int = int(r_idx_edit)
                 if r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
-                    current_snapshot[r_idx_int].update(change_dict)
+                    
+                    clean_changes = {}
+                    for col_header, new_val in change_dict.items():
+                        if str(col_header).startswith("CỠ "):
+                            try:
+                                c_num = int(str(col_header).replace("CỠ ", "").strip())
+                                # Ép số gõ tay lưu thẳng vào mã size thật (Ví dụ: "26X30") để Đoạn 7a bốc toán [INDEX]
+                                clean_changes[active_sizes[c_num - 1]] = int(float(str(new_val).strip() or 0))
+                            except Exception: pass
+                        else:
+                            clean_changes[col_header] = new_val
+                            
+                    current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
 # Khởi chạy data_editor
