@@ -883,49 +883,72 @@ def safe_int_final(value, default=0):
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")[0] # Lấy chính xác phần nguyên trước dấu chấm
+        if "." in clean_val: clean_val = clean_val.split(".")
         return int(clean_val)
     except (ValueError, TypeError):
         return default
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2a: SỬA LỖI ILOC[0] THUẬT TOÁN ĐIỀU PHỐI ĐỘNG KIM TỰ THÁP NGƯỢC
+# TẦNG 3 - ĐOẠN 2a: CHỈ KÍCH HOẠT THUẬT TOÁN KHI BẤM NÚT AI HOẶC KHÓA ĐỊNH MỨC
 # =============================================================================
 final_snapshot_rows = []
 
-# 1. Khởi tạo mảng sản lượng đơn hàng gốc (PO) làm gốc khấu trừ cuốn chiếu liên tục
+# Khởi tạo mảng sản lượng đơn hàng gốc (PO) làm gốc khấu trừ cuốn chiếu liên tục
 current_order_balances = {}
 for sz in active_sizes:
     current_order_balances[sz] = safe_int_final(size_breakdown_main.get(sz, 0))
 
 consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-# HÀM KHÓA CHẶN RESET: Quét xem thợ cắt đã nhập bất kỳ thông số nào lớn hơn 0 trên lưới chưa
-user_is_actively_planning = False
-for idx, row in edited_df_raw.iterrows():
-    s_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-    if s_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-        if safe_int_final(row.get("SƠ LỚP", 0)) > 0 or float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0) > 0:
-            user_is_actively_planning = True
+# 🔥 ĐIỂM THAY ĐỔI VÀNG: Kiểm tra trạng thái nhấn nút từ Session State
+# Thuật toán chỉ được phép tự động sinh chuỗi hàng loạt khi người dùng nhấn nút AI vét sạch hoặc nút Khóa lũy tiến
+ai_is_activated = st.session_state.get("auto_cutting_results") is not None or st.session_state.get("consumption_activated", False)
 
-# 🚨 TRƯỜNG HỢP 1: BẢNG TRỐNG (MỚI BẤM NÚT XÓA / CHƯA NHẬP LIỆU) -> KHÔNG CHO TỰ NHẢY SỐ TỶ LỆ
-if not user_is_actively_planning and not st.session_state.get("consumption_activated", False):
+# 🚨 TRƯỜNG HỢP 1: NGƯỜI DÙNG CHƯA BẤM NÚT KÍCH HOẠT AI -> CHỈ HIỂN THỊ ĐÚNG DỮ LIỆU THỰC TẾ TRÊN LƯỚI
+if not ai_is_activated:
+    # --- Bước A: Giữ cấu trúc 3 dòng tiêu đề phụ ban đầu ---
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        item_dict = {
-            "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": safe_int_final(row.get("SƠ LỚP", 0)), 
-            "SỐ BÀN": safe_int_final(row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": 0.0, 
-            "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0
-        }
-        for sz in active_sizes:
-            if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-                item_dict[sz] = safe_int_final(row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
-            else:
-                item_dict[sz] = 0
-        item_dict["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
-        final_snapshot_rows.append(item_dict)
+        if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0, "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0}
+            for c_idx, sz in enumerate(active_sizes):
+                item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
+            final_snapshot_rows.append(item_dict)
 
-# 🚀 TRƯỜNG HỢP 2: THỢ CẮT ĐÃ GÕ SỐ LIỆU TÁC NGHIỆP -> KÍCH HOẠT CHUỖI TOÁN HỌC KIM TỰ THÁP NGƯỢC
+    # --- Bước B: Chỉ hiển thị và khấu trừ các dòng người dùng ĐÃ NHẬP THỰC TẾ (Sơ lớp hoặc Tỷ lệ > 0) ---
+    for idx, row in edited_df_raw.iterrows():
+        s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+            layers = safe_int_final(row.get("SƠ LỚP", 0))
+            tables = safe_int_final(row.get("SỐ BÀN", 1))
+            try: m_len = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+            except Exception: m_len = 0.0
+            
+            r_dict = {}
+            row_ratios_total = 0
+            for sz in active_sizes:
+                v_cell = row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0))
+                val_int = safe_int_final(v_cell)
+                r_dict[sz] = val_int
+                row_ratios_total += val_int
+            
+            # Chỉ tính khấu trừ và đưa xuống bảng dưới nếu dòng này thực sự được gõ tỷ lệ hoặc gõ mét dài
+            if row_ratios_total > 0 or m_len > 0 or layers > 0:
+                # Đối với dòng Pilot gõ tay, dù sơ lớp = 0 vẫn tính khấu trừ 1 lớp mẫu để xem tiến độ lùi kho
+                is_pilot = "PILOT" in s_row_name or "SS" in s_row_name
+                effective_layers = layers if layers > 0 else (1 if is_pilot else 0)
+                
+                if effective_layers > 0 and row_ratios_total > 0:
+                    for sz in active_sizes:
+                        allocated_pcs = r_dict.get(sz, 0) * effective_layers * tables
+                        current_order_balances[sz] = max(0, current_order_balances[sz] - allocated_pcs)
+                
+                item_data = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": layers, "SỐ BÀN": tables, "DÀI SƠ ĐỒ": m_len, "TỔNG SẢN LƯỢNG": row_ratios_total * layers * tables}
+                item_data.update(r_dict)
+                item_data["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+                final_snapshot_rows.append(item_data)
+
+# 🚀 TRƯỜNG HỢP 2: NGƯỜI DÙNG ĐÃ NHẤN NÚT AI VÉT SẠCH -> TỰ ĐỘNG GIẢI KIM TỰ THÁP NGƯỢC LIÊN HOÀN CHO TOÀN ĐƠN HÀNG
 else:
     # --- Bước A: Giữ cấu trúc 3 dòng tiêu đề phụ ban đầu ---
     for idx, row in edited_df_raw.iterrows():
@@ -961,11 +984,10 @@ else:
             item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
             final_snapshot_rows.append(item_pilot)
 
-    # --- Bước C: Thuật toán tự động giải Kim Tự Tháp Ngược (Tự co số lớp dốc xuống) ---
+    # --- Bước C: Thuật toán tự động giải toán liên hoàn Kim Tự Tháp Ngược ---
     chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C0", na=False, case=False)]
     max_target_length, max_target_layers = 11.46, 60
 
-    # 🔥 ĐIỂM SỬA CHỐT LỖI MÀN HÌNH: Đã thêm chỉ mục .iloc[0] chuẩn xác của bảng Pandas dữ liệu
     if not chinh_rows_input.empty:
         first_chinh = chinh_rows_input.iloc[0]
         try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
@@ -1024,6 +1046,7 @@ else:
         final_snapshot_rows.append(item_auto)
         marker_counter += 1
 
+# Cập nhật dữ liệu vào bộ nhớ đệm
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
 
