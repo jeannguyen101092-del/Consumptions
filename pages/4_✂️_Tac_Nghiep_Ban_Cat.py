@@ -350,30 +350,56 @@ else:
 
 
                                # =============================================================================
-                # TẦNG 2 - ĐOẠN 2b: PROMPT KỸ THUẬT VÀ SỬA TRIỆT ĐỂ LỖI TRẮNG MÀN HÌNH (LOOP RERUN)
+                # TẦNG 2 - ĐOẠN 2b: CÂU LỆNH PROMPT CHUẨN HOÁ THUẬT TOÁN PHỐI CỠ THEO TỶ LỆ ORDER
                 # =============================================================================
-                ai_cutting_prompt = f"""
-                Bạn là thuật toán điều độ bàn cắt ngành may. Hãy tính toán phối cỡ cho các sơ đồ còn trống sau đây: {json.dumps(empty_slots)}.
-                Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ qua ô trống hoặc tự nhảy cóc sơ đồ.
+                # Tính toán tổng sản lượng còn lại để gửi lên AI làm mốc tỷ lệ
+                total_remaining_po = sum(calculated_balances.values())
                 
-                Dữ liệu thực tế đầu vào:
-                - Sản lượng còn lại thực tế cần giải quyết: {json.dumps(calculated_balances)}
-                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
-                - Chiều gia tối đa cho phép của bàn vải: {max_table_length} mét.
+                # Định nghĩa quy tắc tính toán dệt may công nghiệp bắt buộc cho Gemini
+                ai_cutting_prompt = f"""
+                Bạn là thuật toán toán học điều độ bàn cắt ngành may. Hãy tính phối cỡ điền vào các dòng đang TRỐNG này: {json.dumps(empty_slots)}.
+                Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ dòng hoặc thay đổi thông tin các dòng đã gõ tay.
+                
+                Thông số đầu vào:
+                - Bản đồ cấu trúc các dòng: {json.dumps(current_grid_structure)}
+                - Số lượng sản phẩm còn dư thực tế cần vét (Lượng Order gốc): {json.dumps(calculated_balances)}
+                - Tổng sản lượng Order còn lại: {total_remaining_po} Pcs
+                - Định mức tài liệu đề xuất (Consumption): {consumption_input} Yds/Pcs (quần).
+                - Chiều gia tối đa bàn vải (Marker Length giới hạn): {max_table_length} mét. (Quy đổi sang Yards = {round(max_table_length * 1.09361, 2)} Yds).
 
-                QUY TẮC PHỐI CỠ VÀ TÍNH TOÁN BẮT BUỘC:
-                1. Hãy tận dụng tối đa chiều dài bàn cắt tối đa ({max_table_length}m) để GHÉP các cỡ lại với nhau (Ví dụ tỷ lệ: 1-1-1 hoặc 1-2-1). 
-                2. RÀNG BUỘC CHIỀU DÀI: (Tổng số sản phẩm phối trên sơ đồ) * ({round(consumption_input * 0.9144, 3)} mét) KHÔNG ĐƯỢC vượt quá {max_table_length} mét. Chiều dài sơ đồ thực tế của mỗi sơ đồ chính là (Tổng tỷ lệ phối) * ({round(consumption_input * 0.9144, 3)} mét).
-                3. Hãy xếp số lớp (Số lớp) thật cao để giải quyết nhanh sản lượng, hạn chế đi số lớp mỏng lãng phí công trải.
-                {fabric_rule_text}
-                4. Chỉ dùng sơ đồ phối 1 quần duy nhất ở sơ đồ trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ còn sót lại.
-                5. Chỉ điền kết quả vào đúng các mã sơ đồ nằm trong danh sách trống này: {json.dumps(empty_slots)}.
+                QUY TẮC PHỐI CỠ VÀ PHÂN BỔ SỐ SP/SĐ BẮT BUỘC (QUY TRÌNH SẢN XUẤT CÔNG NGHIỆP):
+                1. Chiều dài sơ đồ (Marker Length) của từng dòng trống sẽ do bạn phân bổ dựa trên số lớp rải vải thực tế để vét sạch hàng, nhưng Marker_Length phải <= {round(max_table_length * 1.09361, 2)} Yds.
+                
+                2. TÍNH TỔNG SỐ SẢN PHẨM TRÊN SƠ ĐỒ (Garments_Per_Marker):
+                   Với mỗi sơ đồ trống, bạn chọn một Marker_Length (Yards) hợp lý. 
+                   Tổng số sản phẩm trên sơ đồ đó BẮT BUỘC phải tuân theo công thức:
+                   Garments_Per_Marker = Marker_Length / {consumption_input}
+                   (Ví dụ: Marker_Length = 12 Yds, Consumption = 1 Yds/Pcs => Garments_Per_Marker = 12 sản phẩm).
 
-                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích thêm:
+                3. PHÂN BỔ TỶ LỆ SIZE THEO TỶ LỆ ORDER (Largest Remainder Method):
+                   - Tính phần trăm (%) tỷ lệ của từng size dựa trên Lượng Order gốc.
+                     Tỷ lệ % Size A = (Order Size A) / {total_remaining_po}
+                   - Tính số lượng sản phẩm lý thuyết của từng size trên sơ đồ:
+                     Số lượng lý thuyết Size A = Garments_Per_Marker * Tỷ lệ % Size A
+                   - Lấy phần nguyên làm số lượng cơ sở.
+                   - Sắp xếp phần thập phân (phần dư) giảm dần. Cộng thêm 1 sản phẩm vào các size có phần dư lớn nhất cho đến khi tổng số lượng của các size ĐÚNG BẰNG Garments_Per_Marker.
+                   - Đảm bảo: TỔNG CÁC GIÁ TRỊ TRONG RATIOS PHẢI BẰNG CHÍNH XÁC Garments_Per_Marker.
+
+                4. CHỈ ĐIỀN KẾT QUẢ vào dòng ghi "AI ĐIỀN VÀO ĐÂY". Điền tuần tự từ trên xuống dưới.
+                5. Chỉ dùng sơ đồ phối ít sản phẩm ở ô trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ.
+
+                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích thêm một từ nào ngoài JSON:
                 [
-                  {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"26 X 30": 1, "28 X 30": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(dinhmuc_met_c2 * 2, 2)}}}
+                  {{
+                    "Sơ đồ / Trạng thái": "c02", 
+                    "Ratios": {{"26 X 30": 2, "28 X 30": 4, "30 X 30": 6}}, 
+                    "Số lớp": 120, 
+                    "Số bàn": 1, 
+                    "Chiều dài mét": 10.97
+                  }}
                 ]
                 """
+
                 try:
                     res_cutting = client_ai.models.generate_content(
                         model='gemini-2.5-flash', contents=[ai_cutting_prompt],
