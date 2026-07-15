@@ -747,9 +747,8 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ VÁ TRIỆT ĐỂ LỖI LỆCH TRỤC CỘT PANDAS
+        # TẦNG 3 - ĐOẠN 2: THUẬT TOÁN ĐỒNG BỘ ĐỌC TRỰC TIẾP LƯỚI MÀN HÌNH THỜI GIAN THỰC
         # =============================================================================
-        # 🛠️ VÁ LỖI CỐT LÕI: Thêm số lượng ô rỗng (+6) để cân bằng trục đứng, chừa chỗ cho cột TỔNG SẢN LƯỢNG
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
@@ -788,40 +787,30 @@ else:
         matrix_body_rows = []
         running_balances = list(po_qty_matrix)
         
-        # Bốc chính xác dữ liệu gốc 6 dòng sơ đồ thực tế từ bộ nhớ đệm snapshot đã đồng bộ
-        production_rows = []
-        if snapshot:
-            production_rows = [r for r in snapshot if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]]
-        else:
-            for idx, row in edited_df_raw.iterrows():
-                name_check = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-                if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
-                    production_rows.append(row)
-
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 2b: SỬA TRIỆT ĐỂ LỖI KHÔNG ĐỒNG BỘ SẢN LƯỢNG VÀ TỶ LỆ XUỐNG BẢNG DƯỚI
-        # =============================================================================
-        for r_idx, row_data in enumerate(production_rows):
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
+        # 🛠️ ĐIỂM SỬA CHỐT LÕI 1: Bỏ qua bộ đệm snapshot, duyệt trực tiếp trên bảng hiển thị edited_df_raw
+        for idx, row in edited_df_raw.iterrows():
+            s_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
             
-            # Đọc chuẩn xác số lớp, số bàn và chiều dài từ bảng trên
-            try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+            # Chặn tuyệt đối bỏ qua không tính toán cho 3 dòng tiêu đề phụ lồng bên trong lưới
+            if s_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
+                continue
+            
+            # Đọc chuẩn xác các thông số rải vải của từng dòng sơ đồ thực tế
+            try: layers = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
-                
-            try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+            try: tables = int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
             except Exception: tables = 1
-                
-            try: m_len = float(str(row_data.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+            try: m_len = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
             except Exception: m_len = 0.0
             
             active_ratio_parts = []
             row_ratios_list = []
             ratios_sum = 0
             
-            # 🛠️ ĐIỂM SỬA CHỐT LÕI: Đồng bộ tra cứu chuẩn xác theo đúng cấu trúc tiêu đề "CỠ X" hiển thị trên màn hình
+            # 🛠️ ĐIỂM SỬA CHỐT LÕI 2: Đọc trực tiếp theo đúng nhãn tiêu đề cột phẳng hiển thị trên giao diện của bạn
             for c_idx, sz in enumerate(active_sizes):
-                # Thử đọc theo từ khóa "CỠ X" phẳng của data_editor, nếu không có mới tìm theo tên size gốc
-                r_val_raw = row_data.get(f"CỠ {c_idx+1}", row_data.get(sz, 0))
+                # Bốc số chuẩn chỉ theo đúng tên cột hiển thị là "CỠ 1", "CỠ 2"...
+                r_val_raw = row.get(f"CỠ {c_idx+1}", 0)
                 try: r_val = int(float(str(r_val_raw).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
                     
@@ -832,7 +821,7 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            # Tính toán định mức và tổng mét vải tiêu hao thực tế
+            # Tính toán định mức sơ đồ thực tế và tổng vải tiêu hao dựa trên số mét gõ tay
             if ratios_sum > 0 and layers > 0 and m_len > 0:
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
@@ -846,10 +835,9 @@ else:
             ratio_row = [ratio_row_title, f"{total_cut_in_row:,}"] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # 🛠️ KHẤU TRỪ CHUẨN XÁC THEO HÀNG DỌC ĐỒNG BỘ 100% VỚI BẢNG TRÊN
+            # Khấu trừ lùi sản lượng đơn hàng tịnh tiến thời gian thực lũy tiến
             remaining_row = ["CÒN LẠI", ""]
             for idx, sz in enumerate(active_sizes):
-                # Trích xuất đúng tỷ lệ từ mảng vừa bóc tách ở trên để trừ lùi lũy tiến
                 r_val = row_ratios_list[idx]
                 running_balances[idx] = max(0, running_balances[idx] - (r_val * layers * tables))
                 remaining_row.append(f"{running_balances[idx]:,}" if running_balances[idx] > 0 else "0")
@@ -859,6 +847,7 @@ else:
         clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
         final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
         
+        # Dựng DataFrame báo cáo lên màn hình
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
         st.markdown("""<style>
@@ -914,6 +903,8 @@ else:
                 }
                 try:
                     from supabase import create_client
+                    
+
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
