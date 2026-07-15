@@ -151,7 +151,7 @@ if not st.session_state.get("purchase_ready"):
                 st.rerun()
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 1: MÀN HÌNH TÁC NGHIỆP FORM HÀNH CHÍNH VÀ Ô CHỌN LOẠI VẢI ĐỘNG
+# TẦNG 2 - ĐOẠN 1: MÀN HÌNH TÁC NGHIỆP VÀ THUẬT TOÁN SẮP XẾP COLUMN THEO INSEAM
 # =============================================================================
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
@@ -202,7 +202,7 @@ else:
                 sb_client_check = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                 res_check = sb_client_check.table("cutting_orders_db").select("*").eq("style_id", style_id_input).eq("fabric_type", fabric_type_input).limit(1).execute()
                 if res_check.data and len(res_check.data) > 0:
-                    st.session_state["auto_cutting_results_recovered"] = res_check.data[0]["cutting_matrix_data"]
+                    st.session_state["auto_cutting_results_recovered"] = res_check.data["cutting_matrix_data"]
                     st.session_state["auto_cutting_results"] = None
                     st.rerun()
                 else:
@@ -211,17 +211,43 @@ else:
             except Exception: 
                 pass
 
-        active_sizes = []
+        # Thu thập các size có sản lượng > 0 ban đầu
+        unsorted_sizes = []
         for k, v in size_breakdown_main.items():
             try:
                 clean_v = int(float(str(v).replace(",", "").strip() or 0))
                 if clean_v > 0:
-                    active_sizes.append(str(k))
+                    unsorted_sizes.append(str(k))
             except (ValueError, TypeError):
                 continue
 
+        # 🛠️ THUẬT TOÁN SẮP XẾP THEO INSEAM ĐỘNG: Định vị con số đứng sau chữ X để xếp từ nhỏ đến lớn
+        def key_sort_by_inseam_then_waist(size_string):
+            s_clean = str(size_string).upper().strip()
+            if "X" in s_clean:
+                parts = s_clean.split("X")
+                try:
+                    # Lấy số eo (Waist) và số giàng (Inseam) quy đổi sạch đuôi gạch dưới _1, _2
+                    waist = int(float(re.sub(r'_\d+$', '', parts[0].strip())))
+                    inseam = int(float(re.sub(r'_\d+$', '', parts[1].strip())))
+                    # Trả về bộ tuple ưu tiên xếp giàng trước (30, 32, 34), sau đó đến số eo nhỏ đến lớn
+                    return (inseam, waist)
+                except ValueError:
+                    return (999, 999) # Dự phòng cấu trúc chữ lạ đẩy xuống cuối cùng
+            else:
+                try:
+                    # Nếu là size phẳng đơn (ví dụ chuỗi số thuần hoặc chữ S, M, L)
+                    pure_num = int(float(re.sub(r'_\d+$', '', s_clean)))
+                    return (0, pure_num)
+                except ValueError:
+                    return (0, s_clean)
+
+        # Kích hoạt hàm sắp xếp cưỡng chế mảng cột
+        active_sizes = sorted(unsorted_sizes, key=key_sort_by_inseam_then_waist)
+
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
+
 # =============================================================================
 # TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ KHẮC PHỤC HOÀN TOÀN LỖI EMPTY_SLOTS
 # =============================================================================
