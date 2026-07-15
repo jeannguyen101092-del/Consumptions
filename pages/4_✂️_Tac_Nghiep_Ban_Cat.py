@@ -223,7 +223,7 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ BỔ SUNG NÚT CLEAR TÍNH LẠI
+# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ KHẮC PHỤC HOÀN TOÀN LỖI EMPTY_SLOTS
 # =============================================================================
         btn_col1, btn_col2, btn_col_clear = st.columns([1.5, 1.5, 1])
         with btn_col1: 
@@ -231,7 +231,6 @@ else:
         with btn_col2: 
             trigger_consumption = st.button("🔒 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
         with btn_col_clear:
-            # 🛠️ NÚT BẤM CLEAR: Xóa sạch bộ nhớ đệm để tổ trưởng nhập lại từ đầu
             trigger_clear_data = st.button("🧹 XÓA ĐỂ TÍNH LẠI", type="secondary", use_container_width=True, key="c2_clear_all_data_btn")
 
         if trigger_clear_data:
@@ -260,6 +259,69 @@ else:
                 for sz in active_sizes:
                     try: calculated_balances[sz] = int(float(str(size_breakdown_main.get(sz, 0)).replace(",", "").strip() or 0))
                     except Exception: calculated_balances[sz] = 0
+                
+                # 🔥 ĐIỂM CHỐT KHẮC PHỤC LỖI: Luôn khởi tạo mảng rỗng trước khi rẽ nhánh điều kiện
+                empty_slots = []
+                current_grid_structure = []
+
+                if snapshot and len(snapshot) > 0 and snapshot is not None:
+                    for idx, row_data in enumerate(snapshot):
+                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper().strip()
+                        s_code = f"c{str(idx+1).zfill(2)}"
+                        
+                        total_ratios_entered = 0
+                        row_ratios = {}
+                        for sz in active_sizes:
+                            try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+                            except Exception: r_val = 0
+                            row_ratios[sz] = r_val
+                            total_ratios_entered += r_val
+                        
+                        try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+                        except Exception: layers = 0
+                            
+                        try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+                        except Exception: tables = 1
+
+                        if total_ratios_entered > 0 and layers > 0:
+                            for sz in active_sizes:
+                                r_val = row_ratios[sz]
+                                calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
+                            
+                            current_grid_structure.append({
+                                "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
+                            })
+                        else:
+                            empty_slots.append(s_code)
+                            current_grid_structure.append({
+                                "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
+                            })
+                else:
+                    # Nếu snapshot trống (vừa gõ nút Clear), mặc định toàn bộ 6 dòng c01-c06 đều chờ AI giải
+                    empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
+                    fab_letter_c2 = "C"
+                    fab_upper_c2 = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
+                    if fab_upper_c2 == "LÓT": fab_letter_c2 = "L"
+                    elif fab_upper_c2 == "KEO": fab_letter_c2 = "K"
+                    elif fab_upper_c2 == "PHỐI": fab_letter_c2 = "P"
+                    
+                    current_grid_structure = [
+                        {
+                            "Mã dòng": f"c{str(i+1).zfill(2)}", 
+                            "Tên sơ đồ gốc": f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}", 
+                            "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
+                        } for i in range(6)
+                    ]
+
+                is_sub_fabric = str(fabric_type_input).upper() in ["LÓT", "KEO", "PHỐI"]
+                fabric_rule_text = ""
+                if is_sub_fabric:
+                    fabric_rule_text = "- ĐẶC BIỆT: Đây là vải phụ (KEO/LÓT/PHỐI). Được phép cắt dư thêm 5-10 Pcs mỗi size lẻ để dễ gộp vào sơ đồ lớn, hạn chế sinh sơ đồ mỏng."
+                else:
+                    fabric_rule_text = "- ĐẶC BIỆT: Đây là vải CHÍNH. Không được phép cắt dư, tính toán phối cỡ và số lớp sao cho sản lượng triệt tiêu chính xác về 0."
+
+                dinhmuc_met_c2 = round(consumption_input * 0.9144, 3)
+
 
                 # =============================================================================
                 # TẦNG 2 - ĐOẠN 2b: CÂU LỆNH PROMPT VÀ ĐỒNG BỘ KẾT QUẢ AI VÀO Ô LƯỚI TRỐNG
