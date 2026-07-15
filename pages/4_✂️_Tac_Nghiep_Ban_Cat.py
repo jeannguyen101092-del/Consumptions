@@ -688,7 +688,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6 SỬA ĐỔI: TRÍCH XUẤT INDEX MẢNG - MỞ KHÓA CỨNG GÕ TAY 100%
+# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
 # =============================================================================
 
 # Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
@@ -726,15 +726,15 @@ giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
 
-# 🔥 ĐIỂM SỬA CHỐT LỖI: Bốc tách phần tử index 0 và 1 của mảng parts để khử dấu ngoặc vuông []
+# Trích xuất chính xác phần tử index 0 và 1 của mảng parts để khử hoàn toàn dấu ngoặc vuông []
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
     g_val, s_val = "None", c_str
     
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
-        s_val = str(parts[0]).strip()  # Index 0 là thông số vòng Eo (Size) [INDEX]
-        g_val = str(parts[1]).strip()  # Index 1 là thông số dài Giàng (Inseam) [INDEX]
+        s_val = str(parts[0]).strip()  # Vòng eo (Waist / Size) [INDEX]
+        g_val = str(parts[1]).strip()  # Chiều dài giàng (Inseam) [INDEX]
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
         g_val = "None"
@@ -787,17 +787,16 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Dựng DataFrame render lên Streamlit
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# Ép kiểu số cứng
+# Ép kiểu dữ liệu số cứng
 for col in clean_headers_top:
     if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
     elif col == "DÀI SƠ ĐỒ":
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
 
-# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp
+# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp (disabled=False) [INDEX]
 config_cot = {
     "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
@@ -808,7 +807,7 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# Hàm Callback đồng bộ ngược đổ dữ liệu thẳng vào bộ nhớ Snapshot trung tâm
+# Hàm Callback đồng bộ dữ liệu gõ tay từ cột ảo biên dịch chuẩn sang bộ nhớ snapshot [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -837,6 +836,7 @@ edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
 )
+
 
 
 
