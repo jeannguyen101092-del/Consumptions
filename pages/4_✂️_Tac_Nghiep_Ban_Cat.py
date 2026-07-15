@@ -747,7 +747,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: ĐỒNG BỘ TRỰC TIẾP LƯỚI TRÊN VÀ ĐỌC BIẾN THEO CỘT HIỂN THỊ
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU VÀ SỬA TRIỆT ĐỂ LỖI ÉP KIỂU CHUỖI RỖNG
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -760,7 +760,7 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # Tính tổng sản lượng đơn hàng của tất cả các size cộng lại
+        # Tính tổng sản lượng đơn hàng của tất cả các size cộng lại làm mốc đối chiếu
         total_sum_po_qty = 0
         for sz in active_sizes:
             try: total_sum_po_qty += int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".").strip() or 0)
@@ -783,7 +783,7 @@ else:
         size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-        # Khôi phục dữ liệu snapshot
+        # Luồng 1: Khôi phục từ snapshot bộ nhớ đệm
         if snapshot and len(snapshot) > 0 and snapshot is not None:
             filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
             cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -834,9 +834,15 @@ else:
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
+        
+        # 🎯 ĐIỂM SỬA CHỐT LÕI: Hàm Lambda mới bọc phòng thủ nghiêm ngặt, lọc sạch text và chuỗi rỗng tuyệt đối trước khi ép kiểu số
         for sz in active_sizes:
             if sz in df_editor_base.columns:
-                df_editor_base[sz] = df_editor_base[sz].apply(lambda x: int(float(str(x).replace(",", "").strip())) if (str(x).strip() != "" and str(x).lower() != "none" and not str(x).isalpha()) else 0)
+                df_editor_base[sz] = df_editor_base[sz].apply(
+                    lambda x: int(float(str(x).replace(",", "").strip())) 
+                    if (str(x).strip() != "" and str(x).lower() != "none" and str(x).replace(",", "").replace(".", "").strip().isdigit()) 
+                    else 0
+                )
         
         is_locked = st.session_state.get("consumption_activated", False)
         if is_locked:
@@ -900,6 +906,8 @@ else:
             if s_row_name in ["GIÀNG", "SIZE"]: item_dict["TỔNG SẢN LƯỢNG"] = ""
             elif s_row_name == "SẢN LƯỢNG": item_dict["TỔNG SẢN LƯỢNG"] = f"{total_sum_po_qty:,}"
             else: item_dict["TỔNG SẢN LƯỢNG"] = f"{row_ratios_total * layers * tables:,}"
+                
+
                 
             item_dict["SƠ LỚP"] = layers
             item_dict["SỐ BÀN"] = tables
