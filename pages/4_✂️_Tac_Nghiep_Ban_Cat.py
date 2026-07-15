@@ -749,32 +749,29 @@ else:
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: LÀM SẠCH CHUỖI GIÀNG & SIZE TRÊN BẢNG ĐỐI CHIẾU SỐ 2
         # =============================================================================
-        t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
-        t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
-        t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
+             # =============================================================================
+        # TẦNG 3 - ĐOẠN 2a: TRÍCH XUẤT MA TRẬN PHẲNG VÀ ĐỒNG BỘ CHUẨN KHÓA SƠ LỚP
+        # =============================================================================
+        t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
+        t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
+        t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
 
-        t1_giang_row = ["GIÀNG"]
-        t2_size_row = ["SIZE"]
+        t1_giang_row = ["GIÀNG", ""]
+        t2_size_row = ["SIZE", ""]
         po_qty_matrix = []
 
         for col_name in active_sizes:
             c_str = str(col_name).strip().upper().replace(" ", "")
             g_val, s_val = "None", c_str
             parts = re.split(r'[X_-]', c_str)
-            
-            # 🛠️ SỬA LỖI TẠI ĐÂY: Trích xuất chính xác phần tử chuỗi String trong mảng, không dùng str(parts)
             if len(parts) >= 2:
                 s_val = str(parts[0]).strip()
                 g_val = str(parts[1]).strip()
-            elif len(parts) == 1:
-                s_val = str(parts[0]).strip()
-                g_val = "None"
             
-            # Làm sạch triệt để ký tự gạch chân trùng cột phát sinh
             g_val_clean = re.sub(r'_\d+$', '', g_val)
             s_val_clean = re.sub(r'_\d+$', '', s_val)
             
-            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
+            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
             except Exception: po_v = 0
                 
             po_qty_matrix.append(po_v)
@@ -785,17 +782,21 @@ else:
             t1_giang_row.append("")
             t2_size_row.append("")
             
-        t3_sl_row = ["SẢN LƯỢNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
+        t3_sl_row = ["SẢN LƯỢNG", f"{total_sum_po_qty:,}"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
             
         matrix_body_rows = []
         running_balances = list(po_qty_matrix)
         
-        # Lọc bốc tách chính xác 6 dòng sơ đồ từ ô lưới hiển thị trên màn hình
+        # Bốc chính xác dữ liệu gốc 6 dòng sơ đồ thực tế từ bộ nhớ đệm snapshot đã đồng bộ
         production_rows = []
-        for idx, row in edited_df_raw.iterrows():
-            name_check = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-            if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
-                production_rows.append(row)
+        if snapshot:
+            # Lọc bỏ qua 3 dòng tiêu đề phụ lồng bên trong snapshot
+            production_rows = [r for r in snapshot if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]]
+        else:
+            for idx, row in edited_df_raw.iterrows():
+                name_check = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+                if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
+                    production_rows.append(row)
 
         for r_idx, row_data in enumerate(production_rows):
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
