@@ -326,9 +326,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3: ĐỒNG BỘ LUỒNG EDIT GÕ TAY VÀ ĐÓN NHẬN KẾT QUẢ AI VÉT ĐUÔI TỰ ĐỘNG
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN SỬA LỖI: KHỞI TẠO BIẾN DISPLAY_EDITOR_ROWS AN TOÀN ĐA LUỒNG
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY, SNAPSHOT VÀ NÚT MỞ KHÓA
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -346,12 +344,18 @@ else:
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
                     for sz in active_sizes: 
-                        clean_row[sz] = int(str(row.get(sz, 0)).replace(",", "").split(".")[0] if str(row.get(sz, 0)).strip() else 0)
-                    clean_row.update({
-                        "SƠ LỚP": int(str(row.get("SƠ LỚP", 120)).split(".")[0]), 
-                        "SỐ BÀN": int(str(row.get("SỐ BÀN", 1)).split(".")[0]), 
-                        "DÀI SƠ ĐỒ": float(row.get("DÀI SƠ ĐỒ", 0.0))
-                    })
+                        try:
+                            clean_row[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
+                        except Exception:
+                            clean_row[sz] = 0
+                    try:
+                        clean_row.update({
+                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 120)).replace(",", "").strip() or 120)), 
+                            "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
+                            "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+                        })
+                    except Exception:
+                        clean_row.update({"SƠ LỚP": 120, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
         # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form trống trơn để tổ trưởng tự nhập tay từ con số 0
@@ -374,7 +378,7 @@ else:
         if is_locked:
             if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_c2"):
                 st.session_state["consumption_activated"] = False
-                st.toast("🔓 Đã mở khóa biểu mẫu! Bạn có thể sửa tay tên sơ đồ và số lượng.", icon="🔓")
+                st.toast("🔓 Đã mở khóa biểu mẫu! Bạn có thể sửa tay tên sơ đồ và thông số.", icon="🔓")
                 st.rerun()
 
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (CHO PHÉP SỬA TAY TÊN SƠ ĐỒ VÀ THÔNG SỐ)</p>", unsafe_allow_html=True)
@@ -391,11 +395,88 @@ else:
         # Nếu chưa khóa thì liên tục lưu giữ snapshot động người dùng gõ tay
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
-
-
         # =============================================================================
-        # 📊 ĐỊNH DẠNG CSS VÀ HIỂN THỊ BẢNG ĐỐI CHIẾU THỰC TẾ TRÊN MÀN HÌNH
+        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ BÁO CÁO XUẤT XƯỞNG (XÓA LỖI NAMEERROR)
         # =============================================================================
+        t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
+        t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
+        t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
+
+        t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
+        po_qty_matrix = []
+        for col_name in active_sizes:
+            c_str = str(col_name).strip().upper()
+            g_val, s_val = "None", c_str
+            if "X" in c_str:
+                p = c_str.split("X")
+                s_val, g_val = p.strip(), p.strip()
+            
+            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
+            except Exception: po_v = 0
+                
+            po_qty_matrix.append(po_v)
+            t1_giang_row.append(g_val)
+            t2_size_row.append(s_val)
+            t3_sl_row.append(f"{po_v:,}")
+            
+        for _ in range(6): 
+            t1_giang_row.append(""); t2_size_row.append(""); t3_sl_row.append("")
+            
+        matrix_body_rows = []
+        remaining_balances = list(po_qty_matrix)
+        
+        # Duyệt qua các dòng trên data_editor để tính trừ lùi sản lượng thực tế
+        for r_idx in range(len(edited_df)):
+            row_data = edited_df.iloc[r_idx]
+            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
+            
+            try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+            except Exception: layers = 0
+                
+            try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+            except Exception: tables = 1
+                
+            try: m_len = float(str(row_data.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+            except Exception: m_len = 0.0
+                
+            vail_can_m = m_len * layers * tables
+            
+            active_ratio_parts = []
+            ratios_sum = 0
+            row_ratios_list = []
+            
+            for sz in active_sizes:
+                try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+                except Exception: r_val = 0
+                    
+                ratios_sum += r_val
+                row_ratios_list.append(r_val)
+                if r_val > 0:
+                    sz_clean = str(sz).replace("X","-").strip()
+                    active_ratio_parts.append(f"{sz_clean}/{r_val}")
+                    
+            ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}: TRỐNG"
+            dm_sd = (m_len * 1.09361) / ratios_sum if ratios_sum > 0 else 0.0
+            
+            ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
+            matrix_body_rows.append(ratio_row)
+            
+            remaining_row = ["CÒN LẠI"]
+            for idx, sz in enumerate(active_sizes):
+                try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+                except Exception: r_val = 0
+                remaining_balances[idx] = max(0, remaining_balances[idx] - (r_val * layers * tables))
+                remaining_row.append(remaining_balances[idx])
+            remaining_row.extend(["", "", "", "", "", ""])
+            matrix_body_rows.append(remaining_row)
+
+        clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
+        final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
+        
+        # ĐẢM BẢO KHỞI TẠO BIẾN LUÔN THÀNH CÔNG TẠI ĐÂY
+        df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
+
+        # 1. Áp dụng CSS và hiển thị bảng đối chiếu thực tế ngay lập tức
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -407,9 +488,7 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # =============================================================================
-        # 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐỔ MÀU CÔNG NGHIỆP
-        # =============================================================================
+        # 2. Xử lý xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -419,16 +498,12 @@ else:
                 res_all_fabs = sb_ex_client.table("cutting_orders_db").select("*").eq("style_id", style_id_input).execute()
                 
                 if res_all_fabs.data and len(res_all_fabs.data) > 0:
-                    # Duyệt qua từng loại vải đã lưu trên hệ thống để gom cụm thành các sheet riêng biệt
                     for r_record in res_all_fabs.data:
                         f_type_name = str(r_record.get("fabric_type", "CHÍNH")).upper()
                         raw_matrix = r_record.get("cutting_matrix_data", [])
                         if raw_matrix:
-                            df_sheet = pd.DataFrame(raw_matrix)
-                            # Đảm bảo giữ nguyên cấu trúc hiển thị bảng báo cáo gốc
-                            df_sheet.to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
+                            pd.DataFrame(raw_matrix).to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
                 else: 
-                    # Nếu chưa có dữ liệu cũ, ghi đè bảng hiện hành vào sheet hiện tại
                     df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
             excel_generated_status = True
         except Exception: 
@@ -444,15 +519,12 @@ else:
                 key="excel_multi_sheet_btn_final_v5"
             )
         
-        # =============================================================================
-        # 💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI VÀO KHO
-        # =============================================================================
+        # 3. Nút bấm đồng bộ thông số lưu trữ lên đám mây Supabase
         st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
         if trigger_save_supabase:
-            with st.spinner(f"🚀 Hệ thống đang ghi dữ liệu vải {fabric_type_input} đồng bộ vào kho Supabase..."):
-                # CHUẨN HÓA SẮP XẾP CỘT: Ép kiểu dữ liệu chuỗi cố định cho JSON payload
+            with st.spinner(f"🚀 Hệ thống đang lưu trữ dữ liệu vải {fabric_type_input} lên đám mây..."):
                 df_clean_string = df_final_report.copy().astype(str)
                 matrix_json_string = df_clean_string.to_json(orient="records")
                 
@@ -469,11 +541,10 @@ else:
                 try:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
-                    
-                    # Đồng bộ an toàn lên cơ sở dữ liệu cloud
-                    response_db = supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
+                    supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
+                    
         st.markdown("---")
-        st.success("🎉 Hệ thống phân hệ tác nghiệp gập rập gõ tay đa loại vải đã Re-build hoàn tất trơn tru!")
+        st.success("🎉 Hệ thống phân hệ tác nghiệp gập rập gõ tay kết hợp AI đã Re-build hoàn tất trơn tru!")
