@@ -328,15 +328,58 @@ else:
         # =============================================================================
         # TẦNG 3: ĐỒNG BỘ LUỒNG EDIT GÕ TAY VÀ ĐÓN NHẬN KẾT QUẢ AI VÉT ĐUÔI TỰ ĐỘNG
         # =============================================================================
-        # Khởi tạo bảng dữ liệu nền
+        # TẦNG 3 - ĐOẠN SỬA LỖI: KHỞI TẠO BIẾN DISPLAY_EDITOR_ROWS AN TOÀN ĐA LUỒNG
+        # =============================================================================
+        display_editor_rows = []
+        recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
+        ai_source = st.session_state.get("auto_cutting_results", [])
+        snapshot = st.session_state.get("session_editor_snapshot")
+
+        # 1. ƯU TIÊN SỐ 1: Nếu đã có dữ liệu snapshot do tổ trưởng gõ tay hoặc AI điền trước đó, giữ nguyên 100%
+        if snapshot and len(snapshot) > 0:
+            display_editor_rows = list(snapshot)
+            
+        # 2. ƯU TIÊN SỐ 2: Nếu có kết quả khôi phục lịch sử từ Supabase gửi về
+        elif recovered_source:
+            for row in recovered_source:
+                t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", ""))
+                if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
+                    clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
+                    for sz in active_sizes: 
+                        clean_row[sz] = int(str(row.get(sz, 0)).replace(",", "").split(".")[0] if str(row.get(sz, 0)).strip() else 0)
+                    clean_row.update({
+                        "SƠ LỚP": int(str(row.get("SƠ LỚP", 120)).split(".")[0]), 
+                        "SỐ BÀN": int(str(row.get("SỐ BÀN", 1)).split(".")[0]), 
+                        "DÀI SƠ ĐỒ": float(row.get("DÀI SƠ ĐỒ", 0.0))
+                    })
+                    display_editor_rows.append(clean_row)
+                    
+        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form trống trơn để tổ trưởng tự nhập tay từ con số 0
+        else:
+            for i in range(6):
+                s_code = f"c{str(i+1).zfill(2)}"
+                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ C{s_code.upper()}"}
+                for sz in active_sizes: 
+                    item_dict[sz] = 0
+                item_dict.update({"SƠ LỚP": 120 if i < 3 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                display_editor_rows.append(item_dict)
+                
+        # Khởi tạo bảng dữ liệu nền (Đã khắc phục hoàn toàn lỗi NameError)
         df_editor_base = pd.DataFrame(display_editor_rows)
         
-        # Kiểm tra trạng thái khóa cứng
+        # Quản lý trạng thái khóa cứng bảng nhập liệu
         is_locked = st.session_state.get("consumption_activated", False)
+
+        # Bổ sung nút bấm mở khóa nếu tổ trưởng muốn quay lại sửa tay tiếp
+        if is_locked:
+            if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_c2"):
+                st.session_state["consumption_activated"] = False
+                st.toast("🔓 Đã mở khóa biểu mẫu! Bạn có thể sửa tay tên sơ đồ và số lượng.", icon="🔓")
+                st.rerun()
 
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (CHO PHÉP SỬA TAY TÊN SƠ ĐỒ VÀ THÔNG SỐ)</p>", unsafe_allow_html=True)
         
-        # 🛠️ HIỂN THỊ Ô LƯỚI: Sử dụng tham số disabled=is_locked để khóa cứng toàn bộ bảng khi bấm nút số 2
+        # HIỂN THỊ Ô LƯỚI TƯƠNG TÁC
         edited_df = st.data_editor(
             df_editor_base, 
             use_container_width=True, 
@@ -349,67 +392,6 @@ else:
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
 
-        t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
-        t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
-        t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
-
-        t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
-        po_qty_matrix = []
-        for col_name in active_sizes:
-            c_str = str(col_name).strip().upper()
-            g_val, s_val = "None", c_str
-            if "X" in c_str:
-                p = c_str.split("X")
-                s_val, g_val = p[0].strip(), p[1].strip()
-            po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
-            po_qty_matrix.append(po_v)
-            t1_giang_row.append(g_val)
-            t2_size_row.append(s_val)
-            t3_sl_row.append(f"{po_v:,}")
-            
-        for _ in range(6): 
-            t1_giang_row.append(""); t2_size_row.append(""); t3_sl_row.append("")
-            
-        matrix_body_rows = []
-        remaining_balances = list(po_qty_matrix)
-        
-        # 🛠️ ĐỒNG BỘ XUỐNG BẢNG BÊN DƯỚI: Đọc chính xác Tên sơ đồ đã sửa tay đưa vào tiêu đề dòng báo cáo
-        for r_idx in range(len(edited_df)):
-            row_data = edited_df.iloc[r_idx]
-            
-            # LẤY CHUẨN XÁC TÊN SƠ ĐỒ DO NGƯỜI DÙNG TỰ GÕ TAY TRÊN Ô LƯỚI
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
-            
-            layers = int(str(row_data.get("SƠ LỚP", 0)).split(".")[0] or 0)
-            tables = int(str(row_data.get("SỐ BÀN", 1)).split(".")[0] or 1)
-            m_len = float(row_data.get("DÀI SƠ ĐỒ", 0.0) or 0.0)
-            vail_can_m = m_len * layers * tables
-            
-            active_ratio_parts = []
-            ratios_sum = 0
-            for c_idx, sz in enumerate(active_sizes):
-                r_val = int(str(row_data.get(sz, 0)).split(".")[0] or 0)
-                ratios_sum += r_val
-                if r_val > 0:
-                    sz_clean = str(sz).replace("X","-").strip()
-                    active_ratio_parts.append(f"{sz_clean}/{r_val}")
-                    
-            # Đổ dữ liệu Tên sơ đồ sửa tay trực tiếp vào tiêu đề báo cáo
-            ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}: TRỐNG"
-            
-            # Tính định mức sơ đồ chuẩn
-            dm_sd = (m_len * 1.09361) / ratios_sum if ratios_sum > 0 else 0.0
-            
-            ratio_row = [ratio_row_title] + [int(str(row_data.get(sz, 0)).split(".")[0] or 0) for sz in active_sizes] + [layers, tables, m_len, ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
-            matrix_body_rows.append(ratio_row)
-            
-            remaining_row = ["CÒN LẠI"]
-            for idx, sz in enumerate(active_sizes):
-                r_val = int(str(row_data.get(sz, 0)).split(".")[0] or 0)
-                remaining_balances[idx] = max(0, remaining_balances[idx] - (r_val * layers * tables))
-                remaining_row.append(remaining_balances[idx])
-            remaining_row.extend(["", "", "", "", "", ""])
-            matrix_body_rows.append(remaining_row)
 
         # =============================================================================
         # 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐỔ MÀU CÔNG NGHIỆP
