@@ -132,137 +132,112 @@ class SizeBreakdownModel(BaseModel):
     total_quantity: int = Field(description="The sum of all ordering or cutting quantities across all sizes.")
     size_breakdown: Dict[str, int] = Field(description="A dictionary where keys are size names and values are their corresponding quantities as pure integers.")
 
-import streamlit as st
-import pandas as pd
-import json
-import io
-from pydantic import BaseModel, Field
-from typing import Dict
-from google import genai
-from google.genai import types
-
-# Định nghĩa cấu trúc Schema cứng bằng Pydantic để ép Gemini trả về cấu trúc JSON sạch 100%
-class SizeBreakdownModel(BaseModel):
-    style_id: str = Field(description="The unique identification code of the garment style.")
-    total_quantity: int = Field(description="The sum of all ordering or cutting quantities across all sizes.")
-    size_breakdown: Dict[str, int] = Field(description="A dictionary where keys are size names and values are their corresponding quantities as pure integers.")
-
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD (SỬA LỖI NÚT XÓA)
+# TẦNG 1 - ĐOẠN 2: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD (SỬA LỖI NAMERROR)
 # =============================================================================
 
-# 🎯 FIX TRỌNG TÂM - CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
+# CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
 if st.session_state.get("planning_cleared", False):
-    # Nếu thợ bấm nút "XÓA ĐỂ TÍNH LẠI", triệt tiêu toàn bộ trạng thái nạp file và sản lượng cũ về trống rỗng
     st.session_state["purchase_ready"] = False
     st.session_state["sbd_parsed_data"] = None
     st.session_state["pur_tp_parsed_data"] = None
 
-# Khối này nằm ngay phía dưới component st.file_uploader của Đoạn 1
-if not st.session_state.get("purchase_ready", False) and file_sbd_c2:
-    trigger_btn_c2 = st.button(
-        "⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", 
-        type="primary", 
-        use_container_width=True, 
-        key="activate_sbd_only_ingest_c2"
-    )
+# 🎯 FIX TRỌNG TÂM: Kiểm tra xem biến file_sbd_c2 đã tồn tại trong hệ thống chưa để tránh sập NameError
+if ('file_sbd_c2' in locals() or 'file_sbd_c2' in globals()) and file_sbd_c2 is not None:
     
-    if trigger_btn_c2:
-        with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
-            # Quản lý khóa API Key an toàn từ Streamlit Secrets
-            if "get_secure_gemini_key" in globals(): 
-                gemini_key = get_secure_gemini_key()
-            else: 
-                gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-            
-            if not gemini_key:
-                st.error("❌ Hệ thống chưa được cấu hình GEMINI_API_KEY trong file secrets.toml.")
-                st.stop()
+    if not st.session_state.get("purchase_ready", False):
+        trigger_btn_c2 = st.button(
+            "⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", 
+            type="primary", 
+            use_container_width=True, 
+            key="activate_sbd_only_ingest_c2"
+        )
+        
+        if trigger_btn_c2:
+            with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
                 
-            try:
-                # Sử dụng Client chính thức theo chuẩn thư viện google-genai mới nhất
-                client_ai = genai.Client(api_key=gemini_key)
-                sbd_bytes = file_sbd_c2.getvalue()
-                sbd_content_str = ""
-                sbd_parts_payload = []
-                
-                # 1. Xử lý đọc tệp tin định dạng Excel (.xlsx, .xls) chuyển đổi sang văn bản CSV phẳng
-                if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
-                    try:
-                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                        for sheet_name, df_sheet in excel_data.items(): 
-                            sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    except Exception as e:
-                        st.warning(f"⚠️ Trình đọc dữ liệu Excel dạng bảng gặp lỗi nhỏ: {str(e)}")
-                        
-                # 2. Xử lý đính kèm tệp tin PDF dạng đa phương tiện trực tiếp sang mô hình AI
-                elif file_sbd_c2.name.lower().endswith('.pdf'): 
-                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
-                
-                # Kịch bản Prompt chỉ thị logic toán học số hóa dệt may cho Gemini
-                sbd_prompt = """
-                Analyze the uploaded garment production file. Extract style_id, total_quantity, and the complete size breakdown numbers.
-                
-                CRITICAL INSTRUCTIONS FOR QUANTITIES:
-                1. Identify the rows containing the actual ordering or cutting quantities distributed under each size column.
-                2. Extract the numbers as pure integers. If numbers contain commas (e.g., 1,250), strip the comma and save as 1250.
-                3. Map everything into the requested JSON schema perfectly.
-                """
-                
-                if sbd_content_str: 
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
-                sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
-                
-                # Gọi API Gemini 2.5 với cơ chế Structured Output và hạ thấp tối đa mức độ sáng tạo
-                res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
-                    contents=sbd_parts_payload, 
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=SizeBreakdownModel,  # Ép chặt định dạng đầu ra bằng cấu trúc Pydantic
-                        temperature=0.1
-                    )
-                )
-                
-                # Bóc tách dữ liệu JSON sạch (Không lo dính kí tự markdown ```json)
-                parsed_json_data = json.loads(res_sbd.text.strip())
-                
-                # Hậu kiểm và làm sạch lại các khóa kích cỡ (Size Keys) tránh khoảng trắng và chữ thường
-                if "size_breakdown" in parsed_json_data and isinstance(parsed_json_data["size_breakdown"], dict):
-                    clean_dict = {}
-                    for k, v in parsed_json_data["size_breakdown"].items():
-                        try:
-                            clean_key = str(k).strip().upper()
-                            clean_dict[clean_key] = int(float(str(v).replace(",", "").strip() or 0))
-                        except Exception:
-                            clean_dict[str(k).strip().upper()] = 0
-                    parsed_json_data["size_breakdown"] = clean_dict
+                if not gemini_key:
+                    st.error("❌ Hệ thống chưa được cấu hình GEMINI_API_KEY trong file secrets.toml.")
+                    st.stop()
                     
-                st.session_state["sbd_parsed_data"] = parsed_json_data
-                
-                # 🔥 CHỐT HẠ: Hủy triệt để toàn bộ bộ nhớ tạm (Snapshot) cũ 
-                # Ép giao diện tầng sau buộc phải vẽ lại lưới mới tinh dựa trên SBD vừa nạp
-                keys_to_clear_cache = [
-                    "session_editor_snapshot", 
-                    "auto_cutting_results", 
-                    "auto_cutting_results_recovered", 
-                    "fabric_type_recovered"
-                ]
-                for cache_key in keys_to_clear_cache:
-                    if cache_key in st.session_state:
-                        st.session_state[cache_key] = None
+                try:
+                    client_ai = genai.Client(api_key=gemini_key)
+                    sbd_bytes = file_sbd_c2.getvalue()
+                    sbd_content_str = ""
+                    sbd_parts_payload = []
+                    
+                    if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
+                        try:
+                            excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                            for sheet_name, df_sheet in excel_data.items(): 
+                                sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                        except Exception as e:
+                            st.warning(f"⚠️ Trình đọc dữ liệu Excel dạng bảng gặp lỗi nhỏ: {str(e)}")
+                            
+                    elif file_sbd_c2.name.lower().endswith('.pdf'): 
+                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                    
+                    sbd_prompt = """
+                    Analyze the uploaded garment production file. Extract style_id, total_quantity, and the complete size breakdown numbers.
+                    
+                    CRITICAL INSTRUCTIONS FOR QUANTITIES:
+                    1. Identify the rows containing the actual ordering or cutting quantities distributed under each size column.
+                    2. Extract the numbers as pure integers. If numbers contain commas (e.g., 1,250), strip the comma and save as 1250.
+                    3. Map everything into the requested JSON schema perfectly.
+                    """
+                    
+                    if sbd_content_str: 
+                        sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                    
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=sbd_parts_payload, 
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=SizeBreakdownModel,
+                            temperature=0.1
+                        )
+                    )
+                    
+                    parsed_json_data = json.loads(res_sbd.text.strip())
+                    
+                    if "size_breakdown" in parsed_json_data and isinstance(parsed_json_data["size_breakdown"], dict):
+                        clean_dict = {}
+                        for k, v in parsed_json_data["size_breakdown"].items():
+                            try:
+                                clean_key = str(k).strip().upper()
+                                clean_dict[clean_key] = int(float(str(v).replace(",", "").strip() or 0))
+                            except Exception:
+                                clean_dict[str(k).strip().upper()] = 0
+                        parsed_json_data["size_breakdown"] = clean_dict
                         
-                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-                st.session_state["purchase_ready"] = True
-                
-                # Khi nạp file mới thành công, mở khóa cờ xóa để sẵn sàng cho chu kỳ tính toán mới
-                st.session_state["planning_cleared"] = False
-                
-                st.success("✅ Hệ thống đã số hóa dữ liệu đơn hàng thành công!")
-                st.rerun()
-                
-            except Exception as e: 
-                st.error(f"⚠️ Lỗi nghiêm trọng khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+                    st.session_state["sbd_parsed_data"] = parsed_json_data
+                    
+                    keys_to_clear_cache = [
+                        "session_editor_snapshot", 
+                        "auto_cutting_results", 
+                        "auto_cutting_results_recovered", 
+                        "fabric_type_recovered"
+                    ]
+                    for cache_key in keys_to_clear_cache:
+                        if cache_key in st.session_state:
+                            st.session_state[cache_key] = None
+                            
+                    st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                    st.session_state["purchase_ready"] = True
+                    st.session_state["planning_cleared"] = False
+                    
+                    st.success("✅ Hệ thống đã số hóa dữ liệu đơn hàng thành công!")
+                    st.rerun()
+                    
+                except Exception as e: 
+                    st.error(f"❌ Lỗi nghiêm trọng khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+
 
 import streamlit as st
 import pandas as pd
