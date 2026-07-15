@@ -1027,35 +1027,68 @@ else:
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
 
+import streamlit as st
+import pandas as pd
+import json
 import io
+import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2b: DỰNG MA TRẬN KHẤU TRỪ VÀ CÁC NÚT BẤM TIỆN ÍCH XUẤT PHIẾU
+# TẦNG 3 - ĐOẠN 2b: SỬA TRIỆT ĐỂ LỖI HIỂN THỊ CHUỖI MẢNG TẠI CỘT GIÀNG / SIZE BẢNG DƯỚI
 # =============================================================================
+
+# Khai báo lại hàm helper để tránh lỗi NameError
+def safe_int_final(value, default=0):
+    if value is None: return default
+    try:
+        clean_val = str(value).replace(",", "").strip()
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        return int(clean_val)
+    except (ValueError, TypeError):
+        return default
+
 style_id_clean = style_id_input.strip().upper() if 'style_id_input' in locals() else "UNKNOWN"
 color_clean = color_input.strip().upper() if 'color_input' in locals() else "BLACK"
 fab_type_clean = fabric_type_input.strip().upper() if 'fabric_type_input' in locals() else "CHÍNH"
 
+# Tạo 3 hàng tiêu đề thông tin tổng quát của phiếu đơn hàng
 t_header_ma_hang = ["Mã hàng:", f" {style_id_clean}"] + [""] * (len(active_sizes) + 6)
 t_header_mau = ["Màu:", f" {color_clean}"] + [""] * (len(active_sizes) + 6)
 t_header_loai_vai = ["Loại vải:", f" {fab_type_clean}"] + [""] * (len(active_sizes) + 6)
 
-t1_giang_row, t2_size_row, po_qty_matrix = ["GIÀNG", ""], ["SIZE", ""], []
+t1_giang_row = ["GIÀNG", ""]
+t2_size_row = ["SIZE", ""]
+po_qty_matrix = []
 
+# 🔥 ĐIỂM SỬA CHỐT LỖI MÀN HÌNH: B bóc tách chính xác phần tử mảng index 0 và 1 [INDEX]
 for col_name in active_sizes:
     c_str = str(col_name).strip().upper().replace(" ", "")
     g_val, s_val = "None", c_str
-    parts = re.split(r'[X_-]', c_str)
-    if len(parts) >= 2: s_val = str(parts).strip(); g_val = str(parts).strip()
-    elif len(parts) == 1: s_val = str(parts).strip(); g_val = "None"
+    
+    # Phân tách chuỗi tên cột (Ví dụ: "26X30" -> parts = ["26", "30"])
+    parts = re.split(r'[X_x-]', c_str)
+    
+    if len(parts) >= 2:
+        s_val = str(parts[0]).strip()  # Phần tử thứ 0 là thông số Eo (Waist / Size) [INDEX]
+        g_val = str(parts[1]).strip()  # Phần tử thứ 1 là thông số Giàng (Inseam) [INDEX]
+    elif len(parts) == 1:
+        s_val = str(parts[0]).strip()
+        g_val = "None"
         
     po_v = safe_int_final(size_breakdown_main.get(col_name, 0))
     po_qty_matrix.append(po_v)
+    
+    # Gọt sạch các hậu tố đuôi Pandas sinh ra nếu có và dán giá trị sạch vào hàng
     t1_giang_row.append(re.sub(r'_\d+$', '', g_val))
     t2_size_row.append(re.sub(r'_\d+$', '', s_val))
     
-for _ in range(6): t1_giang_row.append(""); t2_size_row.append("")
+# Thêm khoảng trống đệm cho các cột kỹ thuật bổ trợ ở phía sau
+for _ in range(6): 
+    t1_giang_row.append("")
+    t2_size_row.append("")
+    
 t3_sl_row = ["SẢN LƯỢNG", f"{total_sum_po_qty:,}"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
     
 matrix_body_rows = []
@@ -1067,7 +1100,10 @@ for r_idx, row_data in enumerate(production_rows):
     tables = row_data.get("SỐ BÀN", 1)
     m_len = row_data.get("DÀI SƠ ĐỒ", 0.0)
     
-    active_ratio_parts, row_ratios_list, ratios_sum = [], [], 0
+    active_ratio_parts = []
+    row_ratios_list = []
+    ratios_sum = 0
+    
     for sz in active_sizes:
         r_val = row_data.get(sz, 0)
         ratios_sum += r_val
@@ -1081,11 +1117,11 @@ for r_idx, row_data in enumerate(production_rows):
     ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
     total_cut_in_row = ratios_sum * layers * tables
     
-    # 1. Thêm dòng Tỷ lệ sơ đồ
+    # 1. Thêm dòng Tỷ lệ phối sơ đồ bàn vải
     ratio_row = [ratio_row_title, f"{total_cut_in_row:,}"] + [f"{v:,}" if isinstance(v, int) else v for v in row_ratios_list] + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
     matrix_body_rows.append(ratio_row)
     
-    # 2. Bốc snapshot hiển thị lượng "CÒN LẠI" lũy tiến hình bậc thang dốc xuống cho thợ xem [INDEX]
+    # 2. Bốc snapshot hiển thị lượng "CÒN LẠI" lũy tiến hình bậc thang dốc xuống cho thợ xem
     row_remaining_snapshot = row_data.get("REMAINING_SNAPSHOT_AFTER", {})
     remaining_row = ["CÒN LẠI", ""]
     for sz in active_sizes:
@@ -1099,6 +1135,7 @@ final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_
 
 df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
+# Bộ định dạng giao diện hiển thị
 st.markdown("""<style>
     .report-table th { background-color: #F1F5F9 !important; color: #1E293B !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; }
     .report-table td { background-color: #FFFFFF !important; color: #0F172A !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
