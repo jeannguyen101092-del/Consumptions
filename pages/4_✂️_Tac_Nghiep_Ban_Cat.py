@@ -355,7 +355,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY VÀ VÁ LỖI KHỞI TẠO BIẾN EDITED_DF
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY VÀ ĐỒNG BỘ TRẠNG THÁI ON_CHANGE
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -445,16 +445,31 @@ else:
                 st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
                 st.rerun()
 
+        # 🛠️ CƠ CHẾ ĐỒNG BỘ NGAY LẬP TỨC KHI GÕ: Tạo hàm Callback xử lý sự kiện thay đổi dữ liệu
+        def sync_editor_changes():
+            if "table_manual_data_editor_v1" in st.session_state:
+                editor_state = st.session_state["table_manual_data_editor_v1"]
+                # Cập nhật các hàng bị chỉnh sửa trực tiếp vào bộ nhớ đệm snapshot mà không cần tải lại trang 2 lần
+                if "edited_rows" in editor_state:
+                    for row_idx, changes in editor_state["edited_rows"].items():
+                        if row_idx < len(display_editor_rows):
+                            display_editor_rows[row_idx].update(changes)
+                st.session_state["session_editor_snapshot"] = display_editor_rows
+
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (TỰ ĐỘNG CHUYỂN MÃ SƠ ĐỒ THEO LOẠI VẢI)</p>", unsafe_allow_html=True)
         
-        # 🔥 ĐIỂM CHỐT KHẮC PHỤC LỖI: Đảm bảo biến edited_df luôn được khai báo độc lập ra ngoài rìa thụt lề
+        # 🛠️ NÂNG CẤP Ô LƯỚI: Thêm tham số on_change để gõ phát nhận ngay lập tức 100%
         edited_df = st.data_editor(
-            df_editor_base, use_container_width=True, hide_index=True, disabled=is_locked, key="table_manual_data_editor_v1"
+            df_editor_base, 
+            use_container_width=True, 
+            hide_index=True, 
+            disabled=is_locked, 
+            key="table_manual_data_editor_v1",
+            on_change=sync_editor_changes
         )
         
-        # Lưu trữ trạng thái bộ nhớ đệm
-        if not is_locked:
-            st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+        # Đồng bộ cứng snapshot cuối cùng cho luồng hiển thị bảng đối chiếu
+        st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
 
 
         # =============================================================================
