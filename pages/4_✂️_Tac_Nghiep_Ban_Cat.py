@@ -458,7 +458,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: MỞ KHÓA CHỈNH TAY SƠ ĐỒ VÀ PHÂN QUYỀN Ô LƯỚI CHI TIẾT
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU CỐ ĐỊNH 3 DÒNG TIÊU ĐỀ PHỤ THỜI GIAN THỰC
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -471,7 +471,7 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # Khởi tạo 3 dòng tiêu đề phụ cố định
+        # Khởi tạo 3 dòng tiêu đề phụ cố định cho bảng nhập liệu
         giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
         size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
         sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG"}
@@ -479,16 +479,16 @@ else:
         for sz in active_sizes:
             parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
             giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
-            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
+            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip()) if len(parts) >= 1 else "None"
             try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
             except Exception: po_v = 0
-            sl_top_row[sz] = po_v  # Ép kiểu số nguyên để đồng bộ định dạng cột lưới
+            sl_top_row[sz] = po_v
             
         giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-        # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
+        # Luồng 1: Khôi phục từ snapshot bộ nhớ đệm
         if snapshot and len(snapshot) > 0 and snapshot is not None:
             filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
             cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -506,7 +506,7 @@ else:
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
-        # 2. Luồng khôi phục dữ liệu từ Supabase đám mây
+        # Luồng 2: Khôi phục lịch sử từ đám mây Supabase
         elif recovered_source:
             display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
             for row in recovered_source:
@@ -526,7 +526,7 @@ else:
                         clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. Luồng mặc định khi mới mở ứng dụng HOẶC khi nhấn nút "XÓA ĐỂ TÍNH LẠI"
+        # Luồng 3: Form trống ban đầu / Bấm nút Clear dữ liệu
         else:
             display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
             for i in range(6):
@@ -534,12 +534,12 @@ else:
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
                 for sz in active_sizes: 
                     item_dict[sz] = 0
-                item_dict.update({"SƠ LỚP": 0 if i == 0 else 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
+                item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
         
-        # Đồng bộ ép kiểu số để tránh xung đột kiểu dữ liệu ô lưới của Streamlit
+        # Đồng bộ ép kiểu số phẳng cho bảng trên
         for sz in active_sizes:
             if sz in df_editor_base.columns:
                 df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
@@ -555,40 +555,32 @@ else:
                 st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
                 st.rerun()
 
-        # 🛠️ SỬA HÀM CALLBACK ON_CHANGE CHUẨN XÁC: Đồng bộ đúng mảng dựa vào Key gõ thay đổi thực tế
-        def sync_editor_changes():
-            if "table_manual_data_editor_v1" in st.session_state:
-                editor_state = st.session_state["table_manual_data_editor_v1"]
-                snapshot_current = list(st.session_state.get("session_editor_snapshot", display_editor_rows))
-                
-                if "edited_rows" in editor_state:
-                    for row_idx, changes in editor_state["edited_rows"].items():
-                        if row_idx < len(snapshot_current):
-                            # KHÓA CỨNG TRÊN CHỈ MỤC: Tuyệt đối không cho sửa dòng 0, 1, 2 (Giàng, Size, Sản lượng)
-                            if snapshot_current[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-                                continue
-                            snapshot_current[row_idx].update(changes)
-                st.session_state["session_editor_snapshot"] = snapshot_current
-
+        # Ánh xạ cấu trúc tiêu đề hiển thị
         clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
         df_editor_top_render = df_editor_base.copy()
         df_editor_top_render.columns = clean_headers_top
 
-        # 🛠️ CẤU HÌNH KHÓA DÒNG CHI TIẾT (COLUMN CONFIG): Khóa cứng 3 dòng đầu, mở khóa 6 dòng sơ đồ dưới
+        # HIỂN THỊ BIỂU MẪU NHẬP LIỆU PHÍA TRÊN
         edited_df_raw = st.data_editor(
             df_editor_top_render, use_container_width=True, hide_index=True, disabled=is_locked, 
-            key="table_manual_data_editor_v1", on_change=sync_editor_changes
+            key="table_manual_data_editor_v1"
         )
         
-        # Đồng bộ ngược danh sách snapshot phẳng sạch sẽ để Tầng 3 Đoạn 2/2 chạy vòng lặp nhân mét vải
-        if not is_locked:
-            st.session_state["session_editor_snapshot"] = edited_df_raw.to_dict(orient="records")
-        edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
-
-
-
+        # ĐỒNG BỘ TRỰC TIẾP: Map ngược tiêu đề "CỠ X" quay về tên size gốc để tính toán bảng dưới
+        final_snapshot_rows = []
+        for idx, row in edited_df_raw.iterrows():
+            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()}
+            for c_idx, sz in enumerate(active_sizes):
+                item_dict[sz] = row.get(f"CỠ {c_idx+1}", 0)
+            item_dict["SƠ LỚP"] = row.get("SƠ LỚP", 0)
+            item_dict["SỐ BÀN"] = row.get("SỐ BÀN", 1)
+            item_dict["DÀI SƠ ĐỒ"] = row.get("DÀI SƠ ĐỒ", 0.0)
+            final_snapshot_rows.append(item_dict)
+            
+        st.session_state["session_editor_snapshot"] = final_snapshot_rows
+        edited_df = pd.DataFrame(final_snapshot_rows)
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ CHUẨN ĐA DÒNG - GÕ PHÍM BẢNG TRÊN NHẢY SỐ BẢNG DƯỚI LẬP TỨC
+        # TẦNG 3 - ĐOẠN 2: LUỒNG KHẤU TRỪ VÀ TRỪ LÙI SẢN LƯỢNG THỜI GIAN THỰC BẢNG DƯỚI
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -623,21 +615,11 @@ else:
         t3_sl_row = ["SẢN LƯỢNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
             
         matrix_body_rows = []
-        
-        # 🛠️ ĐIỂM CHỐT TỐI ƯU LUỒNG KHẤU TRỪ: Tạo một mảng lũy kế độc lập liên tục, chừa sạch 3 dòng tiêu đề
         running_balances = list(po_qty_matrix)
         
-        # Lọc sạch bảng editor, chỉ bốc 6 dòng sơ đồ sản xuất thực tế để tính toán trừ lùi
-        production_rows = []
-        if isinstance(edited_df, pd.DataFrame):
-            for _, r_data in edited_df.iterrows():
-                name_check = str(r_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-                if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
-                    production_rows.append(r_data)
-        else:
-            production_rows = [r for r in display_editor_rows if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
+        # Lọc sạch chừa lại đúng 6 dòng sơ đồ sản xuất thực tế để tính toán khấu trừ
+        production_rows = [r for r in final_snapshot_rows if r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
 
-        # Chạy vòng lặp tính toán trừ lùi tịnh tiến mượt mà theo đúng sơ đồ công nghệ bàn cắt
         for r_idx, row_data in enumerate(production_rows):
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
@@ -665,7 +647,6 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            # Tính định mức và tổng vải tiêu hao thực tế
             if ratios_sum > 0 and layers > 0 and m_len > 0:
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
@@ -678,7 +659,7 @@ else:
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # 🛠️ CẬP NHẬT TRỪ LÙI THỜI GIAN THỰC: Khấu trừ lùi liên tục lưu vết qua biến running_balances
+            # Thực hiện trừ lùi tịnh tiến lưu vết qua biến running_balances
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -704,7 +685,6 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -748,9 +728,7 @@ else:
                 try:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
-
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
-
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
