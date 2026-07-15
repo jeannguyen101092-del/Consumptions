@@ -688,15 +688,15 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: SỬA LỖI BIẾN 1ITEM_DICT - KHỬ TRIỆT ĐỂ LỖI BIẾN MẤT SỐ LIỆU
+# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
 # =============================================================================
 
-# Khôi phục bộ nhớ đệm snapshot phiên làm việc
+# Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
 snapshot = st.session_state.get("session_editor_snapshot")
 fab_upper = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
 prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
 
-# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ file đơn hàng SBD
+# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ gốc file SBD
 flattened_active_sizes = []
 flattened_size_breakdown = {}
 
@@ -704,7 +704,7 @@ for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
     if k_str.startswith("[") or "['" in k_str or '["' in k_str:
         cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts}X{cleaned_parts}"
+        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
         else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
     k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
     
@@ -718,10 +718,10 @@ active_sizes = flattened_active_sizes
 size_breakdown_main = flattened_size_breakdown
 total_sum_po_qty = sum(size_breakdown_main.values())
 
-# Tiêu đề cột chuẩn hóa thống nhất đồng bộ dạng ảo CỠ X để Streamlit nhận diện lưu trữ
+# Tạo mảng tiêu đề cột ảo cố định cho Streamlit quản lý lưu trữ không bị mất số [INDEX]
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 2. Tạo cấu trúc khuôn mẫu 3 hàng tiêu đề phụ cố định
+# 2. Tạo khuôn mẫu 3 hàng tiêu đề phụ cố định
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
@@ -730,10 +730,8 @@ for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
     g_val, s_val = "None", c_str
     parts = re.split(r'[X_x-]', c_str)
-    if len(parts) >= 2: s_val, g_val = str(parts).strip(), str(parts).strip()
-    elif len(parts) == 1: s_val, g_val = str(parts).strip(), "None"
+    if len(parts) >= 2: s_val, g_val = str(parts[0]).strip(), str(parts[1]).strip()
     
-    # Gán thông tin hiển thị lên 3 cột ảo
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
     sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
@@ -744,23 +742,19 @@ sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
 display_editor_rows = []
 
-# 3. Đồng bộ bộ đệm snapshot đổ ngược vào DataFrame hiển thị ảo
+# 3. Nạp bộ nhớ đệm snapshot đổ ngược ra giao diện hiển thị
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        
-        if not item_name or item_name.strip() == "":
-            item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
-            
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
-        # 🔥 ĐÃ SỬA CHỮA CHUẨN XÁC: Gỡ bỏ kí tự nhiễu "1" ở đầu tên biến item_dict [INDEX]
+        # Bốc chính xác số liệu từ key size thật map sang cột ảo hiển thị tương ứng
         for c_idx, sz in enumerate(active_sizes):
-            val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
-            item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
+            val_cell = row.get(sz, row.get(f"CỠ {c_idx+1}", 0))
+            item_dict[f"CỠ {c_idx+1}"] = int(float(str(val_cell).replace(",", "") or 0))
             
         try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "") or 0))
         except: item_dict["SƠ LỚP"] = 0
@@ -772,7 +766,7 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Thiết lập mặc định bảng trống ban đầu
+    # Khởi tạo khung lưới trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
@@ -785,27 +779,20 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Dựng DataFrame render lên Streamlit
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# Ép kiểu số cứng để không bị khóa cột
-for col in clean_headers_top:
-    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
-    elif col == "DÀI SƠ ĐỒ":
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
-
+is_locked = st.session_state.get("consumption_activated", False)
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"),
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
-    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
-    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
-    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0, step=1, format="%d"),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1, step=1, format="%d"),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=is_locked, min_value=0.0, step=0.05, format="%.2f")
 }
 for i in range(len(active_sizes)):
-    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=is_locked, min_value=0, step=1, format="%d")
 
-# Hàm Callback lưu cứng số liệu người dùng gõ
+# Hàm Callback biên dịch ngược lưu cứng số thợ gõ vào bộ nhớ Snapshot [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -817,20 +804,20 @@ def callback_sync_on_the_fly_final():
                 if r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
                     
+                    # Chuyển đổi key ảo CỠ X sang key tên mã size thật ("26X30") để lưu trữ đồng bộ [INDEX]
                     clean_changes = {}
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
                                 clean_changes[active_sizes[c_num - 1]] = int(float(str(new_val).strip() or 0))
-                            except Exception: pass
+                            except: pass
                         else:
                             clean_changes[col_header] = new_val
                             
                     current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
-# Khởi chạy data_editor
 edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
