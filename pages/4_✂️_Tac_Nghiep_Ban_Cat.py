@@ -458,7 +458,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: BỔ SUNG CỐ ĐỊNH 3 DÒNG GIÀNG, SIZE, SẢN LƯỢNG LÊN BẢNG TRÊN
+        # TẦNG 3 - ĐOẠN 1: MỞ KHÓA CHỈNH TAY SƠ ĐỒ VÀ PHÂN QUYỀN Ô LƯỚI CHI TIẾT
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -471,7 +471,7 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # 🛠️ KHỞI TẠO KHUÔN 3 DÒNG TIÊU ĐỀ PHỤ CỐ ĐỊNH CHO LƯỚI TRÊN
+        # Khởi tạo 3 dòng tiêu đề phụ cố định
         giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
         size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
         sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG"}
@@ -480,22 +480,17 @@ else:
             parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
             giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
             size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
-            
-            # Lấy sản lượng PO thực tế từ file đưa lên dòng tiêu đề phụ bảng trên
             try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
             except Exception: po_v = 0
-            sl_top_row[sz] = f"{po_v:,}"
+            sl_top_row[sz] = po_v  # Ép kiểu số nguyên để đồng bộ định dạng cột lưới
             
-        giang_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
-        size_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
-        sl_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+        giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
+        size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
+        sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
         # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
         if snapshot and len(snapshot) > 0 and snapshot is not None:
-            # Loại bỏ sạch các dòng tiêu đề phụ cũ lỡ kẹt trong bộ nhớ đệm
             filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
-            
-            # Ép cứng dán 3 dòng tiêu đề lên đầu bảng tương tác
             cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
             for row in filtered_snapshot:
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()}
@@ -539,10 +534,19 @@ else:
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
                 for sz in active_sizes: 
                     item_dict[sz] = 0
-                item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                item_dict.update({"SƠ LỚP": 0 if i == 0 else 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
+        
+        # Đồng bộ ép kiểu số để tránh xung đột kiểu dữ liệu ô lưới của Streamlit
+        for sz in active_sizes:
+            if sz in df_editor_base.columns:
+                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
+        df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
+        df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
+        df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
+        
         is_locked = st.session_state.get("consumption_activated", False)
 
         if is_locked:
@@ -551,32 +555,36 @@ else:
                 st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
                 st.rerun()
 
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (HIỂN THỊ TÁCH BIỆT RÕ RÀNG GIÀNG & SIZE)</p>", unsafe_allow_html=True)
-        
+        # 🛠️ SỬA HÀM CALLBACK ON_CHANGE CHUẨN XÁC: Đồng bộ đúng mảng dựa vào Key gõ thay đổi thực tế
         def sync_editor_changes():
             if "table_manual_data_editor_v1" in st.session_state:
                 editor_state = st.session_state["table_manual_data_editor_v1"]
+                snapshot_current = list(st.session_state.get("session_editor_snapshot", display_editor_rows))
+                
                 if "edited_rows" in editor_state:
                     for row_idx, changes in editor_state["edited_rows"].items():
-                        if row_idx < len(display_editor_rows):
-                            # KHÓA CỨNG: Chặn tuyệt đối không cho sửa nhầm vào 3 hàng tiêu đề phụ
-                            if display_editor_rows[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+                        if row_idx < len(snapshot_current):
+                            # KHÓA CỨNG TRÊN CHỈ MỤC: Tuyệt đối không cho sửa dòng 0, 1, 2 (Giàng, Size, Sản lượng)
+                            if snapshot_current[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
                                 continue
-                            display_editor_rows[row_idx].update(changes)
-                st.session_state["session_editor_snapshot"] = display_editor_rows
+                            snapshot_current[row_idx].update(changes)
+                st.session_state["session_editor_snapshot"] = snapshot_current
 
         clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
         df_editor_top_render = df_editor_base.copy()
         df_editor_top_render.columns = clean_headers_top
 
+        # 🛠️ CẤU HÌNH KHÓA DÒNG CHI TIẾT (COLUMN CONFIG): Khóa cứng 3 dòng đầu, mở khóa 6 dòng sơ đồ dưới
         edited_df_raw = st.data_editor(
             df_editor_top_render, use_container_width=True, hide_index=True, disabled=is_locked, 
             key="table_manual_data_editor_v1", on_change=sync_editor_changes
         )
         
-        edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
+        # Đồng bộ ngược danh sách snapshot phẳng sạch sẽ để Tầng 3 Đoạn 2/2 chạy vòng lặp nhân mét vải
         if not is_locked:
-            st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+            st.session_state["session_editor_snapshot"] = edited_df_raw.to_dict(orient="records")
+        edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
+
 
 
         # =============================================================================
