@@ -706,185 +706,143 @@ import streamlit as st
 import pandas as pd
 import json
 import re
+import math
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT (SỬA LỖI)
+# TẦNG 3 - ĐOẠN 7a: THUẬT TOÁN ĐIỀU PHỐI LIÊN HOÀN ĐỔ THẲNG XUỐNG BẢNG 2 (CHUẨN 100%)
 # =============================================================================
 
-# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN TRÁNH LỖI NAMERROR ---
 def safe_int_final(value, default=0):
     if value is None: return default
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")[0] # Trích xuất phần nguyên chuẩn xác
+        if "." in clean_val: clean_val = clean_val.split(".")
         return int(clean_val)
     except (ValueError, TypeError):
         return default
 
-# --- PHÒNG VỆ DỮ LIỆU ĐẦU VÀO TỪ FILE SBD NẾU THIẾU ---
-if 'size_breakdown_main' not in locals() and 'size_breakdown_main' not in globals():
-    size_breakdown_main = {}
+final_snapshot_rows = []
 
-# Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
-snapshot = st.session_state.get("session_editor_snapshot")
-fab_upper = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
-prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
+# 1. Khởi tạo mảng sản lượng đơn hàng gốc (PO) để khấu trừ cuốn chiếu liên tục
+current_order_balances = {}
+for sz in active_sizes:
+    current_order_balances[sz] = safe_int_final(size_breakdown_main.get(sz, 0))
 
-# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ gốc file SBD
-flattened_active_sizes = []
-flattened_size_breakdown = {}
+consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-for original_key, original_val in size_breakdown_main.items():
-    k_str = str(original_key).strip().upper()
-    if k_str.startswith("[") or "['" in k_str or '["' in k_str:
-        cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
-        else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
-    k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
-    
-    v_num = safe_int_final(original_val)
-    if v_num > 0 and k_str != "":
-        flattened_size_breakdown[k_str] = flattened_size_breakdown.get(k_str, 0) + v_num
-        if k_str not in flattened_active_sizes: flattened_active_sizes.append(k_str)
-
-active_sizes = flattened_active_sizes
-size_breakdown_main = flattened_size_breakdown
-total_sum_po_qty = sum(size_breakdown_main.values())
-
-# Tiêu đề cột chuẩn hóa thống nhất đồng bộ dạng ảo CỠ X để Streamlit nhận diện lưu trữ
-clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
-
-# 2. Tạo cấu trúc khuôn mẫu 3 hàng tiêu đề phụ cố định
-giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
-size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
-sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
-
-# Trích xuất chính xác index 0 và 1 để khử dấu ngoặc vuông lộn xộn
-for i, sz in enumerate(active_sizes):
-    c_str = str(sz).replace(" ", "").upper()
-    g_val, s_val = "None", c_str
-    
-    parts = re.split(r'[X_x-]', c_str)
-    if len(parts) >= 2:
-        s_val = str(parts[0]).strip()  # Vòng eo làm Size
-        g_val = str(parts[1]).strip()  # Chiều dài giàng làm Giàng
-    elif len(parts) == 1:
-        s_val = str(parts[0]).strip()
-        g_val = "None"
-    
-    giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
-    size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
-    sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
-
-giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-
-display_editor_rows = []
-
-# 3. Nạp bộ nhớ đệm snapshot đổ ngược ra giao diện hiển thị ảo
-if snapshot and len(snapshot) > 0:
-    cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
-    filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
-    
-    for row in filtered_snapshot:
-        item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        if not item_name or item_name.strip() == "":
-            item_name = f"{fab_upper} {prefix_letter}{str(len(cleaned_snapshot)-3).zfill(2)}"
-            
-        item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
-        
+# --- Bước 1: Đưa cấu trúc 3 dòng tiêu đề phụ cố định (GIÀNG, SIZE, SẢN LƯỢNG) vào Bảng 2 ---
+for idx, row in edited_df_raw.iterrows():
+    s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+    if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+        item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0, "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0}
         for c_idx, sz in enumerate(active_sizes):
-            val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
-            item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
-            
-        item_dict["SƠ LỚP"] = safe_int_final(row.get("SƠ LỚP", 0))
-        item_dict["SỐ BÀN"] = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
-        try: item_dict["DÀI SƠ ĐỒ"] = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "") or 0.0)
-        except: item_dict["DÀI SƠ ĐỒ"] = 0.0
+            item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
+        final_snapshot_rows.append(item_dict)
+
+# --- Bước 2: Chỉ lấy các dòng nhập tay/cắt mẫu (như PILOT) từ Bảng 1 đổ xuống Bảng 2 và khấu trừ sản lượng ---
+for idx, row in edited_df_raw.iterrows():
+    s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+    if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"] and ("PILOT" in s_row_name or "SS" in s_row_name):
+        layers = safe_int_final(row.get("SƠ LỚP", 0))
+        tables = safe_int_final(row.get("SỐ BÀN", 1))
+        try: m_len = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+        except: m_len = 0.0
         
-        cleaned_snapshot.append(item_dict)
-    display_editor_rows = cleaned_snapshot
-else:
-    display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
-    item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
-    for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
-    item_pilot.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
-    display_editor_rows.append(item_pilot)
-    
-    for i in range(5):
-        item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}", "TỔNG SẢN LƯỢNG": 0}
-        for c_i in range(len(active_sizes)): item_dict[f"CỠ {c_i+1}"] = 0
-        item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
-        display_editor_rows.append(item_dict)
-
-# Khởi tạo lưu trữ snapshot ban đầu trong session state nếu trống để chặn lỗi NoneType
-if st.session_state.get("session_editor_snapshot") is None:
-    st.session_state["session_editor_snapshot"] = display_editor_rows
-
-df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
-
-# Ép kiểu dữ liệu số cứng cho DataFrame render hiển thị
-for col in clean_headers_top:
-    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
-    elif col == "DÀI SƠ ĐỒ":
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
-
-# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp (disabled=False)
-config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
-    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
-    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
-    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
-    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
-}
-for i in range(len(active_sizes)):
-    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
-
-# --- HÀM CALLBACK CẬP NHẬT ĐÃ ĐƯỢC SỬA LỖI NONE TẬN GỐC (DÒNG 856 CHỐNG SẬP) ---
-def callback_sync_on_the_fly_final():
-    if "table_manual_data_editor_final" in st.session_state:
-        st_editor = st.session_state["table_manual_data_editor_final"]
-        if "edited_rows" in st_editor and st_editor["edited_rows"]:
+        r_dict = {}
+        for c_idx, sz in enumerate(active_sizes):
+            # Đọc chuẩn xác từ ô nhập liệu ảo
+            r_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
             
-            raw_snapshot = st.session_state.get("session_editor_snapshot")
-            if raw_snapshot is None:
-                raw_snapshot = display_editor_rows
+        row_ratios_total = sum(r_dict.values())
+        
+        # Chỉ khấu trừ đơn hàng nếu thợ thực sự nhập số lớp cho mẫu thử
+        if row_ratios_total > 0 and layers > 0:
+            for sz in active_sizes:
+                allocated_pcs = r_dict.get(sz, 0) * layers * tables
+                current_order_balances[sz] = max(0, current_order_balances[sz] - allocated_pcs)
                 
-            current_snapshot = json.loads(json.dumps(raw_snapshot))
+        item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": layers, "SỐ BÀN": tables, "DÀI SƠ ĐỒ": m_len, "TỔNG SẢN LƯỢNG": row_ratios_total * layers * tables}
+        item_pilot.update(r_dict)
+        item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+        final_snapshot_rows.append(item_pilot)
+
+# --- Bước 3: Thuật toán tự động rải toán cho các dòng CHÍNH và đẩy kết quả THẲNG xuống Bảng 2 ---
+# Đọc thông số cấu hình giới hạn bàn vải từ dòng CHÍNH C01 do người dùng nhập ở Bảng 1
+chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C01", na=False, case=False)]
+
+max_target_length = 11.46  # Fallback mặc định nếu thợ không điền chiều dài sơ đồ mong muốn
+max_target_layers = 60    # Fallback mặc định nếu thợ không điền số lớp mong muốn
+
+if not chinh_rows_input.empty:
+    first_chinh = chinh_rows_input.iloc[0]
+    try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
+    except: max_target_length = 11.46
+    
+    max_target_layers = safe_int_final(first_chinh.get("SƠ LỚP", 60))
+    if max_target_layers <= 0: max_target_layers = 60
+
+# Nếu thợ hoàn toàn để trống hoặc bằng 0, ép về định mức tiêu chuẩn để thuật toán không bị chia cho 0
+if max_target_length <= 0: max_target_length = 11.46
+
+marker_counter, max_safety_loops = 1, 40
+
+# Vòng lặp quét tự động rải sản lượng hình bậc thang dốc xuống cho đến khi hết sạch hàng đơn PO
+while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_loops:
+    s_marker_name = f"CHÍNH C{str(marker_counter).zfill(2)}"
+    total_remaining_po_at_row = sum(current_order_balances.values())
+    
+    garments_per_marker = math.floor(max_target_length / consumption_in_yards) if (max_target_length > 0 and consumption_in_yards > 0) else 0
+    if garments_per_marker <= 0 or total_remaining_po_at_row <= 0: break
+        
+    base_values, remainders = {}, []
+    for sz in active_sizes:
+        if current_order_balances.get(sz, 0) <= 0:
+            base_values[sz] = 0
+            remainders.append({"size": sz, "remainder": 0.0})
+            continue
+        sz_remaining_qty = current_order_balances.get(sz, 0)
+        sz_ratio_pct = sz_remaining_qty / total_remaining_po_at_row if total_remaining_po_at_row > 0 else 0
+        theoretical_qty = garments_per_marker * sz_ratio_pct
+        base_qty = int(theoretical_qty)
+        base_values[sz] = base_qty
+        remainders.append({"size": sz, "remainder": theoretical_qty - base_qty})
+        
+    allocated_more = garments_per_marker - sum(base_values.values())
+    remainders.sort(key=lambda x: x["remainder"], reverse=True)
+    for k in range(min(max(0, allocated_more), len(remainders))):
+        if current_order_balances.get(remainders[k]["size"], 0) > 0:
+            base_values[remainders[k]["size"]] += 1
             
-            for r_idx_edit, change_dict in st_editor["edited_rows"].items():
-                r_idx_int = int(r_idx_edit)
-                if current_snapshot and r_idx_int < len(current_snapshot):
-                    if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
-                        continue
-                    
-                    clean_changes = {}
-                    for col_header, new_val in change_dict.items():
-                        if str(col_header).startswith("CỠ "):
-                            try:
-                                c_num = int(str(col_header).replace("CỠ ", "").strip())
-                                target_size_key = active_sizes[c_num - 1]
-                                clean_changes[f"CỠ {c_num}"] = safe_int_final(new_val)
-                                clean_changes[target_size_key] = safe_int_final(new_val)
-                            except: pass
-                        elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
-                            clean_changes[col_header] = safe_int_final(new_val)
-                        elif col_header == "DÀI SƠ ĐỒ":
-                            try: clean_changes[col_header] = float(str(new_val).replace(",", "") or 0.0)
-                            except: pass
-                            
-                    current_snapshot[r_idx_int].update(clean_changes)
-            st.session_state["session_editor_snapshot"] = current_snapshot
-
-# Render Grid tương tác đồng bộ dữ liệu chuẩn sản xuất
-edited_df_raw = st.data_editor(
-    df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
-    key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
-)
-
+    r_dict = base_values
+    row_ratios_total = sum(r_dict.values())
+    
+    possible_layers_dynamic = []
+    for sz in active_sizes:
+        if r_dict.get(sz, 0) > 0:
+            max_layers_allowed_for_sz = math.floor(current_order_balances.get(sz, 0) / r_dict.get(sz, 0))
+            possible_layers_dynamic.append(max_layers_allowed_for_sz if max_layers_allowed_for_sz > 0 else 1)
+                
+    calculated_layers = min(possible_layers_dynamic) if possible_layers_dynamic else 1
+    row_layers = min(max_target_layers, calculated_layers)
+    
+    # 🎯 ĐẨY TRỰC TIẾP XUỐNG BẢNG 2: Chỉ lưu vào final_snapshot_rows để tạo dòng báo cáo, không ghi đè lên bảng số 1
+    if row_layers > 0 and row_ratios_total > 0:
+        for sz in active_sizes:
+            current_order_balances[sz] = max(0, current_order_balances[sz] - (r_dict.get(sz, 0) * row_layers))
+            
+        item_auto = {
+            "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name,
+            "SƠ LỚP": row_layers,
+            "SỐ BÀN": 1,
+            "DÀI SƠ ĐỒ": max_target_length,
+            "TỔNG SẢN LƯỢNG": row_ratios_total * row_layers
+        }
+        item_auto.update(r_dict)
+        item_auto["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+        final_snapshot_rows.append(item_auto)
+        
+    marker_counter += 1
 
 
 
