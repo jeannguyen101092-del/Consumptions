@@ -383,7 +383,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ KHẮC PHỤC HOÀN TOÀN LỖI EMPTY_SLOTS
+# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ KHẮC PHỤC HOÀN TOÀN LỖI EMPTY_SLOTS (FIX NÚT XÓA)
 # =============================================================================
 
 # Khởi tạo cục bộ an toàn các thông số kỹ thuật được kế thừa từ Đoạn 3
@@ -412,24 +412,29 @@ with btn_col2:
 with btn_col_clear:
     trigger_clear_data = st.button("🧹 XÓA ĐỂ TÍNH LẠI", type="secondary", use_container_width=True, key="c2_clear_all_data_btn")
 
-# Xử lý Nút 3: Giải phóng hoàn toàn bộ nhớ đệm để làm sạch lưới tác nghiệp
+# 🎯 FIX TRỌNG TÂM - Xử lý Nút 3: Giải phóng bộ nhớ đệm và hạ cờ kích hoạt của bảng dưới
 if trigger_clear_data:
     keys_to_reset = ["session_editor_snapshot", "auto_cutting_results", "consumption_activated"]
     for k in keys_to_reset:
         st.session_state[k] = None
-    st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp. Bạn có thể nhập lại!", icon="🧹")
+        
+    # Kích hoạt cờ xóa kế hoạch để bảo bộ máy Python toán học ở dưới ngừng xuất dữ liệu cũ
+    st.session_state["planning_cleared"] = True
+    
+    st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp và phiếu báo cáo dưới!", icon="🧹")
     st.rerun()
 
-# 🎯 FIX TRỌNG TÂM - Xử lý Nút 2: Khóa cứng ma trận và CƯỠNG BỨC TÍNH TOÁN để bảng dưới nhảy số
+# Xử lý Nút 2: Khóa cứng ma trận và tắt cờ xóa để kích hoạt rải số liệu xuống bảng dưới
 if trigger_consumption:
     st.session_state["consumption_activated"] = True
+    st.session_state["planning_cleared"] = False # Tắt cờ xóa để cấp quyền tính toán
     st.toast("🔒 Đã khóa cứng ma trận nhập tay và đồng bộ xuống bảng theo dõi!", icon="🔒")
-    st.rerun()  # Ép Streamlit chạy lại từ đầu để Python Engine ở dưới lập tức ăn số liệu tác nghiệp
+    st.rerun() 
 
 # Xử lý Nút 1: Kích hoạt thuật toán chuẩn bị cấu trúc gửi sang Gemini AI giải toán điều độ
 if trigger_auto_cutting:
+    st.session_state["planning_cleared"] = False # Tắt cờ xóa khi gọi AI
     with st.spinner("🤖 AI đang quét dữ liệu và giải ma trận phối cỡ cho các sơ đồ trống..."):
-        # Cấu hình khóa API Key bảo mật theo chuẩn của Google GenAI SDK mới
         if "get_secure_gemini_key" in globals(): 
             gemini_key = get_secure_gemini_key()
         else: 
@@ -443,16 +448,13 @@ if trigger_auto_cutting:
         from google.genai import types
         client_ai = genai.Client(api_key=gemini_key)
         
-        # Khởi tạo bản đồ sản lượng PO cần triệt tiêu thực tế
         calculated_balances = {}
         for sz in active_sizes:
             calculated_balances[sz] = safe_int(size_breakdown_main.get(sz, 0))
         
-        # Khởi tạo mảng cấu trúc rỗng phòng ngừa tuyệt đối lỗi Empty Slots
         empty_slots = []
         current_grid_structure = []
         
-        # Đọc dữ liệu lưới hiện tại từ bộ nhớ phiên làm việc
         snapshot = st.session_state.get("session_editor_snapshot")
 
         if snapshot and isinstance(snapshot, list) and len(snapshot) > 0:
@@ -463,9 +465,7 @@ if trigger_auto_cutting:
                 total_ratios_entered = 0
                 row_ratios = {}
                 
-                # Quét và tổng hợp tỷ lệ phối cỡ đã đi sơ đồ của dòng hiện tại
                 for sz in active_sizes:
-                    # Đọc song song cả key ảo và thực tế để phòng vệ mất số
                     r_val = safe_int(row_data.get(sz, row_data.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
                     row_ratios[sz] = r_val
                     total_ratios_entered += r_val
@@ -473,27 +473,20 @@ if trigger_auto_cutting:
                 layers = safe_int(row_data.get("SƠ LỚP", 0))
                 tables = safe_int(row_data.get("SỐ BÀN", 1))
 
-                # Nếu dòng này thợ cắt đã chủ động gõ tỷ lệ sơ đồ & số lớp -> Tính khấu trừ vào PO còn lại
                 if total_ratios_entered > 0 and layers > 0:
                     for sz in active_sizes:
                         r_val = row_ratios[sz]
                         calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
                     
                     current_grid_structure.append({
-                        "Mã dòng": s_code, 
-                        "Tên sơ đồ gốc": s_name, 
-                        "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
+                        "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
                     })
                 else:
-                    # Nếu là dòng trống hoặc chưa đi sơ đồ, đưa vào hàng chờ để giao cho AI tự điền tỷ lệ tối ưu
                     empty_slots.append(s_code)
                     current_grid_structure.append({
-                        "Mã dòng": s_code, 
-                        "Tên sơ đồ gốc": s_name, 
-                        "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
+                        "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
                     })
         else:
-            # Trường hợp lưới trống hoàn toàn (Vừa bấm Clear hoặc Up file mới), mặc định gán 6 sơ đồ chờ AI giải
             empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
             
             fab_letter_c2 = "C"
@@ -504,13 +497,10 @@ if trigger_auto_cutting:
             
             current_grid_structure = [
                 {
-                    "Mã dòng": f"c{str(i+1).zfill(2)}", 
-                    "Tên sơ đồ gốc": f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}", 
-                    "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
+                    "Mã dòng": f"c{str(i+1).zfill(2)}", "Tên sơ đồ gốc": f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}", "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
                 } for i in range(6)
             ]
 
-        # Đóng gói chặt chẽ quy tắc ngành may bám sát theo tính chất vật lý của vải để ép AI tuân thủ
         is_sub_fabric = str(current_fabric_type).upper() in ["LÓT", "KEO", "PHỐI"]
         fabric_rule_text = ""
         if is_sub_fabric:
@@ -518,7 +508,6 @@ if trigger_auto_cutting:
         else:
             fabric_rule_text = "- ĐẶC BIỆT: Đây là vải CHÍNH. Tuyệt đối không cắt dư quá quy định, tính toán phối cỡ và số lớp sao cho sản lượng PO triệt tiêu chuẩn xác về 0 hoặc tiệm cận nhất."
 
-        # Chuyển đổi định mức tài liệu từ Yards sang Mét ứng dụng cho xưởng may
         dinhmuc_met_c2 = round(current_consumption * 0.9144, 3)
 
 import streamlit as st
