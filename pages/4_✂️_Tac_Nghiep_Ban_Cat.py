@@ -487,8 +487,8 @@ else:
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
 
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ BÁO CÁO XUẤT XƯỞNG (XÓA LỖI NAMEERROR)
+                # =============================================================================
+        # TẦNG 3 - ĐOẠN 2: KHỞI TẠO MA TRẬN BÁO CÁO VÀ CHUẨN HÓA ĐỊNH MỨC SƠ ĐỒ LŨY TIẾN
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -501,10 +501,12 @@ else:
             g_val, s_val = "None", c_str
             if "X" in c_str:
                 p = c_str.split("X")
-                s_val, g_val = p.strip(), p.strip()
+                s_val, g_val = p[0].strip(), p[1].strip()
             
-            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
-            except Exception: po_v = 0
+            try: 
+                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
+            except Exception: 
+                po_v = 0
                 
             po_qty_matrix.append(po_v)
             t1_giang_row.append(g_val)
@@ -517,7 +519,7 @@ else:
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
-        # Duyệt qua các dòng trên data_editor để tính trừ lùi sản lượng thực tế
+        # Duyệt qua các dòng trên data_editor để tính lũy tiến chính xác
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
@@ -530,8 +532,6 @@ else:
                 
             try: m_len = float(str(row_data.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
             except Exception: m_len = 0.0
-                
-            vail_can_m = m_len * layers * tables
             
             active_ratio_parts = []
             ratios_sum = 0
@@ -546,13 +546,27 @@ else:
                 if r_val > 0:
                     sz_clean = str(sz).replace("X","-").strip()
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
+            
+            # 🔥 ĐIỂM SỬA CHỐT LÕI: Chuẩn hóa tính toán Định mức Sơ đồ (dm_sd) dựa trên định mức nhập ô trên form
+            if ratios_sum > 0 and m_len > 0:
+                # Nếu tổ trưởng đã nhập chiều dài sơ đồ thực tế, tính định mức theo chiều dài mét đi sơ đồ CAD
+                dm_sd = (m_len * 1.09361) / ratios_sum
+                vail_can_m = m_len * layers * tables
+            else:
+                # Nếu bảng gõ tay đang trống (vừa up file), tự động lấy định mức tài liệu đề xuất gán vào làm mặc định
+                dm_sd = float(consumption_input)
+                # Tính toán chiều dài mét sơ đồ tự động dựa trên số quần phối (mặc định lấy bằng 1 nếu hàng trống để tạo khuôn)
+                effective_ratios = ratios_sum if ratios_sum > 0 else 1
+                vail_can_m = (dm_sd / 1.09361) * effective_ratios * layers * tables
+                if m_len == 0.0 and layers > 0:
+                    m_len = round((dm_sd / 1.09361) * effective_ratios, 2)
                     
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}: TRỐNG"
-            dm_sd = (m_len * 1.09361) / ratios_sum if ratios_sum > 0 else 0.0
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
+            # Khấu trừ lùi sản lượng đơn hàng thực tế
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -565,10 +579,9 @@ else:
         clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
         final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
         
-        # ĐẢM BẢO KHỞI TẠO BIẾN LUÔN THÀNH CÔNG TẠI ĐÂY
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-        # 1. Áp dụng CSS và hiển thị bảng đối chiếu thực tế ngay lập tức
+        # Hiển thị CSS và dựng lưới báo cáo lên Streamlit
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -580,7 +593,7 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # 2. Xử lý xuất tập tin Excel gộp đa dạng loại vải
+        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -598,20 +611,17 @@ else:
                 else: 
                     df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
             excel_generated_status = True
-        except Exception: 
-            pass
+        except Exception: pass
 
         if excel_generated_status:
             st.download_button(
                 label="📥 XUẤT FILE EXCEL GỘP ĐA SHEET MÀU SẮC CÔNG NGHIỆP", 
-                data=buffer.getvalue(), 
-                file_name=f"MA_TRAN_DA_VAI_{style_id_input}.xlsx", 
+                data=buffer.getvalue(), file_name=f"MA_TRAN_DA_VAI_{style_id_input}.xlsx", 
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                use_container_width=True, 
-                key="excel_multi_sheet_btn_final_v5"
+                use_container_width=True, key="excel_multi_sheet_btn_final_v5"
             )
         
-        # 3. Nút bấm đồng bộ thông số lưu trữ lên đám mây Supabase
+        # Đồng bộ lưu đè dữ liệu lên Cloud Supabase
         st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
@@ -621,19 +631,16 @@ else:
                 matrix_json_string = df_clean_string.to_json(orient="records")
                 
                 supabase_payload = {
-                    "style_id": str(style_id_input).strip().upper(), 
-                    "color": str(color_input).strip().upper(), 
-                    "fabric_type": str(fabric_type_input).strip().upper(), 
-                    "total_po_qty": int(po_qty_input), 
-                    "proposal_yield": float(consumption_input), 
-                    "max_table_len": float(max_table_length), 
-                    "cuttable_width": float(cuttable_width_inch), 
-                    "cutting_matrix_data": json.loads(matrix_json_string)
+                    "style_id": str(style_id_input).strip().upper(), "color": str(color_input).strip().upper(), 
+                    "fabric_type": str(fabric_type_input).strip().upper(), "total_po_qty": int(po_qty_input), 
+                    "proposal_yield": float(consumption_input), "max_table_len": float(max_table_length), 
+                    "cuttable_width": float(cuttable_width_inch), "cutting_matrix_data": json.loads(matrix_json_string)
                 }
                 try:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
+
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
