@@ -428,10 +428,22 @@ else:
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                             
                             if ai_match and len(ai_match) > 0:
-                                ai_row = ai_match[0] # Khắc phục triệt để bóc tách list
+                                ai_row = ai_match[0]
                                 r_dict = ai_row.get("Ratios", {})
-                                for sz in active_sizes: 
-                                    try: item_dict[sz] = int(float(str(r_dict.get(sz, 0)).strip() or 0))
+                                
+                                # 🛠️ ĐIỂM SỬA CHỐT LÕI: Map thông minh cả 2 loại Key (Key số "CỠ X" hoặc Key chữ "26 X 30") từ AI gửi về
+                                for c_idx, sz in enumerate(active_sizes):
+                                    sz_clean_key = str(sz).upper().replace(" ", "")
+                                    
+                                    # Tìm kiếm linh hoạt mọi dạng Key lọt vào
+                                    val_from_ai = 0
+                                    for r_key, r_val in r_dict.items():
+                                        r_key_clean = str(r_key).upper().replace(" ", "")
+                                        if r_key_clean == sz_clean_key or r_key_clean == f"CỠ{c_idx+1}":
+                                            val_from_ai = r_val
+                                            break
+                                            
+                                    try: item_dict[sz] = int(float(str(val_from_ai).strip() or 0))
                                     except Exception: item_dict[sz] = 0
                                 
                                 try: s_lop = int(float(str(ai_row.get("Số lớp", ai_row.get("Số lớp", 0))).strip() or 0))
@@ -440,10 +452,10 @@ else:
                                 try: s_ban = int(float(str(ai_row.get("Số bàn", ai_row.get("Số bàn", 1))).strip() or 1))
                                 except Exception: s_ban = 1
                                 
-                                total_pants = sum(item_dict[sz] for sz in active_sizes)
-                                calculated_len = round(total_pants * dinhmuc_met_c2, 2)
+                                try: d_met = float(str(ai_row.get("Chiều dài mét", ai_row.get("Chiều dài mét", 0.0))).strip() or 0.0)
+                                except Exception: d_met = 0.0
                                 
-                                item_dict.update({"SƠ LỚP": s_lop, "SỐ BÀN": s_ban, "DÀI SƠ ĐỒ": float(calculated_len)})
+                                item_dict.update({"SƠ LỚP": s_lop, "SỐ BÀN": s_ban, "DÀI SƠ ĐỒ": d_met})
                             else:
                                 if snapshot and i < len(snapshot):
                                     old_row = snapshot[i]
@@ -465,19 +477,38 @@ else:
                                     item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                             updated_rows.append(item_dict)
                         
-                        st.session_state["session_editor_snapshot"] = updated_rows
-                        st.success("🎉 AI đã quét các ô trống và tự động phân bổ tỷ lệ ghép đa cỡ thành công!")
+                        # 🛠️ ĐỒNG BỘ TRỰC TIẾP: Ép snapshot lưu dưới định cấu hình cột phẳng "CỠ X" để nạp vào Tầng 3
+                        final_sync_render_rows = []
+                        for row_data_item in updated_rows:
+                            render_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"]}
+                            
+                            # Tính tổng tỷ lệ để điền tự động vào cột TỔNG SẢN LƯỢNG của ô lưới trên
+                            r_sum_horizontal = 0
+                            for c_idx, sz in enumerate(active_sizes):
+                                val_sz = row_data_item.get(sz, 0)
+                                render_dict[f"CỠ {c_idx+1}"] = val_sz
+                                if row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+                                    r_sum_horizontal += val_sz
+                                    
+                            l_val = row_data_item.get("SƠ LỚP", 0)
+                            t_val = row_data_item.get("SỐ BÀN", 1)
+                            
+                            if row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE"]: render_dict["TỔNG SẢN LƯỢNG"] = ""
+                            elif row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] == "SẢN LƯỢNG": render_dict["TỔNG SẢN LƯỢNG"] = f"{total_sum_po_qty:,}" if 'total_sum_po_qty' in locals() else ""
+                            else: render_dict["TỔNG SẢN LƯỢNG"] = f"{r_sum_horizontal * l_val * t_val:,}"
+                            
+                            render_dict["SƠ LỚP"] = l_val
+                            render_dict["SỐ BÀN"] = t_val
+                            render_dict["DÀI SƠ ĐỒ"] = row_data_item.get("DÀI SƠ ĐỒ", 0.0)
+                            final_sync_render_rows.append(render_dict)
+                            
+                        st.session_state["session_editor_snapshot"] = final_sync_render_rows
+                        st.success("🎉 AI đã phân bổ tỷ lệ phối cỡ bám khít phần trăm đơn hàng thành công!")
                         st.rerun()
                     else:
                         st.warning("⚠️ Kết quả tính toán từ AI trống hoặc sai định dạng. Vui lòng thử lại!")
-                except Exception as e: 
-                    if "503" in str(e) or "UNAVAILABLE" in str(e):
-                        st.error("⚠️ Máy chủ Google AI đang quá tải cục bộ. Bạn hãy đợi 5 giây rồi bấm lại nhé!")
-                    else:
-                        st.error(f"⚠️ Lỗi xử lý dữ liệu AI: {str(e)}")
-
-        if trigger_consumption:
-            st.session_state["consumption_activated"] = True
+                except Exception as e:
+                    st.error(f"⚠️ Lỗi xử lý dữ liệu AI: {str(e)}")
 
 
 
