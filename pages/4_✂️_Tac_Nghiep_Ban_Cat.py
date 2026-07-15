@@ -614,7 +614,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2a: THUẬT TOÁN TÍNH TOÁN LŨY TIẾN VÀ LỌC DÒNG SƠ ĐỒ THỰC TẾ
+        # TẦNG 3 - ĐOẠN 2: THUẬT TOÁN ĐỒNG BỘ TUÂN THỦ TUYỆT ĐỐI GIÁ TRỊ NHẬP TAY 100%
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -629,13 +629,13 @@ else:
             g_val, s_val = "None", c_str
             parts = re.split(r'[X_-]', c_str)
             if len(parts) >= 2:
-                s_val = str(parts[0]).strip()
-                g_val = str(parts[1]).strip()
+                s_val = str(parts).strip()
+                g_val = str(parts).strip()
             
             g_val_clean = re.sub(r'_\d+$', '', g_val)
             s_val_clean = re.sub(r'_\d+$', '', s_val)
             
-            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
+            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
             except Exception: po_v = 0
                 
             po_qty_matrix.append(po_v)
@@ -651,25 +651,25 @@ else:
         matrix_body_rows = []
         running_balances = list(po_qty_matrix)
         
-        # LỌC SẠCH: Chỉ bốc đúng 6 dòng sơ đồ sản xuất thực tế từ ô lưới hiển thị trên màn hình
+        # Lọc bốc tách chính xác 6 dòng sơ đồ từ ô lưới hiển thị
         production_rows = []
         for idx, row in edited_df_raw.iterrows():
             name_check = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-            # Bỏ qua hoàn toàn 3 dòng tiêu đề chữ để trục tính toán không bị lệch dòng (Index Offset)
             if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
                 production_rows.append(row)
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 2b: VÒNG LẶP NHÂN SẢN LƯỢNG VÀ KẾT XUẤT ĐẦU RA BÁO CÁO CÔNG NGHIỆP
-        # =============================================================================
+
+        # Chạy thuật toán lập ma trận báo cáo thực tế
         for r_idx, row_data in enumerate(production_rows):
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
+            # Ép kiểu dữ liệu gõ tay từ lưới trên
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
                 
             try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
             except Exception: tables = 1
                 
+            # ĐỌC TUÂN THỦ: Lấy chính xác số mét người dùng gõ, không tự tính toán tự động ở trường này!
             try: m_len = float(str(row_data.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
             except Exception: m_len = 0.0
             
@@ -677,7 +677,7 @@ else:
             row_ratios_list = []
             ratios_sum = 0
             
-            # Quét tìm tỷ lệ size từng cột dựa theo tiêu đề hiển thị phẳng "CỠ X" của lưới trên
+            # Quét lấy tỷ lệ phối cỡ từ cột "CỠ X"
             for c_idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(f"CỠ {c_idx+1}", 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
@@ -689,26 +689,23 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            # Ràng buộc điều kiện: Nếu chưa gõ Sơ lớp hoặc tỷ lệ phối, ép Vải cần và Định mức về bằng 0.0
-            if ratios_sum > 0 and layers > 0:
-                if m_len > 0:
-                    dm_sd = (m_len * 1.09361) / ratios_sum
-                    vail_can_m = m_len * layers * tables
-                else:
-                    dm_sd = float(consumption_input)
-                    vail_can_m = (dm_sd / 1.09361) * ratios_sum * layers * tables
-                    m_len = round((dm_sd / 1.09361) * ratios_sum, 2)
+            # 🛠️ ÁP ĐÚNG QUY LUẬT TÁC NGHIỆP:
+            if m_len > 0 and ratios_sum > 0:
+                # Chỉ tính Định mức sơ đồ thực tế khi người dùng đã điền mét chiều dài
+                dm_sd = (m_len * 1.09361) / ratios_sum
+                # Vải cần = Chiều dài gõ tay x Sơ lớp x Số bàn
+                vail_can_m = m_len * layers * tables
             else:
+                # Nếu chưa gõ chiều dài sơ đồ, tất cả các thông số phụ ép buộc bằng 0.0
                 dm_sd = 0.0
                 vail_can_m = 0.0
-                m_len = 0.0 if layers == 0 else m_len
                 
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # Khấu trừ lùi sản lượng đơn hàng lũy tiến lưu vết theo thời gian thực
+            # Trừ lùi luỹ tiến sản lượng đơn hàng thực tế dựa trên tỷ lệ size gõ tay
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(f"CỠ {idx+1}", 0)).replace(",", "").strip() or 0))
@@ -776,6 +773,8 @@ else:
                 }
                 try:
                     from supabase import create_client
+                   
+
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
