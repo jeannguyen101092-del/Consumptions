@@ -877,36 +877,19 @@ import json
 import re
 import math
 
-# Helper ép kiểu số nguyên sạch bảo vệ luồng chạy hệ thống
-def safe_int_final(value, default=0):
-    if value is None: return default
-    try:
-        clean_val = str(value).replace(",", "").strip()
-        if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")
-        return int(clean_val)
-    except (ValueError, TypeError):
-        return default
-
-import streamlit as st
-import pandas as pd
-import json
-import re
-import math
-
 # Helper ép kiểu số nguyên sạch bảo vệ hệ thống không bị crash
 def safe_int_final(value, default=0):
     if value is None: return default
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        if "." in clean_val: clean_val = clean_val.split(".")[0] # Lấy chính xác phần nguyên trước dấu chấm
         return int(clean_val)
     except (ValueError, TypeError):
         return default
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2a: TOÁN HỌC ĐIỀU PHỐI ĐỘNG KIM TỰ THÁP NGƯỢC (VÉT SẢN LƯỢNG)
+# TẦNG 3 - ĐOẠN 2a: SỬA LỖI ILOC[0] THUẬT TOÁN ĐIỀU PHỐI ĐỘNG KIM TỰ THÁP NGƯỢC
 # =============================================================================
 final_snapshot_rows = []
 
@@ -967,7 +950,6 @@ else:
                 r_dict[sz] = safe_int_final(row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
             row_ratios_total = sum(r_dict.values())
             
-            # Ép khấu trừ ít nhất 1 lớp mẫu để cập nhật bảng CÒN LẠI ngay cho dòng sau thấy [INDEX]
             effective_layers = layers if layers > 0 else 1
             if row_ratios_total > 0:
                 for sz in active_sizes:
@@ -983,8 +965,9 @@ else:
     chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C0", na=False, case=False)]
     max_target_length, max_target_layers = 11.46, 60
 
+    # 🔥 ĐIỂM SỬA CHỐT LỖI MÀN HÌNH: Đã thêm chỉ mục .iloc[0] chuẩn xác của bảng Pandas dữ liệu
     if not chinh_rows_input.empty:
-        first_chinh = chinh_rows_input.iloc
+        first_chinh = chinh_rows_input.iloc[0]
         try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
         except Exception: max_target_length = 11.46
         max_target_layers = safe_int_final(first_chinh.get("SƠ LỚP", 60))
@@ -1021,7 +1004,6 @@ else:
         r_dict = base_values
         row_ratios_total = sum(r_dict.values())
         
-        # TOÁN HỌC KIM TỰ THÁP: Tự động tính giới hạn độ dày số lớp vải dốc giật lùi xuống [INDEX]
         possible_layers_dynamic = []
         for sz in active_sizes:
             if r_dict.get(sz, 0) > 0:
@@ -1044,6 +1026,7 @@ else:
 
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
+
 import io
 from supabase import create_client
 
