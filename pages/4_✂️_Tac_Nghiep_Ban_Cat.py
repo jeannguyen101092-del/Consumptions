@@ -692,7 +692,6 @@ flattened_size_breakdown = {}
 for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
     
-    # Xử lý bẫy lỗi chuỗi văn bản dạng mảng lập trình phức tạp như ['29','28']
     if k_str.startswith("[") or "['" in k_str or '["' in k_str:
         cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
         if len(cleaned_parts) >= 2:
@@ -700,7 +699,6 @@ for original_key, original_val in size_breakdown_main.items():
         else:
             k_str = k_str.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(" ", "").replace(",", "X")
     
-    # Gọt sạch các hậu tố đuôi do Pandas sinh ra trong quá trình gộp nhóm cột
     k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
     
     try: 
@@ -713,11 +711,8 @@ for original_key, original_val in size_breakdown_main.items():
         if k_str not in flattened_active_sizes:
             flattened_active_sizes.append(k_str)
 
-# Ghi đè biến đồng bộ ra toàn bộ phân hệ
 active_sizes = flattened_active_sizes
 size_breakdown_main = flattened_size_breakdown
-
-# Tính toán tổng sản lượng đơn hàng PO thực tế sau khi làm sạch
 total_sum_po_qty = sum(size_breakdown_main.values())
 
 # Thiết lập khuôn mẫu cấu trúc cứng cho 3 hàng tiêu đề phụ của ô lưới tương tác
@@ -746,11 +741,8 @@ sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
 display_editor_rows = []
 
-# Đồng bộ luồng dữ liệu từ State cũ sang định dạng render
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
-    
-    # Loại bỏ 3 dòng tiêu đề cũ trong bộ nhớ đệm tránh hiện tượng ghi lặp
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     
     for row in filtered_snapshot:
@@ -758,7 +750,6 @@ if snapshot and len(snapshot) > 0:
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
         for c_idx, sz in enumerate(active_sizes):
-            # Tìm kiếm thông minh linh hoạt từ Key thật hoặc Cột ảo ảo của AI giải
             val_cell = row.get(sz, row.get(f"CỠ {c_idx+1}", 0))
             try: item_dict[sz] = int(float(str(val_cell).replace(",", "").strip() or 0))
             except Exception: item_dict[sz] = 0
@@ -773,7 +764,6 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Nếu chưa có snapshot dữ liệu, tạo mặc định 3 dòng tiêu đề cùng 6 dòng sơ đồ trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     for i in range(6):
         s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
@@ -783,7 +773,6 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Khởi tạo bản dựng DataFrame để render lên giao diện
 df_editor_base = pd.DataFrame(display_editor_rows)
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
@@ -798,25 +787,36 @@ if is_locked:
 
 st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
 
-# 🛠️ THUẬT TOÁN CALLBACK BỀN VỮNG: Lưu trực tiếp giá trị người dùng vừa gõ vào State trung tâm
+# 🛠️ CẤU HÌNH COLUMN_CONFIG ĐỂ CHỈ ĐỊNH QUYỀN SỬA ĐỘNG CHO TỪNG CỘT
+# Mặc định mở disabled=False cho các cột nhập liệu
+config_cot = {
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=False),
+    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True), # Khóa cột tổng vì hệ thống tự tính
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=is_locked, min_value=0.0)
+}
+
+# Kích hoạt quyền chỉnh sửa (disabled=is_locked) cho tất cả các cột CỠ động
+for i in range(len(active_sizes)):
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(disabled=is_locked, min_value=0)
+
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
         
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            # Tạo bản sao sâu để tránh lỗi tham chiếu chéo (reference loop)
             current_snapshot = list(st.session_state.get("session_editor_snapshot", display_editor_rows))
             
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
                 if r_idx_int < len(current_snapshot):
-                    # Khóa an toàn: Chặn tuyệt đối, không lưu biến đổi đè lên 3 hàng tiêu đề phụ cố định
+                    # Khóa an toàn tuyệt đối ở tầng logic cho 3 hàng tiêu đề
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
                         continue
                         
                     clean_changes = {}
                     for col_header, new_val in change_dict.items():
-                        # Ánh xạ đảo ngược (Reverse mapping) từ tiêu đề ảo CỠ X về cấu trúc size thật
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
@@ -834,7 +834,6 @@ def callback_sync_on_the_fly_final():
                             
                     current_snapshot[r_idx_int].update(clean_changes)
             
-            # Cập nhật ngược lại bộ nhớ Snapshot tổng thể của phiên làm việc
             st.session_state["session_editor_snapshot"] = current_snapshot
 
 # Render cấu hình component ô lưới tương tác dữ liệu nâng cao
@@ -842,10 +841,11 @@ edited_df_raw = st.data_editor(
     df_editor_top_render, 
     use_container_width=True, 
     hide_index=True, 
-    disabled=is_locked, 
+    column_config=config_cot, # Áp dụng cấu hình phân quyền cột sửa đổi tại đây
     key="table_manual_data_editor_final",
     on_change=callback_sync_on_the_fly_final
 )
+
 import streamlit as st
 import pandas as pd
 import json
