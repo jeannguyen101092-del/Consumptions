@@ -457,8 +457,8 @@ else:
 
 
 
-         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU TÁCH RỜI DÒNG GIÀNG VÀ SIZE CỐ ĐỊNH
+        # =============================================================================
+        # TẦNG 3 - ĐOẠN 1: BỔ SUNG CỐ ĐỊNH 3 DÒNG GIÀNG, SIZE, SẢN LƯỢNG LÊN BẢNG TRÊN
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -471,23 +471,32 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # Khởi tạo khuôn 2 dòng tiêu đề chữ GIÀNG và SIZE động theo tệp SBD vừa up
+        # 🛠️ KHỞI TẠO KHUÔN 3 DÒNG TIÊU ĐỀ PHỤ CỐ ĐỊNH CHO LƯỚI TRÊN
         giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
         size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
+        sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG"}
+        
         for sz in active_sizes:
             parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
             giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
             size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
+            
+            # Lấy sản lượng PO thực tế từ file đưa lên dòng tiêu đề phụ bảng trên
+            try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
+            except Exception: po_v = 0
+            sl_top_row[sz] = f"{po_v:,}"
+            
         giang_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
         size_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+        sl_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
 
         # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
         if snapshot and len(snapshot) > 0 and snapshot is not None:
-            # Loại bỏ các dòng GIÀNG/SIZE cũ lỡ lưu sai trong đệm để tránh bị trùng lặp dòng
-            filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE"]]
+            # Loại bỏ sạch các dòng tiêu đề phụ cũ lỡ kẹt trong bộ nhớ đệm
+            filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
             
-            # Luôn dán cứng 2 dòng tiêu đề GIÀNG và SIZE lên đầu lưới nhập liệu
-            cleaned_snapshot = [giang_top_row, size_top_row]
+            # Ép cứng dán 3 dòng tiêu đề lên đầu bảng tương tác
+            cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
             for row in filtered_snapshot:
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()}
                 for sz in active_sizes:
@@ -504,7 +513,7 @@ else:
             
         # 2. Luồng khôi phục dữ liệu từ Supabase đám mây
         elif recovered_source:
-            display_editor_rows = [giang_top_row, size_top_row]
+            display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
             for row in recovered_source:
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
                 if not any(x in t_name for x in ["CÒN LẠI", "SẢN LƯỢNG", "Mã hàng", "Màu:", "Loại vải:", "GIÀNG", "SIZE"]):
@@ -524,7 +533,7 @@ else:
                     
         # 3. Luồng mặc định khi mới mở ứng dụng HOẶC khi nhấn nút "XÓA ĐỂ TÍNH LẠI"
         else:
-            display_editor_rows = [giang_top_row, size_top_row]
+            display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
@@ -550,13 +559,12 @@ else:
                 if "edited_rows" in editor_state:
                     for row_idx, changes in editor_state["edited_rows"].items():
                         if row_idx < len(display_editor_rows):
-                            # KHÓA CỨNG: Không cho phép chỉnh sửa nội dung text của 2 dòng tiêu đề chữ GIÀNG/SIZE
-                            if display_editor_rows[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE"]:
+                            # KHÓA CỨNG: Chặn tuyệt đối không cho sửa nhầm vào 3 hàng tiêu đề phụ
+                            if display_editor_rows[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
                                 continue
                             display_editor_rows[row_idx].update(changes)
                 st.session_state["session_editor_snapshot"] = display_editor_rows
 
-        # Định cấu hình tên cột hiển thị phẳng sạch lỗi StreamlitAPIException
         clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
         df_editor_top_render = df_editor_base.copy()
         df_editor_top_render.columns = clean_headers_top
@@ -569,6 +577,7 @@ else:
         edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+
 
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG RỜI RÕ RÀNG XUỐNG BẢNG DƯỚI
