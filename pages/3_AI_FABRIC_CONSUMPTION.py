@@ -599,6 +599,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
         
     if display_data:
+        # CÁC DÒNG PHÍA DƯỚI ĐÃ ĐƯỢC THỤT LỀ THẲNG HÀNG VỚI NHAU VÀ NẰM TRONG KHỐI "if display_data:"
         df_bom = pd.DataFrame(display_data)
         
         # 🟩 BẢNG 1: SUMMARY TỔNG HỢP MUA HÀNG màu xanh
