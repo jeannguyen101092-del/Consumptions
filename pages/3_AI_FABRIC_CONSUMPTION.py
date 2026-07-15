@@ -514,10 +514,12 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                                 "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài chi tiết rập (L-inch)"},
                                 "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng chi tiết rập (W-inch)"},
                                 "fabric_width_inch": {"type": "NUMBER", "description": "Khổ vải sử dụng (inch)"},
+                                "shrinkage_warp": {"type": "STRING", "description": "Tỷ lệ co rút dọc (%) trích xuất từ lệnh chat"},
+                                "shrinkage_weft": {"type": "STRING", "description": "Tỷ lệ co rút ngang (%) trích xuất từ lệnh chat"},
                                 "marker_efficiency": {"type": "STRING", "description": "Hiệu suất sơ đồ mô phỏng thực tế (Ví dụ: 79.5%)"},
                                 "gross_consumption": {"type": "NUMBER", "description": "ĐỊNH MỨC TIÊU HAO CHÍNH XÁC DO AI TÍNH TOÁN RA YARDS (Số thực, ví dụ: 0.5421)"}
                             },
-                            "required": ["component_name", "material_class", "uom", "piece_count", "bounding_box_length", "bounding_box_width", "marker_efficiency", "gross_consumption"]
+                            "required": ["component_name", "material_class", "uom", "piece_count", "bounding_box_length", "bounding_box_width", "shrinkage_warp", "shrinkage_weft", "marker_efficiency", "gross_consumption"]
                         }
                     }
                 },
@@ -586,10 +588,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         
-        # Đọc trực tiếp con số Yards do AI tính toán lập luận trả về
         current_gross = float(r.get("gross_consumption", 0.0))
         mat_class_raw = str(r.get("material_class", "FABRIC")).upper().strip()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
+
+        # Đọc dữ liệu co rút do AI trả về (nếu không có thì fallback về lệnh của user)
+        warp_val = r.get("shrinkage_warp", "3%")
+        weft_val = r.get("shrinkage_weft", "14%")
 
         display_data.append({
             "Component Name": comp_name_raw,
@@ -599,13 +604,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Dài sản xuất (L-inch)": r.get("bounding_box_length", 0.0),
             "Rộng sản xuất (W-inch)": r.get("bounding_box_width", 0.0),
             "Khổ vải (Width)": f"{r.get('fabric_width_inch', 56.0)} inch",
-            "Co rút dọc (% Warp)": "-",
-            "Co rút ngang (% Weft)": "-",
+            # 🔄 SỬA LẠI ĐỂ LẤY BIẾN ĐỘNG THAY VÌ DẤU "-"
+            "Co rút dọc (% Warp)": f"{warp_val}%" if "%" not in str(warp_val) else warp_val,
+            "Co rút ngang (% Weft)": f"{weft_val}%" if "%" not in str(weft_val) else weft_val,
             "Marker Efficiency": r.get("marker_efficiency", "82.5%"),
             "Gross Consumption": current_gross,
             "Quality Status": "PASS",
             "System Calculation Notes": "AI Smart Analytical Model"
         })
+
         
     if display_data:
         # CÁC DÒNG PHÍA DƯỚI ĐÃ ĐƯỢC THỤT LỀ THẲNG HÀNG VỚI NHAU VÀ NẰM TRONG KHỐI "if display_data:"
