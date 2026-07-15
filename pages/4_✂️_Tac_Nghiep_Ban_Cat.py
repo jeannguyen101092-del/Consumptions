@@ -355,7 +355,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: ĐỒNG BỘ RESET KHUÔN LƯỚI KHI BẤM NÚT CLEAR TÍNH LẠI
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY VÀ VÁ LỖI KHỞI TẠO BIẾN EDITED_DF
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -368,7 +368,7 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # Nếu nút Clear vừa xóa snapshot thành công, bỏ qua nhánh 1 và nhảy thẳng xuống nhánh 3 để dựng lại lưới số 0
+        # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
         if snapshot and len(snapshot) > 0 and snapshot is not None:
             cleaned_snapshot = []
             for i, row in enumerate(snapshot):
@@ -389,7 +389,8 @@ else:
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
-        elif recovered_source and snapshot is not None:
+        # 2. Luồng khôi phục dữ liệu từ Supabase đám mây
+        elif recovered_source:
             for i, row in enumerate(recovered_source):
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
@@ -412,8 +413,8 @@ else:
                         clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
+        # 3. Luồng mặc định khi mới mở ứng dụng HOẶC khi nhấn nút "XÓA ĐỂ TÍNH LẠI"
         else:
-            # Luồng mặc định khi bấm nút Clear: Trả về ma trận trống rỗng sạch sẽ theo mã vải
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
@@ -421,6 +422,40 @@ else:
                     item_dict[sz] = 0
                 item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
+                
+        # Dựng cấu trúc DataFrame nền
+        df_editor_base = pd.DataFrame(display_editor_rows)
+        
+        # Kiểm tra phòng vệ ép kiểu số nguyên tránh phát sinh giá trị None rỗng trên ô lưới
+        for sz in active_sizes:
+            if sz in df_editor_base.columns:
+                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
+        if "SƠ LỚP" in df_editor_base.columns:
+            df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
+        if "SỐ BÀN" in df_editor_base.columns:
+            df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
+        if "DÀI SƠ ĐỒ" in df_editor_base.columns:
+            df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
+        
+        is_locked = st.session_state.get("consumption_activated", False)
+
+        if is_locked:
+            if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_c2"):
+                st.session_state["consumption_activated"] = False
+                st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
+                st.rerun()
+
+        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (TỰ ĐỘNG CHUYỂN MÃ SƠ ĐỒ THEO LOẠI VẢI)</p>", unsafe_allow_html=True)
+        
+        # 🔥 ĐIỂM CHỐT KHẮC PHỤC LỖI: Đảm bảo biến edited_df luôn được khai báo độc lập ra ngoài rìa thụt lề
+        edited_df = st.data_editor(
+            df_editor_base, use_container_width=True, hide_index=True, disabled=is_locked, key="table_manual_data_editor_v1"
+        )
+        
+        # Lưu trữ trạng thái bộ nhớ đệm
+        if not is_locked:
+            st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+
 
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ TÊN VẢI CHUẨN XUỐNG BẢNG ĐỐI CHIẾU VÀ XUẤT BÁO CÁO
