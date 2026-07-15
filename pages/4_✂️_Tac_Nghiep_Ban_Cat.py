@@ -576,39 +576,33 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: LÀM SẠCH TUYỆT ĐỐI GẠCH DƯỚI INSEAM Ở BẢNG ĐỐI CHIẾU
+        # TẦNG 3 - ĐOẠN 2: GỘP DÒNG TIÊU ĐỀ SIZE X GIÀNG TRỰC QUAN (BẢNG DƯỚI)
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
 
-        t1_giang_row, t2_size_row, t3_sl_row = ["GIÀNG"], ["SIZE"], ["SẢN LƯỢNG"]
+        # Rút gọn chỉ còn duy nhất 1 hàng nhãn cỡ kết hợp (Xóa hẳn hàng GIÀNG tách biệt cũ)
+        t2_size_row = ["KÍCH CỠ (SIZE X GIÀNG)"]
         po_qty_matrix = []
         for col_name in active_sizes:
             c_str = str(col_name).strip().upper()
-            g_val, s_val = "None", c_str
-            if "X" in c_str:
-                p = c_str.split("X")
-                if len(p) >= 2:
-                    s_val = str(p[0]).strip()
-                    g_val = str(p[1]).strip()
-                    
-            # 🛠️ XOÁ GẠCH DƯỚI DÒNG GIÀNG TIÊU ĐỀ
-            g_val = re.sub(r'_\d+$', '', g_val)
-            s_val = re.sub(r'_\d+$', '', s_val)
+            
+            # Làm sạch chuỗi kích cỡ lỡ dính ký tự lạ
+            c_str_clean = re.sub(r'_\d+$', '', c_str).replace(" ", "")
             
             try: 
-                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
+                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
             except Exception: 
                 po_v = 0
                 
             po_qty_matrix.append(po_v)
-            t1_giang_row.append(g_val)
-            t2_size_row.append(s_val)
-            t3_sl_row.append(f"{po_v:,}")
+            t2_size_row.append(c_str_clean) # Hiển thị dạng 26X30, 28X30 gọn gàng
             
         for _ in range(6): 
-            t1_giang_row.append(""); t2_size_row.append(""); t3_sl_row.append("")
+            t2_size_row.append("")
+            
+        t3_sl_row = ["SẢN LƯỢNG ĐƠN HÀNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
             
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
@@ -638,8 +632,7 @@ else:
                 ratios_sum += r_val
                 row_ratios_list.append(r_val)
                 if r_val > 0:
-                    # 🛠️ LÀM SẠCH CHUỖI NỐI TỶ LỆ DÒNG BÁO CÁO (Xoá triệt để gạch dưới ở text phối size)
-                    sz_clean = str(sz).replace("X","-").strip()
+                    sz_clean = str(sz).replace("X","-").replace(" ", "").strip()
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
@@ -669,7 +662,9 @@ else:
             matrix_body_rows.append(remaining_row)
 
         clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-        final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
+        
+        # Gộp trục dòng tiêu đề hình chữ nhật gọn gàng
+        final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t2_size_row, t3_sl_row] + matrix_body_rows
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
@@ -733,8 +728,6 @@ else:
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
-               
-
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
                     
