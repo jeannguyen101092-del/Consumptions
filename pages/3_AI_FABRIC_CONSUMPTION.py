@@ -527,18 +527,25 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             # 2. Chỉ thị tối cao ép AI tự lẩm nhẩm tính định mức may Jeans/Jacket chuẩn phân xưởng
             prompt_agent_2 = f"""
             You are an expert Apparel CAD Costing Director. 
-            Your task is to analyze the Techpack and DIRECTLY CALCULATE the final gross consumption (Yards) for EACH component row.
+            Your task is to analyze the Techpack data, identify the geometric role of each component, and calculate their realistic 'gross_consumption' (Yards).
 
             🌟 CRITICAL USER COMMAND CONTEXT:
             "{current_query}"
 
-            STRICT EXPERT BREAKDOWN RULES (NO HARDCODE):
-            - Calculate 'gross_consumption' based on length, width, piece count, shrinkage from user prompt, and marker layout nesting.
-            - Major components (FRONT PANEL, BACK PANEL) MUST have logical production consumption (typically around 0.4500 to 0.6500 YDS each row depending on size/shrinkage).
-            - Minor accessories (BELT LOOP, FLY FACING) must have tiny dynamic consumption (e.g., 0.0150 to 0.0450 YDS). 
-            - DO NOT output equal or caked values (like 0.3425) across all lines. 
-            - Total combined FABRIC consumption for a standard pair of Jeans MUST logically add up to around 1.3500 - 1.4800 YDS under normal layout constraints.
+            INDUSTRIAL CAD APPAREL NESTING ALGORITHM (LEVERAGE TEXT & GEOMETRY):
+            1. CLASSIFY PIECES BY SIZE (AUTOMATIC):
+               - Major Pieces (FRONT PANEL, BACK PANEL, SLEEVE, etc.): These are the main structural components. Their bounding box length directly occupies the marker length. Calculate their consumption based on: (Length * Piece Count / 36) / Efficiency. If multiple pieces can fit horizontally within the active fabric width ({56.0} inch), split the consumption accordingly.
+               - Interlocking/Minor Pieces (POCKET, FLAP, COLLAR, UNDER COLLAR, BELT, FACING, FLY, etc.): These are smaller elements. In professional CAD marker nesting, they are interlocked and slotted into the negative spaces (empty gaps) around the Major Pieces. 
+
+            2. MATH LOGIC FOR NESTING:
+               - Because Minor Pieces utilize the existing gaps of Major Pieces, their incremental addition to the linear marker length is near-zero.
+               - For these interlocking minor pieces, do NOT calculate consumption based purely on their standalone length. Instead, calculate their consumption based on their Net Area proportional to the whole fabric layout efficiency: (Length * Width * Piece Count) / (Fabric Width * 36 * Efficiency) * 0.2 (apply a strong reduction factor representing spatial nesting integration).
+               
+            3. SHRINKAGE & EFFICIENCY:
+               - Factor in the shrinkage values provided in the prompt (apply to piece lengths/widths before nesting calculation).
+               - Ensure your output 'gross_consumption' reflects this nesting intelligence so that the final accumulated sum naturally falls into a realistic industry standard for a single garment (typically around 1.3500 - 1.5500 YDS total), driven purely by geometric logic.
             """
+
 
             # Gọi AI quét hình ảnh và lập luận ra mảng số định mức
             blueprint_final = execute_cached_gemini_scan(
