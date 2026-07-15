@@ -879,8 +879,10 @@ edited_df_raw = st.data_editor(
 )
 import math
 
+import math
+
 # =============================================================================
-# TẦNG 3 - ĐOẠN 7a: THUẬT TOÁN ĐIỀU PHỐI LIÊN HOÀN ĐỔ THẲNG XUỐNG BẢNG 2
+# TẦNG 3 - ĐOẠN 7a: THUẬT TOÁN ĐIỀU PHỐI LIÊN HOÀN ĐỔ THẲNG XUỐNG BẢNG 2 (SỬA LOGIC LỚP)
 # =============================================================================
 
 final_snapshot_rows = []
@@ -930,15 +932,19 @@ for idx, row in edited_df_raw.iterrows():
 chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C01", na=False, case=False)]
 
 max_target_length = 11.46
-max_target_layers = 60
+max_target_layers = 60  # Đặt mặc định sản xuất là 60 lớp vải
 
 if not chinh_rows_input.empty:
     first_chinh = chinh_rows_input.iloc[0]
     try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
     except: max_target_length = 11.46
     
-    max_target_layers = safe_int_final(first_chinh.get("SƠ LỚP", 60))
-    if max_target_layers <= 0: max_target_layers = 60
+    user_layers = safe_int_final(first_chinh.get("SƠ LỚP", 0))
+    # 🎯 FIX TRỌNG TÂM: Nếu người dùng điền Sơ lớp nhỏ hơn hoặc bằng 1, tự động tính theo 60 lớp để rải cuốn chiếu nhanh
+    if user_layers > 1:
+        max_target_layers = user_layers
+    else:
+        max_target_layers = 60
 
 if max_target_length <= 0: max_target_length = 11.46
 
