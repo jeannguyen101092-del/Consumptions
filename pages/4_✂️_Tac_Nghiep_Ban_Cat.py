@@ -458,7 +458,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG VÀ FIX TRIỆT ĐỂ LỖI GÕ 2 LẦN MỚI NHẬN SỐ
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU VÀ SỬA TRIỆT ĐỂ LỖI VALUEERROR ÉP KIỂU
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -471,24 +471,26 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
-        # Khởi tạo 3 dòng tiêu đề phụ cố định cho bảng nhập liệu
+        # Khởi tạo khuôn 3 dòng tiêu đề phụ cố định cho bảng nhập liệu
         giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
         size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
         sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG"}
         
         for sz in active_sizes:
             parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
-            giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts).strip()) if len(parts) >= 2 else "None"
-            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts).strip()) if len(parts) >= 1 else "None"
-            try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".").strip() or 0)
+            giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
+            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip()) if len(parts) >= 1 else "None"
+            try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
             except Exception: po_v = 0
+            
+            # 🔥 ĐIỂM SỬA CHỐT LÕI: Để số nguyên thuần túy, KHÔNG lưu chuỗi dạng text "1,250" để tránh lỗi astype(int)
             sl_top_row[sz] = po_v
             
         giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-        # 1. Luồng khôi phục dữ liệu snapshot (Ưu tiên giữ lại dữ liệu thật tổ trưởng đang nhập)
+        # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
         if snapshot and len(snapshot) > 0 and snapshot is not None:
             filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
             cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -539,13 +541,10 @@ else:
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
         
-        # Ép kiểu dữ liệu cố định cho các cột của bảng tương tác
+        # 🛠️ SỬA LỖI ÉP KIỂU: Thay vì điền ép cứng .astype(int) cho toàn bộ DataFrame, chúng ta ép kiểu mềm an toàn bằng hàm xử lý chuỗi
         for sz in active_sizes:
             if sz in df_editor_base.columns:
-                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
-        df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
-        df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
-        df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
+                df_editor_base[sz] = df_editor_base[sz].apply(lambda x: int(float(str(x).replace(",", "").strip())) if (str(x).strip() != "" and str(x).lower() != "none" and not str(x).isalpha()) else 0)
         
         is_locked = st.session_state.get("consumption_activated", False)
 
@@ -560,18 +559,15 @@ else:
         df_editor_top_render = df_editor_base.copy()
         df_editor_top_render.columns = clean_headers_top
 
-        # 🛠️ CƠ CHẾ ĐỒNG BỘ NGAY LẬP TỨC (ON_CHANGE): Bắt trọn khoảnh khắc gõ phím để ghi nhận cứng số vào bộ nhớ
+        # Hàm Callback đồng bộ dữ liệu thời gian thực khi gõ số
         def callback_sync_on_the_fly():
             if "table_manual_data_editor_v1" in st.session_state:
                 st_editor = st.session_state["table_manual_data_editor_v1"]
-                # Nếu phát hiện người dùng vừa gõ sửa ô, bốc ngay giá trị đó đè vào mảng display_editor_rows trước khi trang kịp làm mới
                 if "edited_rows" in st_editor:
                     for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                         if r_idx_edit < len(display_editor_rows):
-                            # Chặn không cho lưu sửa nhầm vào 3 hàng tiêu đề phụ
                             if display_editor_rows[r_idx_edit]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
                                 continue
-                            # Quy đổi ngược tiêu đề "CỠ X" về tên size gốc để đồng bộ snapshot sạch
                             clean_changes = {}
                             for col_header, new_val in change_dict.items():
                                 if str(col_header).startswith("CỠ "):
@@ -598,18 +594,24 @@ else:
             key="table_manual_data_editor_v1", on_change=callback_sync_on_the_fly
         )
         
-        # Ánh xạ kết quả cuối cùng chuyển giao xuống Đoạn 2/2 nhân ma trận vải
+        # Ánh xạ kết quả chuyển giao xuống Đoạn 2/2 nhân ma trận vải
         final_snapshot_rows = []
         for idx, row in edited_df_raw.iterrows():
             item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()}
             for c_idx, sz in enumerate(active_sizes):
-                item_dict[sz] = row.get(f"CỠ {c_idx+1}", 0)
-            item_dict["SƠ LỚP"] = row.get("SƠ LỚP", 0)
-            item_dict["SỐ BÀN"] = row.get("SỐ BÀN", 1)
-            item_dict["DÀI SƠ ĐỒ"] = row.get("DÀI SƠ ĐỒ", 0.0)
+                # Ép kiểu an toàn phòng thủ cho luồng tính toán phía sau
+                try: item_dict[sz] = int(float(str(row.get(f"CỠ {c_idx+1}", 0)).replace(",", "").strip() or 0))
+                except Exception: item_dict[sz] = 0
+            try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+            except Exception: item_dict["SƠ LỚP"] = 0
+            try: item_dict["SỐ BÀN"] = int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+            except Exception: item_dict["SỐ BÀN"] = 1
+            try: item_dict["DÀI SƠ ĐỒ"] = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+            except Exception: item_dict["DÀI SƠ ĐỒ"] = 0.0
             final_snapshot_rows.append(item_dict)
             
         edited_df = pd.DataFrame(final_snapshot_rows)
+
 
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: LUỒNG KHẤU TRỪ VÀ TRỪ LÙI SẢN LƯỢNG THỜI GIAN THỰC BẢNG DƯỚI
