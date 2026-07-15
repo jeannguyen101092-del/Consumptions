@@ -704,7 +704,7 @@ for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
     if k_str.startswith("[") or "['" in k_str or '["' in k_str:
         cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
+        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts}X{cleaned_parts}"
         else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
     k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
     
@@ -730,7 +730,7 @@ for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
     g_val, s_val = "None", c_str
     parts = re.split(r'[X_x-]', c_str)
-    if len(parts) >= 2: s_val, g_val = str(parts[0]).strip(), str(parts[1]).strip()
+    if len(parts) >= 2: s_val, g_val = str(parts).strip(), str(parts).strip()
     
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
@@ -751,7 +751,6 @@ if snapshot and len(snapshot) > 0:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
-        # Bốc chính xác số liệu từ key size thật map sang cột ảo hiển thị tương ứng
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(sz, row.get(f"CỠ {c_idx+1}", 0))
             item_dict[f"CỠ {c_idx+1}"] = int(float(str(val_cell).replace(",", "") or 0))
@@ -766,7 +765,6 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Khởi tạo khung lưới trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
@@ -781,16 +779,16 @@ else:
 
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-is_locked = st.session_state.get("consumption_activated", False)
+# 🔥 GỠ BỎ BIẾN IS_LOCKED ĐỂ LUÔN LUÔN MỞ KHÓA QUYỀN SỬA CHO THỢ CẮT [INDEX]
 config_cot = {
     "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"),
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
-    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0, step=1, format="%d"),
-    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1, step=1, format="%d"),
-    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=is_locked, min_value=0.0, step=0.05, format="%.2f")
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
 }
 for i in range(len(active_sizes)):
-    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=is_locked, min_value=0, step=1, format="%d")
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
 # Hàm Callback biên dịch ngược lưu cứng số thợ gõ vào bộ nhớ Snapshot [INDEX]
 def callback_sync_on_the_fly_final():
@@ -804,7 +802,6 @@ def callback_sync_on_the_fly_final():
                 if r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
                     
-                    # Chuyển đổi key ảo CỠ X sang key tên mã size thật ("26X30") để lưu trữ đồng bộ [INDEX]
                     clean_changes = {}
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
@@ -822,6 +819,7 @@ edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
 )
+
 
 
 import streamlit as st
