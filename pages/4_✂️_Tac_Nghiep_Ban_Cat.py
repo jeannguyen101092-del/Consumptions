@@ -747,11 +747,9 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: LÀM SẠCH CHUỖI GIÀNG & SIZE TRÊN BẢNG ĐỐI CHIẾU SỐ 2
+        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ VÁ TRIỆT ĐỂ LỖI LỆCH TRỤC CỘT PANDAS
         # =============================================================================
-             # =============================================================================
-        # TẦNG 3 - ĐOẠN 2a: TRÍCH XUẤT MA TRẬN PHẲNG VÀ ĐỒNG BỘ CHUẨN KHÓA SƠ LỚP
-        # =============================================================================
+        # 🛠️ VÁ LỖI CỐT LÕI: Thêm số lượng ô rỗng (+6) để cân bằng trục đứng, chừa chỗ cho cột TỔNG SẢN LƯỢNG
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 6)
@@ -767,6 +765,9 @@ else:
             if len(parts) >= 2:
                 s_val = str(parts[0]).strip()
                 g_val = str(parts[1]).strip()
+            elif len(parts) == 1:
+                s_val = str(parts[0]).strip()
+                g_val = "None"
             
             g_val_clean = re.sub(r'_\d+$', '', g_val)
             s_val_clean = re.sub(r'_\d+$', '', s_val)
@@ -790,7 +791,6 @@ else:
         # Bốc chính xác dữ liệu gốc 6 dòng sơ đồ thực tế từ bộ nhớ đệm snapshot đã đồng bộ
         production_rows = []
         if snapshot:
-            # Lọc bỏ qua 3 dòng tiêu đề phụ lồng bên trong snapshot
             production_rows = [r for r in snapshot if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]]
         else:
             for idx, row in edited_df_raw.iterrows():
@@ -801,12 +801,11 @@ else:
         for r_idx, row_data in enumerate(production_rows):
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
+            # ĐỌC KHÓA ĐỒNG BỘ: Đọc đúng chuỗi chữ "SƠ LỚP" có dấu tiếng Việt thời gian thực
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
-                
             try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
             except Exception: tables = 1
-                
             try: m_len = float(str(row_data.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
             except Exception: m_len = 0.0
             
@@ -825,7 +824,8 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            if m_len > 0 and ratios_sum > 0:
+            # Cương chế tính toán vải theo số liệu thực tế gõ tay
+            if ratios_sum > 0 and layers > 0 and m_len > 0:
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
             else:
@@ -833,22 +833,25 @@ else:
                 vail_can_m = 0.0
                 
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
+            total_cut_in_row = ratios_sum * layers * tables
             
-            ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
+            ratio_row = [ratio_row_title, f"{total_cut_in_row:,}"] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            remaining_row = ["CÒN LẠI"]
+            # Tính toán dòng CÒN LẠI trừ lùi sản lượng đơn hàng luỹ tiến chuẩn xác thời gian thực
+            remaining_row = ["CÒN LẠI", ""]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(f"CỠ {idx+1}", 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
                 running_balances[idx] = max(0, running_balances[idx] - (r_val * layers * tables))
-                remaining_row.append(running_balances[idx])
+                remaining_row.append(f"{running_balances[idx]:,}" if running_balances[idx] > 0 else "0")
             remaining_row.extend(["", "", "", "", "", ""])
             matrix_body_rows.append(remaining_row)
 
-        clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
+        clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
         final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
         
+        # Tạo bảng báo cáo an toàn
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
         st.markdown("""<style>
@@ -901,6 +904,7 @@ else:
                     "fabric_type": str(fabric_type_input).strip().upper(), "total_po_qty": int(po_qty_input), 
                     "proposal_yield": float(consumption_input), "max_table_len": float(max_table_length), 
                     "cuttable_width": float(cuttable_width_inch), "cutting_matrix_data": json.loads(matrix_json_string)
+                
                 }
                 try:
                     from supabase import create_client
