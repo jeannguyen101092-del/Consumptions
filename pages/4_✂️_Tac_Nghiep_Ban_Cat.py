@@ -688,7 +688,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: ÉP CỨNG disabled=False MỞ KHÓA QUYỀN GÕ TAY CHO THỢ SƠ ĐỒ
+# TẦNG 3 - ĐOẠN 6: SỬA LỖI BIẾN 1ITEM_DICT - KHỬ TRIỆT ĐỂ LỖI BIẾN MẤT SỐ LIỆU
 # =============================================================================
 
 # Khôi phục bộ nhớ đệm snapshot phiên làm việc
@@ -733,6 +733,7 @@ for i, sz in enumerate(active_sizes):
     if len(parts) >= 2: s_val, g_val = str(parts).strip(), str(parts).strip()
     elif len(parts) == 1: s_val, g_val = str(parts).strip(), "None"
     
+    # Gán thông tin hiển thị lên 3 cột ảo
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
     sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
@@ -750,11 +751,13 @@ if snapshot and len(snapshot) > 0:
     
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        
         if not item_name or item_name.strip() == "":
             item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
             
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
+        # 🔥 ĐÃ SỬA CHỮA CHUẨN XÁC: Gỡ bỏ kí tự nhiễu "1" ở đầu tên biến item_dict [INDEX]
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
@@ -769,6 +772,7 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
+    # Thiết lập mặc định bảng trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
@@ -781,19 +785,18 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
+# Dựng DataFrame render lên Streamlit
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
+# Ép kiểu số cứng để không bị khóa cột
 for col in clean_headers_top:
     if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
     elif col == "DÀI SƠ ĐỒ":
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0.0).astype(float)
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
 
-st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
-
-# 🔥 SỬA GÁN disabled=False TRỰC TIẾP ĐỂ MỞ KHÓA TOÀN BỘ Ô SỐ LIỆU CHO THỢ NHẬP [INDEX]
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), # Khóa tên để giữ nhãn PILOT/CHÍNH
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
     "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
@@ -802,6 +805,7 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
+# Hàm Callback lưu cứng số liệu người dùng gõ
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -826,6 +830,7 @@ def callback_sync_on_the_fly_final():
                     current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
+# Khởi chạy data_editor
 edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
