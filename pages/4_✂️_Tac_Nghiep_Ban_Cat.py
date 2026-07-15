@@ -614,7 +614,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: LUỒNG KHẤU TRỪ VÀ TRỪ LÙI SẢN LƯỢNG THỜI GIAN THỰC BẢNG DƯỚI
+        # TẦNG 3 - ĐOẠN 2a: THUẬT TOÁN TÍNH TOÁN LŨY TIẾN VÀ LỌC DÒNG SƠ ĐỒ THỰC TẾ
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -651,9 +651,16 @@ else:
         matrix_body_rows = []
         running_balances = list(po_qty_matrix)
         
-        # Lọc sạch chừa lại đúng 6 dòng sơ đồ sản xuất thực tế để tính toán khấu trừ
-        production_rows = [r for r in final_snapshot_rows if r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
-
+        # LỌC SẠCH: Chỉ bốc đúng 6 dòng sơ đồ sản xuất thực tế từ ô lưới hiển thị trên màn hình
+        production_rows = []
+        for idx, row in edited_df_raw.iterrows():
+            name_check = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+            # Bỏ qua hoàn toàn 3 dòng tiêu đề chữ để trục tính toán không bị lệch dòng (Index Offset)
+            if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
+                production_rows.append(row)
+        # =============================================================================
+        # TẦNG 3 - ĐOẠN 2b: VÒNG LẶP NHÂN SẢN LƯỢNG VÀ KẾT XUẤT ĐẦU RA BÁO CÁO CÔNG NGHIỆP
+        # =============================================================================
         for r_idx, row_data in enumerate(production_rows):
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
@@ -670,8 +677,9 @@ else:
             row_ratios_list = []
             ratios_sum = 0
             
-            for sz in active_sizes:
-                try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+            # Quét tìm tỷ lệ size từng cột dựa theo tiêu đề hiển thị phẳng "CỠ X" của lưới trên
+            for c_idx, sz in enumerate(active_sizes):
+                try: r_val = int(float(str(row_data.get(f"CỠ {c_idx+1}", 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
                     
                 ratios_sum += r_val
@@ -681,22 +689,29 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            if ratios_sum > 0 and layers > 0 and m_len > 0:
-                dm_sd = (m_len * 1.09361) / ratios_sum
-                vail_can_m = m_len * layers * tables
+            # Ràng buộc điều kiện: Nếu chưa gõ Sơ lớp hoặc tỷ lệ phối, ép Vải cần và Định mức về bằng 0.0
+            if ratios_sum > 0 and layers > 0:
+                if m_len > 0:
+                    dm_sd = (m_len * 1.09361) / ratios_sum
+                    vail_can_m = m_len * layers * tables
+                else:
+                    dm_sd = float(consumption_input)
+                    vail_can_m = (dm_sd / 1.09361) * ratios_sum * layers * tables
+                    m_len = round((dm_sd / 1.09361) * ratios_sum, 2)
             else:
                 dm_sd = 0.0
                 vail_can_m = 0.0
+                m_len = 0.0 if layers == 0 else m_len
                 
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # Thực hiện trừ lùi tịnh tiến lưu vết qua biến running_balances
+            # Khấu trừ lùi sản lượng đơn hàng lũy tiến lưu vết theo thời gian thực
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
-                try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+                try: r_val = int(float(str(row_data.get(f"CỠ {idx+1}", 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
                 running_balances[idx] = max(0, running_balances[idx] - (r_val * layers * tables))
                 remaining_row.append(running_balances[idx])
@@ -768,4 +783,4 @@ else:
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
                     
         st.markdown("---")
-        st.success("🎉 Hệ thống phân hệ tác nghiệp gập rập gõ tay kết hợp AI đã Re-build hoàn tất trơn tru!")
+        st.success("🎉 Phiên bản tác nghiệp đồng bộ bàn cắt Multi-Inseam đã Re-build hoàn tất hoàn hảo!")
