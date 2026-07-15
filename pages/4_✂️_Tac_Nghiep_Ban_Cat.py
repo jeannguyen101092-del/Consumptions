@@ -109,7 +109,11 @@ else:
     if isinstance(sbd_data_store, dict) and sbd_data_store:
         detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
         detected_total_po = sbd_data_store.get("total_quantity", 0)
+        
+        # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo size_breakdown_main luôn là Dictionary
         size_breakdown_main = sbd_data_store.get("size_breakdown", {})
+        if not isinstance(size_breakdown_main, dict):
+            size_breakdown_main = {}
 
         if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary"):
             st.session_state["purchase_ready"] = False
@@ -130,7 +134,15 @@ else:
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
         default_fab = st.session_state.get("fabric_type_recovered", "CHÍNH")
-        fabric_type_input = st.selectbox("🧵 Loại vải đang tác nghiệp:", ["CHÍNH", "LÓT", "KEO", "PHỐI"], index=["CHÍNH", "LÓT", "KEO", "PHỐI"].index(default_fab))
+        
+        # Bọc xử lý selectbox để tránh lỗi nếu index() không tìm thấy dữ liệu mặc định
+        available_fabrics = ["CHÍNH", "LÓT", "KEO", "PHỐI"]
+        try:
+            default_index = available_fabrics.index(default_fab)
+        except ValueError:
+            default_index = 0
+            
+        fabric_type_input = st.selectbox("🧵 Loại vải đang tác nghiệp:", available_fabrics, index=default_index)
         with input_col6: cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
         
         cad_paste_zone = st.text_area("Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", placeholder="Ví dụ:\n5844-c01 1.05\n5844-c02 10", height=90, key="cad_bulk_paste_c2")
@@ -142,7 +154,7 @@ else:
                 sb_client_check = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                 res_check = sb_client_check.table("cutting_orders_db").select("*").eq("style_id", style_id_input).eq("fabric_type", fabric_type_input).limit(1).execute()
                 if res_check.data and len(res_check.data) > 0:
-                    st.session_state["auto_cutting_results_recovered"] = res_check.data["cutting_matrix_data"]
+                    st.session_state["auto_cutting_results_recovered"] = res_check.data[0]["cutting_matrix_data"]
                     st.session_state["auto_cutting_results"] = None
                     st.rerun()
                 else:
@@ -151,7 +163,16 @@ else:
             except Exception: 
                 pass
 
-        active_sizes = [str(k) for k, v in size_breakdown_main.items() if int(v) > 0]
+        # SỬA ĐOẠN LỖI: Duyệt active_sizes có bọc xử lý lỗi dữ liệu không phải là số hợp lệ
+        active_sizes = []
+        for k, v in size_breakdown_main.items():
+            try:
+                clean_v = int(str(v).replace(",", "").strip())
+                if clean_v > 0:
+                    active_sizes.append(str(k))
+            except (ValueError, TypeError):
+                continue
+
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
         
@@ -186,25 +207,35 @@ else:
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
 
-               # =============================================================================
+
+        # =============================================================================
         # TẦNG 3: ĐỒNG BỘ LUỒNG EDIT GÕ TAY VÀ ĐÓN NHẬN KẾT QUẢ AI VÉT ĐUÔI TỰ ĐỘNG
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
         ai_source = st.session_state.get("auto_cutting_results", [])
         
+        # CHUẨN HÓA: Sử dụng một biến đệm trong session_state để lưu giữ trạng thái chỉnh sửa, tránh xung đột Grid
+        if "session_editor_snapshot" not in st.session_state:
+            st.session_state["session_editor_snapshot"] = None
+
         # Luồng 1: Nếu có kết quả vét đuôi tự động từ AI gửi về, ép đổ thẳng số lượng vào các sơ đồ cuối
         if ai_source:
-            # Tạo bản đồ chuyển đổi nhanh từ mảng AI sang phom bảng ngang
+            snapshot = st.session_state["session_editor_snapshot"]
             for i in range(6):
                 s_code = f"c{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
                 
-                # Giữ nguyên các dòng đầu cho người dùng gõ tay hoặc nạp đè dữ liệu cũ
-                if i < len(edited_df) if "edited_df" in locals() else False:
-                    old_row = edited_df.iloc[i]
-                    for sz in active_sizes: item_dict[sz] = int(old_row.get(sz, 0))
-                    item_dict.update({"SƠ LỚP": int(old_row.get("SƠ LỚP", 120)), "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))})
+                # Nếu đã có dữ liệu snapshot gõ tay trước đó của người dùng, giữ nguyên các dòng đầu
+                if snapshot is not None and i < len(snapshot):
+                    old_row = snapshot[i]
+                    for sz in active_sizes: 
+                        item_dict[sz] = int(str(old_row.get(sz, 0)).replace(",", "").split(".")[0] or 0)
+                    item_dict.update({
+                        "SƠ LỚP": int(old_row.get("SƠ LỚP", 120)), 
+                        "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), 
+                        "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))
+                    })
                 else:
                     # Nếu là các dòng trống phía dưới, bốc ma trận vét của AI đắp vào lập tức
                     ai_match = [x for x in ai_source if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
@@ -223,10 +254,14 @@ else:
             for row in recovered_source:
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", ""))
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
-                    # Chuẩn hóa tên khóa để khớp 100% với trục bảng Grid động
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
-                    for sz in active_sizes: clean_row[sz] = int(row.get(sz, 0))
-                    clean_row.update({"SƠ LỚP": int(row.get("SƠ LỚP", 120)), "SỐ BÀN": int(row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(row.get("DÀI SƠ ĐỒ", 0.0))})
+                    for sz in active_sizes: 
+                        clean_row[sz] = int(str(row.get(sz, 0)).replace(",", "").split(".")[0] or 0)
+                    clean_row.update({
+                        "SƠ LỚP": int(row.get("SƠ LỚP", 120)), 
+                        "SỐ BÀN": int(row.get("SỐ BÀN", 1)), 
+                        "DÀI SƠ ĐỒ": float(row.get("DÀI SƠ ĐỒ", 0.0))
+                    })
                     display_editor_rows.append(clean_row)
                     
         # Luồng 3: Mặc định tạo form trống trơn ban đầu để tổ trưởng gõ tay rập từ con số 0
@@ -240,9 +275,15 @@ else:
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
 
-        
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ TAY TRỰC TIẾP Ô DƯỚI)</p>", unsafe_allow_html=True)
+        
+        # Hiển thị bảng Editor tương tác
         edited_df = st.data_editor(df_editor_base, use_container_width=True, hide_index=True, key="table_manual_data_editor_v1")
+        
+        # Lưu lại snapshot động sau khi người dùng thay đổi giá trị ô lưới để đồng bộ chéo
+        st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+
+        # Khởi tạo tiêu đề Header báo cáo xuất xưởng hình chữ nhật
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -255,7 +296,7 @@ else:
             if "X" in c_str:
                 p = c_str.split("X")
                 s_val, g_val = p[0].strip(), p[1].strip()
-            po_v = int(size_breakdown_main.get(col_name, 0))
+            po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0] or 0)
             po_qty_matrix.append(po_v)
             t1_giang_row.append(g_val)
             t2_size_row.append(s_val)
@@ -267,6 +308,7 @@ else:
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
+        # Duyệt và tính toán tiến trình lũy kế cắt thực tế và hàng tồn mồ côi
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper()
@@ -286,11 +328,14 @@ else:
                     
             fabric_prefix = f"{fabric_type_input.strip().upper()}{r_idx+1}:"
             ratio_row_title = f"{fabric_prefix} " + " ".join(active_ratio_parts) if active_ratio_parts else f"{fabric_prefix} TRỐNG"
-            dm_sd = (vail_can_m * 1.09361) / (ratios_sum * layers * tables) if (ratios_sum * layers * tables) > 0 else 0.0
+            
+            # Sửa đổi logic tính toán Định mức Sơ đồ (dm_sd) chuẩn ngành may
+            dm_sd = (m_len * 1.09361) / ratios_sum if ratios_sum > 0 else 0.0
             
             ratio_row = [ratio_row_title] + [int(row_data.get(sz, 0)) for sz in active_sizes] + [layers, tables, m_len, ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
+            # Tính dòng hao hụt CÒN LẠI thực tế sau mỗi sơ đồ được rải
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 r_val = int(row_data.get(sz, 0))
@@ -302,8 +347,9 @@ else:
         clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
         final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
-
-        # --- 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐỔ MÀU CÔNG NGHIỆP ---
+        # =============================================================================
+        # 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐỔ MÀU CÔNG NGHIỆP
+        # =============================================================================
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -311,18 +357,34 @@ else:
                 from supabase import create_client
                 sb_ex_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                 res_all_fabs = sb_ex_client.table("cutting_orders_db").select("*").eq("style_id", style_id_input).execute()
-                if res_all_fabs.data:
+                
+                if res_all_fabs.data and len(res_all_fabs.data) > 0:
+                    # Duyệt qua từng loại vải đã lưu trên hệ thống để gom cụm thành các sheet riêng biệt
                     for r_record in res_all_fabs.data:
                         f_type_name = str(r_record.get("fabric_type", "CHÍNH")).upper()
                         raw_matrix = r_record.get("cutting_matrix_data", [])
-                        if raw_matrix: pd.DataFrame(raw_matrix).to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
-                else: df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
+                        if raw_matrix:
+                            df_sheet = pd.DataFrame(raw_matrix)
+                            # Đảm bảo giữ nguyên cấu trúc hiển thị bảng báo cáo gốc
+                            df_sheet.to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
+                else: 
+                    # Nếu chưa có dữ liệu cũ, ghi đè bảng hiện hành vào sheet hiện tại
+                    df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
             excel_generated_status = True
-        except Exception: pass
+        except Exception: 
+            pass
 
         if excel_generated_status:
-            st.download_button(label="📥 XUẤT FILE EXCEL GỘP ĐA SHEET MÀU SẮC CÔNG NGHIỆP", data=buffer.getvalue(), file_name=f"MA_TRAN_DA_VAI_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_multi_sheet_btn_final_v5")
+            st.download_button(
+                label="📥 XUẤT FILE EXCEL GỘP ĐA SHEET MÀU SẮC CÔNG NGHIỆP", 
+                data=buffer.getvalue(), 
+                file_name=f"MA_TRAN_DA_VAI_{style_id_input}.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                use_container_width=True, 
+                key="excel_multi_sheet_btn_final_v5"
+            )
 
+        # Định dạng giao diện CSS hiển thị bảng đối chiếu thực tế mượt mà hơn
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -339,12 +401,25 @@ else:
         
         if trigger_save_supabase:
             with st.spinner(f"🚀 Hệ thống đang ghi dữ liệu vải {fabric_type_input} đồng bộ vào kho Supabase..."):
-                df_clean_string = df_final_report.astype(str)
+                # CHUẨN HÓA SẮP XẾP CỘT: Ép kiểu dữ liệu chuỗi có thứ tự cột cố định cho JSON payload
+                df_clean_string = df_final_report.copy().astype(str)
                 matrix_json_string = df_clean_string.to_json(orient="records")
-                supabase_payload = {"style_id": str(style_id_input).strip().upper(), "color": str(color_input).strip().upper(), "fabric_type": str(fabric_type_input).strip().upper(), "total_po_qty": int(po_qty_input), "proposal_yield": float(consumption_input), "max_table_len": float(max_table_length), "cuttable_width": float(cuttable_width_inch), "cutting_matrix_data": json.loads(matrix_json_string)}
+                
+                supabase_payload = {
+                    "style_id": str(style_id_input).strip().upper(), 
+                    "color": str(color_input).strip().upper(), 
+                    "fabric_type": str(fabric_type_input).strip().upper(), 
+                    "total_po_qty": int(po_qty_input), 
+                    "proposal_yield": float(consumption_input), 
+                    "max_table_len": float(max_table_length), 
+                    "cuttable_width": float(cuttable_width_inch), 
+                    "cutting_matrix_data": json.loads(matrix_json_string)
+                }
                 try:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
+                    
+                    # Đồng bộ an toàn lên cơ sở dữ liệu cloud
                     response_db = supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
