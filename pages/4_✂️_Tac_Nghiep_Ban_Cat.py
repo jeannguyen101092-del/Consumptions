@@ -682,16 +682,21 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
         st.error(f"❌ Lỗi khi phân rã dữ liệu từ AI: {str(e)}")
 
 
+import streamlit as st
+import pandas as pd
+import json
+import re
+
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: SỬA LỖI MAPPING ĐẢO NGƯỢC - KHỬ TRIỆT ĐỂ LỖI GÕ SỐ BỊ BIẾN MẤT
+# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
 # =============================================================================
 
-# Khôi phục bộ nhớ đệm snapshot phiên làm việc
+# Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
 snapshot = st.session_state.get("session_editor_snapshot")
 fab_upper = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
 prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
 
-# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ file đơn hàng SBD
+# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ gốc file SBD
 flattened_active_sizes = []
 flattened_size_breakdown = {}
 
@@ -713,10 +718,10 @@ active_sizes = flattened_active_sizes
 size_breakdown_main = flattened_size_breakdown
 total_sum_po_qty = sum(size_breakdown_main.values())
 
-# Tiêu đề cột chuẩn hóa thống nhất đồng bộ dạng ảo CỠ X để Streamlit nhận diện lưu trữ
+# Tạo mảng tiêu đề cột ảo cố định cho Streamlit quản lý lưu trữ không bị mất số [INDEX]
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 2. Tạo cấu trúc khuôn mẫu 3 hàng tiêu đề phụ cố định
+# 2. Tạo khuôn mẫu 3 hàng tiêu đề phụ cố định
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
@@ -726,9 +731,7 @@ for i, sz in enumerate(active_sizes):
     g_val, s_val = "None", c_str
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2: s_val, g_val = str(parts[0]).strip(), str(parts[1]).strip()
-    elif len(parts) == 1: s_val, g_val = str(parts[0]).strip(), "None"
     
-    # Gán thông tin hiển thị lên 3 cột ảo
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
     sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
@@ -739,24 +742,19 @@ sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
 display_editor_rows = []
 
-# 3. Đồng bộ bộ đệm snapshot đổ ngược vào DataFrame hiển thị ảo
+# 3. Nạp bộ nhớ đệm đổ ngược ra giao diện hiển thị
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        
-        # Nếu tên dòng bị trống, tự động bù nhãn chuẩn để không lỗi thuật toán
-        if not item_name or item_name.strip() == "":
-            item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
-            
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
-        # Ép dữ liệu từ Snapshot ra đúng key hiển thị dạng ảo "CỠ X" [INDEX]
+        # Bốc chính xác số liệu từ key size thật map sang cột ảo hiển thị tương ứng
         for c_idx, sz in enumerate(active_sizes):
-            val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
-            item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
+            val_cell = row.get(sz, row.get(f"CỠ {c_idx+1}", 0))
+            item_dict[f"CỠ {c_idx+1}"] = int(float(str(val_cell).replace(",", "") or 0))
             
         try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "") or 0))
         except: item_dict["SƠ LỚP"] = 0
@@ -768,7 +766,7 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Thiết lập mặc định bảng trống ban đầu
+    # Khởi tạo khung lưới trống ban đầu
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
@@ -781,26 +779,11 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-# Dựng DataFrame
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# Ép kiểu số cứng
-for col in clean_headers_top:
-    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
-    elif col == "DÀI SƠ ĐỒ":
-        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0.0).astype(float)
-
 is_locked = st.session_state.get("consumption_activated", False)
-if is_locked:
-    if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_final"):
-        st.session_state["consumption_activated"] = False
-        st.rerun()
-
-st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
-
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), # Khóa tên cột để tránh thợ xóa nhãn PILOT/CHÍNH
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"),
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
     "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0, step=1, format="%d"),
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1, step=1, format="%d"),
@@ -809,7 +792,7 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=is_locked, min_value=0, step=1, format="%d")
 
-# 🔥 HÀM CALLBACK DỊCH MAPPING CHUẨN XÁC: Chuyển "CỠ X" ảo về lại "SIZE THẬT" của đơn hàng [INDEX]
+# 🔥 HÀM CALLBACK CHỐT LỖI: Biên dịch ngược lưu cứng số thợ gõ vào bộ nhớ Snapshot [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -821,46 +804,28 @@ def callback_sync_on_the_fly_final():
                 if r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
                     
+                    # Chuyển đổi key ảo CỠ X sang key tên mã size thật ("26X30") để lưu trữ đồng bộ [INDEX]
                     clean_changes = {}
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
-                                # Ép số gõ tay lưu thẳng vào mã size thật (Ví dụ: "26X30") để Đoạn 7a bốc toán [INDEX]
                                 clean_changes[active_sizes[c_num - 1]] = int(float(str(new_val).strip() or 0))
-                            except Exception: pass
+                            except: pass
                         else:
                             clean_changes[col_header] = new_val
                             
                     current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
-# Khởi chạy data_editor
 edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
 )
 
 
-import streamlit as st
-import pandas as pd
-import json
-import re
-import math
-
-# Helper ép kiểu số nguyên sạch bảo vệ hệ thống không bị crash
-def safe_int_final(value, default=0):
-    if value is None: return default
-    try:
-        clean_val = str(value).replace(",", "").strip()
-        if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")
-        return int(clean_val)
-    except (ValueError, TypeError):
-        return default
-
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2a: CHỈ KÍCH HOẠT THUẬT TOÁN KHI BẤM NÚT AI HOẶC KHÓA ĐỊNH MỨC
+# TẦNG 3 - ĐOẠN 7a: KHÓA CHẶN KHỬ LỖI TỰ XOÁ DỮ LIỆU & THUẬT TOÁN ĐIỀU PHỐI ĐỘNG
 # =============================================================================
 final_snapshot_rows = []
 
@@ -871,57 +836,46 @@ for sz in active_sizes:
 
 consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-# 🔥 ĐIỂM THAY ĐỔI VÀNG: Kiểm tra trạng thái nhấn nút từ Session State
-# Thuật toán chỉ được phép tự động sinh chuỗi hàng loạt khi người dùng nhấn nút AI vét sạch hoặc nút Khóa lũy tiến
-ai_is_activated = st.session_state.get("auto_cutting_results") is not None or st.session_state.get("consumption_activated", False)
+# KIỂM TRA ĐIỀU KIỆN KÍCH HOẠT: Quét xem thợ cắt đã chủ động gõ chiều dài cho dòng sản xuất hàng loạt chưa
+has_user_input_production = False
+for idx, row in edited_df_raw.iterrows():
+    s_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+    if "CHÍNH" in s_name or "C0" in s_name:
+        if safe_int_final(row.get("SƠ LỚP", 0)) > 0 or float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0) > 0:
+            has_user_input_production = True
 
-# 🚨 TRƯỜNG HỢP 1: NGƯỜI DÙNG CHƯA BẤM NÚT KÍCH HOẠT AI -> CHỈ HIỂN THỊ ĐÚNG DỮ LIỆU THỰC TẾ TRÊN LƯỚI
-if not ai_is_activated:
-    # --- Bước A: Giữ cấu trúc 3 dòng tiêu đề phụ ban đầu ---
+# 🚨 TRƯỜNG HỢP A: CHƯA KÍCH HOẠT SẢN XUẤT HÀNG LOẠT -> HIỂN THỊ ĐÚNG SỐ LIỆU NHẬP TAY, KHÔNG XOÁ MẤT SỐ [INDEX]
+if not has_user_input_production and not st.session_state.get("consumption_activated", False):
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0, "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0}
-            for c_idx, sz in enumerate(active_sizes):
-                item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
-            final_snapshot_rows.append(item_dict)
-
-    # --- Bước B: Chỉ hiển thị và khấu trừ các dòng người dùng ĐÃ NHẬP THỰC TẾ (Sơ lớp hoặc Tỷ lệ > 0) ---
-    for idx, row in edited_df_raw.iterrows():
-        s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        item_dict = {
+            "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": safe_int_final(row.get("SƠ LỚP", 0)), 
+            "SỐ BÀN": safe_int_final(row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",","").strip() or 0.0), 
+            "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0
+        }
+        
+        # Đọc dữ liệu tỷ lệ phối size sạch
+        row_total_ratios = 0
+        for sz in active_sizes:
+            val_cell = row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0))
+            val_int = safe_int_final(val_cell)
+            item_dict[sz] = val_int
+            if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: row_total_ratios += val_int
+            
         if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-            layers = safe_int_final(row.get("SƠ LỚP", 0))
-            tables = safe_int_final(row.get("SỐ BÀN", 1))
-            try: m_len = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
-            except Exception: m_len = 0.0
-            
-            r_dict = {}
-            row_ratios_total = 0
-            for sz in active_sizes:
-                v_cell = row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0))
-                val_int = safe_int_final(v_cell)
-                r_dict[sz] = val_int
-                row_ratios_total += val_int
-            
-            # Chỉ tính khấu trừ và đưa xuống bảng dưới nếu dòng này thực sự được gõ tỷ lệ hoặc gõ mét dài
-            if row_ratios_total > 0 or m_len > 0 or layers > 0:
-                # Đối với dòng Pilot gõ tay, dù sơ lớp = 0 vẫn tính khấu trừ 1 lớp mẫu để xem tiến độ lùi kho
-                is_pilot = "PILOT" in s_row_name or "SS" in s_row_name
-                effective_layers = layers if layers > 0 else (1 if is_pilot else 0)
-                
-                if effective_layers > 0 and row_ratios_total > 0:
-                    for sz in active_sizes:
-                        allocated_pcs = r_dict.get(sz, 0) * effective_layers * tables
-                        current_order_balances[sz] = max(0, current_order_balances[sz] - allocated_pcs)
-                
-                item_data = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": layers, "SỐ BÀN": tables, "DÀI SƠ ĐỒ": m_len, "TỔNG SẢN LƯỢNG": row_ratios_total * layers * tables}
-                item_data.update(r_dict)
-                item_data["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
-                final_snapshot_rows.append(item_data)
+            item_dict["TỔNG SẢN LƯỢNG"] = row_total_ratios * item_dict["SƠ LỚP"] * item_dict["SỐ BÀN"]
+            # Thực hiện khấu trừ riêng cho dòng PILOT kể cả khi sơ lớp = 0 [INDEX]
+            if "PILOT" in s_row_name or "SS" in s_row_name:
+                eff_layers = item_dict["SƠ LỚP"] if item_dict["SƠ LỚP"] > 0 else 1
+                for sz in active_sizes:
+                    current_order_balances[sz] = max(0, current_order_balances[sz] - item_dict[sz] * eff_layers * item_dict["SỐ BÀN"])
+                    
+        item_dict["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+        final_snapshot_rows.append(item_dict)
 
-# 🚀 TRƯỜNG HỢP 2: NGƯỜI DÙNG ĐÃ NHẤN NÚT AI VÉT SẠCH -> TỰ ĐỘNG GIẢI KIM TỰ THÁP NGƯỢC LIÊN HOÀN CHO TOÀN ĐƠN HÀNG
+# 🚀 TRƯỜNG HỢP B: THỢ CẮT ĐÃ GÕ SỐ LIỆU TÁC NGHIỆP -> KÍCH HOẠT CHUỖI TOÁN HỌC KIM TỰ THÁP NGƯỢC
 else:
-    # --- Bước A: Giữ cấu trúc 3 dòng tiêu đề phụ ban đầu ---
+    # --- Bước 1: Giữ cấu trúc 3 dòng tiêu đề phụ ban đầu ---
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
@@ -930,7 +884,7 @@ else:
                 item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
             final_snapshot_rows.append(item_dict)
 
-    # --- Bước B: Khấu trừ sơ đồ Pilot/Test mẫu người dùng gõ tay trước ---
+    # --- Bước 2: Khấu trừ sơ đồ Pilot/Test mẫu người dùng gõ tay trước ---
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if "PILOT" in s_row_name or "SS" in s_row_name:
@@ -955,7 +909,7 @@ else:
             item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
             final_snapshot_rows.append(item_pilot)
 
-    # --- Bước C: Thuật toán tự động giải toán liên hoàn Kim Tự Tháp Ngược ---
+    # --- Bước 3: Thuật toán tự động giải toán liên hoàn Kim Tự Tháp Ngược ---
     chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C0", na=False, case=False)]
     max_target_length, max_target_layers = 11.46, 60
 
@@ -1017,9 +971,9 @@ else:
         final_snapshot_rows.append(item_auto)
         marker_counter += 1
 
-# Cập nhật dữ liệu vào bộ nhớ đệm
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
+
 
 import streamlit as st
 import pandas as pd
