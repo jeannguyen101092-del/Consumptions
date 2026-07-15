@@ -527,8 +527,14 @@ from typing import Dict, List
 from google import genai
 from google.genai import types
 
-# Định nghĩa cấu trúc Schema Pydantic cứng cho kết quả giải ma trận sơ đồ bàn cắt của AI
+# =============================================================================
+# SỬA LỖI TẦNG 2 - ĐOẠN 2b: CẤU HÌNH PYDANTIC CHẶN EXTRA PROPERTIES CHO GEMINI DEVELOPER API
+# =============================================================================
+
 class CuttingRowModel(BaseModel):
+    # Cấu hình chặn extra properties để không bị lỗi Agent Platform Mode
+    model_config = {"extra": "forbid"}
+    
     so_do_trang_thai: str = Field(alias="Sơ đồ / Trạng thái", description="The row code like 'c01', 'c02', etc.")
     ratios: Dict[str, int] = Field(alias="Ratios", description="Dictionary where keys are 'CỠ 1', 'CỠ 2'.. and values are integers representing size ratios.")
     so_lop: int = Field(alias="Số lớp", description="The number of fabric layers for this marker.")
@@ -536,18 +542,15 @@ class CuttingRowModel(BaseModel):
     chieu_dai_met: float = Field(alias="Chiều dài mét", description="Calculated marker length in meters.")
 
 class AIStyleCuttingResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+    
     cutting_plan: List[CuttingRowModel] = Field(description="The complete optimized cutting plan array.")
 
-# =============================================================================
-# TẦNG 2 - ĐOẠN 2b: PHẦN GỬI PROMPT VÀ PHÂN RÃ KẾT QUẢ TỪ GEMINI AI
-# =============================================================================
-
-# Khối xử lý này tiếp tục lồng bên trong luồng xử lý `if trigger_auto_cutting:` của Đoạn 4
+# Logic xử lý tiếp nối từ Đoạn 4 khi người dùng nhấn nút gọi AI
 if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
     total_remaining_po = sum(calculated_balances.values())
     dinhmuc_met_c2 = round(current_consumption * 0.9144, 3) if 'current_consumption' in locals() else 1.042
 
-    # Định nghĩa danh sách size ánh xạ có số thứ tự để AI dễ xử lý cột phẳng
     size_mapping_for_ai = [f"CỠ {i+1}: {sz}" for i, sz in enumerate(active_sizes)]
 
     ai_cutting_prompt = f"""
@@ -570,18 +573,16 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
     """
 
     try:
-        # Gọi Gemini AI ứng dụng Structured Output thông qua response_schema
         res_cutting = client_ai.models.generate_content(
             model='gemini-2.5-flash', 
             contents=[ai_cutting_prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=AIStyleCuttingResponse,  # Ép cấu trúc đầu ra chính xác 100% bằng Pydantic
+                response_schema=AIStyleCuttingResponse,  # Áp dụng schema đã gọt sạch additionalProperties
                 temperature=0.1
             )
         )
         
-        # Bóc tách dữ liệu JSON an toàn
         raw_response_data = json.loads(res_cutting.text.strip())
         ai_vete_res = raw_response_data.get("cutting_plan", [])
         
@@ -595,11 +596,9 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
             elif fab_upper_c2 == "KEO": fab_letter_c2 = "K"
             elif fab_upper_c2 == "PHỐI": fab_letter_c2 = "P"
 
-            # Duyệt qua tối đa 6 dòng sơ đồ tác nghiệp của bàn cắt
             for i in range(6):
                 s_code = f"c{str(i+1).zfill(2)}"
                 
-                # Khôi phục hoặc tạo mới tên sơ đồ phẳng đồng bộ hệ thống
                 if snapshot and i < len(snapshot):
                     old_row_data = snapshot[i]
                     s_name_display = str(old_row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}")).upper().strip()
@@ -607,31 +606,22 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                     s_name_display = f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}"
                     
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_name_display}
-                
-                # Tìm kiếm dòng kết quả tương ứng do AI giải ra
                 ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                 
                 if ai_match:
-                    ai_row = ai_match[0]
+                    ai_row = ai_match
                     r_dict = ai_row.get("Ratios", {})
                     
-                    # 1. Tính tổng số sản phẩm được phối trên một sơ đồ (Garments Per Marker)
                     total_pants_in_marker = 0
                     for r_k, r_v in r_dict.items():
-                        try:
-                            total_pants_in_marker += int(float(str(r_v).strip()))
-                        except (ValueError, TypeError):
-                            continue
+                        try: total_pants_in_marker += int(float(str(r_v).strip()))
+                        except (ValueError, TypeError): continue
                     
-                    # 2. Ánh xạ ngược từ cột ảo "CỠ X" của AI về đúng tên cột kích cỡ trong hệ thống
                     for idx_sz, sz in enumerate(active_sizes):
                         ai_key_look = f"CỠ {idx_sz+1}"
-                        try:
-                            item_dict[sz] = int(float(str(r_dict.get(ai_key_look, 0)).strip()))
-                        except Exception:
-                            item_dict[sz] = 0
+                        try: item_dict[sz] = int(float(str(r_dict.get(ai_key_look, 0)).strip()))
+                        except Exception: item_dict[sz] = 0
                     
-                    # 3. Đổ các thông số lớp, bàn và chiều dài hình học do AI tính toán vào dòng
                     try: item_dict["SƠ LỚP"] = int(float(str(ai_row.get("Số lớp", 0)).strip()))
                     except Exception: item_dict["SƠ LỚP"] = 0
                     try: item_dict["SỐ BÀN"] = int(float(str(ai_row.get("Số bàn", 1)).strip() or 1))
@@ -644,14 +634,11 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                     item_dict["VẢI CẦN"] = round(item_dict["DÀI SƠ ĐỒ"] * item_dict["SƠ LỚP"] * item_dict["SỐ BÀN"], 2)
                 
                 elif snapshot and i < len(snapshot):
-                    # Nếu là dòng gõ tay đã GIỮ NGUYÊN -> Kế thừa trọn vẹn dữ liệu cũ, không ghi đè rác
                     old_row_data = snapshot[i]
                     for key_col in old_row_data.keys():
                         item_dict[key_col] = old_row_data[key_col]
                 else:
-                    # Dòng trống hoàn toàn không có dữ liệu gõ tay lẫn AI giải
-                    for sz in active_sizes:
-                        item_dict[sz] = 0
+                    for sz in active_sizes: item_dict[sz] = 0
                     item_dict["SƠ LỚP"] = 0
                     item_dict["SỐ BÀN"] = 1
                     item_dict["DÀI SƠ ĐỒ"] = 0.0
@@ -661,15 +648,15 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                 
                 updated_rows.append(item_dict)
             
-            # Cập nhật ma trận dữ liệu hoàn chỉnh đã số hóa ngược lại vào bộ nhớ tạm hệ thống
             st.session_state["session_editor_snapshot"] = updated_rows
-            st.success("🤖 AI đã giải toán điều độ ma trận phối cỡ thành công! Ô lưới hiển thị đã được cập nhật.")
+            st.success("🤖 AI đã tối ưu và vét sạch lượng dư thành công!")
             st.rerun()
         else:
             st.error("⚠️ AI phản hồi cấu trúc rỗng hoặc không thể tối ưu hóa mảng phân rã sơ đồ.")
             
     except Exception as e:
-        st.error(f"❌ Lỗi nghiêm trọng khi giải ma trận hoặc phân rã dữ liệu từ AI: {str(e)}")
+        st.error(f"❌ Lỗi khi phân rã dữ liệu từ AI: {str(e)}")
+
 import streamlit as st
 import pandas as pd
 import json
