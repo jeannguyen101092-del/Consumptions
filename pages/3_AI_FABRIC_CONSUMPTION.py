@@ -2,6 +2,8 @@ import streamlit as st
 import re
 import json
 import copy
+import streamlit as st
+import pandas as pd  # <--- Bắt buộc phải có dòng này
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
