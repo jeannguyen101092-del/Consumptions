@@ -576,7 +576,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: KHỞI TẠO MA TRẬN BÁO CÁO VÀ CHUẨN HÓA ĐỊNH MỨC SƠ ĐỒ LŨY TIẾN
+        # TẦNG 3 - ĐOẠN 2: LÀM SẠCH TUYỆT ĐỐI GẠCH DƯỚI INSEAM Ở BẢNG ĐỐI CHIẾU
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -589,13 +589,16 @@ else:
             g_val, s_val = "None", c_str
             if "X" in c_str:
                 p = c_str.split("X")
-                # 🛠️ SỬA LỖI TẠI ĐÂY: Trích xuất phần tử trong mảng list rồi mới dùng .strip()
                 if len(p) >= 2:
                     s_val = str(p[0]).strip()
                     g_val = str(p[1]).strip()
+                    
+            # 🛠️ XOÁ GẠCH DƯỚI DÒNG GIÀNG TIÊU ĐỀ
+            g_val = re.sub(r'_\d+$', '', g_val)
+            s_val = re.sub(r'_\d+$', '', s_val)
             
             try: 
-                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
+                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
             except Exception: 
                 po_v = 0
                 
@@ -635,7 +638,9 @@ else:
                 ratios_sum += r_val
                 row_ratios_list.append(r_val)
                 if r_val > 0:
+                    # 🛠️ LÀM SẠCH CHUỖI NỐI TỶ LỆ DÒNG BÁO CÁO (Xoá triệt để gạch dưới ở text phối size)
                     sz_clean = str(sz).replace("X","-").strip()
+                    sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
             if ratios_sum > 0 and m_len > 0:
@@ -728,6 +733,8 @@ else:
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
+               
+
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
                     
