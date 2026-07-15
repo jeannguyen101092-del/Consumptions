@@ -691,6 +691,14 @@ import re
 # TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
 # =============================================================================
 
+# --- 0. ĐỊNH NGHĨA HÀM ÉP KIỂU AN TOÀN (Sửa lỗi NameError: safe_int_final) ---
+def safe_int_final(val):
+    try:
+        if pd.isna(val): return 0
+        return int(float(str(val).replace(",", "").strip() or 0))
+    except:
+        return 0
+
 # Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
 snapshot = st.session_state.get("session_editor_snapshot")
 fab_upper = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
@@ -700,6 +708,10 @@ prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "
 flattened_active_sizes = []
 flattened_size_breakdown = {}
 
+# Đảm bảo size_breakdown_main có dữ liệu để không lỗi vòng lặp
+if 'size_breakdown_main' not in locals() and 'size_breakdown_main' not in globals():
+    size_breakdown_main = {}
+
 for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
     if k_str.startswith("[") or "['" in k_str or '["' in k_str:
@@ -708,8 +720,7 @@ for original_key, original_val in size_breakdown_main.items():
         else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
     k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
     
-    try: v_num = int(float(str(original_val).replace(",", "").strip() or 0))
-    except: v_num = 0
+    v_num = safe_int_final(original_val)
     if v_num > 0 and k_str != "":
         flattened_size_breakdown[k_str] = flattened_size_breakdown.get(k_str, 0) + v_num
         if k_str not in flattened_active_sizes: flattened_active_sizes.append(k_str)
@@ -733,8 +744,8 @@ for i, sz in enumerate(active_sizes):
     
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
-        s_val = str(parts[0]).strip()  # Vòng eo làm Size [INDEX]
-        g_val = str(parts[1]).strip()  # Chiều dài giàng làm Giàng [INDEX]
+        s_val = str(parts[0]).strip()  # Vòng eo làm Size
+        g_val = str(parts[1]).strip()  # Chiều dài giàng làm Giàng
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
         g_val = "None"
@@ -757,7 +768,7 @@ if snapshot and len(snapshot) > 0:
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if not item_name or item_name.strip() == "":
-            item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
+            item_name = f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
             
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
@@ -765,10 +776,8 @@ if snapshot and len(snapshot) > 0:
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
             
-        try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "") or 0))
-        except: item_dict["SƠ LỚP"] = 0
-        try: item_dict["SỐ BÀN"] = int(float(str(row.get("SỐ BÀN", 1)).replace(",", "") or 1))
-        except: item_dict["SỐ BÀN"] = 1
+        item_dict["SƠ LỚP"] = safe_int_final(row.get("SƠ LỚP", 0))
+        item_dict["SỐ BÀN"] = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
         try: item_dict["DÀI SƠ ĐỒ"] = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "") or 0.0)
         except: item_dict["DÀI SƠ ĐỒ"] = 0.0
         
@@ -787,6 +796,10 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
+# Khởi tạo lưu trữ snapshot ban đầu nếu trống để tránh lỗi bất đồng bộ
+if "session_editor_snapshot" not in st.session_state:
+    st.session_state["session_editor_snapshot"] = display_editor_rows
+
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
 # Ép kiểu dữ liệu số cứng
@@ -796,7 +809,7 @@ for col in clean_headers_top:
     elif col == "DÀI SƠ ĐỒ":
         df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
 
-# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp (disabled=False) [INDEX]
+# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp (disabled=False)
 config_cot = {
     "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
@@ -807,31 +820,37 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# Hàm Callback đồng bộ dữ liệu gõ tay từ cột ảo biên dịch chuẩn sang bộ nhớ snapshot [INDEX]
+# Hàm Callback đồng bộ dữ liệu gõ tay bằng Deep Copy chống lỗi crash vòng lặp (rerun loop)
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            current_snapshot = list(st.session_state.get("session_editor_snapshot", display_editor_rows))
+            # Dùng kỹ thuật json để tách biệt hoàn toàn vùng nhớ, chống crash khi gõ phím nhanh
+            current_snapshot = json.loads(json.dumps(st.session_state.get("session_editor_snapshot", display_editor_rows)))
             
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
                 if r_idx_int < len(current_snapshot):
-                    if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
+                    if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
+                        continue
                     
                     clean_changes = {}
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
-                                clean_changes[active_sizes[c_num - 1]] = int(float(str(new_val).strip() or 0))
-                            except Exception: pass
-                        else:
-                            clean_changes[col_header] = new_val
+                                clean_changes[f"CỠ {c_num}"] = safe_int_final(new_val)
+                            except: pass
+                        elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
+                            clean_changes[col_header] = safe_int_final(new_val)
+                        elif col_header == "DÀI SƠ ĐỒ":
+                            try: clean_changes[col_header] = float(str(new_val).replace(",", "") or 0.0)
+                            except: pass
                             
                     current_snapshot[r_idx_int].update(clean_changes)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
+# Hiển thị bảng grid nhập liệu tích hợp
 edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
