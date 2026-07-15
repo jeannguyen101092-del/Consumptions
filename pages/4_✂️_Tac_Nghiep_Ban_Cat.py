@@ -269,6 +269,104 @@ else:
                     - ĐẶC BIỆT: Đây là vải CHÍNH. Không được phép cắt dư, phải tính toán tỷ lệ phối và số lớp sao cho vét sạch chuẩn xác 100% số lượng còn lại.
                     """
 
+                # =============================================================================
+                # TẦNG 2 - ĐOẠN 2b: PROMPT ÉP AI ĐIỀN VÀO Ô TRỐNG THEO ĐỊNH MỨC CHIỀU DÀI
+                # =============================================================================
+                ai_cutting_prompt = f"""
+                Bạn là thuật toán điều độ bàn cắt ngành may. Hãy tính toán phối cỡ cho các sơ đồ còn trống sau đây: {json.dumps(empty_slots)}.
+                Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ qua ô trống hoặc tự nhảy cóc sơ đồ.
+                
+                Dữ liệu thực tế đầu vào:
+                - Sản lượng còn lại thực tế cần giải quyết: {json.dumps(calculated_balances)}
+                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
+                - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
+
+                QUY TẮC PHỐI CỠ VÀ TÍNH TOÁN BẮT BUỘC:
+                1. Hãy tận dụng tối đa chiều dài bàn cắt tối đa ({max_table_length}m) để GHÉP các cỡ lại với nhau (Ví dụ tỷ lệ: 1-1-1 hoặc 1-2-1). 
+                2. RÀNG BUỘC CHIỀU DÀI: (Tổng số sản phẩm phối trên sơ đồ) * ({round(consumption_input * 0.9144, 3)} mét) KHÔNG ĐƯỢC vượt quá {max_table_length} mét. Chiều dài sơ đồ thực tế của mỗi sơ đồ chính là (Tổng tỷ lệ phối) * ({round(consumption_input * 0.9144, 3)} mét).
+                3. Hãy xếp số lớp (Số lớp) thật cao để giải quyết nhanh sản lượng, hạn chế đi số lớp mỏng lãng phí công trải.
+                {fabric_rule_text}
+                4. Chỉ dùng sơ đồ phối 1 quần duy nhất ở sơ đồ trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ còn sót lại.
+                5. Chỉ điền kết quả vào đúng các mã sơ đồ nằm trong danh sách trống này: {json.dumps(empty_slots)}.
+
+                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích thêm:
+                [
+                  {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}
+                ]
+                """
+                try:
+                    res_cutting = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[ai_cutting_prompt],
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
+                    
+                    if isinstance(ai_vete_res, list):
+                        st.session_state["auto_cutting_results"] = ai_vete_res
+                        
+                        # Đồng bộ trực tiếp kết quả thông minh của AI đổ ngược vào Grid hiển thị công nghiệp
+                        updated_rows = []
+                        for i in range(6):
+                            s_code = f"c{str(i+1).zfill(2)}"
+                            
+                            if snapshot and i < len(snapshot):
+                                old_row = snapshot[i]
+                                s_name_display = str(old_row.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{str(i+1).zfill(2)}")).upper()
+                            else:
+                                s_name_display = f"SƠ ĐỒ C{str(i+1).zfill(2)}"
+                                
+                            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_name_display}
+                            ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
+                            
+                            # 🛠️ SỬA LỖI: Trích xuất chính xác phần tử đầu tiên của danh sách để tránh lỗi map ô trống
+                            if ai_match and len(ai_match) > 0:
+                                ai_row = ai_match[0]  # Lấy phần tử dict đầu tiên trong list
+                                r_dict = ai_row.get("Ratios", {})
+                                for sz in active_sizes: 
+                                    try: item_dict[sz] = int(float(str(r_dict.get(sz, 0)).strip() or 0))
+                                    except Exception: item_dict[sz] = 0
+                                
+                                # Khống chế đồng bộ tên trường viết hoa/viết thường từ AI trả về an toàn
+                                try: s_lop = int(float(str(ai_row.get("Số lớp", ai_row.get("Số lớp", 0))).strip() or 0))
+                                except Exception: s_lop = 0
+                                    
+                                try: s_ban = int(float(str(ai_row.get("Số bàn", ai_row.get("Số bàn", 1))).strip() or 1))
+                                except Exception: s_ban = 1
+                                
+                                total_pants = sum(item_dict[sz] for sz in active_sizes)
+                                calculated_len = round(total_pants * dinhmuc_met if 'dinhmuc_met' in locals() else round(consumption_input * 0.9144, 3), 2)
+                                
+                                item_dict.update({
+                                    "SƠ LỚP": s_lop, 
+                                    "SỐ BÀN": s_ban, 
+                                    "DÀI SƠ ĐỒ": float(calculated_len)
+                                })
+                            else:
+                                # Nếu sơ đồ này người dùng đã điền từ trước hoặc không được AI tính, giữ nguyên dữ liệu gốc
+                                if snapshot and i < len(snapshot):
+                                    old_row = snapshot[i]
+                                    for sz in active_sizes: 
+                                        try: item_dict[sz] = int(float(str(old_row.get(sz, 0)).strip() or 0))
+                                        except Exception: item_dict[sz] = 0
+                                    item_dict.update({
+                                        "SƠ LỚP": int(float(str(old_row.get("SƠ LỚP", 0)).strip() or 0)), 
+                                        "SỐ BÀN": int(float(str(old_row.get("SỐ BÀN", 1)).strip() or 1)), 
+                                        "DÀI SƠ ĐỒ": float(str(old_row.get("DÀI SƠ ĐỒ", 0.0)).strip() or 0.0)
+                                    })
+                                else:
+                                    for sz in active_sizes: item_dict[sz] = 0
+                                    item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                            updated_rows.append(item_dict)
+                        
+                        st.session_state["session_editor_snapshot"] = updated_rows
+                        st.success(f"🎉 AI đã quét toàn bộ các ô trống và phối ghép đa cỡ thành công!")
+                        st.rerun()
+                except Exception as e: 
+                    st.error(f"⚠️ Lỗi xử lý thuật toán AI: {str(e)}")
+
+        if trigger_consumption:
+            st.session_state["consumption_activated"] = True
 
 
 
