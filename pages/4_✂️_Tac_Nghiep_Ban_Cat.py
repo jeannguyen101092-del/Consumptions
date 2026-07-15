@@ -231,13 +231,13 @@ else:
                 - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
 
                 QUY TẮC PHỐI CỠ BẮT BUỘC (COMPULSORY CUTTING RULES):
-                1. KHỐNG CHẾ CHIỀU DÀI TUYỆT ĐỐI: Khi phối ghép nhiều cỡ lại với nhau (Ví dụ: đi tỷ lệ phối 3 sản phẩm 1-1-1 hoặc 4 sản phẩm 1-2-1), tổng chiều dài sơ đồ tạm tính = (Tổng các tỷ lệ phối Ratios) * ({round(consumption_input * 0.9144, 3)} mét) BẮT BUỘC phải nhỏ hơn hoặc bằng Chiều dài tối đa bàn vải ({max_table_length} mét).
+                1. KHỐNG CHẾ CHIỀU DÀI TUYỆT ĐỐI: Khi phối ghép nhiều cỡ lại với nhau (Ví dụ: đi tỷ lệ phối nhiều sản phẩm), tổng chiều dài sơ đồ tạm tính = (Tổng các tỷ lệ phối Ratios) * ({round(consumption_input * 0.9144, 3)} mét) BẮT BUỘC phải nhỏ hơn hoặc bằng Chiều dài tối đa bàn vải ({max_table_length} mét).
                 2. Nếu tổng chiều dài sơ đồ tính toán vượt quá {max_table_length} mét, bạn phải tự động bẻ tách bớt sản phẩm phối ra hoặc hạ bớt tỷ lệ xuống.
                 {fabric_rule_text}
                 3. Hãy ghép các cỡ có số lượng tương đương lại với nhau để rải được số lớp cao nhất có thể. Chỉ dùng sơ đồ 1 quần cho các biến số mồ côi cực kỳ lệch sau khi đã tối ưu gộp.
                 4. Chỉ trả về kết quả cấu trúc gọn phân bổ vào các sơ đồ cuối: "c04", "c05", "c06".
 
-                Trả về mảng JSON sạch định dạng chuẩn xác, không giải giải thích:
+                Trả về mảng JSON sạch định dạng chuẩn xác, không giải thích:
                 [
                   {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}},
                   {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"4": 1, "6": 1}}, "Số lớp": 150, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 2, 2)}}}
@@ -260,8 +260,9 @@ else:
                             item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
                             
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
-                            if ai_match:
-                                ai_row = ai_match
+                            # FIX SỬA LỖI: Lấy phần tử [0] từ danh sách ai_match lọc được trước khi .get()
+                            if ai_match and len(ai_match) > 0:
+                                ai_row = ai_match[0]
                                 r_dict = ai_row.get("Ratios", {})
                                 for sz in active_sizes: 
                                     item_dict[sz] = int(r_dict.get(sz, 0))
