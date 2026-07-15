@@ -223,13 +223,23 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM VÀ ĐỌC QUÉT DỮ LIỆU ĐỂ TÌM DÒNG TRỐNG
+# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ BỔ SUNG NÚT CLEAR TÍNH LẠI
 # =============================================================================
-        btn_col1, btn_col2 = st.columns(2)
+        btn_col1, btn_col2, btn_col_clear = st.columns([1.5, 1.5, 1])
         with btn_col1: 
             trigger_auto_cutting = st.button("🤖 1. KÍCH HOẠT AI VÉT SẠCH SẼ LƯỢNG DƯ CÒN LẠI", type="primary", use_container_width=True, key="c2_normal_cut_btn")
         with btn_col2: 
             trigger_consumption = st.button("🔒 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
+        with btn_col_clear:
+            # 🛠️ NÚT BẤM CLEAR: Xóa sạch bộ nhớ đệm để tổ trưởng nhập lại từ đầu
+            trigger_clear_data = st.button("🧹 XÓA ĐỂ TÍNH LẠI", type="secondary", use_container_width=True, key="c2_clear_all_data_btn")
+
+        if trigger_clear_data:
+            st.session_state["session_editor_snapshot"] = None
+            st.session_state["auto_cutting_results"] = None
+            st.session_state["consumption_activated"] = False
+            st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp. Bạn có thể nhập lại!", icon="🧹")
+            st.rerun()
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
@@ -250,54 +260,7 @@ else:
                 for sz in active_sizes:
                     try: calculated_balances[sz] = int(float(str(size_breakdown_main.get(sz, 0)).replace(",", "").strip() or 0))
                     except Exception: calculated_balances[sz] = 0
-                
-                empty_slots = []
-                current_grid_structure = []
 
-                if snapshot:
-                    for idx, row_data in enumerate(snapshot):
-                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper().strip()
-                        s_code = f"c{str(idx+1).zfill(2)}"
-                        
-                        total_ratios_entered = 0
-                        row_ratios = {}
-                        for sz in active_sizes:
-                            try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
-                            except Exception: r_val = 0
-                            row_ratios[sz] = r_val
-                            total_ratios_entered += r_val
-                        
-                        try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
-                        except Exception: layers = 0
-                            
-                        try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
-                        except Exception: tables = 1
-
-                        if total_ratios_entered > 0 and layers > 0:
-                            for sz in active_sizes:
-                                r_val = row_ratios[sz]
-                                calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
-                            
-                            current_grid_structure.append({
-                                "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
-                            })
-                        else:
-                            empty_slots.append(s_code)
-                            current_grid_structure.append({
-                                "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
-                            })
-                else:
-                    empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
-                    current_grid_structure = [{"Mã dòng": f"c{str(i+1).zfill(2)}", "Tên sơ đồ gốc": f"SƠ ĐỒ C{str(i+1).zfill(2)}", "Trạng thái": "AI ĐIỀN VÀO ĐÂY"} for i in range(6)]
-
-                is_sub_fabric = str(fabric_type_input).upper() in ["LÓT", "KEO", "PHỐI"]
-                fabric_rule_text = ""
-                if is_sub_fabric:
-                    fabric_rule_text = "- ĐẶC BIỆT: Đây là vải phụ (KEO/LÓT/PHỐI). Được phép cắt dư thêm 5-10 Pcs mỗi size lẻ để dễ gộp vào sơ đồ lớn, hạn chế sinh sơ đồ mỏng."
-                else:
-                    fabric_rule_text = "- ĐẶC BIỆT: Đây là vải CHÍNH. Không được phép cắt dư, tính toán phối cỡ và số lớp sao cho sản lượng triệt tiêu chính xác về 0."
-
-                dinhmuc_met_c2 = round(consumption_input * 0.9144, 3)
                 # =============================================================================
                 # TẦNG 2 - ĐOẠN 2b: CÂU LỆNH PROMPT VÀ ĐỒNG BỘ KẾT QUẢ AI VÀO Ô LƯỚI TRỐNG
                 # =============================================================================
@@ -391,27 +354,25 @@ else:
 
 
 
-               # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: TỰ ĐỘNG TẠO TÊN SƠ ĐỒ THEO LOẠI VẢI (CHÍNH C01, LÓT L01...)
+        # =============================================================================
+        # TẦNG 3 - ĐOẠN 1: ĐỒNG BỘ RESET KHUÔN LƯỚI KHI BẤM NÚT CLEAR TÍNH LẠI
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
         ai_source = st.session_state.get("auto_cutting_results", [])
         snapshot = st.session_state.get("session_editor_snapshot")
 
-        # Xác định ký tự viết tắt theo loại vải
         fab_upper = str(fabric_type_input).upper().strip()
         if fab_upper == "CHÍNH": prefix_letter = "C"
         elif fab_upper == "LÓT": prefix_letter = "L"
         elif fab_upper == "KEO": prefix_letter = "K"
-        else: prefix_letter = "P" # Vải PHỐI
+        else: prefix_letter = "P"
 
-        # 1. ƯU TIÊN SỐ 1: Nếu đã có dữ liệu snapshot do tổ trưởng gõ tay hoặc AI điền trước đó, giữ nguyên 100%
-        if snapshot and len(snapshot) > 0:
+        # Nếu nút Clear vừa xóa snapshot thành công, bỏ qua nhánh 1 và nhảy thẳng xuống nhánh 3 để dựng lại lưới số 0
+        if snapshot and len(snapshot) > 0 and snapshot is not None:
             cleaned_snapshot = []
             for i, row in enumerate(snapshot):
                 item_dict = {}
-                # Sửa chữ NAN ở cột tên sơ đồ nếu snapshot cũ bị lỗi text rỗng
                 curr_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
                 if curr_name == "" or curr_name.upper() in ["NONE", "NAN"]:
                     item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}"
@@ -428,8 +389,7 @@ else:
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
-        # 2. ƯU TIÊN SỐ 2: Nếu có kết quả khôi phục lịch sử từ Supabase gửi về
-        elif recovered_source:
+        elif recovered_source and snapshot is not None:
             for i, row in enumerate(recovered_source):
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
@@ -452,8 +412,8 @@ else:
                         clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form trống theo đúng mã loại vải (CHÍNH C01, LÓT L01...)
         else:
+            # Luồng mặc định khi bấm nút Clear: Trả về ma trận trống rỗng sạch sẽ theo mã vải
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
@@ -461,38 +421,7 @@ else:
                     item_dict[sz] = 0
                 item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
-                
-        # Khởi tạo bảng dữ liệu nền
-        df_editor_base = pd.DataFrame(display_editor_rows)
-        
-        # Ép kiểu dữ liệu cột số nguyên cho Streamlit hiển thị số 0 sạch sẽ
-        for sz in active_sizes:
-            if sz in df_editor_base.columns:
-                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
-        if "SƠ LỚP" in df_editor_base.columns:
-            df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
-        if "SỐ BÀN" in df_editor_base.columns:
-            df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
-        if "DÀI SƠ ĐỒ" in df_editor_base.columns:
-            df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
-        
-        # Quản lý trạng thái khóa cứng bảng nhập liệu
-        is_locked = st.session_state.get("consumption_activated", False)
 
-        if is_locked:
-            if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_c2"):
-                st.session_state["consumption_activated"] = False
-                st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
-                st.rerun()
-
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (TỰ ĐỘNG CHUYỂN MÃ SƠ ĐỒ THEO LOẠI VẢI)</p>", unsafe_allow_html=True)
-        
-        edited_df = st.data_editor(
-            df_editor_base, use_container_width=True, hide_index=True, disabled=is_locked, key="table_manual_data_editor_v1"
-        )
-        
-        if not is_locked:
-            st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ TÊN VẢI CHUẨN XUỐNG BẢNG ĐỐI CHIẾU VÀ XUẤT BÁO CÁO
         # =============================================================================
