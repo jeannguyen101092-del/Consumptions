@@ -174,7 +174,7 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ LOGIC KHÓA CỨNG/AI VÉT DÒNG TRỐNG
+# TẦNG 2 - ĐOẠN 2a: ĐỌC DỮ LIỆU THỰC TẾ Ô LƯỚI ĐỂ ĐIỀN TIẾP VÀO DÒNG TRỐNG (SỬA LỖI VALUEERROR)
 # =============================================================================
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1: 
@@ -188,7 +188,7 @@ else:
             st.toast("🔒 Đã khóa cứng ma trận nhập tay và đồng bộ xuống bảng theo dõi!", icon="🔒")
 
         if trigger_auto_cutting:
-            with st.spinner(f"🤖 AI đang tính toán tổ hợp cho các dòng sơ đồ còn trống..."):
+            with st.spinner(f"🤖 AI đang giải ma trận phối cỡ cho vải {fabric_type_input.upper()}..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -197,29 +197,46 @@ else:
                 from google.genai import types
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                # Đọc dữ liệu snapshot hiện tại người dùng đang nhập
+                # ĐỌC CHUẨN XÁC DỮ LIỆU Ô LƯỚI: Tìm xem dòng nào ĐÃ NHẬP và dòng nào ĐANG TRỐNG
                 snapshot = st.session_state.get("session_editor_snapshot")
                 calculated_balances = {}
                 for sz in active_sizes:
-                    calculated_balances[sz] = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
+                    try:
+                        calculated_balances[sz] = int(float(str(size_breakdown_main.get(sz, 0)).replace(",", "").strip() or 0))
+                    except Exception:
+                        calculated_balances[sz] = 0
                 
-                # Quét tìm chính xác dòng nào trống, dòng nào đã nhập tay để giữ nguyên
-                empty_slots = []
+                user_filled_schedules = [] # Danh sách các sơ đồ người dùng đã tự nhập tỷ lệ
+                empty_slots = []           # Danh sách các mã sơ đồ còn trống để AI điền vào (Ví dụ: c02, c03, c04...)
                 current_grid_structure = []
-                
+
                 if snapshot:
                     for idx, row_data in enumerate(snapshot):
-                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper()
+                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper().strip()
                         s_code = f"c{str(idx+1).zfill(2)}"
                         
-                        total_ratios_entered = sum(int(str(row_data.get(sz, 0)).split(".")[0] or 0) for sz in active_sizes)
-                        layers = int(str(row_data.get("SƠ LỚP", 0)).split(".")[0] or 0)
-                        tables = int(str(row_data.get("SỐ BÀN", 1)).split(".")[0] or 1)
+                        # 🛠️ SỬA LỖI TẠI ĐÂY: Tính tổng tỷ lệ phối bằng ép kiểu số thực an toàn tuyệt đối, loại bỏ split(".")
+                        total_ratios_entered = 0
+                        row_ratios = {}
+                        for sz in active_sizes:
+                            try:
+                                r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
+                            except Exception:
+                                r_val = 0
+                            row_ratios[sz] = r_val
+                            total_ratios_entered += r_val
                         
+                        try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+                        except Exception: layers = 0
+                            
+                        try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+                        except Exception: tables = 1
+
                         if total_ratios_entered > 0 and layers > 0:
-                            # Dòng đã nhập tay: Khấu trừ số lượng và lưu cấu trúc để giữ nguyên
+                            # Nếu dòng này đã có dữ liệu rải thực tế, ghi nhận và trừ lùi vào sản lượng
+                            user_filled_schedules.append(s_code)
                             for sz in active_sizes:
-                                r_val = int(str(row_data.get(sz, 0)).split(".")[0] or 0)
+                                r_val = row_ratios[sz]
                                 calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
                             
                             current_grid_structure.append({
@@ -228,7 +245,7 @@ else:
                                 "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
                             })
                         else:
-                            # Dòng trống hoàn toàn: AI được quyền điền dữ liệu
+                            # Nếu dòng này trống (toàn số 0), đưa vào danh sách để AI nhảy vào điền tiếp luôn
                             empty_slots.append(s_code)
                             current_grid_structure.append({
                                 "Mã dòng": s_code,
@@ -236,91 +253,21 @@ else:
                                 "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
                             })
                 else:
+                    # Nếu chưa có bảng snapshot nào, AI được phép điền từ c01 đến c06
                     empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
                     current_grid_structure = [{"Mã dòng": f"c{str(i+1).zfill(2)}", "Tên sơ đồ gốc": f"SƠ ĐỒ C{str(i+1).zfill(2)}", "Trạng thái": "AI ĐIỀN VÀO ĐÂY"} for i in range(6)]
 
-                dinhmuc_met = round(consumption_input * 0.9144, 3)
-                
-                ai_cutting_prompt = f"""
-                Bạn là thuật toán toán học điều độ bàn cắt. Nhiệm vụ của bạn chỉ là tính toán phối cỡ điền vào các dòng đang TRỐNG này: {json.dumps(empty_slots)}.
-                Tuyệt đối KHÔNG ĐƯỢC thay đổi thông tin của các dòng đã có dữ liệu nhập tay.
-                
-                Dữ liệu đầu vào:
-                - Bản đồ cấu trúc các dòng: {json.dumps(current_grid_structure)}
-                - Số lượng sản phẩm còn dư thực tế cần vét: {json.dumps(calculated_balances)}
-                - Định mức kỹ thuật: {dinhmuc_met} mét/quần.
-                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét.
-
-                QUY TẮC PHỐI CỠ VÀ TÍNH CHIỀU DÀI:
-                1. Chỉ được phép điền tỷ lệ phối (Ratios) và Số lớp vào các mã dòng sơ đồ ghi là "AI ĐIỀN VÀO ĐÂY". Không điền lấn sang dòng khác.
-                2. KHỐNG CHẾ CHIỀU DÀI: (Tổng các tỷ lệ phối Ratios) * ({dinhmuc_met} mét) BẮT BUỘC <= {max_table_length} mét.
-                3. Gom các cỡ có số lượng lớn ghép chung sơ đồ để rải lớp cao. Chỉ rải sơ đồ vét 1 quần ở ô trống cuối cùng cho số lượng mồ côi cực lẻ.
-                4. Nếu là vải KEO/LÓT/PHỐI: Cho phép làm tròn cắt dư thêm 5-10 Pcs/size lẻ. Nếu là vải CHÍNH: Cắt chính xác triệt tiêu dư về 0.
-
-                Trả về mảng JSON sạch, chỉ chứa kết quả điền cho các dòng trống được yêu cầu, đúng định dạng mẫu:
-                [
-                  {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"00": 1, "0": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(dinhmuc_met * 2, 2)}}}
-                ]
-                """
-                try:
-                    res_cutting = client_ai.models.generate_content(
-                        model='gemini-2.5-flash', 
-                        contents=[ai_cutting_prompt],
-                        config=types.GenerateContentConfig(response_mime_type="application/json")
-                    )
-                    ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    
-                    if isinstance(ai_vete_res, list):
-                        st.session_state["auto_cutting_results"] = ai_vete_res
-                        
-                        updated_rows = []
-                        for i in range(6):
-                            s_code = f"c{str(i+1).zfill(2)}"
-                            
-                            if snapshot and i < len(snapshot):
-                                old_row = snapshot[i]
-                                s_name_display = str(old_row.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{str(i+1).zfill(2)}")).upper()
-                            else:
-                                s_name_display = f"SƠ ĐỒ C{str(i+1).zfill(2)}"
-                                
-                            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_name_display}
-                            ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
-                            
-                            if ai_match and len(ai_match) > 0:
-                                ai_row = ai_match[0]
-                                r_dict = ai_row.get("Ratios", {})
-                                for sz in active_sizes: 
-                                    item_dict[sz] = int(str(r_dict.get(sz, 0)).split(".")[0] or 0)
-                                
-                                total_pants = sum(int(str(r_dict.get(sz, 0)).split(".")[0] or 0) for sz in active_sizes)
-                                calculated_len = round(total_pants * dinhmuc_met, 2)
-                                
-                                item_dict.update({
-                                    "SƠ LỚP": int(str(ai_row.get("Số lớp", 0)).split(".")[0] or 0), 
-                                    "SỐ BÀN": int(str(ai_row.get("Số bàn", 1)).split(".")[0] or 1), 
-                                    "DÀI SƠ ĐỒ": float(calculated_len)
-                                })
-                            else:
-                                # Dòng đã nhập tay hoặc không có kết quả AI -> Giữ nguyên 100% tất cả thông tin kể cả Tên sơ đồ sửa tay
-                                if snapshot and i < len(snapshot):
-                                    old_row = snapshot[i]
-                                    for sz in active_sizes: item_dict[sz] = int(str(old_row.get(sz, 0)).split(".")[0] or 0)
-                                    item_dict.update({
-                                        "SƠ LỚP": int(str(old_row.get("SƠ LỚP", 0)).split(".")[0] or 0), 
-                                        "SỐ BÀN": int(str(old_row.get("SỐ BÀN", 1)).split(".")[0] or 1), 
-                                        "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))
-                                    })
-                                else:
-                                    for sz in active_sizes: item_dict[sz] = 0
-                                    item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
-                            updated_rows.append(item_dict)
-                        
-                        st.session_state["session_editor_snapshot"] = updated_rows
-                        st.success("🎯 AI đã điền bổ sung vào các dòng sơ đồ trống mà không làm đổi dữ liệu nhập tay!")
-                        st.rerun()
-                except Exception as e: 
-                    st.error(f"⚠️ Lỗi xử lý thuật toán AI: {str(e)}")
-
+                # Cấu hình tham số cắt dư tự động cho vải LÓT/KEO/PHỐI
+                is_sub_fabric = str(fabric_type_input).upper() in ["LÓT", "KEO", "PHỐI"]
+                fabric_rule_text = ""
+                if is_sub_fabric:
+                    fabric_rule_text = """
+                    - ĐẶC BIỆT: Đây là vải phụ (KEO/LÓT/PHỐI). Bạn ĐƯỢC PHÉP làm tròn tăng lên (cắt dư thêm 5-10 Pcs mỗi size) để dễ gộp các cỡ lẻ vào chung một sơ đồ lớn, hạn chế sinh ra nhiều sơ đồ mỏng.
+                    """
+                else:
+                    fabric_rule_text = """
+                    - ĐẶC BIỆT: Đây là vải CHÍNH. Không được phép cắt dư, phải tính toán tỷ lệ phối và số lớp sao cho vét sạch chuẩn xác 100% số lượng còn lại.
+                    """
 
 
 
