@@ -174,7 +174,7 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI GHÉP TỶ LỆ SIZE LINH HOẠT
+# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI GIẢI MA TRẬN PHỐI CỠ THEO LOẠI VẢI
 # =============================================================================
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1: 
@@ -183,7 +183,7 @@ else:
             trigger_consumption = st.button("⚡ 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
 
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang tính toán tổ hợp ghép cỡ và tối ưu hóa ma trận bàn cắt..."):
+            with st.spinner(f"🤖 AI đang giải ma trận phối cỡ cho vải {fabric_type_input.upper()}..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -207,27 +207,40 @@ else:
                                 r_val = int(row_data.get(sz, 0))
                                 calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
 
-                # PROMPT NÂNG CẤP THUẬT TOÁN GHÉP TỶ LỆ NHIỀU CỠ (CO-PLANNING SOLVER)
+                # THIẾT LẬP THAM SỐ ĐẶC THÙ CHO KEO/LÓT/PHỐI ĐƯỢC PHÉP CẮT DƯ ĐỂ LÀM TRÒN
+                is_sub_fabric = str(fabric_type_input).upper() in ["LÓT", "KEO", "PHỐI"]
+                fabric_rule_text = ""
+                if is_sub_fabric:
+                    fabric_rule_text = """
+                    - ĐẶC BIỆT (Vải KEO/LÓT/PHỐI): Được phép làm tròn số lượng tăng lên, cho phép CẮT DƯ từ 5 đến 10 sản phẩm (Pcs) cho mỗi cỡ lẻ. 
+                    - Sử dụng lượng cắt dư này để GỘP các cỡ lẻ vào chung một sơ đồ lớn, hạn chế tối đa việc sinh ra quá nhiều sơ đồ vét mỏng lãng phí công rải.
+                    """
+                else:
+                    fabric_rule_text = """
+                    - ĐẶC BIỆT (Vải CHÍNH): Không được phép cắt dư. Phải tính toán tỷ lệ phối cỡ và số lớp bám sát tuyệt đối chính xác để lượng dư về bằng 0.
+                    """
+
+                # PROMPT TỐI ƯU TOÁN HỌC KHỐNG CHẾ ĐỊNH MỨC & CHIỀU DÀI BÀN CẮT THỰC TẾ
                 ai_cutting_prompt = f"""
-                Bạn là chuyên gia điều độ bàn cắt ngành may công nghiệp. Hãy giải bài toán lập ma trận phối cỡ (Ratios) cho các sơ đồ vét.
+                Bạn là thuật toán tối ưu hóa sơ đồ (Cut Order Planning Solver) ngành may mặc công nghiệp.
                 
-                Dữ liệu kỹ thuật:
-                - Sản lượng còn lại cần giải quyết: {json.dumps(calculated_balances)}
-                - Định mức đề xuất: {consumption_input} Yds/Pcs (Khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
-                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét.
+                Thông số đầu vào do người dùng thiết lập:
+                - Loại vải đang tác nghiệp: {fabric_type_input.upper()}
+                - Sản lượng còn lại cần xử lý: {json.dumps(calculated_balances)}
+                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Tương đương khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
+                - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
 
-                QUY TẮC PHỐI CỠ VÀ TÍNH TOÁN (COMPULSORY CUTTING RULES):
-                1. Hãy TỰ ĐỘNG GHÉP các cỡ có số lượng tương đương lại với nhau trên cùng một sơ đồ (ví dụ: một sơ đồ có thể đi tỷ lệ phối nhiều quần như 1-1-1 hoặc 1-2-1) để giảm số lượng sơ đồ đơn lẻ và tăng năng suất bàn rải.
-                2. RÀNG BUỘC CHIỀU DÀI: (Tổng số sản phẩm trên sơ đồ) * ({round(consumption_input * 0.9144, 3)} mét) KHÔNG ĐƯỢC vượt quá chiều dài tối đa ({max_table_length} mét). Nếu tổng chiều dài vượt quá, bắt buộc phải giảm số sản phẩm phối xuống.
-                3. Hãy tính toán "Số lớp" rải hợp lý sao cho giải quyết được phần lớn sản lượng của các cỡ được phối đó.
-                4. CHỈ SỬ DỤNG SƠ ĐỒ 1 QUẦN (1 cỡ/sơ đồ) làm giải pháp vét đuôi cuối cùng cho các cỡ còn dư số lượng quá lẻ, mồ côi không thể ghép đôi, ghép ba với các cỡ khác.
-                5. Chỉ phân bổ kết quả vào 3 sơ đồ cuối: "c04", "c05", "c06".
+                QUY TẮC PHỐI CỠ BẮT BUỘC (COMPULSORY CUTTING RULES):
+                1. KHỐNG CHẾ CHIỀU DÀI TUYỆT ĐỐI: Khi phối ghép nhiều cỡ lại với nhau (Ví dụ: đi tỷ lệ phối 3 sản phẩm 1-1-1 hoặc 4 sản phẩm 1-2-1), tổng chiều dài sơ đồ tạm tính = (Tổng các tỷ lệ phối Ratios) * ({round(consumption_input * 0.9144, 3)} mét) BẮT BUỘC phải nhỏ hơn hoặc bằng Chiều dài tối đa bàn vải ({max_table_length} mét).
+                2. Nếu tổng chiều dài sơ đồ tính toán vượt quá {max_table_length} mét, bạn phải tự động bẻ tách bớt sản phẩm phối ra hoặc hạ bớt tỷ lệ xuống.
+                {fabric_rule_text}
+                3. Hãy ghép các cỡ có số lượng tương đương lại với nhau để rải được số lớp cao nhất có thể. Chỉ dùng sơ đồ 1 quần cho các biến số mồ côi cực kỳ lệch sau khi đã tối ưu gộp.
+                4. Chỉ trả về kết quả cấu trúc gọn phân bổ vào các sơ đồ cuối: "c04", "c05", "c06".
 
-                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích:
+                Trả về mảng JSON sạch định dạng chuẩn xác, không giải giải thích:
                 [
-                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}},
-                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"4": 1, "6": 1}}, "Số lớp": 200, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 2, 2)}}},
-                  {{"Sơ đồ / Trạng thái": "c06", "Ratios": {{"8": 1}}, "Số lớp": 45, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}}
+                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}},
+                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"4": 1, "6": 1}}, "Số lớp": 150, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 2, 2)}}}
                 ]
                 """
                 try:
@@ -248,7 +261,7 @@ else:
                             
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                             if ai_match:
-                                ai_row = ai_match[0]
+                                ai_row = ai_match
                                 r_dict = ai_row.get("Ratios", {})
                                 for sz in active_sizes: 
                                     item_dict[sz] = int(r_dict.get(sz, 0))
@@ -268,13 +281,14 @@ else:
                             updated_rows.append(item_dict)
                         
                         st.session_state["session_editor_snapshot"] = updated_rows
-                        st.success("🎯 AI đã thực hiện phối ghép đa cỡ và đồng bộ ma trận vào bảng thành công!")
+                        st.success(f"🎉 AI đã tối ưu tổ hợp ghép cỡ linh hoạt cho vải {fabric_type_input.upper()} thành công!")
                         st.rerun()
                 except Exception as e: 
-                    st.error(f"⚠️ Lỗi xử lý thuật toán phối cỡ AI: {str(e)}")
+                    st.error(f"⚠️ Lỗi xử lý thuật toán AI: {str(e)}")
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
+
 
 
 
