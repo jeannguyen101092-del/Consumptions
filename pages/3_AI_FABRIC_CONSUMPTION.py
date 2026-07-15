@@ -526,7 +526,7 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                 "required": ["detected_product_type", "detected_base_size", "bom_rows"]
             }
 
-                        # 2. Chỉ thị tối cao áp đặt tư duy thuật toán giác sơ đồ CAD công nghiệp cho AI
+            # 2. Chỉ thị tối cao áp đặt tư duy thuật toán giác sơ đồ CAD công nghiệp cho AI
             prompt_agent_2 = f"""
             You are an expert Apparel CAD Costing Director at a top tier manufacturing plant. 
             Your task is to analyze the Techpack data, identify the material class and geometric role of each component, and calculate their realistic 'gross_consumption' (Yards).
@@ -534,21 +534,25 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             🌟 CRITICAL USER COMMAND CONTEXT (Extract sizing & shrinkage from here):
             "{current_query}"
 
-            STRICT APPRAREL MATERIAL & NESTING LOGIC:
-            1. MATERIAL SEPARATION (CRITICAL):
+            STRICT APPRAREL MATERIAL & NO-SHRINKING-MAJOR-PIECES LOGIC:
+            1. MATERIAL SEPARATION:
                - Only rows with material_class = "FABRIC" (Vải chính) participate in the marker nesting layout together.
-               - Rows with material_class = "FUSING" (Keo lót) or "LINING" (Vải lót) are cut on completely SEPARATE markers. DO NOT apply nesting or interlocking reduction rules to them. Calculate their consumption based strictly on their independent flat geometric area: (Length * Width * Piece Count) / (Fabric Width * 36 * Efficiency).
+               - Rows with material_class = "FUSING" (Keo lót) or "LINING" (Vải lót) are cut on separate markers. Calculate their consumption based strictly on flat geometric area: (Length * Width * Piece Count) / (Fabric Width * 36 * Efficiency). Do NOT apply any nesting reduction to them.
 
-            2. NESTING ALGORITHM FOR "FABRIC" (VẢI CHÍNH ONLY):
-               - Major Body Panels (FRONT PANEL, BACK PANEL, SLEEVE): These are the primary length-drivers. DO NOT lower or reduce their physical consumption! Their linear length on the marker is fixed. Calculate honestly: (Length * Piece Count / 36) / Efficiency. If width allows pieces to sit horizontal side-by-side, account for it, but never artificially shrink a major body panel.
-               - Interlocking/Minor Pieces (COLLAR, POCKET, FLAP, BELT LOOP, FACING, CUFF): These smaller fabric parts are slotted directly into the negative spaces (waste gaps) left between the Major Body Panels on the fabric marker. They do NOT add independent linear length. Therefore, reduce their calculated dynamic consumption drastically (multiply by 0.15) because they only occupy the layout gaps of the main panels.
+            2. HARD LOCK FOR "FABRIC" MAJOR PANELS (CẤM HẠ ĐỊNH MỨC THÂN LỚN):
+               - Major Body Panels (FRONT PANEL, BACK PANEL, SLEEVE): These are the primary length-drivers. You MUST NOT divide, split, or reduce their standalone linear consumption. DO NOT assume they share or sit side-by-side horizontally to cut length in half.
+               - Calculate their gross consumption HONESTLY and DIRECTLY using the exact formula: 
+                 Gross Consumption = (bounding_box_length * piece_count) / (36.0 * (marker_efficiency_percentage / 100))
+                 (For example, if FRONT PANEL length is 32.0, piece_count is 2, efficiency is 79.5%, then math is: (32 * 2) / (36 * 0.795) = ~2.23 YDS. Then because it's standard apparel layout, it occupies that linear block. Output the full real linear value. DO NOT output low values like 0.4400 for these rows).
 
-            3. MATH VALIDATION & SHRINKAGE PARSING:
-               - You MUST parse the specific shrinkage percentage numbers directly from the user's chat query (for example, if user says "co rút dọc 3 ngang 14", you MUST output "3%" for 'shrinkage_warp' and "14%" for 'shrinkage_weft' across all component rows). DO NOT leave them as "0%" or "-".
-               - Apply the user's requested warp/weft shrinkage to all physical dimensions before calculating space.
-               - Ensure that your output values per row are logical: Major FABRIC panels remain high and realistic, Minor FABRIC pieces are near-zero due to nesting gaps, and FUSING/LINING rows are computed independently by flat area. 
-               - The mathematical sum of all FABRIC rows should naturally yield an industry-realistic total around 1.3500 - 1.5500 YDS for a standard garment.
+            3. INTERLOCKING FOR "FABRIC" MINOR PIECES ONLY (CHỈ XEN KẼ CHI TIẾT NHỎ):
+               - Interlocking/Minor Pieces (COLLAR, POCKET, FLAP, BELT LOOP, FACING, CUFF): These parts are slotted into the waste gaps left between the Major Body Panels. They do NOT add independent linear length. Therefore, reduce their calculated consumption drastically (multiply by 0.15) because they only occupy layout gaps.
+
+            4. MATH VALIDATION & SHRINKAGE PARSING:
+               - You MUST parse the specific shrinkage percentage numbers directly from the user's chat query (e.g., "co rút dọc 3 ngang 14" -> output "3%" for 'shrinkage_warp' and "14%" for 'shrinkage_weft'). DO NOT leave them as "0%".
+               - The total FABRIC consumption will naturally be accurate because Major Panels are correctly high/locked, and Minor Pieces are correctly nested near-zero.
             """
+
 
 
 
