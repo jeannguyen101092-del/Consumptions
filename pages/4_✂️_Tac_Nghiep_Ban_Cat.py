@@ -458,7 +458,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU ĐA TẦNG MULTIINDEX (TÁCH BIỆT GIÀNG & SIZE BẢNG TRÊN)
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU TÁCH RỜI DÒNG GIÀNG VÀ SIZE AN TOÀN
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -477,18 +477,19 @@ else:
             for i, row in enumerate(snapshot):
                 item_dict = {}
                 curr_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
-                if curr_name == "" or curr_name.upper() in ["NONE", "NAN"]:
-                    item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}"
-                else:
-                    item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = curr_name
-
+                item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = curr_name
+                
                 for k, v in row.items():
                     if k != "BÀN CẮT / TÊN SƠ ĐỒ":
                         if k in active_sizes:
-                            try: item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
-                            except Exception: item_dict[k] = 0
+                            if curr_name in ["GIÀNG", "SIZE"]:
+                                item_dict[k] = str(v).strip()
+                            else:
+                                try: item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
+                                except Exception: item_dict[k] = 0
                         else:
-                            item_dict[k] = v
+                            if curr_name in ["GIÀNG", "SIZE"]: item_dict[k] = ""
+                            else: item_dict[k] = v
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
@@ -496,28 +497,45 @@ else:
         elif recovered_source:
             for i, row in enumerate(recovered_source):
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
-                if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
-                    if t_name == "" or t_name.upper() in ["NONE", "NAN"]:
-                        t_name = f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}"
+                if not any(x in t_name for x in ["CÒN LẠI", "SẢN LƯỢNG", "Mã hàng", "Màu:", "Loại vải:"]):
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
                     for sz in active_sizes: 
+                        v_val = row.get(sz, 0)
+                        if t_name in ["GIÀNG", "SIZE"]:
+                            clean_row[sz] = str(v_val).strip()
+                        else:
+                            try: clean_row[sz] = int(float(str(v_val).replace(",", "").strip())) if (v_val is not None and str(v_val).strip() != "" and str(v_val).lower() != "none") else 0
+                            except Exception: clean_row[sz] = 0
+                    
+                    if t_name in ["GIÀNG", "SIZE"]:
+                        clean_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+                    else:
                         try:
-                            v_val = row.get(sz, 0)
-                            clean_row[sz] = int(float(str(v_val).replace(",", "").strip())) if (v_val is not None and str(v_val).strip() != "" and str(v_val).lower() != "none") else 0
+                            clean_row.update({
+                                "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
+                                "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
+                                "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+                            })
                         except Exception:
-                            clean_row[sz] = 0
-                    try:
-                        clean_row.update({
-                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
-                            "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
-                            "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
-                        })
-                    except Exception:
-                        clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                            clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. Mặc định tạo form trống ban đầu
+        # 3. Mặc định tạo form trống có tách rời 2 dòng GIÀNG và SIZE lên đầu bảng nhập liệu
         else:
+            # Tạo dòng GIÀNG nền
+            giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
+            size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
+            for sz in active_sizes:
+                parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
+                giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
+                size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
+            giang_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+            size_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+            
+            display_editor_rows.append(giang_top_row)
+            display_editor_rows.append(size_top_row)
+            
+            # Tạo tiếp 6 dòng sơ đồ rải vải phía dưới
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
@@ -527,32 +545,6 @@ else:
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
-        
-        # Phòng vệ ép kiểu số nguyên tránh phát sinh giá trị None rỗng
-        for sz in active_sizes:
-            if sz in df_editor_base.columns:
-                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
-        if "SƠ LỚP" in df_editor_base.columns:
-            df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
-        if "SỐ BÀN" in df_editor_base.columns:
-            df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
-        if "DÀI SƠ ĐỒ" in df_editor_base.columns:
-            df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
-        
-        # Tạo MultiIndex để hiển thị bảng nhập liệu phía trên thành 2 dòng tiêu đề GIÀNG & SIZE riêng biệt
-        multi_cols = [("BÀN CẮT / TÊN SƠ ĐỒ", "BÀN CẮT / TÊN SƠ ĐỒ")]
-        for sz in active_sizes:
-            parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
-            if len(parts) >= 2:
-                waist_val = re.sub(r'_\d+$', '', str(parts[0]).strip())
-                inseam_val = re.sub(r'_\d+$', '', str(parts[1]).strip())
-                multi_cols.append((f"GIÀNG: {inseam_val}", f"SIZE: {waist_val}"))
-            else:
-                multi_cols.append(("CỠ PHẲNG", str(sz)))
-        multi_cols.extend([("THÔNG SỐ BÀN CẮT", "SƠ LỚP"), ("THÔNG SỐ BÀN CẮT", "SỐ BÀN"), ("THÔNG SỐ BÀN CẮT", "DÀI SƠ ĐỒ")])
-        
-        df_editor_top_render = df_editor_base.copy()
-        df_editor_top_render.columns = pd.MultiIndex.from_tuples(multi_cols)
         
         is_locked = st.session_state.get("consumption_activated", False)
 
@@ -570,38 +562,33 @@ else:
                 if "edited_rows" in editor_state:
                     for row_idx, changes in editor_state["edited_rows"].items():
                         if row_idx < len(display_editor_rows):
-                            flat_changes = {}
-                            for k, v in changes.items():
-                                if isinstance(k, tuple): 
-                                    # Trích xuất để tìm lại key gốc dạng "26X30" từ cấu trúc đa tầng MultiIndex khi lưu snapshot
-                                    w_part = k[1].replace("SIZE: ", "").strip()
-                                    i_part = k[0].replace("GIÀNG: ", "").strip()
-                                    
-                                    # Định vị key khớp chính xác với mảng active_sizes ban đầu
-                                    matched_key = next((x for x in active_sizes if w_part in x and i_part in x), f"{w_part}X{i_part}")
-                                    flat_changes[matched_key] = v
-                                else: 
-                                    flat_changes[k] = v
-                            display_editor_rows[row_idx].update(flat_changes)
+                            # Ngăn không cho sửa dòng chữ tiêu đề GIÀNG/SIZE
+                            if display_editor_rows[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE"]:
+                                continue
+                            display_editor_rows[row_idx].update(changes)
                 st.session_state["session_editor_snapshot"] = display_editor_rows
 
-        # HIỂN THỊ BIỂU MẪU NHẬP LIỆU PHÍA TRÊN
+        # Đặt cấu hình hiển thị cột phẳng sạch sẽ để tránh lỗi StreamlitAPIException
+        clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
+        df_editor_top_render = df_editor_base.copy()
+        df_editor_top_render.columns = clean_headers_top
+
         edited_df_raw = st.data_editor(
             df_editor_top_render, use_container_width=True, hide_index=True, disabled=is_locked, 
             key="table_manual_data_editor_v1", on_change=sync_editor_changes
         )
         
-        edited_df = df_editor_base.copy()
+        # Đồng bộ ngược trở lại DataFrame phẳng gốc để chạy phân hệ tính toán lũy tiến
+        edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG SẠCH CHO BẢNG DƯỚI
+        # TẦNG 3 - ĐOẠN 2: LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG RỜI RÕ RÀNG XUỐNG BẢNG DƯỚI
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
 
-        # DỰNG CHUẨN XÁC 2 HÀNG RỜI CHO BẢNG DƯỚI: GIÀNG VÀ SIZE SẠCH HOÀN TOÀN GẠCH CHÂN
         t1_giang_row = ["GIÀNG"]
         t2_size_row = ["SIZE"]
         po_qty_matrix = []
@@ -609,7 +596,6 @@ else:
         for col_name in active_sizes:
             c_str = str(col_name).strip().upper().replace(" ", "")
             g_val, s_val = "None", c_str
-            
             parts = re.split(r'[X_-]', c_str)
             if len(parts) >= 2:
                 s_val = str(parts[0]).strip()
@@ -637,8 +623,10 @@ else:
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-            if s_name == "" or s_name in ["NONE", "NAN"]:
-                s_name = f"{fab_upper} {prefix_letter}{str(r_idx+1).zfill(2)}"
+            
+            # Bỏ qua không tính toán lũy tiến đầu khúc cho 2 hàng tiêu đề chữ GIÀNG và SIZE lồng trong ô lưới
+            if s_name in ["GIÀNG", "SIZE", "NONE", "NAN", ""]:
+                continue
             
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
