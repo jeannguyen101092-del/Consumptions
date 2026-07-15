@@ -550,7 +550,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ TÊN VẢI CHUẨN XUỐNG BẢNG ĐỐI CHIẾU VÀ XUẤT BÁO CÁO
+        # TẦNG 3 - ĐOẠN 2: KHỞI TẠO MA TRẬN BÁO CÁO VÀ CHUẨN HÓA ĐỊNH MỨC SƠ ĐỒ LŨY TIẾN
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -563,10 +563,15 @@ else:
             g_val, s_val = "None", c_str
             if "X" in c_str:
                 p = c_str.split("X")
-                s_val, g_val = p.strip(), p.strip()
+                # 🛠️ SỬA LỖI TẠI ĐÂY: Trích xuất phần tử trong mảng list rồi mới dùng .strip()
+                if len(p) >= 2:
+                    s_val = str(p[0]).strip()
+                    g_val = str(p[1]).strip()
             
-            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
-            except Exception: po_v = 0
+            try: 
+                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
+            except Exception: 
+                po_v = 0
                 
             po_qty_matrix.append(po_v)
             t1_giang_row.append(g_val)
@@ -579,13 +584,10 @@ else:
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
+        # Duyệt qua các dòng trên data_editor để tính lũy tiến chính xác
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
-            
-            # ĐỌC CHUẨN XÁC TÊN SƠ ĐỒ TỪ BẢNG TRÊN (Đã tự động đổi sang CHÍNH C01, LÓT L01...)
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-            if s_name == "" or s_name in ["NONE", "NAN"]:
-                s_name = f"{fab_upper} {prefix_letter}{str(r_idx+1).zfill(2)}"
+            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
@@ -620,12 +622,12 @@ else:
                 if m_len == 0.0 and layers > 0:
                     m_len = round((dm_sd / 1.09361) * effective_ratios, 2)
                     
-            # 🛠️ SỬA LOGIC DÒNG TIÊU ĐỀ: Đồng bộ mã vải chuẩn chữ hoa, xóa hẳn chữ TRỐNG thừa lộn xộn
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
+            # Khấu trừ lùi sản lượng đơn hàng thực tế
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -640,6 +642,7 @@ else:
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
+        # Hiển thị CSS và dựng lưới báo cáo lên Streamlit
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -651,7 +654,7 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # Xuất tập tin Excel gộp đa dạng loại vải
+        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -679,7 +682,7 @@ else:
                 use_container_width=True, key="excel_multi_sheet_btn_final_v5"
             )
         
-        # Lưu trữ lên đám mây Supabase
+        # Đồng bộ lưu đè dữ liệu lên Cloud Supabase
         st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
