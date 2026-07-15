@@ -391,36 +391,50 @@ else:
 
 
 
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY, SNAPSHOT VÀ CHUẨN HÓA LƯỚI SỐ
+               # =============================================================================
+        # TẦNG 3 - ĐOẠN 1: TỰ ĐỘNG TẠO TÊN SƠ ĐỒ THEO LOẠI VẢI (CHÍNH C01, LÓT L01...)
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
         ai_source = st.session_state.get("auto_cutting_results", [])
         snapshot = st.session_state.get("session_editor_snapshot")
 
+        # Xác định ký tự viết tắt theo loại vải
+        fab_upper = str(fabric_type_input).upper().strip()
+        if fab_upper == "CHÍNH": prefix_letter = "C"
+        elif fab_upper == "LÓT": prefix_letter = "L"
+        elif fab_upper == "KEO": prefix_letter = "K"
+        else: prefix_letter = "P" # Vải PHỐI
+
         # 1. ƯU TIÊN SỐ 1: Nếu đã có dữ liệu snapshot do tổ trưởng gõ tay hoặc AI điền trước đó, giữ nguyên 100%
         if snapshot and len(snapshot) > 0:
-            # Kiểm tra bọc phòng thủ để chắc chắn các ô không bị dính chữ None hoặc None thực thể
             cleaned_snapshot = []
-            for row in snapshot:
+            for i, row in enumerate(snapshot):
                 item_dict = {}
+                # Sửa chữ NAN ở cột tên sơ đồ nếu snapshot cũ bị lỗi text rỗng
+                curr_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
+                if curr_name == "" or curr_name.upper() in ["NONE", "NAN"]:
+                    item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}"
+                else:
+                    item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = curr_name
+
                 for k, v in row.items():
-                    if k in active_sizes:
-                        try:
-                            item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
-                        except Exception:
-                            item_dict[k] = 0
-                    else:
-                        item_dict[k] = v
+                    if k != "BÀN CẮT / TÊN SƠ ĐỒ":
+                        if k in active_sizes:
+                            try: item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
+                            except Exception: item_dict[k] = 0
+                        else:
+                            item_dict[k] = v
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
         # 2. ƯU TIÊN SỐ 2: Nếu có kết quả khôi phục lịch sử từ Supabase gửi về
         elif recovered_source:
-            for row in recovered_source:
-                t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", ""))
+            for i, row in enumerate(recovered_source):
+                t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
                 if not any(x in t_name for x in ["CÒN LẠI", "GIÀNG", "SIZE", "SẢN LƯỢNG", "Mã hàng"]):
+                    if t_name == "" or t_name.upper() in ["NONE", "NAN"]:
+                        t_name = f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}"
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
                     for sz in active_sizes: 
                         try:
@@ -438,20 +452,20 @@ else:
                         clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form rỗng nhưng ĐỊNH DẠNG SỐ KHUÔN CỐ ĐỊNH (Không để chữ None lọt vào)
+        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form trống theo đúng mã loại vải (CHÍNH C01, LÓT L01...)
         else:
             for i in range(6):
-                s_code = f"c{str(i+1).zfill(2)}"
-                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ C{s_code.upper()}"}
+                s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
+                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
                 for sz in active_sizes: 
-                    item_dict[sz] = 0 # Khởi tạo bắt buộc bằng số 0 thuần túy, định hình cột số nguyên cho Streamlit
+                    item_dict[sz] = 0
                 item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
-        # Khởi tạo bảng dữ liệu nền (Đã dứt điểm hoàn toàn lỗi hiện None ô lưới)
+        # Khởi tạo bảng dữ liệu nền
         df_editor_base = pd.DataFrame(display_editor_rows)
         
-        # Ép kiểu dữ liệu cột số nguyên cưỡng chế cho tất cả các cột kích cỡ đang hoạt động
+        # Ép kiểu dữ liệu cột số nguyên cho Streamlit hiển thị số 0 sạch sẽ
         for sz in active_sizes:
             if sz in df_editor_base.columns:
                 df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
@@ -465,30 +479,22 @@ else:
         # Quản lý trạng thái khóa cứng bảng nhập liệu
         is_locked = st.session_state.get("consumption_activated", False)
 
-        # Bổ sung nút bấm mở khóa nếu tổ trưởng muốn quay lại sửa tay tiếp
         if is_locked:
             if st.button("🔓 MỞ KHÓA TOÀN BỘ BẢNG ĐỂ CHỈNH SỬA LẠI TAY", type="secondary", use_container_width=True, key="unlock_matrix_btn_c2"):
                 st.session_state["consumption_activated"] = False
-                st.toast("🔓 Đã mở khóa biểu mẫu! Bạn có thể sửa tay tên sơ đồ và thông số.", icon="🔓")
+                st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
                 st.rerun()
 
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (CHO PHÉP SỬA TAY TÊN SƠ ĐỒ VÀ THÔNG SỐ)</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (TỰ ĐỘNG CHUYỂN MÃ SƠ ĐỒ THEO LOẠI VẢI)</p>", unsafe_allow_html=True)
         
-        # HIỂN THỊ Ô LƯỚI TƯƠNG TÁC CÔNG NGHIỆP
         edited_df = st.data_editor(
-            df_editor_base, 
-            use_container_width=True, 
-            hide_index=True, 
-            disabled=is_locked, 
-            key="table_manual_data_editor_v1"
+            df_editor_base, use_container_width=True, hide_index=True, disabled=is_locked, key="table_manual_data_editor_v1"
         )
         
-        # Nếu chưa khóa thì liên tục lưu giữ snapshot động người dùng gõ tay
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
-
-                # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: KHỞI TẠO MA TRẬN BÁO CÁO VÀ CHUẨN HÓA ĐỊNH MỨC SƠ ĐỒ LŨY TIẾN
+        # =============================================================================
+        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ TÊN VẢI CHUẨN XUỐNG BẢNG ĐỐI CHIẾU VÀ XUẤT BÁO CÁO
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
@@ -501,12 +507,10 @@ else:
             g_val, s_val = "None", c_str
             if "X" in c_str:
                 p = c_str.split("X")
-                s_val, g_val = p[0].strip(), p[1].strip()
+                s_val, g_val = p.strip(), p.strip()
             
-            try: 
-                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
-            except Exception: 
-                po_v = 0
+            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
+            except Exception: po_v = 0
                 
             po_qty_matrix.append(po_v)
             t1_giang_row.append(g_val)
@@ -519,10 +523,13 @@ else:
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
-        # Duyệt qua các dòng trên data_editor để tính lũy tiến chính xác
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
+            
+            # ĐỌC CHUẨN XÁC TÊN SƠ ĐỒ TỪ BẢNG TRÊN (Đã tự động đổi sang CHÍNH C01, LÓT L01...)
+            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+            if s_name == "" or s_name in ["NONE", "NAN"]:
+                s_name = f"{fab_upper} {prefix_letter}{str(r_idx+1).zfill(2)}"
             
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
@@ -547,26 +554,22 @@ else:
                     sz_clean = str(sz).replace("X","-").strip()
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            # 🔥 ĐIỂM SỬA CHỐT LÕI: Chuẩn hóa tính toán Định mức Sơ đồ (dm_sd) dựa trên định mức nhập ô trên form
             if ratios_sum > 0 and m_len > 0:
-                # Nếu tổ trưởng đã nhập chiều dài sơ đồ thực tế, tính định mức theo chiều dài mét đi sơ đồ CAD
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
             else:
-                # Nếu bảng gõ tay đang trống (vừa up file), tự động lấy định mức tài liệu đề xuất gán vào làm mặc định
                 dm_sd = float(consumption_input)
-                # Tính toán chiều dài mét sơ đồ tự động dựa trên số quần phối (mặc định lấy bằng 1 nếu hàng trống để tạo khuôn)
                 effective_ratios = ratios_sum if ratios_sum > 0 else 1
                 vail_can_m = (dm_sd / 1.09361) * effective_ratios * layers * tables
                 if m_len == 0.0 and layers > 0:
                     m_len = round((dm_sd / 1.09361) * effective_ratios, 2)
                     
-            ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}: TRỐNG"
+            # 🛠️ SỬA LOGIC DÒNG TIÊU ĐỀ: Đồng bộ mã vải chuẩn chữ hoa, xóa hẳn chữ TRỐNG thừa lộn xộn
+            ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # Khấu trừ lùi sản lượng đơn hàng thực tế
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -581,7 +584,6 @@ else:
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-        # Hiển thị CSS và dựng lưới báo cáo lên Streamlit
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -593,7 +595,7 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
+        # Xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -621,7 +623,7 @@ else:
                 use_container_width=True, key="excel_multi_sheet_btn_final_v5"
             )
         
-        # Đồng bộ lưu đè dữ liệu lên Cloud Supabase
+        # Lưu trữ lên đám mây Supabase
         st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
@@ -640,7 +642,6 @@ else:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
-
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
