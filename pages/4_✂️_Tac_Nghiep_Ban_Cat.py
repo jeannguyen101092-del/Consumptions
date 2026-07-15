@@ -174,7 +174,7 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI CHIA BẺ NHỎ ĐOẠN CHIỀU DÀI
+# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI GHÉP TỶ LỆ SIZE LINH HOẠT
 # =============================================================================
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1: 
@@ -183,7 +183,7 @@ else:
             trigger_consumption = st.button("⚡ 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
 
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang phân chia nhỏ đoạn chiều dài và tính ma trận sơ đồ vét..."):
+            with st.spinner("🤖 AI đang tính toán tổ hợp ghép cỡ và tối ưu hóa ma trận bàn cắt..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -207,26 +207,27 @@ else:
                                 r_val = int(row_data.get(sz, 0))
                                 calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
 
-                # PROMPT KHỐNG CHẾ BẺ NHỎ CHIỀU DÀI THÀNH CÁC PHÂN ĐOẠN NHỎ ĐỂ VÉT TUYỆT ĐỐI 1 QUẦN
+                # PROMPT NÂNG CẤP THUẬT TOÁN GHÉP TỶ LỆ NHIỀU CỠ (CO-PLANNING SOLVER)
                 ai_cutting_prompt = f"""
-                Bạn là thuật toán tối ưu hóa sơ đồ dệt may công nghiệp. Nhiệm vụ của bạn là lập ma trận sơ đồ vét đuôi khúc.
+                Bạn là chuyên gia điều độ bàn cắt ngành may công nghiệp. Hãy giải bài toán lập ma trận phối cỡ (Ratios) cho các sơ đồ vét.
                 
                 Dữ liệu kỹ thuật:
-                - Sản lượng mồ côi cần vét sạch: {json.dumps(calculated_balances)}
-                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Tương đương khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 quần).
-                - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
+                - Sản lượng còn lại cần giải quyết: {json.dumps(calculated_balances)}
+                - Định mức đề xuất: {consumption_input} Yds/Pcs (Khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
+                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét.
 
-                QUY TẮC ÉP BUỘC PHÂN ĐOẠN CHIỀU DÀI & PHỐI SIZE:
-                1. Hãy chia chiều dài bàn cắt thành các phân đoạn nhỏ hơn nhiều so với mức tối đa ({max_table_length}m). Cụ thể, mỗi sơ đồ chỉ được chứa ĐÚNG 1 quần (1 cỡ có tỷ lệ bằng 1, các cỡ còn lại bằng 0). 
-                2. Chiều dài sơ đồ của mỗi phân đoạn nhỏ này sẽ bằng đúng định mức mét của 1 sản phẩm (khoảng {round(consumption_input * 0.9144, 2)} mét).
-                3. Tuyệt đối nghiêm cấm việc đi tỷ lệ phối nhiều sản phẩm (ví dụ rải 3-4 cỡ ghép chung) để giảm số lớp vải hạ thấp, vì quy trình này phá vỡ công nghệ dồn đầu khúc đơn giàng.
-                4. Bắt buộc phải đẩy "Số lớp" lên thật cao, bằng chính xác số lượng sản phẩm lẻ còn dư của cỡ đó để triệt tiêu số dư về 0.
-                5. Chỉ gán và phân bổ kết quả trả về cho 3 sơ đồ cuối: "c04", "c05", "c06".
+                QUY TẮC PHỐI CỠ VÀ TÍNH TOÁN (COMPULSORY CUTTING RULES):
+                1. Hãy TỰ ĐỘNG GHÉP các cỡ có số lượng tương đương lại với nhau trên cùng một sơ đồ (ví dụ: một sơ đồ có thể đi tỷ lệ phối nhiều quần như 1-1-1 hoặc 1-2-1) để giảm số lượng sơ đồ đơn lẻ và tăng năng suất bàn rải.
+                2. RÀNG BUỘC CHIỀU DÀI: (Tổng số sản phẩm trên sơ đồ) * ({round(consumption_input * 0.9144, 3)} mét) KHÔNG ĐƯỢC vượt quá chiều dài tối đa ({max_table_length} mét). Nếu tổng chiều dài vượt quá, bắt buộc phải giảm số sản phẩm phối xuống.
+                3. Hãy tính toán "Số lớp" rải hợp lý sao cho giải quyết được phần lớn sản lượng của các cỡ được phối đó.
+                4. CHỈ SỬ DỤNG SƠ ĐỒ 1 QUẦN (1 cỡ/sơ đồ) làm giải pháp vét đuôi cuối cùng cho các cỡ còn dư số lượng quá lẻ, mồ côi không thể ghép đôi, ghép ba với các cỡ khác.
+                5. Chỉ phân bổ kết quả vào 3 sơ đồ cuối: "c04", "c05", "c06".
 
-                Trả về mảng JSON sạch định dạng chuẩn xác, không giải thích thêm:
+                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích:
                 [
-                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"TÊN_SIZE_A": 1}}, "Số lớp": 35, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}},
-                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"TÊN_SIZE_B": 1}}, "Số lớp": 18, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}}
+                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}},
+                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"4": 1, "6": 1}}, "Số lớp": 200, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 2, 2)}}},
+                  {{"Sơ đồ / Trạng thái": "c06", "Ratios": {{"8": 1}}, "Số lớp": 45, "SỐ BÀN": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}}
                 ]
                 """
                 try:
@@ -253,7 +254,7 @@ else:
                                     item_dict[sz] = int(r_dict.get(sz, 0))
                                 item_dict.update({
                                     "SƠ LỚP": int(ai_row.get("Số lớp", 1)), 
-                                    "SỐ BÀN": int(ai_row.get("Số bàn", 1)), 
+                                    "SỐ BÀN": int(ai_row.get("Số bàn", 1) or ai_row.get("SỐ BÀN", 1)), 
                                     "DÀI SƠ ĐỒ": float(ai_row.get("Chiều dài mét", 0.0) or round(consumption_input * 0.9144, 2))
                                 })
                             else:
@@ -267,13 +268,14 @@ else:
                             updated_rows.append(item_dict)
                         
                         st.session_state["session_editor_snapshot"] = updated_rows
-                        st.success("🎯 AI đã phân đoạn bẻ nhỏ chiều dài và tự động đổ ma trận vét 1 quần vào bảng!")
+                        st.success("🎯 AI đã thực hiện phối ghép đa cỡ và đồng bộ ma trận vào bảng thành công!")
                         st.rerun()
                 except Exception as e: 
-                    st.error(f"⚠️ Lỗi xử lý thuật toán phân đoạn AI: {str(e)}")
+                    st.error(f"⚠️ Lỗi xử lý thuật toán phối cỡ AI: {str(e)}")
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
+
 
 
 
