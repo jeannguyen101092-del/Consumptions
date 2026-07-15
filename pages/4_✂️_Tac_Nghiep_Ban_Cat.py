@@ -688,77 +688,6 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 1: KHỬ TRIỆT ĐỂ LỖI CHUỒI MẢNG VÀ MỞ KHÓA QUYỀN SỬA REAL-TIME
-# =============================================================================
-
-# Khôi phục các biến nền an toàn từ phiên làm việc
-recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
-snapshot = st.session_state.get("session_editor_snapshot")
-fab_upper = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
-prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
-
-# 🛠️ CHUẨN HÓA LÀM SẠCH VÀ PHẲNG HÓA DANH SÁCH SIZE GỐC
-flattened_active_sizes = []
-flattened_size_breakdown = {}
-
-for original_key, original_val in size_breakdown_main.items():
-    k_str = str(original_key).strip().upper()
-    
-    if k_str.startswith("[") or "['" in k_str or '["' in k_str:
-        cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2:
-            k_str = f"{cleaned_parts}X{cleaned_parts}"
-        else:
-            k_str = k_str.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(" ", "").replace(",", "X")
-    
-    k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
-    
-    try: 
-        v_num = int(float(str(original_val).replace(",", "").strip() or 0))
-    except Exception: 
-        v_num = 0
-    
-    if v_num > 0 and k_str != "":
-        flattened_size_breakdown[k_str] = flattened_size_breakdown.get(k_str, 0) + v_num
-        if k_str not in flattened_active_sizes:
-            flattened_active_sizes.append(k_str)
-
-active_sizes = flattened_active_sizes
-size_breakdown_main = flattened_size_breakdown
-total_sum_po_qty = sum(size_breakdown_main.values())
-
-# Thiết lập khuôn mẫu cấu trúc cứng cho 3 hàng tiêu đề phụ của ô lưới tương tác
-giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
-size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
-sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
-
-for sz in active_sizes:
-    c_str = str(sz).replace(" ", "").upper()
-    g_val, s_val = "None", c_str
-    parts = re.split(r'[X_-]', c_str)
-    if len(parts) >= 2:
-        s_val = str(parts[0]).strip()
-        g_val = str(parts[1]).strip()
-    elif len(parts) == 1:
-        s_val = str(parts[0]).strip()
-        g_val = "None"
-    
-    giang_top_row[sz] = re.sub(r'_\d+$', '', g_val)
-    size_top_row[sz] = re.sub(r'_\d+$', '', s_val)
-    sl_top_row[sz] = size_breakdown_main.get(sz, 0)
-    
-giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
-
-display_editor_rows = []
-
-import streamlit as st
-import pandas as pd
-import json
-import re
-
-# =============================================================================
 # TẦNG 3 - ĐOẠN 6: ĐỒNG BỘ 2 CHIỀU TUYỆT ĐỐI - KHỬ LỖI GÕ SỐ BỊ BIẾN MẤT
 # =============================================================================
 
@@ -891,7 +820,6 @@ def callback_sync_on_the_fly_final():
                 r_idx_int = int(r_idx_edit)
                 if r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
-                    # Cập nhật trực tiếp các thay đổi dựa vào tiêu đề cột ảo CỠ X cố định
                     current_snapshot[r_idx_int].update(change_dict)
             st.session_state["session_editor_snapshot"] = current_snapshot
 
@@ -900,7 +828,6 @@ edited_df_raw = st.data_editor(
     df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
 )
-
 
 
 import streamlit as st
