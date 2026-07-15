@@ -688,7 +688,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ĐỒNG BỘ 2 CHIỀU CHUẨN SẢN XUẤT
+# TẦNG 3 - ĐOẠN 6 SỬA ĐỔI: TRÍCH XUẤT INDEX MẢNG - MỞ KHÓA CỨNG GÕ TAY 100%
 # =============================================================================
 
 # Khôi phục bộ nhớ đệm snapshot từ phiên làm việc
@@ -704,7 +704,7 @@ for original_key, original_val in size_breakdown_main.items():
     k_str = str(original_key).strip().upper()
     if k_str.startswith("[") or "['" in k_str or '["' in k_str:
         cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts}X{cleaned_parts}"
+        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
         else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
     k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
     
@@ -718,19 +718,26 @@ active_sizes = flattened_active_sizes
 size_breakdown_main = flattened_size_breakdown
 total_sum_po_qty = sum(size_breakdown_main.values())
 
-# Tạo mảng tiêu đề cột ảo cố định cho Streamlit quản lý lưu trữ không bị mất số [INDEX]
+# Tiêu đề cột chuẩn hóa thống nhất đồng bộ dạng ảo CỠ X để Streamlit nhận diện lưu trữ
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 2. Tạo khuôn mẫu 3 hàng tiêu đề phụ cố định
+# 2. Tạo cấu trúc khuôn mẫu 3 hàng tiêu đề phụ cố định
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
 
+# 🔥 ĐIỂM SỬA CHỐT LỖI: Bốc tách phần tử index 0 và 1 của mảng parts để khử dấu ngoặc vuông []
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
     g_val, s_val = "None", c_str
+    
     parts = re.split(r'[X_x-]', c_str)
-    if len(parts) >= 2: s_val, g_val = str(parts).strip(), str(parts).strip()
+    if len(parts) >= 2:
+        s_val = str(parts[0]).strip()  # Index 0 là thông số vòng Eo (Size) [INDEX]
+        g_val = str(parts[1]).strip()  # Index 1 là thông số dài Giàng (Inseam) [INDEX]
+    elif len(parts) == 1:
+        s_val = str(parts[0]).strip()
+        g_val = "None"
     
     giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
     size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
@@ -742,18 +749,21 @@ sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
 display_editor_rows = []
 
-# 3. Nạp bộ nhớ đệm snapshot đổ ngược ra giao diện hiển thị
+# 3. Nạp bộ nhớ đệm snapshot đổ ngược ra giao diện hiển thị ảo
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        if not item_name or item_name.strip() == "":
+            item_name = "PILOT" if len(cleaned_snapshot) == 3 else f"{fab_upper} C{str(len(cleaned_snapshot)-3).zfill(2)}"
+            
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         
         for c_idx, sz in enumerate(active_sizes):
-            val_cell = row.get(sz, row.get(f"CỠ {c_idx+1}", 0))
-            item_dict[f"CỠ {c_idx+1}"] = int(float(str(val_cell).replace(",", "") or 0))
+            val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
+            item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
             
         try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "") or 0))
         except: item_dict["SƠ LỚP"] = 0
@@ -777,11 +787,19 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
+# Dựng DataFrame render lên Streamlit
 df_editor_top_render = pd.DataFrame(display_editor_rows).reindex(columns=clean_headers_top).fillna(0)
 
-# 🔥 GỠ BỎ BIẾN IS_LOCKED ĐỂ LUÔN LUÔN MỞ KHÓA QUYỀN SỬA CHO THỢ CẮT [INDEX]
+# Ép kiểu số cứng
+for col in clean_headers_top:
+    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
+    elif col == "DÀI SƠ ĐỒ":
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
+
+# Cấu hình mở khóa cứng cho toàn bộ ô lưới tác nghiệp
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"),
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
     "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
     "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
@@ -790,7 +808,7 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# Hàm Callback biên dịch ngược lưu cứng số thợ gõ vào bộ nhớ Snapshot [INDEX]
+# Hàm Callback đồng bộ ngược đổ dữ liệu thẳng vào bộ nhớ Snapshot trung tâm
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -808,7 +826,7 @@ def callback_sync_on_the_fly_final():
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
                                 clean_changes[active_sizes[c_num - 1]] = int(float(str(new_val).strip() or 0))
-                            except: pass
+                            except Exception: pass
                         else:
                             clean_changes[col_header] = new_val
                             
