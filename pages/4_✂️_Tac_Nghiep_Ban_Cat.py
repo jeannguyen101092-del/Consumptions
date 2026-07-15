@@ -948,7 +948,7 @@ else:
                 item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
             final_snapshot_rows.append(item_dict)
 
-    # --- Bước 2: Khấu trừ sơ đồ Pilot/Test mẫu người dùng gõ tay trước ---
+       # --- Bước 2: Khấu trừ sơ đồ Pilot/Test mẫu người dùng gõ tay trước (ĐÃ SỬA LOGIC) ---
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if "PILOT" in s_row_name or "SS" in s_row_name:
@@ -962,13 +962,19 @@ else:
                 r_dict[sz] = safe_int_final(row.get(sz, row.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
             row_ratios_total = sum(r_dict.values())
             
-            effective_layers = layers if layers > 0 else 1
-            if row_ratios_total > 0:
+            # SỬA TẠI ĐÂY: Nếu thợ nhập Sơ Lớp = 0, sản lượng thực tế cắt của dòng này phải bằng 0 (Không tự ép lên 1)
+            if row_ratios_total > 0 and layers > 0:
                 for sz in active_sizes:
-                    allocated_pcs = r_dict.get(sz, 0) * effective_layers * tables
+                    allocated_pcs = r_dict.get(sz, 0) * layers * tables
                     current_order_balances[sz] = max(0, current_order_balances[sz] - allocated_pcs)
                     
-            item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": layers, "SỐ BÀN": tables, "DÀI SƠ ĐỒ": m_len, "TỔNG SẢN LƯỢNG": row_ratios_total * layers * tables}
+            item_pilot = {
+                "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, 
+                "SƠ LỚP": layers, 
+                "SỐ BÀN": tables, 
+                "DÀI SƠ ĐỒ": m_len, 
+                "TỔNG SẢN LƯỢNG": row_ratios_total * layers * tables # Sẽ bằng 0 nếu sơ lớp = 0
+            }
             item_pilot.update(r_dict)
             item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
             final_snapshot_rows.append(item_pilot)
