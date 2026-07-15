@@ -843,17 +843,26 @@ config_cot = {
 for i in range(len(active_sizes)):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=False, min_value=0, step=1, format="%d")
 
-# --- HÀM CALLBACK ĐỒNG BỘ DỮ LIỆU TỨ THỜI BẰNG DEEP COPY CHỐNG LẶP RERUN LOOP ---
+# --- HÀM CALLBACK CẬP NHẬT ĐÃ ĐƯỢC SỬA LỖI NONE TẬN GỐC (DÒNG 856) ---
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            # Tách biệt vùng nhớ độc lập bằng JSON Serialization tránh crash vòng lặp render
-            current_snapshot = json.loads(json.dumps(st.session_state.get("session_editor_snapshot", display_editor_rows)))
             
+            # 🎯 FIX TRỌNG TÂM: Lấy dữ liệu snapshot, nếu None hoặc trống thì ép về mảng display_editor_rows mặc định
+            raw_snapshot = st.session_state.get("session_editor_snapshot")
+            if raw_snapshot is None:
+                raw_snapshot = display_editor_rows
+                
+            # Thực hiện ngắt liên kết vùng nhớ (Deep Copy) an toàn
+            current_snapshot = json.loads(json.dumps(raw_snapshot))
+            
+            # Tiến hành duyệt và đồng bộ hóa các hàng được chỉnh sửa
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
-                if r_idx_int < len(current_snapshot):
+                
+                # Kiểm tra độ dài an toàn sau khi đã chắc chắn current_snapshot không phải là None
+                if current_snapshot and r_idx_int < len(current_snapshot):
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
                         continue
                     
@@ -862,7 +871,6 @@ def callback_sync_on_the_fly_final():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
-                                # Ghi đồng thời Key ảo và Key thực tế để đồng bộ cho toàn bộ các công đoạn xử lý sau
                                 target_size_key = active_sizes[c_num - 1]
                                 clean_changes[f"CỠ {c_num}"] = safe_int_final(new_val)
                                 clean_changes[target_size_key] = safe_int_final(new_val)
@@ -874,13 +882,9 @@ def callback_sync_on_the_fly_final():
                             except: pass
                             
                     current_snapshot[r_idx_int].update(clean_changes)
+            
+            # Lưu lại trạng thái an toàn vào bộ nhớ đệm
             st.session_state["session_editor_snapshot"] = current_snapshot
-
-# Render Grid tương tác đồng bộ dữ liệu chuẩn sản xuất
-edited_df_raw = st.data_editor(
-    df_editor_top_render, use_container_width=True, hide_index=True, column_config=config_cot,
-    key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
-)
 
 
 
