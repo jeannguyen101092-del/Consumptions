@@ -132,9 +132,31 @@ class SizeBreakdownModel(BaseModel):
     total_quantity: int = Field(description="The sum of all ordering or cutting quantities across all sizes.")
     size_breakdown: Dict[str, int] = Field(description="A dictionary where keys are size names and values are their corresponding quantities as pure integers.")
 
+import streamlit as st
+import pandas as pd
+import json
+import io
+from pydantic import BaseModel, Field
+from typing import Dict
+from google import genai
+from google.genai import types
+
+# Định nghĩa cấu trúc Schema cứng bằng Pydantic để ép Gemini trả về cấu trúc JSON sạch 100%
+class SizeBreakdownModel(BaseModel):
+    style_id: str = Field(description="The unique identification code of the garment style.")
+    total_quantity: int = Field(description="The sum of all ordering or cutting quantities across all sizes.")
+    size_breakdown: Dict[str, int] = Field(description="A dictionary where keys are size names and values are their corresponding quantities as pure integers.")
+
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD
+# TẦNG 1 - ĐOẠN 2: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD (SỬA LỖI NÚT XÓA)
 # =============================================================================
+
+# 🎯 FIX TRỌNG TÂM - CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
+if st.session_state.get("planning_cleared", False):
+    # Nếu thợ bấm nút "XÓA ĐỂ TÍNH LẠI", triệt tiêu toàn bộ trạng thái nạp file và sản lượng cũ về trống rỗng
+    st.session_state["purchase_ready"] = False
+    st.session_state["sbd_parsed_data"] = None
+    st.session_state["pur_tp_parsed_data"] = None
 
 # Khối này nằm ngay phía dưới component st.file_uploader của Đoạn 1
 if not st.session_state.get("purchase_ready", False) and file_sbd_c2:
@@ -232,11 +254,16 @@ if not st.session_state.get("purchase_ready", False) and file_sbd_c2:
                         
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
+                
+                # Khi nạp file mới thành công, mở khóa cờ xóa để sẵn sàng cho chu kỳ tính toán mới
+                st.session_state["planning_cleared"] = False
+                
                 st.success("✅ Hệ thống đã số hóa dữ liệu đơn hàng thành công!")
                 st.rerun()
                 
             except Exception as e: 
                 st.error(f"⚠️ Lỗi nghiêm trọng khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+
 import streamlit as st
 import pandas as pd
 import json
