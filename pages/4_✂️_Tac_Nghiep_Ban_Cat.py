@@ -392,7 +392,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY, SNAPSHOT VÀ NÚT MỞ KHÓA
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY, SNAPSHOT VÀ CHUẨN HÓA LƯỚI SỐ
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -401,7 +401,20 @@ else:
 
         # 1. ƯU TIÊN SỐ 1: Nếu đã có dữ liệu snapshot do tổ trưởng gõ tay hoặc AI điền trước đó, giữ nguyên 100%
         if snapshot and len(snapshot) > 0:
-            display_editor_rows = list(snapshot)
+            # Kiểm tra bọc phòng thủ để chắc chắn các ô không bị dính chữ None hoặc None thực thể
+            cleaned_snapshot = []
+            for row in snapshot:
+                item_dict = {}
+                for k, v in row.items():
+                    if k in active_sizes:
+                        try:
+                            item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
+                        except Exception:
+                            item_dict[k] = 0
+                    else:
+                        item_dict[k] = v
+                cleaned_snapshot.append(item_dict)
+            display_editor_rows = cleaned_snapshot
             
         # 2. ƯU TIÊN SỐ 2: Nếu có kết quả khôi phục lịch sử từ Supabase gửi về
         elif recovered_source:
@@ -411,31 +424,43 @@ else:
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
                     for sz in active_sizes: 
                         try:
-                            clean_row[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
+                            v_val = row.get(sz, 0)
+                            clean_row[sz] = int(float(str(v_val).replace(",", "").strip())) if (v_val is not None and str(v_val).strip() != "" and str(v_val).lower() != "none") else 0
                         except Exception:
                             clean_row[sz] = 0
                     try:
                         clean_row.update({
-                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 120)).replace(",", "").strip() or 120)), 
+                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
                             "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
                             "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
                         })
                     except Exception:
-                        clean_row.update({"SƠ LỚP": 120, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                        clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form trống trơn để tổ trưởng tự nhập tay từ con số 0
+        # 3. ƯU TIÊN SỐ 3: Mặc định ban đầu tạo form rỗng nhưng ĐỊNH DẠNG SỐ KHUÔN CỐ ĐỊNH (Không để chữ None lọt vào)
         else:
             for i in range(6):
                 s_code = f"c{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ C{s_code.upper()}"}
                 for sz in active_sizes: 
-                    item_dict[sz] = 0
-                item_dict.update({"SƠ LỚP": 120 if i < 3 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                    item_dict[sz] = 0 # Khởi tạo bắt buộc bằng số 0 thuần túy, định hình cột số nguyên cho Streamlit
+                item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
-        # Khởi tạo bảng dữ liệu nền (Đã khắc phục hoàn toàn lỗi NameError)
+        # Khởi tạo bảng dữ liệu nền (Đã dứt điểm hoàn toàn lỗi hiện None ô lưới)
         df_editor_base = pd.DataFrame(display_editor_rows)
+        
+        # Ép kiểu dữ liệu cột số nguyên cưỡng chế cho tất cả các cột kích cỡ đang hoạt động
+        for sz in active_sizes:
+            if sz in df_editor_base.columns:
+                df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
+        if "SƠ LỚP" in df_editor_base.columns:
+            df_editor_base["SƠ LỚP"] = df_editor_base["SƠ LỚP"].fillna(0).astype(int)
+        if "SỐ BÀN" in df_editor_base.columns:
+            df_editor_base["SỐ BÀN"] = df_editor_base["SỐ BÀN"].fillna(1).astype(int)
+        if "DÀI SƠ ĐỒ" in df_editor_base.columns:
+            df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
         
         # Quản lý trạng thái khóa cứng bảng nhập liệu
         is_locked = st.session_state.get("consumption_activated", False)
@@ -449,7 +474,7 @@ else:
 
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (CHO PHÉP SỬA TAY TÊN SƠ ĐỒ VÀ THÔNG SỐ)</p>", unsafe_allow_html=True)
         
-        # HIỂN THỊ Ô LƯỚI TƯƠNG TÁC
+        # HIỂN THỊ Ô LƯỚI TƯƠNG TÁC CÔNG NGHIỆP
         edited_df = st.data_editor(
             df_editor_base, 
             use_container_width=True, 
@@ -461,6 +486,7 @@ else:
         # Nếu chưa khóa thì liên tục lưu giữ snapshot động người dùng gõ tay
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ BÁO CÁO XUẤT XƯỞNG (XÓA LỖI NAMEERROR)
         # =============================================================================
