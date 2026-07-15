@@ -102,7 +102,7 @@ if not st.session_state.get("purchase_ready"):
                 st.session_state["purchase_ready"] = True
                 st.rerun()
 # =============================================================================
-# TẦNG 2: MÀN HÌNH TÁC NGHIỆP FORM HÀNH CHÍNH VÀ Ô CHỌN LOẠI VẢI ĐỘNG
+# TẦNG 2 - ĐOẠN 1: MÀN HÌNH TÁC NGHIỆP FORM HÀNH CHÍNH VÀ Ô CHỌN LOẠI VẢI ĐỘNG
 # =============================================================================
 else:
     sbd_data_store = st.session_state.get("sbd_parsed_data", {})
@@ -135,7 +135,6 @@ else:
         with input_col4: max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
         default_fab = st.session_state.get("fabric_type_recovered", "CHÍNH")
         
-        # Bọc xử lý selectbox để tránh lỗi nếu index() không tìm thấy dữ liệu mặc định
         available_fabrics = ["CHÍNH", "LÓT", "KEO", "PHỐI"]
         try:
             default_index = available_fabrics.index(default_fab)
@@ -163,7 +162,6 @@ else:
             except Exception: 
                 pass
 
-        # SỬA ĐOẠN LỖI: Duyệt active_sizes có bọc xử lý lỗi dữ liệu không phải là số hợp lệ
         active_sizes = []
         for k, v in size_breakdown_main.items():
             try:
@@ -175,7 +173,9 @@ else:
 
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
-        
+# =============================================================================
+# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI CHIA BẺ NHỎ ĐOẠN CHIỀU DÀI
+# =============================================================================
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1: 
             trigger_auto_cutting = st.button("🤖 1. KÍCH HOẠT AI VÉT SẠCH SẼ LƯỢNG DƯ CÒN LẠI", type="primary", use_container_width=True, key="c2_normal_cut_btn")
@@ -183,7 +183,7 @@ else:
             trigger_consumption = st.button("⚡ 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
 
         if trigger_auto_cutting:
-            with st.spinner("🤖 AI đang quét số dư mồ côi và lập tổ hợp sơ đồ vét đuôi khúc..."):
+            with st.spinner("🤖 AI đang phân chia nhỏ đoạn chiều dài và tính ma trận sơ đồ vét..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -192,20 +192,89 @@ else:
                 from google.genai import types
                 client_ai = genai.Client(api_key=gemini_key)
                 
-                ai_cutting_prompt = f"""Bạn là chuyên gia điều độ bàn cắt. Quét ma trận sản lượng lẻ này: {json.dumps(size_breakdown_main)}. 
-                Tự động sinh ra các sơ đồ vét có Số lớp thấp, tỷ lệ bằng 1 quần để triệt tiêu toàn bộ số dư CÒN LẠI về 0. Max Length {max_table_length}m. 
-                Trả về kết quả dạng JSON mảng sạch: [ {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{ "Key_Size": 1 }}, "Số lớp": 15, "Số bàn": 1, "Số sp/SĐ": 1}} ]"""
+                snapshot = st.session_state.get("session_editor_snapshot")
+                calculated_balances = {}
+                for sz in active_sizes:
+                    calculated_balances[sz] = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
+                
+                if snapshot:
+                    for row_data in snapshot:
+                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).lower()
+                        if any(c in s_name for c in ["c01", "c02", "c03"]):
+                            layers = int(row_data.get("SƠ LỚP", 0))
+                            tables = int(row_data.get("SỐ BÀN", 1))
+                            for sz in active_sizes:
+                                r_val = int(row_data.get(sz, 0))
+                                calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
+
+                # PROMPT KHỐNG CHẾ BẺ NHỎ CHIỀU DÀI THÀNH CÁC PHÂN ĐOẠN NHỎ ĐỂ VÉT TUYỆT ĐỐI 1 QUẦN
+                ai_cutting_prompt = f"""
+                Bạn là thuật toán tối ưu hóa sơ đồ dệt may công nghiệp. Nhiệm vụ của bạn là lập ma trận sơ đồ vét đuôi khúc.
+                
+                Dữ liệu kỹ thuật:
+                - Sản lượng mồ côi cần vét sạch: {json.dumps(calculated_balances)}
+                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Tương đương khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 quần).
+                - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
+
+                QUY TẮC ÉP BUỘC PHÂN ĐOẠN CHIỀU DÀI & PHỐI SIZE:
+                1. Hãy chia chiều dài bàn cắt thành các phân đoạn nhỏ hơn nhiều so với mức tối đa ({max_table_length}m). Cụ thể, mỗi sơ đồ chỉ được chứa ĐÚNG 1 quần (1 cỡ có tỷ lệ bằng 1, các cỡ còn lại bằng 0). 
+                2. Chiều dài sơ đồ của mỗi phân đoạn nhỏ này sẽ bằng đúng định mức mét của 1 sản phẩm (khoảng {round(consumption_input * 0.9144, 2)} mét).
+                3. Tuyệt đối nghiêm cấm việc đi tỷ lệ phối nhiều sản phẩm (ví dụ rải 3-4 cỡ ghép chung) để giảm số lớp vải hạ thấp, vì quy trình này phá vỡ công nghệ dồn đầu khúc đơn giàng.
+                4. Bắt buộc phải đẩy "Số lớp" lên thật cao, bằng chính xác số lượng sản phẩm lẻ còn dư của cỡ đó để triệt tiêu số dư về 0.
+                5. Chỉ gán và phân bổ kết quả trả về cho 3 sơ đồ cuối: "c04", "c05", "c06".
+
+                Trả về mảng JSON sạch định dạng chuẩn xác, không giải thích thêm:
+                [
+                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"TÊN_SIZE_A": 1}}, "Số lớp": 35, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}},
+                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"TÊN_SIZE_B": 1}}, "Số lớp": 18, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144, 2)}}}
+                ]
+                """
                 try:
-                    res_cutting = client_ai.models.generate_content(model='gemini-2.5-flash', contents=[ai_cutting_prompt])
+                    res_cutting = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=[ai_cutting_prompt],
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
                     ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
+                    
                     if isinstance(ai_vete_res, list):
                         st.session_state["auto_cutting_results"] = ai_vete_res
-                        st.success("🎯 AI đã quét số lượng dư và lập sơ đồ vét đuôi khúc thành công!")
-                except Exception: 
-                    pass
+                        
+                        updated_rows = []
+                        for i in range(6):
+                            s_code = f"c{str(i+1).zfill(2)}"
+                            item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
+                            
+                            ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
+                            if ai_match:
+                                ai_row = ai_match[0]
+                                r_dict = ai_row.get("Ratios", {})
+                                for sz in active_sizes: 
+                                    item_dict[sz] = int(r_dict.get(sz, 0))
+                                item_dict.update({
+                                    "SƠ LỚP": int(ai_row.get("Số lớp", 1)), 
+                                    "SỐ BÀN": int(ai_row.get("Số bàn", 1)), 
+                                    "DÀI SƠ ĐỒ": float(ai_row.get("Chiều dài mét", 0.0) or round(consumption_input * 0.9144, 2))
+                                })
+                            else:
+                                if snapshot and i < len(snapshot):
+                                    old_row = snapshot[i]
+                                    for sz in active_sizes: item_dict[sz] = int(old_row.get(sz, 0))
+                                    item_dict.update({"SƠ LỚP": int(old_row.get("SƠ LỚP", 120)), "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))})
+                                else:
+                                    for sz in active_sizes: item_dict[sz] = 0
+                                    item_dict.update({"SƠ LỚP": 120 if i < 3 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                            updated_rows.append(item_dict)
+                        
+                        st.session_state["session_editor_snapshot"] = updated_rows
+                        st.success("🎯 AI đã phân đoạn bẻ nhỏ chiều dài và tự động đổ ma trận vét 1 quần vào bảng!")
+                        st.rerun()
+                except Exception as e: 
+                    st.error(f"⚠️ Lỗi xử lý thuật toán phân đoạn AI: {str(e)}")
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
+
 
 
         # =============================================================================
