@@ -457,8 +457,8 @@ else:
 
 
 
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU TÁCH RỜI DÒNG GIÀNG VÀ SIZE AN TOÀN
+         # =============================================================================
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU TÁCH RỜI DÒNG GIÀNG VÀ SIZE CỐ ĐỊNH
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -471,71 +471,60 @@ else:
         elif fab_upper == "KEO": prefix_letter = "K"
         else: prefix_letter = "P"
 
+        # Khởi tạo khuôn 2 dòng tiêu đề chữ GIÀNG và SIZE động theo tệp SBD vừa up
+        giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
+        size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
+        for sz in active_sizes:
+            parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
+            giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
+            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
+        giang_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+        size_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
+
         # 1. Luồng khôi phục dữ liệu snapshot (Gõ tay hoặc AI đổ về)
         if snapshot and len(snapshot) > 0 and snapshot is not None:
-            cleaned_snapshot = []
-            for i, row in enumerate(snapshot):
-                item_dict = {}
-                curr_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
-                item_dict["BÀN CẮT / TÊN SƠ ĐỒ"] = curr_name
-                
-                for k, v in row.items():
-                    if k != "BÀN CẮT / TÊN SƠ ĐỒ":
-                        if k in active_sizes:
-                            if curr_name in ["GIÀNG", "SIZE"]:
-                                item_dict[k] = str(v).strip()
-                            else:
-                                try: item_dict[k] = int(float(str(v).replace(",", "").strip())) if (v is not None and str(v).strip() != "" and str(v).lower() != "none") else 0
-                                except Exception: item_dict[k] = 0
-                        else:
-                            if curr_name in ["GIÀNG", "SIZE"]: item_dict[k] = ""
-                            else: item_dict[k] = v
+            # Loại bỏ các dòng GIÀNG/SIZE cũ lỡ lưu sai trong đệm để tránh bị trùng lặp dòng
+            filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE"]]
+            
+            # Luôn dán cứng 2 dòng tiêu đề GIÀNG và SIZE lên đầu lưới nhập liệu
+            cleaned_snapshot = [giang_top_row, size_top_row]
+            for row in filtered_snapshot:
+                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()}
+                for sz in active_sizes:
+                    try: item_dict[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
+                    except Exception: item_dict[sz] = 0
+                try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+                except Exception: item_dict["SƠ LỚP"] = 0
+                try: item_dict["SỐ BÀN"] = int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+                except Exception: item_dict["SỐ BÀN"] = 1
+                try: item_dict["DÀI SƠ ĐỒ"] = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+                except Exception: item_dict["DÀI SƠ ĐỒ"] = 0.0
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
             
         # 2. Luồng khôi phục dữ liệu từ Supabase đám mây
         elif recovered_source:
-            for i, row in enumerate(recovered_source):
+            display_editor_rows = [giang_top_row, size_top_row]
+            for row in recovered_source:
                 t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
-                if not any(x in t_name for x in ["CÒN LẠI", "SẢN LƯỢNG", "Mã hàng", "Màu:", "Loại vải:"]):
+                if not any(x in t_name for x in ["CÒN LẠI", "SẢN LƯỢNG", "Mã hàng", "Màu:", "Loại vải:", "GIÀNG", "SIZE"]):
                     clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name}
                     for sz in active_sizes: 
-                        v_val = row.get(sz, 0)
-                        if t_name in ["GIÀNG", "SIZE"]:
-                            clean_row[sz] = str(v_val).strip()
-                        else:
-                            try: clean_row[sz] = int(float(str(v_val).replace(",", "").strip())) if (v_val is not None and str(v_val).strip() != "" and str(v_val).lower() != "none") else 0
-                            except Exception: clean_row[sz] = 0
-                    
-                    if t_name in ["GIÀNG", "SIZE"]:
-                        clean_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
-                    else:
-                        try:
-                            clean_row.update({
-                                "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
-                                "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
-                                "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
-                            })
-                        except Exception:
-                            clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                        try: clean_row[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
+                        except Exception: clean_row[sz] = 0
+                    try:
+                        clean_row.update({
+                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
+                            "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
+                            "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+                        })
+                    except Exception:
+                        clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. Mặc định tạo form trống có tách rời 2 dòng GIÀNG và SIZE lên đầu bảng nhập liệu
+        # 3. Luồng mặc định khi mới mở ứng dụng HOẶC khi nhấn nút "XÓA ĐỂ TÍNH LẠI"
         else:
-            # Tạo dòng GIÀNG nền
-            giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
-            size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
-            for sz in active_sizes:
-                parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
-                giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts[1]).strip()) if len(parts) >= 2 else "None"
-                size_top_row[sz] = re.sub(r'_\d+$', '', str(parts[0]).strip())
-            giang_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
-            size_top_row.update({"SƠ LỚP": "", "SỐ BÀN": "", "DÀI SƠ ĐỒ": ""})
-            
-            display_editor_rows.append(giang_top_row)
-            display_editor_rows.append(size_top_row)
-            
-            # Tạo tiếp 6 dòng sơ đồ rải vải phía dưới
+            display_editor_rows = [giang_top_row, size_top_row]
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
                 item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {s_code}"}
@@ -545,7 +534,6 @@ else:
                 display_editor_rows.append(item_dict)
                 
         df_editor_base = pd.DataFrame(display_editor_rows)
-        
         is_locked = st.session_state.get("consumption_activated", False)
 
         if is_locked:
@@ -562,13 +550,13 @@ else:
                 if "edited_rows" in editor_state:
                     for row_idx, changes in editor_state["edited_rows"].items():
                         if row_idx < len(display_editor_rows):
-                            # Ngăn không cho sửa dòng chữ tiêu đề GIÀNG/SIZE
+                            # KHÓA CỨNG: Không cho phép chỉnh sửa nội dung text của 2 dòng tiêu đề chữ GIÀNG/SIZE
                             if display_editor_rows[row_idx]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE"]:
                                 continue
                             display_editor_rows[row_idx].update(changes)
                 st.session_state["session_editor_snapshot"] = display_editor_rows
 
-        # Đặt cấu hình hiển thị cột phẳng sạch sẽ để tránh lỗi StreamlitAPIException
+        # Định cấu hình tên cột hiển thị phẳng sạch lỗi StreamlitAPIException
         clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
         df_editor_top_render = df_editor_base.copy()
         df_editor_top_render.columns = clean_headers_top
@@ -578,10 +566,10 @@ else:
             key="table_manual_data_editor_v1", on_change=sync_editor_changes
         )
         
-        # Đồng bộ ngược trở lại DataFrame phẳng gốc để chạy phân hệ tính toán lũy tiến
         edited_df = pd.DataFrame(st.session_state.get("session_editor_snapshot", display_editor_rows))
         if not is_locked:
             st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
+
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG RỜI RÕ RÀNG XUỐNG BẢNG DƯỚI
         # =============================================================================
