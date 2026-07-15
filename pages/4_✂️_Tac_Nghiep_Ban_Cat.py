@@ -458,7 +458,7 @@ else:
 
 
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG TƯƠNG TÁC GÕ TAY VÀ ĐỒNG BỘ TRẠNG THÁI ON_CHANGE
+        # TẦNG 3 - ĐOẠN 1: KHỞI TẠO BẢNG NHẬP LIỆU ĐA TẦNG MULTIINDEX (TÁCH BIỆT GIÀNG & SIZE BẢNG TRÊN)
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -516,7 +516,7 @@ else:
                         clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                     display_editor_rows.append(clean_row)
                     
-        # 3. Luồng mặc định khi mới mở ứng dụng HOẶC khi nhấn nút "XÓA ĐỂ TÍNH LẠI"
+        # 3. Mặc định tạo form trống ban đầu
         else:
             for i in range(6):
                 s_code = f"{prefix_letter}{str(i+1).zfill(2)}"
@@ -526,10 +526,9 @@ else:
                 item_dict.update({"SƠ LỚP": 120 if i == 0 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                 display_editor_rows.append(item_dict)
                 
-        # Dựng cấu trúc DataFrame nền
         df_editor_base = pd.DataFrame(display_editor_rows)
         
-        # Kiểm tra phòng vệ ép kiểu số nguyên tránh phát sinh giá trị None rỗng trên ô lưới
+        # Phòng vệ ép kiểu số nguyên tránh phát sinh giá trị None rỗng
         for sz in active_sizes:
             if sz in df_editor_base.columns:
                 df_editor_base[sz] = df_editor_base[sz].fillna(0).astype(int)
@@ -540,6 +539,21 @@ else:
         if "DÀI SƠ ĐỒ" in df_editor_base.columns:
             df_editor_base["DÀI SƠ ĐỒ"] = df_editor_base["DÀI SƠ ĐỒ"].fillna(0.0).astype(float)
         
+        # Tạo MultiIndex để hiển thị bảng nhập liệu phía trên thành 2 dòng tiêu đề GIÀNG & SIZE riêng biệt
+        multi_cols = [("BÀN CẮT / TÊN SƠ ĐỒ", "BÀN CẮT / TÊN SƠ ĐỒ")]
+        for sz in active_sizes:
+            parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
+            if len(parts) >= 2:
+                waist_val = re.sub(r'_\d+$', '', str(parts[0]).strip())
+                inseam_val = re.sub(r'_\d+$', '', str(parts[1]).strip())
+                multi_cols.append((f"GIÀNG: {inseam_val}", f"SIZE: {waist_val}"))
+            else:
+                multi_cols.append(("CỠ PHẲNG", str(sz)))
+        multi_cols.extend([("THÔNG SỐ BÀN CẮT", "SƠ LỚP"), ("THÔNG SỐ BÀN CẮT", "SỐ BÀN"), ("THÔNG SỐ BÀN CẮT", "DÀI SƠ ĐỒ")])
+        
+        df_editor_top_render = df_editor_base.copy()
+        df_editor_top_render.columns = pd.MultiIndex.from_tuples(multi_cols)
+        
         is_locked = st.session_state.get("consumption_activated", False)
 
         if is_locked:
@@ -548,69 +562,83 @@ else:
                 st.toast("🔓 Đã mở khóa biểu mẫu!", icon="🔓")
                 st.rerun()
 
-        # 🛠️ CƠ CHẾ ĐỒNG BỘ NGAY LẬP TỨC KHI GÕ: Tạo hàm Callback xử lý sự kiện thay đổi dữ liệu
+        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (HIỂN THỊ TÁCH BIỆT RÕ RÀNG GIÀNG & SIZE)</p>", unsafe_allow_html=True)
+        
         def sync_editor_changes():
             if "table_manual_data_editor_v1" in st.session_state:
                 editor_state = st.session_state["table_manual_data_editor_v1"]
-                # Cập nhật các hàng bị chỉnh sửa trực tiếp vào bộ nhớ đệm snapshot mà không cần tải lại trang 2 lần
                 if "edited_rows" in editor_state:
                     for row_idx, changes in editor_state["edited_rows"].items():
                         if row_idx < len(display_editor_rows):
-                            display_editor_rows[row_idx].update(changes)
+                            flat_changes = {}
+                            for k, v in changes.items():
+                                if isinstance(k, tuple): 
+                                    # Trích xuất để tìm lại key gốc dạng "26X30" từ cấu trúc đa tầng MultiIndex khi lưu snapshot
+                                    w_part = k[1].replace("SIZE: ", "").strip()
+                                    i_part = k[0].replace("GIÀNG: ", "").strip()
+                                    
+                                    # Định vị key khớp chính xác với mảng active_sizes ban đầu
+                                    matched_key = next((x for x in active_sizes if w_part in x and i_part in x), f"{w_part}X{i_part}")
+                                    flat_changes[matched_key] = v
+                                else: 
+                                    flat_changes[k] = v
+                            display_editor_rows[row_idx].update(flat_changes)
                 st.session_state["session_editor_snapshot"] = display_editor_rows
 
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (TỰ ĐỘNG CHUYỂN MÃ SƠ ĐỒ THEO LOẠI VẢI)</p>", unsafe_allow_html=True)
-        
-        # 🛠️ NÂNG CẤP Ô LƯỚI: Thêm tham số on_change để gõ phát nhận ngay lập tức 100%
-        edited_df = st.data_editor(
-            df_editor_base, 
-            use_container_width=True, 
-            hide_index=True, 
-            disabled=is_locked, 
-            key="table_manual_data_editor_v1",
-            on_change=sync_editor_changes
+        # HIỂN THỊ BIỂU MẪU NHẬP LIỆU PHÍA TRÊN
+        edited_df_raw = st.data_editor(
+            df_editor_top_render, use_container_width=True, hide_index=True, disabled=is_locked, 
+            key="table_manual_data_editor_v1", on_change=sync_editor_changes
         )
         
-        # Đồng bộ cứng snapshot cuối cùng cho luồng hiển thị bảng đối chiếu
-        st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
-
-
+        edited_df = df_editor_base.copy()
+        if not is_locked:
+            st.session_state["session_editor_snapshot"] = edited_df.to_dict(orient="records")
         # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: GỘP DÒNG TIÊU ĐỀ SIZE X GIÀNG TRỰC QUAN (BẢNG DƯỚI)
+        # TẦNG 3 - ĐOẠN 2: KHỐI TÍNH TOÁN LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG SẠCH CHO BẢNG DƯỚI
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
 
-        # Rút gọn chỉ còn duy nhất 1 hàng nhãn cỡ kết hợp (Xóa hẳn hàng GIÀNG tách biệt cũ)
-        t2_size_row = ["KÍCH CỠ (SIZE X GIÀNG)"]
+        # DỰNG CHUẨN XÁC 2 HÀNG RỜI CHO BẢNG DƯỚI: GIÀNG VÀ SIZE SẠCH HOÀN TOÀN GẠCH CHÂN
+        t1_giang_row = ["GIÀNG"]
+        t2_size_row = ["SIZE"]
         po_qty_matrix = []
+
         for col_name in active_sizes:
-            c_str = str(col_name).strip().upper()
+            c_str = str(col_name).strip().upper().replace(" ", "")
+            g_val, s_val = "None", c_str
             
-            # Làm sạch chuỗi kích cỡ lỡ dính ký tự lạ
-            c_str_clean = re.sub(r'_\d+$', '', c_str).replace(" ", "")
+            parts = re.split(r'[X_-]', c_str)
+            if len(parts) >= 2:
+                s_val = str(parts[0]).strip()
+                g_val = str(parts[1]).strip()
             
-            try: 
-                po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".").strip() or 0)
-            except Exception: 
-                po_v = 0
+            g_val_clean = re.sub(r'_\d+$', '', g_val)
+            s_val_clean = re.sub(r'_\d+$', '', s_val)
+            
+            try: po_v = int(str(size_breakdown_main.get(col_name, 0)).replace(",", "").split(".")[0].strip() or 0)
+            except Exception: po_v = 0
                 
             po_qty_matrix.append(po_v)
-            t2_size_row.append(c_str_clean) # Hiển thị dạng 26X30, 28X30 gọn gàng
+            t1_giang_row.append(g_val_clean)
+            t2_size_row.append(s_val_clean)
             
         for _ in range(6): 
+            t1_giang_row.append("")
             t2_size_row.append("")
             
-        t3_sl_row = ["SẢN LƯỢNG ĐƠN HÀNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
+        t3_sl_row = ["SẢN LƯỢNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
             
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
-        # Duyệt qua các dòng trên data_editor để tính lũy tiến chính xác
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
+            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+            if s_name == "" or s_name in ["NONE", "NAN"]:
+                s_name = f"{fab_upper} {prefix_letter}{str(r_idx+1).zfill(2)}"
             
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
@@ -622,8 +650,8 @@ else:
             except Exception: m_len = 0.0
             
             active_ratio_parts = []
-            ratios_sum = 0
             row_ratios_list = []
+            ratios_sum = 0
             
             for sz in active_sizes:
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -651,7 +679,6 @@ else:
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # Khấu trừ lùi sản lượng đơn hàng thực tế
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -662,13 +689,10 @@ else:
             matrix_body_rows.append(remaining_row)
 
         clean_headers = ["BÀN CẮT / TÊN SƠ ĐỒ"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ", "SỐ SP/SĐ", "Đ.MỨC SĐ", "VẢI CẦN (M)"]
-        
-        # Gộp trục dòng tiêu đề hình chữ nhật gọn gàng
-        final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t2_size_row, t3_sl_row] + matrix_body_rows
+        final_table_rows = [t_header_ma_hang, t_header_mau, t_header_loai_vai, t1_giang_row, t2_size_row, t3_sl_row] + matrix_body_rows
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-        # Hiển thị CSS và dựng lưới báo cáo lên Streamlit
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -680,7 +704,6 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
-        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -693,8 +716,7 @@ else:
                     for r_record in res_all_fabs.data:
                         f_type_name = str(r_record.get("fabric_type", "CHÍNH")).upper()
                         raw_matrix = r_record.get("cutting_matrix_data", [])
-                        if raw_matrix:
-                            pd.DataFrame(raw_matrix).to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
+                        if raw_matrix: pd.DataFrame(raw_matrix).to_excel(writer, sheet_name=f"VAI {f_type_name}", index=False)
                 else: 
                     df_final_report.to_excel(writer, sheet_name=f"VAI {fabric_type_input}", index=False)
             excel_generated_status = True
@@ -708,7 +730,6 @@ else:
                 use_container_width=True, key="excel_multi_sheet_btn_final_v5"
             )
         
-        # Đồng bộ lưu đè dữ liệu lên Cloud Supabase
         st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
