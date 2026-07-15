@@ -878,10 +878,6 @@ edited_df_raw = st.data_editor(
     key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
 )
 import math
-
-import math
-
-import math
 import streamlit as st
 
 # =============================================================================
@@ -931,18 +927,22 @@ for idx, row in edited_df_raw.iterrows():
         item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
         final_snapshot_rows.append(item_pilot)
 
-# --- 4. BƯỚC 3: ĐỌC CẤU HÌNH RẢI SƠ ĐỒ CHÍNH TỪ DÒNG CHÍNH C01 TẠI BẢNG NHẬP LIỆU VỚI PHÒNG VỆ SƠ LỚP THỰC TẾ ---
+# --- 4. BƯỚC 3: ĐỌC CẤU HÌNH RẢI SƠ ĐỒ CHÍNH TỪ DÒNG CHÍNH C01 TẠI BẢNG NHẬP LIỆU (SỬA LỖI ĐỌC ILOC) ---
 chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C01", na=False, case=False)]
 
 max_target_length = 11.46
 max_target_layers = 60
 
 if not chinh_rows_input.empty:
-    first_chinh = chinh_rows_input.iloc
-    try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
-    except: max_target_length = 11.46
+    # 🎯 TRỌNG TÂM: Thêm chỉ mục [0] để bóc trích Series hàng đầu tiên chuẩn cấu trúc Pandas
+    first_chinh = chinh_rows_input.iloc[0]
     
-    user_layers = safe_int_final(first_chinh.get("SƠ LỚP", 0))
+    try: 
+        max_target_length = float(str(first_chinh["DÀI SƠ ĐỒ"]).replace(",", "").strip() or 11.46)
+    except: 
+        max_target_length = 11.46
+    
+    user_layers = safe_int_final(first_chinh["SƠ LỚP"])
     # Chống kẹt thuật toán: Nếu thợ để sơ lớp mẫu bằng 0 hoặc 1, Python tự gán số lớp tối ưu ngành may là 60
     max_target_layers = user_layers if user_layers > 1 else 60
 
