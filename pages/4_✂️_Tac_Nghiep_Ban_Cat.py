@@ -174,7 +174,7 @@ else:
         if not active_sizes: 
             active_sizes = ["26 X 30", "28 X 30", "29 X 32"]
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI GIẢI MA TRẬN PHỐI CỠ THEO LOẠI VẢI
+# TẦNG 2 - ĐOẠN 2: CÁC NÚT BẤM HÀNH ĐỘNG VÀ THUẬT TOÁN AI ĐIỀN ĐỀU CÁC SƠ ĐỒ TRỐNG
 # =============================================================================
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1: 
@@ -183,7 +183,7 @@ else:
             trigger_consumption = st.button("⚡ 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
 
         if trigger_auto_cutting:
-            with st.spinner(f"🤖 AI đang giải ma trận phối cỡ cho vải {fabric_type_input.upper()}..."):
+            with st.spinner(f"🤖 AI đang đọc dữ liệu nhập và tối ưu các sơ đồ trống..."):
                 if "get_secure_gemini_key" in globals(): 
                     gemini_key = get_secure_gemini_key()
                 else: 
@@ -192,55 +192,56 @@ else:
                 from google.genai import types
                 client_ai = genai.Client(api_key=gemini_key)
                 
+                # 1. Đọc dữ liệu thực tế từ giao diện người dùng nhập
                 snapshot = st.session_state.get("session_editor_snapshot")
                 calculated_balances = {}
                 for sz in active_sizes:
                     calculated_balances[sz] = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".")[0].strip() or 0)
                 
+                # Xác định danh sách các sơ đồ nào đang bị bỏ trống (Tổ trưởng chưa nhập tỷ lệ)
+                empty_slots = []
                 if snapshot:
-                    for row_data in snapshot:
-                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).lower()
-                        if any(c in s_name for c in ["c01", "c02", "c03"]):
+                    for idx, row_data in enumerate(snapshot):
+                        s_code = f"c{str(idx+1).zfill(2)}"
+                        # Tính tổng tỷ lệ để xem tổ trưởng đã nhập gì chưa
+                        total_ratios_entered = sum(int(row_data.get(sz, 0)) for sz in active_sizes)
+                        
+                        if total_ratios_entered > 0:
+                            # Sơ đồ đã gõ tay -> Trừ bớt sản lượng
                             layers = int(row_data.get("SƠ LỚP", 0))
                             tables = int(row_data.get("SỐ BÀN", 1))
                             for sz in active_sizes:
                                 r_val = int(row_data.get(sz, 0))
                                 calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
-
-                # THIẾT LẬP THAM SỐ ĐẶC THÙ CHO KEO/LÓT/PHỐI ĐƯỢC PHÉP CẮT DƯ ĐỂ LÀM TRÒN
-                is_sub_fabric = str(fabric_type_input).upper() in ["LÓT", "KEO", "PHỐI"]
-                fabric_rule_text = ""
-                if is_sub_fabric:
-                    fabric_rule_text = """
-                    - ĐẶC BIỆT (Vải KEO/LÓT/PHỐI): Được phép làm tròn số lượng tăng lên, cho phép CẮT DƯ từ 5 đến 10 sản phẩm (Pcs) cho mỗi cỡ lẻ. 
-                    - Sử dụng lượng cắt dư này để GỘP các cỡ lẻ vào chung một sơ đồ lớn, hạn chế tối đa việc sinh ra quá nhiều sơ đồ vét mỏng lãng phí công rải.
-                    """
+                        else:
+                            # Sơ đồ trống -> Đưa vào danh sách chờ AI điền dữ liệu
+                            empty_slots.append(s_code)
                 else:
-                    fabric_rule_text = """
-                    - ĐẶC BIỆT (Vải CHÍNH): Không được phép cắt dư. Phải tính toán tỷ lệ phối cỡ và số lớp bám sát tuyệt đối chính xác để lượng dư về bằng 0.
-                    """
+                    empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
 
-                # PROMPT TỐI ƯU TOÁN HỌC KHỐNG CHẾ ĐỊNH MỨC & CHIỀU DÀI BÀN CẮT THỰC TẾ
-                ai_cutting_prompt = f"""
-                Bạn là thuật toán tối ưu hóa sơ đồ (Cut Order Planning Solver) ngành may mặc công nghiệp.
+                # ÉP ĐỊNH MỨC VÀ KHỐNG CHẾ TOÁN HỌC TRÊN CHIỀU DÀI MÉT THỰC TẾ
+                dinhmuc_met = round(consumption_input * 0.9144, 3)
                 
-                Thông số đầu vào do người dùng thiết lập:
-                - Loại vải đang tác nghiệp: {fabric_type_input.upper()}
+                ai_cutting_prompt = f"""
+                Bạn là thuật toán toán học tối ưu bàn cắt may công nghiệp (Cut Order Planning Solver).
+                Nhiệm vụ: Phân bổ sản lượng còn lại vào các vị trí sơ đồ trống sau đây: {json.dumps(empty_slots)}.
+
+                Thông số kỹ thuật:
                 - Sản lượng còn lại cần xử lý: {json.dumps(calculated_balances)}
-                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Tương đương khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
+                - Định mức quy đổi: {dinhmuc_met} mét/sản phẩm.
                 - Chiều dài gia tối đa cho phép của bàn vải: {max_table_length} mét.
 
-                QUY TẮC PHỐI CỠ BẮT BUỘC (COMPULSORY CUTTING RULES):
-                1. KHỐNG CHẾ CHIỀU DÀI TUYỆT ĐỐI: Khi phối ghép nhiều cỡ lại với nhau (Ví dụ: đi tỷ lệ phối nhiều sản phẩm), tổng chiều dài sơ đồ tạm tính = (Tổng các tỷ lệ phối Ratios) * ({round(consumption_input * 0.9144, 3)} mét) BẮT BUỘC phải nhỏ hơn hoặc bằng Chiều dài tối đa bàn vải ({max_table_length} mét).
-                2. Nếu tổng chiều dài sơ đồ tính toán vượt quá {max_table_length} mét, bạn phải tự động bẻ tách bớt sản phẩm phối ra hoặc hạ bớt tỷ lệ xuống.
-                {fabric_rule_text}
-                3. Hãy ghép các cỡ có số lượng tương đương lại với nhau để rải được số lớp cao nhất có thể. Chỉ dùng sơ đồ 1 quần cho các biến số mồ côi cực kỳ lệch sau khi đã tối ưu gộp.
-                4. Chỉ trả về kết quả cấu trúc gọn phân bổ vào các sơ đồ cuối: "c04", "c05", "c06".
+                QUY TẮC PHỐI CỠ VÀ TÍNH CHIỀU DÀI BẮT BUỘC:
+                1. Hãy phối ghép các size lại với nhau thành sơ đồ nhiều quần để tiết kiệm công rải vải, nhưng BẮT BUỘC chiều dài sơ đồ phải tuân thủ công thức: 
+                   [Chiều dài mét] = (Tổng các tỷ lệ size Ratios phối trên sơ đồ) * ({dinhmuc_met} mét).
+                2. RÀNG BUỘC: [Chiều dài mét] KHÔNG ĐƯỢC VƯỢT QUÁ chiều dài tối đa bàn cắt là {max_table_length} mét. (Ví dụ: Nếu định mức là 2.0m, tổng số quần trên sơ đồ tối đa là {int(max_table_length / (dinhmuc_met or 1))}, tuyệt đối không được điền số mét vượt quá).
+                3. Hãy sử dụng lần lượt các mã sơ đồ trống trong danh sách {json.dumps(empty_slots)} từ trên xuống dưới (Điền vào sơ đồ có số nhỏ trước như c02, c03 rồi mới xuống c04, c05...). Không được bỏ cách dòng.
+                4. Đối với vải KEO/LÓT/PHỐI: Được phép cắt dư 5-10 hàng để làm tròn số lớp. Đối với vải CHÍNH: Cắt chính xác lượng dư về 0.
 
-                Trả về mảng JSON sạch định dạng chuẩn xác, không giải thích:
+                Trả về mảng JSON sạch, chỉ chứa các mã sơ đồ có trong danh sách trống được yêu cầu, đúng định dạng mẫu:
                 [
-                  {{"Sơ đồ / Trạng thái": "c04", "Ratios": {{"00": 1, "0": 1, "2": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 3, 2)}}},
-                  {{"Sơ đồ / Trạng thái": "c05", "Ratios": {{"4": 1, "6": 1}}, "Số lớp": 150, "Số bàn": 1, "Chiều dài mét": {round(consumption_input * 0.9144 * 2, 2)}}}
+                  {{"Sơ đồ / Trạng thái": "c02", "Ratios": {{"00": 1, "0": 1}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": {round(dinhmuc_met * 2, 2)}}},
+                  {{"Sơ đồ / Trạng thái": "c03", "Ratios": {{"2": 1, "4": 1}}, "Số lớp": 150, "Số bàn": 1, "Chiều dài mét": {round(dinhmuc_met * 2, 2)}}}
                 ]
                 """
                 try:
@@ -259,30 +260,41 @@ else:
                             s_code = f"c{str(i+1).zfill(2)}"
                             item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"SƠ ĐỒ {s_code.upper()}"}
                             
+                            # Tìm xem sơ đồ này AI có tính toán phân bổ kết quả hay không
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
-                            # FIX SỬA LỖI: Lấy phần tử [0] từ danh sách ai_match lọc được trước khi .get()
+                            
                             if ai_match and len(ai_match) > 0:
                                 ai_row = ai_match[0]
                                 r_dict = ai_row.get("Ratios", {})
                                 for sz in active_sizes: 
                                     item_dict[sz] = int(r_dict.get(sz, 0))
+                                
+                                # Khống chế độ dài an toàn theo đúng công thức chuẩn dệt may
+                                total_pants = sum(int(r_dict.get(sz, 0)) for sz in active_sizes)
+                                calculated_len = round(total_pants * dinhmuc_met, 2)
+                                
                                 item_dict.update({
-                                    "SƠ LỚP": int(ai_row.get("Số lớp", 1)), 
+                                    "SƠ LỚP": int(ai_row.get("Số lớp", 120)), 
                                     "SỐ BÀN": int(ai_row.get("Số bàn", 1) or ai_row.get("SỐ BÀN", 1)), 
-                                    "DÀI SƠ ĐỒ": float(ai_row.get("Chiều dài mét", 0.0) or round(consumption_input * 0.9144, 2))
+                                    "DÀI SƠ ĐỒ": float(calculated_len)
                                 })
                             else:
+                                # Giữ nguyên những dòng tổ trưởng đã tự gõ tay từ trước
                                 if snapshot and i < len(snapshot):
                                     old_row = snapshot[i]
                                     for sz in active_sizes: item_dict[sz] = int(old_row.get(sz, 0))
-                                    item_dict.update({"SƠ LỚP": int(old_row.get("SƠ LỚP", 120)), "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))})
+                                    item_dict.update({
+                                        "SƠ LỚP": int(old_row.get("SƠ LỚP", 0)), 
+                                        "SỐ BÀN": int(old_row.get("SỐ BÀN", 1)), 
+                                        "DÀI SƠ ĐỒ": float(old_row.get("DÀI SƠ ĐỒ", 0.0))
+                                    })
                                 else:
                                     for sz in active_sizes: item_dict[sz] = 0
-                                    item_dict.update({"SƠ LỚP": 120 if i < 3 else 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
+                                    item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                             updated_rows.append(item_dict)
                         
                         st.session_state["session_editor_snapshot"] = updated_rows
-                        st.success(f"🎉 AI đã tối ưu tổ hợp ghép cỡ linh hoạt cho vải {fabric_type_input.upper()} thành công!")
+                        st.success(f"🎉 AI đã quét toàn bộ ô trống và tự động phân bổ tỷ lệ hợp lý từ trên xuống dưới!")
                         st.rerun()
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi xử lý thuật toán AI: {str(e)}")
