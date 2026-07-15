@@ -349,78 +349,111 @@ else:
                 dinhmuc_met_c2 = round(consumption_input * 0.9144, 3)
 
 
-                               # =============================================================================
-                # TẦNG 2 - ĐOẠN 2b: CÂU LỆNH PROMPT CHUẨN HOÁ THUẬT TOÁN PHỐI CỠ THEO TỶ LỆ ORDER
-                # =============================================================================
-                # Tính toán tổng sản lượng còn lại để gửi lên AI làm mốc tỷ lệ
-                total_remaining_po = sum(calculated_balances.values())
+         # =============================================================================
+        # TẦNG 2 - ĐOẠN 2b (PHẦN 1): THIẾT LẬP CẤU TRÚC SƠ ĐỒ TRỐNG VÀ GỬI PROMPT AI ÉP CỘT PHẲNG
+        # =============================================================================
+        if trigger_auto_cutting:
+            with st.spinner(f"🤖 AI đang quét dữ liệu và giải ma trận phối cỡ cho các sơ đồ trống..."):
+                if "get_secure_gemini_key" in globals(): 
+                    gemini_key = get_secure_gemini_key()
+                else: 
+                    gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                from google import genai
+                from google.genai import types
+                client_ai = genai.Client(api_key=gemini_key)
                 
-                # Định nghĩa quy tắc tính toán dệt may công nghiệp bắt buộc cho Gemini
+                snapshot = st.session_state.get("session_editor_snapshot")
+                calculated_balances = {}
+                for sz in active_sizes:
+                    try: calculated_balances[sz] = int(float(str(size_breakdown_main.get(sz, 0)).replace(",", "").strip() or 0))
+                    except Exception: calculated_balances[sz] = 0
+                
+                empty_slots = []
+                current_grid_structure = []
+
+                if snapshot and len(snapshot) > 0:
+                    real_slots = [r for r in snapshot if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
+                    for idx, row_data in enumerate(real_slots):
+                        s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper().strip()
+                        s_code = f"c{str(idx+1).zfill(2)}"
+                        
+                        total_ratios_entered = 0
+                        row_ratios = {}
+                        for sz in active_sizes:
+                            val_cell = row_data.get(sz, row_data.get(f"CỠ {active_sizes.index(sz)+1}" if sz in active_sizes else "", 0))
+                            try: r_val = int(float(str(val_cell).replace(",", "").strip() or 0))
+                            except Exception: r_val = 0
+                            row_ratios[sz] = r_val
+                            total_ratios_entered += r_val
+                        
+                        try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
+                        except Exception: layers = 0
+                        try: tables = int(float(str(row_data.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+                        except Exception: tables = 1
+
+                        if total_ratios_entered > 0 and layers > 0:
+                            for sz in active_sizes:
+                                r_val = row_ratios[sz]
+                                calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
+                            current_grid_structure.append({"Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"})
+                        else:
+                            empty_slots.append(s_code)
+                            current_grid_structure.append({"Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "AI ĐIỀN VÀO ĐÂY"})
+                else:
+                    empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
+                    current_grid_structure = [{"Mã dòng": f"c{str(i+1).zfill(2)}", "Tên sơ đồ gốc": f"SƠ ĐỒ C{str(i+1).zfill(2)}", "Trạng thái": "AI ĐIỀN VÀO ĐÂY"} for i in range(6)]
+
+                total_remaining_po = sum(calculated_balances.values())
+                dinhmuc_met_c2 = round(consumption_input * 0.9144, 3)
+
                 ai_cutting_prompt = f"""
-                Bạn là thuật toán toán học điều độ bàn cắt ngành may. Hãy tính phối cỡ điền vào các dòng đang TRỐNG này: {json.dumps(empty_slots)}.
+                Bạn là thuật toán toán học điều độ bàn cắt. Hãy tính phối cỡ điền vào các dòng đang TRỐNG này: {json.dumps(empty_slots)}.
                 Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ dòng hoặc thay đổi thông tin các dòng đã gõ tay.
                 
                 Thông số đầu vào:
                 - Bản đồ cấu trúc các dòng: {json.dumps(current_grid_structure)}
-                - Số lượng sản phẩm còn dư thực tế cần vét (Lượng Order gốc): {json.dumps(calculated_balances)}
-                - Tổng sản lượng Order còn lại: {total_remaining_po} Pcs
-                - Định mức tài liệu đề xuất (Consumption): {consumption_input} Yds/Pcs (quần).
-                - Chiều gia tối đa bàn vải (Marker Length giới hạn): {max_table_length} mét. (Quy đổi sang Yards = {round(max_table_length * 1.09361, 2)} Yds).
+                - Số lượng sản phẩm còn dư thực tế cần vét: {json.dumps(calculated_balances)}
+                - Định mức tài liệu kỹ thuật: {dinhmuc_met_c2} mét/quần.
+                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét.
 
-                QUY TẮC PHỐI CỠ VÀ PHÂN BỔ SỐ SP/SĐ BẮT BUỘC (QUY TRÌNH SẢN XUẤT CÔNG NGHIỆP):
-                1. Chiều dài sơ đồ (Marker Length) của từng dòng trống sẽ do bạn phân bổ dựa trên số lớp rải vải thực tế để vét sạch hàng, nhưng Marker_Length phải <= {round(max_table_length * 1.09361, 2)} Yds.
-                
-                2. TÍNH TỔNG SỐ SẢN PHẨM TRÊN SƠ ĐỒ (Garments_Per_Marker):
-                   Với mỗi sơ đồ trống, bạn chọn một Marker_Length (Yards) hợp lý. 
-                   Tổng số sản phẩm trên sơ đồ đó BẮT BUỘC phải tuân theo công thức:
-                   Garments_Per_Marker = Marker_Length / {consumption_input}
-                   (Ví dụ: Marker_Length = 12 Yds, Consumption = 1 Yds/Pcs => Garments_Per_Marker = 12 sản phẩm).
+                QUY TẮC PHỐI CỠ VÀ TÍNH CHIỀU DÀI BẮT BUỘC:
+                1. Chỉ được điền tỷ lệ phối (Ratios) và Số lớp vào dòng ghi "AI ĐIỀN VÀO ĐÂY". Điền tuần tự từ trên xuống dưới.
+                2. Với mỗi dòng sơ đồ được điền, bạn hãy CHỌN một tổng số sản phẩm trên sơ đồ (Ví dụ: 10 sản phẩm hoặc 14 sản phẩm) sao cho chiều dài đi sơ đồ thực tế = (Tổng số sản phẩm) * ({dinhmuc_met_c2} mét) BẮT BUỘC <= {max_table_length} mét.
+                3. Hãy phân bổ số sản phẩm trên sơ đồ đó vào các size theo đúng TỶ LỆ PHẦN TRĂM (%) của sản lượng còn lại.
+                4. Trả về mảng JSON sạch cấu trúc chuẩn xác, Key trong mảng Ratios bắt buộc phải đặt tên theo đúng số thứ tự của cột là "CỠ 1", "CỠ 2", "CỠ 3"... dựa theo danh sách size tương ứng này: {json.dumps([f'CỠ {i+1}: {sz}' for i, sz in enumerate(active_sizes)])}.
 
-                3. PHÂN BỔ TỶ LỆ SIZE THEO TỶ LỆ ORDER (Largest Remainder Method):
-                   - Tính phần trăm (%) tỷ lệ của từng size dựa trên Lượng Order gốc.
-                     Tỷ lệ % Size A = (Order Size A) / {total_remaining_po}
-                   - Tính số lượng sản phẩm lý thuyết của từng size trên sơ đồ:
-                     Số lượng lý thuyết Size A = Garments_Per_Marker * Tỷ lệ % Size A
-                   - Lấy phần nguyên làm số lượng cơ sở.
-                   - Sắp xếp phần thập phân (phần dư) giảm dần. Cộng thêm 1 sản phẩm vào các size có phần dư lớn nhất cho đến khi tổng số lượng của các size ĐÚNG BẰNG Garments_Per_Marker.
-                   - Đảm bảo: TỔNG CÁC GIÁ TRỊ TRONG RATIOS PHẢI BẰNG CHÍNH XÁC Garments_Per_Marker.
-
-                4. CHỈ ĐIỀN KẾT QUẢ vào dòng ghi "AI ĐIỀN VÀO ĐÂY". Điền tuần tự từ trên xuống dưới.
-                5. Chỉ dùng sơ đồ phối ít sản phẩm ở ô trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ.
-
-                Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích thêm một từ nào ngoài JSON:
+                Trả về cấu trúc JSON chuẩn:
                 [
-                  {{
-                    "Sơ đồ / Trạng thái": "c02", 
-                    "Ratios": {{"26 X 30": 2, "28 X 30": 4, "30 X 30": 6}}, 
-                    "Số lớp": 120, 
-                    "Số bàn": 1, 
-                    "Chiều dài mét": 10.97
-                  }}
+                  {{"Sơ đồ / Trạng thái": "c01", "Ratios": {{"CỠ 1": 2, "CỠ 2": 4, "CỠ 3": 4}}, "Số lớp": 120, "Số bàn": 1, "Chiều dài mét": 11.4}}
                 ]
                 """
-
+                # =============================================================================
+                # TẦNG 2 - ĐOẠN 2b (PHẦN 2): GIẢI GEMINI VÀ CHẠY THUẬT TOÁN PYTHON LARGEST REMAINDER
+                # =============================================================================
                 try:
                     res_cutting = client_ai.models.generate_content(
                         model='gemini-2.5-flash', contents=[ai_cutting_prompt],
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
-                    
-                    if res_cutting and res_cutting.text:
-                        ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
-                    else:
-                        ai_vete_res = None
+                    ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
                     
                     if isinstance(ai_vete_res, list) and len(ai_vete_res) > 0:
                         st.session_state["auto_cutting_results"] = ai_vete_res
                         
                         updated_rows = []
+                        fab_letter_c2 = "C"
+                        fab_upper_c2 = str(fabric_type_input).upper().strip() if 'fabric_type_input' in locals() else "CHÍNH"
+                        if fab_upper_c2 == "LÓT": fab_letter_c2 = "L"
+                        elif fab_upper_c2 == "KEO": fab_letter_c2 = "K"
+                        elif fab_upper_c2 == "PHỐI": fab_letter_c2 = "P"
+
                         for i in range(6):
                             s_code = f"c{str(i+1).zfill(2)}"
                             
-                            if snapshot and i < len(snapshot) and snapshot[i].get("BÀN CẮT / TÊN SƠ ĐỒ"):
-                                old_name = str(snapshot[i].get("BÀN CẮT / TÊN SƠ ĐỒ")).strip()
-                                s_name_display = old_name if (old_name.lower() != "none" and old_name != "" and old_name.lower() != "nan") else f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}"
+                            # Chừa lại đúng vị trí dòng bỏ qua 3 dòng tiêu đề phụ
+                            if snapshot and (i+3) < len(snapshot):
+                                old_row_data = snapshot[i+3]
+                                s_name_display = str(old_row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}")).upper().strip()
                             else:
                                 s_name_display = f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}"
                                 
@@ -428,87 +461,102 @@ else:
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                             
                             if ai_match and len(ai_match) > 0:
-                                ai_row = ai_match[0]
+                                ai_row = ai_match
                                 r_dict = ai_row.get("Ratios", {})
                                 
-                                # 🛠️ ĐIỂM SỬA CHỐT LÕI: Map thông minh cả 2 loại Key (Key số "CỠ X" hoặc Key chữ "26 X 30") từ AI gửi về
-                                for c_idx, sz in enumerate(active_sizes):
-                                    sz_clean_key = str(sz).upper().replace(" ", "")
+                                # 1. Bóc tách số quần phối trên sơ đồ (Garments_Per_Marker) từ dữ liệu AI gửi về
+                                total_pants_in_marker = 0
+                                for r_k, r_v in r_dict.items():
+                                    try: total_pants_in_marker += int(float(str(r_v).strip() or 0))
+                                    except Exception: pass
                                     
-                                    # Tìm kiếm linh hoạt mọi dạng Key lọt vào
-                                    val_from_ai = 0
-                                    for r_key, r_val in r_dict.items():
-                                        r_key_clean = str(r_key).upper().replace(" ", "")
-                                        if r_key_clean == sz_clean_key or r_key_clean == f"CỠ{c_idx+1}":
-                                            val_from_ai = r_val
-                                            break
-                                            
-                                    try: item_dict[sz] = int(float(str(val_from_ai).strip() or 0))
-                                    except Exception: item_dict[sz] = 0
+                                if total_pants_in_marker == 0:
+                                    try: total_pants_in_marker = int(float(str(ai_row.get("Tổng số sản phẩm", 10))))
+                                    except Exception: total_pants_in_marker = 10
+                                    
+                                # 2. CƯƠNG CHẾ THUẬT TOÁN PYTHON PHÂN BỔ TỶ LỆ SIZE THEO NGUYÊN LÝ LARGEST REMAINDER
+                                base_values = {}
+                                remainders = []
                                 
-                                try: s_lop = int(float(str(ai_row.get("Số lớp", ai_row.get("Số lớp", 0))).strip() or 0))
-                                except Exception: s_lop = 0
+                                for c_idx, sz in enumerate(active_sizes):
+                                    sz_order = calculated_balances.get(sz, 0)
+                                    sz_ratio_pct = sz_order / total_remaining_po if total_remaining_po > 0 else 0
+                                    theoretical_qty = total_pants_in_marker * sz_ratio_pct
                                     
-                                try: s_ban = int(float(str(ai_row.get("Số bàn", ai_row.get("Số bàn", 1))).strip() or 1))
+                                    base_qty = int(theoretical_qty)
+                                    rem = theoretical_qty - base_qty
+                                    
+                                    base_values[sz] = base_qty
+                                    remainders.append({"size": sz, "remainder": rem})
+                                    
+                                current_total = sum(base_values.values())
+                                allocated_more = total_pants_in_marker - current_total
+                                remainders.sort(key=lambda x: x["remainder"], reverse=True)
+                                
+                                for k in range(min(max(0, allocated_more), len(remainders))):
+                                    target_sz = remainders[k]["size"]
+                                    base_values[target_sz] += 1
+                                    
+                                # Nạp dữ liệu tỷ lệ phối sạch đã phân bổ bằng Python vào mảng
+                                for sz in active_sizes:
+                                    item_dict[sz] = base_values[sz]
+                                
+                                try: s_lop = int(float(str(ai_row.get("Số lớp", 120))).strip() or 120)
+                                except Exception: s_lop = 120
+                                try: s_ban = int(float(str(ai_row.get("Số bàn", 1))).strip() or 1)
                                 except Exception: s_ban = 1
                                 
-                                try: d_met = float(str(ai_row.get("Chiều dài mét", ai_row.get("Chiều dài mét", 0.0))).strip() or 0.0)
-                                except Exception: d_met = 0.0
-                                
-                                item_dict.update({"SƠ LỚP": s_lop, "SỐ BÀN": s_ban, "DÀI SƠ ĐỒ": d_met})
+                                calculated_len = float(round(total_pants_in_marker * dinhmuc_met_c2, 2))
+                                item_dict.update({"SƠ LỚP": s_lop, "SỐ BÀN": s_ban, "DÀI SƠ ĐỒ": calculated_len})
                             else:
-                                if snapshot and i < len(snapshot):
-                                    old_row = snapshot[i]
-                                    for sz in active_sizes: 
+                                if snapshot and (i+3) < len(snapshot):
+                                    old_row = snapshot[i+3]
+                                    for sz in active_sizes:
                                         try: item_dict[sz] = int(float(str(old_row.get(sz, 0)).strip() or 0))
                                         except Exception: item_dict[sz] = 0
-                                    
-                                    try: s_lop_old = int(float(str(old_row.get("SƠ LỚP", 0)).strip() or 0))
-                                    except Exception: s_lop_old = 0
-                                    
-                                    try: s_ban_old = int(float(str(old_row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
-                                    except Exception: s_ban_old = 1
-                                        
-                                    try: d_sd_old = float(str(old_row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
-                                    except Exception: d_sd_old = 0.0
-                                        
-                                    item_dict.update({"SƠ LỚP": s_lop_old, "SỐ BÀN": s_ban_old, "DÀI SƠ ĐỒ": d_sd_old})
+                                    try: item_dict["SƠ LỚP"] = int(float(str(old_row.get("SƠ LỚP", 0)).strip() or 0))
+                                    except Exception: item_dict["SƠ LỚP"] = 0
+                                    try: item_dict["SỐ BÀN"] = int(float(str(old_row.get("SỐ BÀN", 1)).strip() or 1))
+                                    except Exception: item_dict["SỐ BÀN"] = 1
+                                    try: item_dict["DÀI SƠ ĐỒ"] = float(str(old_row.get("DÀI SƠ ĐỒ", 0.0)).strip() or 0.0)
+                                    except Exception: item_dict["DÀI SƠ ĐỒ"] = 0.0
                                 else:
+                                    for sz in active_sizes: item_dict[sz] = 0
                                     item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                             updated_rows.append(item_dict)
                         
-                        # 🛠️ ĐỒNG BỘ TRỰC TIẾP: Ép snapshot lưu dưới định cấu hình cột phẳng "CỠ X" để nạp vào Tầng 3
+                        # Tạo mảng render_snapshot khớp chuẩn xác trục cột phẳng CỠ X đưa lên Tầng 3
                         final_sync_render_rows = []
+                        giang_row_cache = snapshot if snapshot else {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG"}
+                        size_row_cache = snapshot if snapshot else {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE"}
+                        sl_row_cache = snapshot if snapshot else {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG"}
+                        
+                        final_sync_render_rows.append(giang_row_cache)
+                        final_sync_render_rows.append(size_row_cache)
+                        final_sync_render_rows.append(sl_row_cache)
+                        
                         for row_data_item in updated_rows:
                             render_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"]}
-                            
-                            # Tính tổng tỷ lệ để điền tự động vào cột TỔNG SẢN LƯỢNG của ô lưới trên
                             r_sum_horizontal = 0
                             for c_idx, sz in enumerate(active_sizes):
                                 val_sz = row_data_item.get(sz, 0)
                                 render_dict[f"CỠ {c_idx+1}"] = val_sz
-                                if row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-                                    r_sum_horizontal += val_sz
+                                r_sum_horizontal += val_sz
                                     
                             l_val = row_data_item.get("SƠ LỚP", 0)
                             t_val = row_data_item.get("SỐ BÀN", 1)
                             
-                            if row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE"]: render_dict["TỔNG SẢN LƯỢNG"] = ""
-                            elif row_data_item["BÀN CẮT / TÊN SƠ ĐỒ"] == "SẢN LƯỢNG": render_dict["TỔNG SẢN LƯỢNG"] = f"{total_sum_po_qty:,}" if 'total_sum_po_qty' in locals() else ""
-                            else: render_dict["TỔNG SẢN LƯỢNG"] = f"{r_sum_horizontal * l_val * t_val:,}"
-                            
+                            render_dict["TỔNG SẢN LƯỢNG"] = f"{r_sum_horizontal * l_val * t_val:,}"
                             render_dict["SƠ LỚP"] = l_val
                             render_dict["SỐ BÀN"] = t_val
                             render_dict["DÀI SƠ ĐỒ"] = row_data_item.get("DÀI SƠ ĐỒ", 0.0)
                             final_sync_render_rows.append(render_dict)
                             
                         st.session_state["session_editor_snapshot"] = final_sync_render_rows
-                        st.success("🎉 AI đã phân bổ tỷ lệ phối cỡ bám khít phần trăm đơn hàng thành công!")
+                        st.success("🎉 Thuật toán toán học Python đã phân bổ tỷ lệ phối cỡ và tự động gộp phần dư lớn nhất thành công!")
                         st.rerun()
-                    else:
-                        st.warning("⚠️ Kết quả tính toán từ AI trống hoặc sai định dạng. Vui lòng thử lại!")
                 except Exception as e:
-                    st.error(f"⚠️ Lỗi xử lý dữ liệu AI: {str(e)}")
+                    st.error(f"⚠️ Lỗi xử lý ma trận đồng bộ AI: {str(e)}")
 
 
 
