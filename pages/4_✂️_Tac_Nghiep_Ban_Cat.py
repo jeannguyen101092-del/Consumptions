@@ -66,6 +66,9 @@ if not st.session_state.get("purchase_ready"):
     st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
 
+# =============================================================================
+# TẦNG 1 - ĐOẠN 1: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD
+# =============================================================================
     if file_sbd_c2:
         trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
         if trigger_btn_c2:
@@ -80,6 +83,7 @@ if not st.session_state.get("purchase_ready"):
                 sbd_bytes = file_sbd_c2.getvalue()
                 sbd_content_str = ""
                 sbd_parts_payload = []
+                
                 if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -89,18 +93,63 @@ if not st.session_state.get("purchase_ready"):
                         pass
                 elif file_sbd_c2.name.lower().endswith('.pdf'): 
                     sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
-                sbd_prompt = """Extract style_id, total_quantity, and complete size breakdown JSON. Keep format '26 X 30' explicitly."""
+                # =============================================================================
+                # TẦNG 1 - ĐOẠN 2: PROMPT ÉP SỐ LƯỢNG SẠCH VÀ RESET BỘ NHỚ ĐỆM SNAPSHOT TRỐNG
+                # =============================================================================
+                sbd_prompt = """
+                Analyze the uploaded garment production file. Extract style_id, total_quantity, and the complete size breakdown numbers.
+                
+                CRITICAL INSTRUCTIONS FOR QUANTITIES:
+                1. Identify the rows containing the actual ordering or cutting quantities distributed under each size column.
+                2. Extract the numbers as pure integers. If numbers contain commas (e.g., 1,250), strip the comma and save as 1250.
+                3. Return a clean JSON object exactly matching this schema:
+                {
+                  "style_id": "string",
+                  "total_quantity": integer,
+                  "size_breakdown": {
+                    "SIZE_NAME_1": integer,
+                    "SIZE_NAME_2": integer
+                  }
+                }
+                """
                 if sbd_content_str: 
                     sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                
                 try:
-                    res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
-                    st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
-                except Exception: 
-                    pass
+                    res_sbd = client_ai.models.generate_content(
+                        model='gemini-2.5-flash', 
+                        contents=sbd_parts_payload, 
+                        config=types.GenerateContentConfig(response_mime_type="application/json")
+                    )
+                    
+                    # Giải mã chuỗi JSON an toàn đa tầng
+                    parsed_json_data = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
+                    
+                    # Lọc sạch dữ liệu ép kiểu int đề phòng AI trả về chuỗi text số lượng lẻ
+                    if "size_breakdown" in parsed_json_data and isinstance(parsed_json_data["size_breakdown"], dict):
+                        clean_dict = {}
+                        for k, v in parsed_json_data["size_breakdown"].items():
+                            try: clean_dict[str(k).strip().upper()] = int(float(str(v).replace(",", "").strip() or 0))
+                            except Exception: clean_dict[str(k).strip().upper()] = 0
+                        parsed_json_data["size_breakdown"] = clean_dict
+                        
+                    st.session_state["sbd_parsed_data"] = parsed_json_data
+                    
+                    # 🔥 ĐIỂM SỬA LỖI CỐT LÕI: Hủy hoàn toàn bộ nhớ đệm snapshot ô lưới trống cũ
+                    # Việc này ép Tầng 3 bắt buộc phải vẽ lại lưới mới tinh dựa trên sản lượng vừa quét
+                    if "session_editor_snapshot" in st.session_state:
+                        st.session_state["session_editor_snapshot"] = None
+                    if "auto_cutting_results" in st.session_state:
+                        st.session_state["auto_cutting_results"] = None
+                        
+                except Exception as e: 
+                    st.error(f"⚠️ Lỗi xử lý cấu trúc ma trận file: {str(e)}")
+                    
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 st.rerun()
+
 # =============================================================================
 # TẦNG 2 - ĐOẠN 1: MÀN HÌNH TÁC NGHIỆP FORM HÀNH CHÍNH VÀ Ô CHỌN LOẠI VẢI ĐỘNG
 # =============================================================================
