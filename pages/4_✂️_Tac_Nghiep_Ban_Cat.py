@@ -420,10 +420,11 @@ if trigger_clear_data:
     st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp. Bạn có thể nhập lại!", icon="🧹")
     st.rerun()
 
-# Xử lý Nút 2: Khóa cứng ma trận lũy tiến tầng trên để đồng bộ xuống bảng theo dõi dưới
+# 🎯 FIX TRỌNG TÂM - Xử lý Nút 2: Khóa cứng ma trận và CƯỠNG BỨC TÍNH TOÁN để bảng dưới nhảy số
 if trigger_consumption:
     st.session_state["consumption_activated"] = True
     st.toast("🔒 Đã khóa cứng ma trận nhập tay và đồng bộ xuống bảng theo dõi!", icon="🔒")
+    st.rerun()  # Ép Streamlit chạy lại từ đầu để Python Engine ở dưới lập tức ăn số liệu tác nghiệp
 
 # Xử lý Nút 1: Kích hoạt thuật toán chuẩn bị cấu trúc gửi sang Gemini AI giải toán điều độ
 if trigger_auto_cutting:
@@ -464,12 +465,13 @@ if trigger_auto_cutting:
                 
                 # Quét và tổng hợp tỷ lệ phối cỡ đã đi sơ đồ của dòng hiện tại
                 for sz in active_sizes:
-                    r_val = safe_int(row_data.get(sz, 0))
+                    # Đọc song song cả key ảo và thực tế để phòng vệ mất số
+                    r_val = safe_int(row_data.get(sz, row_data.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
                     row_ratios[sz] = r_val
                     total_ratios_entered += r_val
                 
                 layers = safe_int(row_data.get("SƠ LỚP", 0))
-                tables = safe_int(row_data.get("SỐ BÀN", 1), default=1)
+                tables = safe_int(row_data.get("SỐ BÀN", 1))
 
                 # Nếu dòng này thợ cắt đã chủ động gõ tỷ lệ sơ đồ & số lớp -> Tính khấu trừ vào PO còn lại
                 if total_ratios_entered > 0 and layers > 0:
@@ -518,6 +520,7 @@ if trigger_auto_cutting:
 
         # Chuyển đổi định mức tài liệu từ Yards sang Mét ứng dụng cho xưởng may
         dinhmuc_met_c2 = round(current_consumption * 0.9144, 3)
+
 import streamlit as st
 import pandas as pd
 import json
@@ -526,7 +529,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2b: SỬA TRIỆT ĐỂ BẰNG ĐỊNH NGHĨA RAW JSON SCHEMA (KHÔNG DÙNG PYDANTIC)
+# TẦNG 2 - ĐOẠN 2b: SỬA TRIỆT ĐỂ BẰNG ĐỊNH NGHĨA RAW JSON SCHEMA (HOÀN CHỈNH 100%)
 # =============================================================================
 
 # Đảm bảo active_sizes tồn tại để không gây lỗi NameError khi dựng Schema
@@ -610,13 +613,14 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
     4. Key trong mảng Ratios bắt buộc phải đặt tên chuẩn xác theo đúng số thứ tự của cột là "CỠ 1", "CỠ 2", "CỠ 3"... dựa theo danh sách ánh xạ kích cỡ này: {json.dumps(size_mapping_for_ai)}.
     """
 
+    # --- ĐOẠN KHỐI API GỌI GEMINI VÀ XỬ LÝ KẾT QUẢ ĐỒNG BỘ SONG SONG SẠCH LỖI ---
     try:
         res_cutting = client_ai.models.generate_content(
             model='gemini-2.5-flash', 
             contents=[ai_cutting_prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=gemini_raw_json_schema,  # Ép bằng schema thô sạch hoàn toàn cấu trúc thừa
+                response_schema=gemini_raw_json_schema,
                 temperature=0.1
             )
         )
@@ -647,12 +651,12 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                 ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                 
                 if ai_match:
-                    ai_row = ai_match[0] # Lấy bản ghi đầu tiên
+                    ai_row = ai_match[0] # Lấy bản ghi từ điển duy nhất từ danh sách khớp
                     r_dict = ai_row.get("Ratios", {})
                     
                     total_pants_in_marker = 0
                     
-                    # 🎯 ĐIỂM SỬA CHỐT: Gán song song cả Key ảo và Key thực tế để tránh mất dữ liệu hiển thị
+                    # 🎯 ĐỒNG BỘ KEY ĐÔI: Gán vào cả Key ảo để bảng 1 nhận diện và Key thực tế để bảng 2 kế thừa tính toán
                     for idx_sz, sz in enumerate(active_sizes):
                         ai_key_look = f"CỠ {idx_sz+1}"
                         val_ai = r_dict.get(ai_key_look, r_dict.get(sz, 0))
@@ -664,6 +668,7 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                         item_dict[sz] = val_int
                         total_pants_in_marker += val_int
                     
+                    # Đã đồng bộ an toàn sang đối tượng ai_row chống lỗi AttributeError 'list'
                     try: item_dict["SƠ LỚP"] = int(float(str(ai_row.get("Số lớp", 0)).strip()))
                     except Exception: item_dict["SƠ LỚP"] = 0
                     try: item_dict["SỐ BÀN"] = int(float(str(ai_row.get("Số bàn", 1)).strip() or 1))
