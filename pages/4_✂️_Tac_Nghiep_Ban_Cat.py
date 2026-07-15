@@ -587,14 +587,13 @@ else:
 
 
 
-               # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ LUỒNG KHẤU TRỪ VÀ VÁ LỖI TỰ NHẢY ĐỊNH MỨC MẶC ĐỊNH
+        # =============================================================================
+        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ CHUẨN ĐA DÒNG - GÕ PHÍM BẢNG TRÊN NHẢY SỐ BẢNG DƯỚI LẬP TỨC
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
 
-        # Thiết lập 2 hàng tiêu đề phụ độc lập cho bảng dưới sạch ký tự gạch chân
         t1_giang_row = ["GIÀNG"]
         t2_size_row = ["SIZE"]
         po_qty_matrix = []
@@ -624,18 +623,24 @@ else:
         t3_sl_row = ["SẢN LƯỢNG"] + [f"{v:,}" for v in po_qty_matrix] + [""] * 6
             
         matrix_body_rows = []
-        remaining_balances = list(po_qty_matrix)
         
-        # 🛠️ ĐỒNG BỘ CHUẨN: Duyệt qua dữ liệu thực tế đã sửa từ bảng tương tác trên màn hình
-        for r_idx in range(len(edited_df)):
-            row_data = edited_df.iloc[r_idx]
-            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        # 🛠️ ĐIỂM CHỐT TỐI ƯU LUỒNG KHẤU TRỪ: Tạo một mảng lũy kế độc lập liên tục, chừa sạch 3 dòng tiêu đề
+        running_balances = list(po_qty_matrix)
+        
+        # Lọc sạch bảng editor, chỉ bốc 6 dòng sơ đồ sản xuất thực tế để tính toán trừ lùi
+        production_rows = []
+        if isinstance(edited_df, pd.DataFrame):
+            for _, r_data in edited_df.iterrows():
+                name_check = str(r_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+                if name_check not in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
+                    production_rows.append(r_data)
+        else:
+            production_rows = [r for r in display_editor_rows if str(r.get("BÀN CẮT / TÊN SƠ ĐỒ")).upper().strip() not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
+
+        # Chạy vòng lặp tính toán trừ lùi tịnh tiến mượt mà theo đúng sơ đồ công nghệ bàn cắt
+        for r_idx, row_data in enumerate(production_rows):
+            s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{r_idx+1}")).upper().strip()
             
-            # BẮT BUỘC BỎ QUA: Không tính toán tích lũy cho 3 dòng tiêu đề phụ lồng bên trong ô lưới
-            if s_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
-                continue
-            
-            # Ép kiểu dữ liệu an toàn từ lưới nhập liệu
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
                 
@@ -649,7 +654,6 @@ else:
             row_ratios_list = []
             ratios_sum = 0
             
-            # Quét tìm tỷ lệ phối cỡ
             for sz in active_sizes:
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
@@ -661,7 +665,7 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            # 🛠️ SỬA LỖI TỰ NHẢY ĐỊNH MỨC: Nếu chưa gõ số lớp hoặc chưa gõ tỷ lệ, ép vải cần và định mức bằng 0
+            # Tính định mức và tổng vải tiêu hao thực tế
             if ratios_sum > 0 and layers > 0 and m_len > 0:
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
@@ -674,13 +678,13 @@ else:
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
-            # Trừ lùi chính xác lượng dư còn lại theo tiến trình sản xuất
+            # 🛠️ CẬP NHẬT TRỪ LÙI THỜI GIAN THỰC: Khấu trừ lùi liên tục lưu vết qua biến running_balances
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
-                remaining_balances[idx] = max(0, remaining_balances[idx] - (r_val * layers * tables))
-                remaining_row.append(remaining_balances[idx])
+                running_balances[idx] = max(0, running_balances[idx] - (r_val * layers * tables))
+                remaining_row.append(running_balances[idx])
             remaining_row.extend(["", "", "", "", "", ""])
             matrix_body_rows.append(remaining_row)
 
@@ -689,7 +693,6 @@ else:
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
-        # Định dạng giao diện CSS hiển thị
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -745,6 +748,7 @@ else:
                 try:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
+
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
 
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
