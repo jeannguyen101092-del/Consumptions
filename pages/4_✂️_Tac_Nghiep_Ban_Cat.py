@@ -323,25 +323,25 @@ else:
                 dinhmuc_met_c2 = round(consumption_input * 0.9144, 3)
 
 
-                # =============================================================================
-                # TẦNG 2 - ĐOẠN 2b: CÂU LỆNH PROMPT VÀ ĐỒNG BỘ KẾT QUẢ AI VÀO Ô LƯỚI TRỐNG
+                               # =============================================================================
+                # TẦNG 2 - ĐOẠN 2b: PROMPT KỸ THUẬT VÀ SỬA TRIỆT ĐỂ LỖI TRẮNG MÀN HÌNH (LOOP RERUN)
                 # =============================================================================
                 ai_cutting_prompt = f"""
-                Bạn là thuật toán toán học điều độ bàn cắt. Hãy tính phối cỡ điền vào các dòng đang TRỐNG này: {json.dumps(empty_slots)}.
-                Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ dòng hoặc thay đổi thông tin các dòng đã gõ tay.
+                Bạn là thuật toán điều độ bàn cắt ngành may. Hãy tính toán phối cỡ cho các sơ đồ còn trống sau đây: {json.dumps(empty_slots)}.
+                Tuyệt đối KHÔNG ĐƯỢC tự ý bỏ qua ô trống hoặc tự nhảy cóc sơ đồ.
                 
-                Thông số đầu vào:
-                - Bản đồ cấu trúc các dòng: {json.dumps(current_grid_structure)}
-                - Số lượng sản phẩm còn dư thực tế cần vét: {json.dumps(calculated_balances)}
-                - Định mức tài liệu kỹ thuật: {dinhmuc_met_c2} mét/quần.
-                - Chiều dài bàn vải tối đa cho phép: {max_table_length} mét.
+                Dữ liệu thực tế đầu vào:
+                - Sản lượng còn lại thực tế cần giải quyết: {json.dumps(calculated_balances)}
+                - Định mức tài liệu đề xuất: {consumption_input} Yds/Pcs (Khoảng {round(consumption_input * 0.9144, 3)} mét/Pcs cho 1 sản phẩm).
+                - Chiều gia tối đa cho phép của bàn vải: {max_table_length} mét.
 
-                QUY TẮC PHỐI CỠ VÀ TÍNH CHIỀU DÀI:
-                1. Chỉ được điền tỷ lệ phối (Ratios) và Số lớp vào dòng ghi "AI ĐIỀN VÀO ĐÂY". Điền tuần tự từ trên xuống dưới.
-                2. KHỐNG CHẾ CHIỀU DÀI: (Tổng các tỷ lệ phối Ratios) * ({dinhmuc_met_c2} mét) BẮT BUỘC <= {max_table_length} mét.
+                QUY TẮC PHỐI CỠ VÀ TÍNH TOÁN BẮT BUỘC:
+                1. Hãy tận dụng tối đa chiều dài bàn cắt tối đa ({max_table_length}m) để GHÉP các cỡ lại với nhau (Ví dụ tỷ lệ: 1-1-1 hoặc 1-2-1). 
+                2. RÀNG BUỘC CHIỀU DÀI: (Tổng số sản phẩm phối trên sơ đồ) * ({round(consumption_input * 0.9144, 3)} mét) KHÔNG ĐƯỢC vượt quá {max_table_length} mét. Chiều dài sơ đồ thực tế của mỗi sơ đồ chính là (Tổng tỷ lệ phối) * ({round(consumption_input * 0.9144, 3)} mét).
+                3. Hãy xếp số lớp (Số lớp) thật cao để giải quyết nhanh sản lượng, hạn chế đi số lớp mỏng lãng phí công trải.
                 {fabric_rule_text}
-                3. Chỉ dùng sơ đồ phối 1 quần duy nhất ở ô trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ.
-                4. Chỉ điền kết quả vào đúng các mã sơ đồ nằm trong danh sách trống này: {json.dumps(empty_slots)}.
+                4. Chỉ dùng sơ đồ phối 1 quần duy nhất ở sơ đồ trống cuối cùng để vét sạch các sản phẩm mồ côi cực lẻ còn sót lại.
+                5. Chỉ điền kết quả vào đúng các mã sơ đồ nằm trong danh sách trống này: {json.dumps(empty_slots)}.
 
                 Trả về mảng JSON sạch cấu trúc chuẩn xác, không giải thích thêm:
                 [
@@ -353,26 +353,30 @@ else:
                         model='gemini-2.5-flash', contents=[ai_cutting_prompt],
                         config=types.GenerateContentConfig(response_mime_type="application/json")
                     )
-                    ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
                     
-                    if isinstance(ai_vete_res, list):
+                    if res_cutting and res_cutting.text:
+                        ai_vete_res = json.loads(res_cutting.text.strip().replace("```json", "").replace("```", "").strip())
+                    else:
+                        ai_vete_res = None
+                    
+                    if isinstance(ai_vete_res, list) and len(ai_vete_res) > 0:
                         st.session_state["auto_cutting_results"] = ai_vete_res
                         
                         updated_rows = []
                         for i in range(6):
                             s_code = f"c{str(i+1).zfill(2)}"
                             
-                            if snapshot and i < len(snapshot):
-                                old_row = snapshot[i]
-                                s_name_display = str(old_row.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{str(i+1).zfill(2)}")).upper().strip()
+                            if snapshot and i < len(snapshot) and snapshot[i].get("BÀN CẮT / TÊN SƠ ĐỒ"):
+                                old_name = str(snapshot[i].get("BÀN CẮT / TÊN SƠ ĐỒ")).strip()
+                                s_name_display = old_name if (old_name.lower() != "none" and old_name != "" and old_name.lower() != "nan") else f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}"
                             else:
-                                s_name_display = f"SƠ ĐỒ C{str(i+1).zfill(2)}"
+                                s_name_display = f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}"
                                 
                             item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": s_name_display}
                             ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                             
                             if ai_match and len(ai_match) > 0:
-                                ai_row = ai_match[0]
+                                ai_row = ai_match[0] # Khắc phục triệt để bóc tách list
                                 r_dict = ai_row.get("Ratios", {})
                                 for sz in active_sizes: 
                                     try: item_dict[sz] = int(float(str(r_dict.get(sz, 0)).strip() or 0))
@@ -394,24 +398,35 @@ else:
                                     for sz in active_sizes: 
                                         try: item_dict[sz] = int(float(str(old_row.get(sz, 0)).strip() or 0))
                                         except Exception: item_dict[sz] = 0
-                                    item_dict.update({
-                                        "SƠ LỚP": int(float(str(old_row.get("SƠ LỚP", 0)).strip() or 0)), 
-                                        "SỐ BÀN": int(float(str(old_row.get("SỐ BÀN", 1)).strip() or 1)), 
-                                        "DÀI SƠ ĐỒ": float(str(old_row.get("DÀI SƠ ĐỒ", 0.0)).strip() or 0.0)
-                                    })
+                                    
+                                    try: s_lop_old = int(float(str(old_row.get("SƠ LỚP", 0)).strip() or 0))
+                                    except Exception: s_lop_old = 0
+                                    
+                                    try: s_ban_old = int(float(str(old_row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1))
+                                    except Exception: s_ban_old = 1
+                                        
+                                    try: d_sd_old = float(str(old_row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
+                                    except Exception: d_sd_old = 0.0
+                                        
+                                    item_dict.update({"SƠ LỚP": s_lop_old, "SỐ BÀN": s_ban_old, "DÀI SƠ ĐỒ": d_sd_old})
                                 else:
-                                    for sz in active_sizes: item_dict[sz] = 0
                                     item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
                             updated_rows.append(item_dict)
                         
                         st.session_state["session_editor_snapshot"] = updated_rows
                         st.success("🎉 AI đã quét các ô trống và tự động phân bổ tỷ lệ ghép đa cỡ thành công!")
                         st.rerun()
+                    else:
+                        st.warning("⚠️ Kết quả tính toán từ AI trống hoặc sai định dạng. Vui lòng thử lại!")
                 except Exception as e: 
-                    st.error(f"⚠️ Lỗi thuật toán đồng bộ AI: {str(e)}")
+                    if "503" in str(e) or "UNAVAILABLE" in str(e):
+                        st.error("⚠️ Máy chủ Google AI đang quá tải cục bộ. Bạn hãy đợi 5 giây rồi bấm lại nhé!")
+                    else:
+                        st.error(f"⚠️ Lỗi xử lý dữ liệu AI: {str(e)}")
 
         if trigger_consumption:
             st.session_state["consumption_activated"] = True
+
 
 
 
