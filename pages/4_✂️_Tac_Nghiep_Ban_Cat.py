@@ -676,7 +676,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 1: KHỬ TRIỆT ĐỂ LỖI CHUỒI MẢNG VÀ CỐ ĐỊNH 3 TIÊU ĐỀ PHỤ
+# TẦNG 3 - ĐOẠN 1: KHỬ TRIỆT ĐỂ LỖI CHUỒI MẢNG VÀ MỞ KHÓA QUYỀN SỬA REAL-TIME
 # =============================================================================
 
 # Khôi phục các biến nền an toàn từ phiên làm việc
@@ -728,7 +728,7 @@ for sz in active_sizes:
         s_val = str(parts[0]).strip()
         g_val = str(parts[1]).strip()
     elif len(parts) == 1:
-        s_val = str(parts[0]).strip()
+        s_val = str(parts).strip()
         g_val = "None"
     
     giang_top_row[sz] = re.sub(r'_\d+$', '', g_val)
@@ -773,11 +773,20 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
+# Tạo DataFrame gốc
 df_editor_base = pd.DataFrame(display_editor_rows)
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
 df_editor_top_render = df_editor_base.copy()
 df_editor_top_render.columns = clean_headers_top
+
+# 🔥 BƯỚC THAY ĐỔI VÀNG: Ép cứng kiểu dữ liệu cho DataFrame để Streamlit không tự khóa cột
+for col in clean_headers_top:
+    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
+        # Chuyển đổi dữ liệu các hàng sơ đồ (từ hàng index 3 trở đi) thành dạng số
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
+    elif col == "DÀI SƠ ĐỒ":
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0.0).astype(float)
 
 is_locked = st.session_state.get("consumption_activated", False)
 if is_locked:
@@ -787,20 +796,20 @@ if is_locked:
 
 st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
 
-# 🛠️ CẤU HÌNH COLUMN_CONFIG ĐỂ CHỈ ĐỊNH QUYỀN SỬA ĐỘNG CHO TỪNG CỘT
-# Mặc định mở disabled=False cho các cột nhập liệu
+# 🛠️ ĐỊNH NGHĨA COLUMN_CONFIG KHỚP CHÍNH XÁC VỚI KIỂU DỮ LIỆU SỐ ĐỂ KÍCH HOẠT QUYỀN SỬA
 config_cot = {
-    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=False),
-    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True), # Khóa cột tổng vì hệ thống tự tính
-    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0),
-    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1),
-    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=is_locked, min_value=0.0)
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=False, width="medium"),
+    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=is_locked, min_value=0, step=1, format="%d"),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=is_locked, min_value=1, step=1, format="%d"),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=is_locked, min_value=0.0, step=0.05, format="%.2f")
 }
 
-# Kích hoạt quyền chỉnh sửa (disabled=is_locked) cho tất cả các cột CỠ động
+# Gán cấu hình động mở khóa quyền sửa cho từng CỠ ảo
 for i in range(len(active_sizes)):
-    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(disabled=is_locked, min_value=0)
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1}", disabled=is_locked, min_value=0, step=1, format="%d")
 
+# Hàm callback đồng bộ dữ liệu sửa đổi an toàn
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -811,7 +820,7 @@ def callback_sync_on_the_fly_final():
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
                 if r_idx_int < len(current_snapshot):
-                    # Khóa an toàn tuyệt đối ở tầng logic cho 3 hàng tiêu đề
+                    # SỬA LỖI LOGIC: Khóa tuyệt đối 3 hàng tiêu đề phụ ở tầng nhớ đệm
                     if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: 
                         continue
                         
@@ -836,15 +845,16 @@ def callback_sync_on_the_fly_final():
             
             st.session_state["session_editor_snapshot"] = current_snapshot
 
-# Render cấu hình component ô lưới tương tác dữ liệu nâng cao
+# Khởi chạy data_editor đã mở khóa
 edited_df_raw = st.data_editor(
     df_editor_top_render, 
     use_container_width=True, 
     hide_index=True, 
-    column_config=config_cot, # Áp dụng cấu hình phân quyền cột sửa đổi tại đây
+    column_config=config_cot,
     key="table_manual_data_editor_final",
     on_change=callback_sync_on_the_fly_final
 )
+
 
 import streamlit as st
 import pandas as pd
