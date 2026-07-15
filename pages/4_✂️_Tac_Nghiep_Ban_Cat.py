@@ -587,13 +587,14 @@ else:
 
 
 
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 2: LŨY TIẾN VÀ ĐỒNG BỘ 2 HÀNG RỜI RÕ RÀNG XUỐNG BẢNG DƯỚI
+               # =============================================================================
+        # TẦNG 3 - ĐOẠN 2: ĐỒNG BỘ LUỒNG KHẤU TRỪ VÀ VÁ LỖI TỰ NHẢY ĐỊNH MỨC MẶC ĐỊNH
         # =============================================================================
         t_header_ma_hang = ["Mã hàng:", f" {style_id_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_mau = ["Màu:", f" {color_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
         t_header_loai_vai = ["Loại vải:", f" {fabric_type_input.strip().upper()}"] + [""] * (len(active_sizes) + 5)
 
+        # Thiết lập 2 hàng tiêu đề phụ độc lập cho bảng dưới sạch ký tự gạch chân
         t1_giang_row = ["GIÀNG"]
         t2_size_row = ["SIZE"]
         po_qty_matrix = []
@@ -625,14 +626,16 @@ else:
         matrix_body_rows = []
         remaining_balances = list(po_qty_matrix)
         
+        # 🛠️ ĐỒNG BỘ CHUẨN: Duyệt qua dữ liệu thực tế đã sửa từ bảng tương tác trên màn hình
         for r_idx in range(len(edited_df)):
             row_data = edited_df.iloc[r_idx]
             s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
             
-            # Bỏ qua không tính toán lũy tiến đầu khúc cho 2 hàng tiêu đề chữ GIÀNG và SIZE lồng trong ô lưới
-            if s_name in ["GIÀNG", "SIZE", "NONE", "NAN", ""]:
+            # BẮT BUỘC BỎ QUA: Không tính toán tích lũy cho 3 dòng tiêu đề phụ lồng bên trong ô lưới
+            if s_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG", "NONE", "NAN", ""]:
                 continue
             
+            # Ép kiểu dữ liệu an toàn từ lưới nhập liệu
             try: layers = int(float(str(row_data.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
             except Exception: layers = 0
                 
@@ -646,6 +649,7 @@ else:
             row_ratios_list = []
             ratios_sum = 0
             
+            # Quét tìm tỷ lệ phối cỡ
             for sz in active_sizes:
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
                 except Exception: r_val = 0
@@ -657,21 +661,20 @@ else:
                     sz_clean = re.sub(r'_\d+$', '', sz_clean)
                     active_ratio_parts.append(f"{sz_clean}/{r_val}")
             
-            if ratios_sum > 0 and m_len > 0:
+            # 🛠️ SỬA LỖI TỰ NHẢY ĐỊNH MỨC: Nếu chưa gõ số lớp hoặc chưa gõ tỷ lệ, ép vải cần và định mức bằng 0
+            if ratios_sum > 0 and layers > 0 and m_len > 0:
                 dm_sd = (m_len * 1.09361) / ratios_sum
                 vail_can_m = m_len * layers * tables
             else:
-                dm_sd = float(consumption_input)
-                effective_ratios = ratios_sum if ratios_sum > 0 else 1
-                vail_can_m = (dm_sd / 1.09361) * effective_ratios * layers * tables
-                if m_len == 0.0 and layers > 0:
-                    m_len = round((dm_sd / 1.09361) * effective_ratios, 2)
-                    
+                dm_sd = 0.0
+                vail_can_m = 0.0
+                
             ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
             
             ratio_row = [ratio_row_title] + row_ratios_list + [layers, tables, round(m_len, 2), ratios_sum, round(dm_sd, 3), round(vail_can_m, 1)]
             matrix_body_rows.append(ratio_row)
             
+            # Trừ lùi chính xác lượng dư còn lại theo tiến trình sản xuất
             remaining_row = ["CÒN LẠI"]
             for idx, sz in enumerate(active_sizes):
                 try: r_val = int(float(str(row_data.get(sz, 0)).replace(",", "").strip() or 0))
@@ -686,6 +689,7 @@ else:
         
         df_final_report = pd.DataFrame(final_table_rows, columns=clean_headers)
 
+        # Định dạng giao diện CSS hiển thị
         st.markdown("""<style>
             th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
             tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
@@ -697,6 +701,7 @@ else:
         st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         st.markdown("---")
 
+        # Phân hệ xuất tập tin Excel gộp đa dạng loại vải
         excel_generated_status = False
         buffer = io.BytesIO()
         try:
@@ -741,6 +746,7 @@ else:
                     from supabase import create_client
                     supabase_client = create_client("https://supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmeGx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjEwMjc1NjIsImV4cCI6MjAzNjYwMzU2Mn0.uD-n6W9k6_Z87RcoX_OlyV_1R0g_Yp_B-D3v7b0Q678")
                     supabase_client.table("cutting_orders_db").upsert(supabase_payload, on_conflict="style_id,fabric_type").execute()
+
                     st.success(f"🎉 Đã đồng bộ lưu đè dữ liệu mảng phẳng vải {fabric_type_input} lên Cloud Supabase thành công!")
                 except Exception as e: 
                     st.error(f"⚠️ Lỗi kết nối Supabase: {str(e)}")
