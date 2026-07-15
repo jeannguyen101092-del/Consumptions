@@ -881,20 +881,23 @@ import math
 
 import math
 
+import math
+import streamlit as st
+
 # =============================================================================
-# TẦNG 3 - ĐOẠN 7a: THUẬT TOÁN ĐIỀU PHỐI LIÊN HOÀN ĐỔ THẲNG XUỐNG BẢNG 2 (SỬA LOGIC LỚP)
+# TẦNG 3 - ĐOẠN 7a: PYTHON ENGINE TỰ ĐỘNG ĐIỀU PHỐI KIM TỰ THÁP NGƯỢC CHUẨN SẢN XUẤT
 # =============================================================================
 
 final_snapshot_rows = []
 
-# 1. Khai báo mảng sản lượng đơn hàng gốc (PO) làm mảng khấu trừ cuốn chiếu
+# --- 1. KHỞI TẠO MẢNG SẢN LƯỢNG ĐƠN HÀNG (PO BALANCES) ---
 current_order_balances = {}
 for sz in active_sizes:
     current_order_balances[sz] = safe_int_final(size_breakdown_main.get(sz, 0))
 
 consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-# --- Bước 1: Đưa cấu trúc 3 dòng tiêu đề phụ cố định (GIÀNG, SIZE, SẢN LƯỢNG) vào Bảng báo cáo số 2 ---
+# --- 2. BƯỚC 1: ĐẨY 3 HÀNG TIÊU ĐỀ PHỤ CỐ ĐỊNH XUỐNG BẢNG 2 ---
 for idx, row in edited_df_raw.iterrows():
     s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
     if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
@@ -903,7 +906,7 @@ for idx, row in edited_df_raw.iterrows():
             item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
         final_snapshot_rows.append(item_dict)
 
-# --- Bước 2: Chỉ lấy các dòng nhập tay/cắt mẫu (PILOT) từ Bảng 1 đổ xuống Bảng 2 và khấu trừ đơn hàng ---
+# --- 3. BƯỚC 2: KHẤU TRỪ SẢN LƯỢNG TỪ CÁC DÒNG SƠ ĐỒ CẮT MẪU (PILOT) ĐƯỢC NHẬP TAY ---
 for idx, row in edited_df_raw.iterrows():
     s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
     if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"] and ("PILOT" in s_row_name or "SS" in s_row_name):
@@ -928,32 +931,30 @@ for idx, row in edited_df_raw.iterrows():
         item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
         final_snapshot_rows.append(item_pilot)
 
-# --- Bước 3: Thuật toán rải sơ đồ tự động bậc thang dốc xuống đổ THẲNG vào Bảng báo cáo số 2 ---
+# --- 4. BƯỚC 3: ĐỌC CẤU HÌNH RẢI SƠ ĐỒ CHÍNH TỪ DÒNG CHÍNH C01 TẠI BẢNG NHẬP LIỆU VỚI PHÒNG VỆ SƠ LỚP THỰC TẾ ---
 chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C01", na=False, case=False)]
 
 max_target_length = 11.46
-max_target_layers = 60  # Đặt mặc định sản xuất là 60 lớp vải
+max_target_layers = 60
 
 if not chinh_rows_input.empty:
-    first_chinh = chinh_rows_input.iloc[0]
+    first_chinh = chinh_rows_input.iloc
     try: max_target_length = float(str(first_chinh.get("DÀI SƠ ĐỒ", 11.46)).replace(",", "").strip() or 11.46)
     except: max_target_length = 11.46
     
     user_layers = safe_int_final(first_chinh.get("SƠ LỚP", 0))
-    # 🎯 FIX TRỌNG TÂM: Nếu người dùng điền Sơ lớp nhỏ hơn hoặc bằng 1, tự động tính theo 60 lớp để rải cuốn chiếu nhanh
-    if user_layers > 1:
-        max_target_layers = user_layers
-    else:
-        max_target_layers = 60
+    # Chống kẹt thuật toán: Nếu thợ để sơ lớp mẫu bằng 0 hoặc 1, Python tự gán số lớp tối ưu ngành may là 60
+    max_target_layers = user_layers if user_layers > 1 else 60
 
 if max_target_length <= 0: max_target_length = 11.46
 
-marker_counter, max_safety_loops = 1, 40
-
+# --- 5. BƯỚC 4: THUẬT TOÁN TOÁN HỌC CHIA TỶ LỆ VÀ RẢI SƠ ĐỒ CUỐN CHIẾU LIÊN HOÀN ---
+marker_counter, max_safety_loops = 1, 30
 while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_loops:
     s_marker_name = f"CHÍNH C{str(marker_counter).zfill(2)}"
     total_remaining_po_at_row = sum(current_order_balances.values())
     
+    # Tính số sản phẩm tối đa có thể xếp vừa trên chiều dài sơ đồ giới hạn
     garments_per_marker = math.floor(max_target_length / consumption_in_yards) if (max_target_length > 0 and consumption_in_yards > 0) else 0
     if garments_per_marker <= 0 or total_remaining_po_at_row <= 0: break
         
@@ -964,12 +965,14 @@ while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_
             remainders.append({"size": sz, "remainder": 0.0})
             continue
         sz_remaining_qty = current_order_balances.get(sz, 0)
+        # Phân chia tỷ lệ tác nghiệp toán học dựa trên lượng còn dư
         sz_ratio_pct = sz_remaining_qty / total_remaining_po_at_row if total_remaining_po_at_row > 0 else 0
         theoretical_qty = garments_per_marker * sz_ratio_pct
         base_qty = int(theoretical_qty)
         base_values[sz] = base_qty
         remainders.append({"size": sz, "remainder": theoretical_qty - base_qty})
         
+    # Bù sản phẩm thiếu do làm tròn toán học vào các cỡ có phần dư lớn nhất
     allocated_more = garments_per_marker - sum(base_values.values())
     remainders.sort(key=lambda x: x["remainder"], reverse=True)
     for k in range(min(max(0, allocated_more), len(remainders))):
@@ -979,6 +982,7 @@ while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_
     r_dict = base_values
     row_ratios_total = sum(r_dict.values())
     
+    # Tính toán số lớp chạy cuốn chiếu động để triệt tiêu cỡ hết nhanh nhất
     possible_layers_dynamic = []
     for sz in active_sizes:
         if r_dict.get(sz, 0) > 0:
@@ -988,15 +992,14 @@ while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_
     calculated_layers = min(possible_layers_dynamic) if possible_layers_dynamic else 1
     row_layers = min(max_target_layers, calculated_layers)
     
+    # Nếu cấu trúc rải hợp lệ, thực hiện khấu trừ số lượng vào đơn hàng PO
     if row_layers > 0 and row_ratios_total > 0:
         for sz in active_sizes:
             current_order_balances[sz] = max(0, current_order_balances[sz] - (r_dict.get(sz, 0) * row_layers))
             
         item_auto = {
-            "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name,
-            "SƠ LỚP": row_layers,
-            "SỐ BÀN": 1,
-            "DÀI SƠ ĐỒ": max_target_length,
+            "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name, "SƠ LỚP": row_layers, "SỐ BÀN": 1,
+            "DÀI SƠ ĐỒ": round(row_ratios_total * consumption_in_yards, 2), # Chiều dài thực tế theo tỷ lệ phối nhân định mức
             "TỔNG SẢN LƯỢNG": row_ratios_total * row_layers
         }
         item_auto.update(r_dict)
@@ -1004,6 +1007,30 @@ while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_
         final_snapshot_rows.append(item_auto)
         
     marker_counter += 1
+
+# --- 6. BƯỚC 5: KIỂM TRA DƯ THIẾU CUỐI ĐƠN - TỰ ĐỘNG CHÈN DÒNG VÉT SẠCH VẢI VỤN (DÒNG CUỐI) ---
+leftover_sum = sum(current_order_balances.values())
+if leftover_sum > 0:
+    s_marker_name = f"CHÍNH C{str(marker_counter).zfill(2)} (VÉT SẠCH ĐƠN HÀNG)"
+    vet_ratios = {}
+    total_vet_pants = 0
+    
+    for sz in active_sizes:
+        qty_left = current_order_balances.get(sz, 0)
+        vet_ratios[sz] = qty_left # Ép tỷ lệ sơ đồ bằng đúng số lượng lẻ còn sót lại
+        total_vet_pants += qty_left
+        current_order_balances[sz] = 0 # Triệt tiêu hoàn toàn số dư về 0
+        
+    item_vet = {
+        "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name,
+        "SƠ LỚP": 1,  # Chỉ trải đúng 1 lớp vải để vét nốt số lẻ
+        "SỐ BÀN": 1,
+        "DÀI SƠ ĐỒ": round(total_vet_pants * consumption_in_yards, 2),
+        "TỔNG SẢN LƯỢNG": total_vet_pants
+    }
+    item_vet.update(vet_ratios)
+    item_vet["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+    final_snapshot_rows.append(item_vet)
 
 
 
@@ -1018,7 +1045,7 @@ import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2b: SỬA TRIỆT ĐỂ LỖI HIỂN THỊ CHUỒI MẢNG TẠI CỘT GIÀNG / SIZE BẢNG DƯỚI (ĐÃ SỬA LỖI)
+# TẦNG 3 - ĐOẠN 2b: KẾT XUẤT PHIẾU TÁC NGHIỆP ĐỒNG BỘ PYTHON ENGINE (SỬA HOÀN CHỈNH)
 # =============================================================================
 
 # Khai báo lại hàm helper để tránh lỗi NameError
@@ -1098,8 +1125,9 @@ for r_idx, row_data in enumerate(production_rows):
     row_ratios_list = []
     ratios_sum = 0
     
-    for sz in active_sizes:
-        r_val = safe_int_final(row_data.get(sz, row_data.get(f"CỠ {active_sizes.index(sz)+1}", 0)))
+    # 🎯 FIX ĐỒNG BỘ: Quét song song cả tên cỡ gốc (sz) lẫn mã cột ảo (CỠ X) từ Python Engine
+    for c_idx, sz in enumerate(active_sizes):
+        r_val = safe_int_final(row_data.get(sz, row_data.get(f"CỠ {c_idx+1}", 0)))
         ratios_sum += r_val
         row_ratios_list.append(r_val)
         if r_val > 0:
@@ -1108,7 +1136,9 @@ for r_idx, row_data in enumerate(production_rows):
     
     dm_sd = (m_len * 1.09361) / ratios_sum if (m_len > 0 and ratios_sum > 0) else 0.0
     vail_can_m = m_len * layers * tables
-    ratio_row_title = f"{s_name}: " + " ".join(active_ratio_parts) if active_ratio_parts else f"{s_name}"
+    
+    # Tên tiêu đề hàng hiển thị ngắn gọn trực quan, các con số tỷ lệ phân rã đều ra các cột cỡ bên phải
+    ratio_row_title = f"{s_name}"
     total_cut_in_row = ratios_sum * layers * tables
     
     # 1. Thêm dòng Tỷ lệ phối sơ đồ bàn vải
