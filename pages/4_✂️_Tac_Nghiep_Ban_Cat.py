@@ -394,6 +394,20 @@ else:
 
 
         # =============================================================================
+        # 📊 ĐỊNH DẠNG CSS VÀ HIỂN THỊ BẢNG ĐỐI CHIẾU THỰC TẾ TRÊN MÀN HÌNH
+        # =============================================================================
+        st.markdown("""<style>
+            th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
+            tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
+            tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; }
+            td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
+        </style>""", unsafe_allow_html=True)
+
+        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP ĐỐI CHIẾU THỰC TẾ (KÉO XUỐNG XEM SỐ DƯ TRỪ LÙI CÒN LẠI)</p>", unsafe_allow_html=True)
+        st.dataframe(df_final_report, use_container_width=True, hide_index=True)
+        st.markdown("---")
+
+        # =============================================================================
         # 🎯 PHÂN HỆ ĐA SHEET EXCEL ĐỔ MÀU CÔNG NGHIỆP
         # =============================================================================
         excel_generated_status = False
@@ -429,25 +443,16 @@ else:
                 use_container_width=True, 
                 key="excel_multi_sheet_btn_final_v5"
             )
-
-        # Định dạng giao diện CSS hiển thị bảng đối chiếu thực tế mượt mà hơn
-        st.markdown("""<style>
-            th { background-color: #F1F5F9 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; border: 1px solid #CBD5E1 !important; position: sticky; top: 0; z-index: 10; }
-            tr td { background-color: #FFFFFF !important; color: #000000 !important; border: 1px solid #E2E8F0 !important; text-align: center !important; font-weight: 500 !important; }
-            tr:nth-child(2) td:nth-child(2), tr:nth-child(3) td:nth-child(2) { color: #DC2626 !important; font-weight: 800 !important; }
-            td:nth-child(1) { font-weight: 700 !important; text-align: left !important; padding-left: 10px !important; color: #000000 !important; }
-        </style>""", unsafe_allow_html=True)
-
-        st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP ĐỐI CHIẾU THỰC TẾ (KÉO XUỐNG XEM SỐ DƯ TRỪ LÙI CÒN LẠI)</p>", unsafe_allow_html=True)
-        st.dataframe(df_final_report, use_container_width=True, hide_index=True)
         
-        st.markdown("---")
-        st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
+        # =============================================================================
+        # 💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI VÀO KHO
+        # =============================================================================
+        st.markdown(f"<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>💾 LƯU TRỮ VÀ ĐỒNG BỘ PHIẾU VẢI {fabric_type_input.upper()} VÀO KHO</p>", unsafe_allow_html=True)
         trigger_save_supabase = st.button(f"💾 KÍCH HOẠT LƯU TRỮ / CẬP NHẬT PHIẾU VẢI {fabric_type_input.upper()} LÊN CLOUD SUPABASE", type="primary", use_container_width=True, key="save_to_supabase_btn_c2")
         
         if trigger_save_supabase:
             with st.spinner(f"🚀 Hệ thống đang ghi dữ liệu vải {fabric_type_input} đồng bộ vào kho Supabase..."):
-                # CHUẨN HÓA SẮP XẾP CỘT: Ép kiểu dữ liệu chuỗi có thứ tự cột cố định cho JSON payload
+                # CHUẨN HÓA SẮP XẾP CỘT: Ép kiểu dữ liệu chuỗi cố định cho JSON payload
                 df_clean_string = df_final_report.copy().astype(str)
                 matrix_json_string = df_clean_string.to_json(orient="records")
                 
