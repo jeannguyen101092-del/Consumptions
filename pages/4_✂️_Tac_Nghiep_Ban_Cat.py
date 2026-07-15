@@ -563,8 +563,8 @@ else:
 
 
 
-        # =============================================================================
-        # TẦNG 3 - ĐOẠN 1: BẢNG NHẬP LIỆU GÕ TAY DUY NHẤT PHÍA TRÊN (KHÔNG CHẠY LẶP)
+              # =============================================================================
+        # TẦNG 3 - ĐOẠN 1: KHỬ TRIỆT ĐỂ LỖI CHUỖI MẢNG ['29','28'] VÀ CỐ ĐỊNH 3 TIÊU ĐỀ PHỤ
         # =============================================================================
         display_editor_rows = []
         recovered_source = st.session_state.get("auto_cutting_results_recovered", [])
@@ -573,37 +573,71 @@ else:
         fab_upper = str(fabric_type_input).upper().strip()
         prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
 
-        # Tính tổng sản lượng đơn hàng gốc
-        total_sum_po_qty = 0
-        for sz in active_sizes:
-            try: total_sum_po_qty += int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".").strip() or 0)
-            except Exception: pass
+        # 🛠️ CHUẨN HÓA DANH SÁCH SIZE GỐC: Ép phẳng hoàn toàn mọi lỗi lồng mảng ngoặc vuông lộn xộn
+        flattened_active_sizes = []
+        flattened_size_breakdown = {}
 
-        # Khởi tạo 3 hàng tiêu đề phụ cố định
+        for original_key, original_val in size_breakdown_main.items():
+            k_str = str(original_key).strip().upper()
+            # Nếu phát hiện tên size bị dính định dạng dấu ngoặc vuông văn bản lập trình
+            if k_str.startswith("[") or "['" in k_str or '["' in k_str:
+                # Trích xuất và dọn sạch dấu ngoặc, dấu nháy
+                cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
+                if len(cleaned_parts) >= 2:
+                    k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
+                else:
+                    k_str = k_str.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(" ", "").replace(",", "X")
+            
+            k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "") # Xoá sạch đuôi gạch dưới _1, _2
+            
+            try: v_num = int(float(str(original_val).replace(",", "").strip() or 0))
+            except Exception: v_num = 0
+            
+            if v_num > 0 and k_str != "":
+                flattened_size_breakdown[k_str] = flattened_size_breakdown.get(k_str, 0) + v_num
+                if k_str not in flattened_active_sizes:
+                    flattened_active_sizes.append(k_str)
+
+        # Ghi đè cập nhật mảng biến phẳng an toàn ra toàn hệ thống
+        active_sizes = flattened_active_sizes
+        size_breakdown_main = flattened_size_breakdown
+
+        # Tính toán lại tổng sản lượng đơn hàng gốc sau làm sạch
+        total_sum_po_qty = sum(size_breakdown_main.values())
+
+        # Tạo khuôn 3 hàng tiêu đề phụ cố định cho bảng nhập liệu
         giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": ""}
         size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": ""}
         sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": f"{total_sum_po_qty:,}"}
         
         for sz in active_sizes:
-            parts = re.split(r'[X_-]', str(sz).upper().replace(" ", ""))
-            giang_top_row[sz] = re.sub(r'_\d+$', '', str(parts).strip()) if len(parts) >= 2 else "None"
-            size_top_row[sz] = re.sub(r'_\d+$', '', str(parts).strip()) if len(parts) >= 1 else "None"
-            try: po_v = int(str(size_breakdown_main.get(sz, 0)).replace(",", "").split(".").strip() or 0)
-            except Exception: po_v = 0
-            sl_top_row[sz] = po_v
+            c_str = str(sz).replace(" ", "").upper()
+            g_val, s_val = "None", c_str
+            parts = re.split(r'[X_-]', c_str)
+            if len(parts) >= 2:
+                s_val = str(parts[0]).strip()
+                g_val = str(parts[1]).strip()
+            
+            giang_top_row[sz] = g_val
+            size_top_row[sz] = s_val
+            sl_top_row[sz] = size_breakdown_main.get(sz, 0)
             
         giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
         sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-        # Đọc dữ liệu từ bộ đệm phẳng tránh sinh bảng ảo thừa
+        # Phân bổ luồng bộ đệm an toàn
         if snapshot and len(snapshot) > 0:
             filtered_snapshot = [r for row in snapshot if (r := dict(row)).get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
             cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
             for row in filtered_snapshot:
-                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip(), "TỔNG SẢN LƯỢNG": row.get("TỔNG SẢN LƯỢNG", 0)}
-                for sz in active_sizes:
-                    try: item_dict[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
+                # Đồng bộ bốc ngược dữ liệu gõ tay dựa theo key size phẳng mới
+                item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+                item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": row.get("TỔNG SẢN LƯỢNG", 0)}
+                for c_idx, sz in enumerate(active_sizes):
+                    # Tìm linh hoạt từ cả Key hiển thị "CỠ X" lẫn Key phẳng
+                    val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
+                    try: item_dict[sz] = int(float(str(val_cell).replace(",", "").strip() or 0))
                     except Exception: item_dict[sz] = 0
                 try: item_dict["SƠ LỚP"] = int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0))
                 except Exception: item_dict["SƠ LỚP"] = 0
@@ -613,23 +647,6 @@ else:
                 except Exception: item_dict["DÀI SƠ ĐỒ"] = 0.0
                 cleaned_snapshot.append(item_dict)
             display_editor_rows = cleaned_snapshot
-        elif recovered_source:
-            display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
-            for row in recovered_source:
-                t_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).strip()
-                if not any(x in t_name for x in ["CÒN LẠI", "SẢN LƯỢNG", "Mã hàng", "Màu:", "Loại vải:", "GIÀNG", "SIZE"]):
-                    clean_row = {"BÀN CẮT / TÊN SƠ ĐỒ": t_name, "TỔNG SẢN LƯỢNG": row.get("TỔNG SẢN LƯỢNG", 0)}
-                    for sz in active_sizes: 
-                        try: clean_row[sz] = int(float(str(row.get(sz, 0)).replace(",", "").strip() or 0))
-                        except Exception: clean_row[sz] = 0
-                    try:
-                        clean_row.update({
-                            "SƠ LỚP": int(float(str(row.get("SƠ LỚP", 0)).replace(",", "").strip() or 0)), 
-                            "SỐ BÀN": int(float(str(row.get("SỐ BÀN", 1)).replace(",", "").strip() or 1)), 
-                            "DÀI SƠ ĐỒ": float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
-                        })
-                    except Exception: clean_row.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
-                    display_editor_rows.append(clean_row)
         else:
             display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
             for i in range(6):
@@ -652,7 +669,6 @@ else:
 
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>✍️ BẢNG TỰ NHẬP TỶ LỆ PHỐI SIZE VÀ SỐ LỚP BÀN CẮT (GÕ DÀI SƠ ĐỒ TỰ NHẢY TỶ LỆ)</p>", unsafe_allow_html=True)
         
-        # Hàm callback xử lý thay đổi số liệu tức thời
         def callback_sync_on_the_fly_final():
             if "table_manual_data_editor_final" in st.session_state:
                 st_editor = st.session_state["table_manual_data_editor_final"]
@@ -681,6 +697,7 @@ else:
             df_editor_top_render, use_container_width=True, hide_index=True, disabled=is_locked, 
             key="table_manual_data_editor_final", on_change=callback_sync_on_the_fly_final
         )
+
 
         # =============================================================================
         # TẦNG 3 - ĐOẠN 2: THUẬT TOÁN CHIA TỶ LỆ TOÁN HỌC VÀ LẬP MA TRẬN PHÂN BỔ BẢNG DƯỚI
