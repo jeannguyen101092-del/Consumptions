@@ -885,9 +885,12 @@ def safe_int_final(value, default=0):
         return default
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 2a: THUẬT TOÁN CHIA TỶ LỆ TOÁN HỌC LARGEST REMAINDER VÀ ĐỒNG BỘ SNAPSHOT
+# TẦNG 3 - ĐOẠN 2a: THUẬT TOÁN PHỐI SIZE THUẦN TOÁN HỌC DỰA TRÊN CHIỀU DÀI NHẬP TAY
 # =============================================================================
 final_snapshot_rows = []
+
+# Định mức mét đề xuất được tính từ định mức tài liệu (Yards) gõ ở Tầng 2
+dinhmuc_met_de_xuat = round(consumption_input * 0.9144, 3) if 'consumption_input' in locals() else 1.042
 
 for idx, row in edited_df_raw.iterrows():
     s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
@@ -900,39 +903,41 @@ for idx, row in edited_df_raw.iterrows():
     try: m_len = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "").strip() or 0.0)
     except Exception: m_len = 0.0
     
-    # 🎯 LUỒNG NGUYÊN LÝ GỐC: Tự động chia tổng số lượng sản phẩm trên sơ đồ từ chiều dài Yards hình học
-    m_len_yards = m_len * 1.09361
-    current_consumption = consumption_input if 'consumption_input' in locals() else 1.140
-    
-    if m_len_yards > 0 and current_consumption > 0 and s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
-        garments_per_marker = int(round(m_len_yards / current_consumption))
+    # 🔥 THAY ĐỔI CỐT LÕI: Tính tổng số sản phẩm trên sơ đồ CHÍNH XÁC từ Chiều dài do người dùng gõ
+    if m_len > 0 and dinhmuc_met_de_xuat > 0 and s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
+        garments_per_marker = int(round(m_len / dinhmuc_met_de_xuat))
     else: 
         garments_per_marker = 0
         
     r_dict = {}
+    # ÁP DỤNG THUẬT TOÁN TOÁN HỌC LARGEST REMAINDER ĐỂ PHÂN BỔ SIZE THEO TỶ TRỌNG ĐƠN HÀNG
     if garments_per_marker > 0 and total_sum_po_qty > 0:
         base_values = {}
         remainders = []
         for sz in active_sizes:
             sz_order = safe_int_final(size_breakdown_main.get(sz, 0))
+            # Tính tỷ trọng (%) của size này trong tổng đơn hàng PO
             sz_ratio_pct = sz_order / total_sum_po_qty
+            
             theoretical_qty = garments_per_marker * sz_ratio_pct
             base_qty = int(theoretical_qty)
             base_values[sz] = base_qty
+            # Lưu lại phần dư thừa lẻ để xét vét sau
             remainders.append({"size": sz, "remainder": theoretical_qty - base_qty})
             
-        # Thuật toán toán học Largest Remainder phân bổ lượng dư lẻ vào các kích cỡ có tỷ trọng cao nhất
+        # Vét toán học: Phân bổ nốt các sản phẩm còn thiếu vào các size có phần dư lớn nhất
         allocated_more = garments_per_marker - sum(base_values.values())
         remainders.sort(key=lambda x: x["remainder"], reverse=True)
         for k in range(min(max(0, allocated_more), len(remainders))):
             base_values[remainders[k]["size"]] += 1
         r_dict = base_values
     else:
-        # Nếu không tự động phân rã từ chiều dài hình học, bốc ngược tỷ lệ từ các ô lưới tương tác
+        # Nếu dòng đó không gõ chiều dài sơ đồ, lấy trực tiếp tỷ lệ phối do người dùng tự gõ tay vào ô lưới
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             r_dict[sz] = safe_int_final(val_cell)
 
+    # Tính tổng số sản phẩm được phân bổ thực tế trên sơ đồ dòng này
     row_ratios_total = 0
     for sz in active_sizes:
         val_sz = r_dict.get(sz, 0)
@@ -945,6 +950,7 @@ for idx, row in edited_df_raw.iterrows():
     elif s_row_name == "SẢN LƯỢNG": 
         item_dict["TỔNG SẢN LƯỢNG"] = total_sum_po_qty
     else: 
+        # Sản lượng thực tế cắt ra của dòng = (Tổng tỷ lệ phối) * Sơ lớp * Số bàn
         item_dict["TỔNG SẢN LƯỢNG"] = row_ratios_total * layers * tables
         
     item_dict["SƠ LỚP"] = layers
@@ -952,10 +958,10 @@ for idx, row in edited_df_raw.iterrows():
     item_dict["DÀI SƠ ĐỒ"] = m_len
     final_snapshot_rows.append(item_dict)
 
-# SỬA LỖI VÒNG LẶP VÔ HẠN: Chỉ lưu vào bộ nhớ tạm state khi phát hiện có biến đổi dữ liệu thực sự
+# Cập nhật snapshot bền vững, chặn vòng lặp rerun vô hạn
 if st.session_state.get("session_editor_snapshot") != final_snapshot_rows:
     st.session_state["session_editor_snapshot"] = final_snapshot_rows
-from supabase import create_client
+
 
 # =============================================================================
 # TẦNG 3 - ĐOẠN 2b: DỰNG MA TRẬN KHẤU TRỪ VÀ KHỐI TIỆN ÍCH HOÀN THIỆN XUẤT BÁO CÁO
