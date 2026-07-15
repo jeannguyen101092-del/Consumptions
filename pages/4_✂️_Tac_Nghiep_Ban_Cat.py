@@ -522,31 +522,55 @@ import streamlit as st
 import pandas as pd
 import json
 import re
-from pydantic import BaseModel, Field
-from typing import Dict, List
 from google import genai
 from google.genai import types
 
 # =============================================================================
-# SỬA LỖI TẦNG 2 - ĐOẠN 2b: CẤU HÌNH PYDANTIC CHẶN EXTRA PROPERTIES CHO GEMINI DEVELOPER API
+# TẦNG 2 - ĐOẠN 2b: SỬA TRIỆT ĐỂ BẰNG ĐỊNH NGHĨA RAW JSON SCHEMA (KHÔNG DÙNG PYDANTIC)
 # =============================================================================
 
-class CuttingRowModel(BaseModel):
-    # Cấu hình chặn extra properties để không bị lỗi Agent Platform Mode
-    model_config = {"extra": "forbid"}
-    
-    so_do_trang_thai: str = Field(alias="Sơ đồ / Trạng thái", description="The row code like 'c01', 'c02', etc.")
-    ratios: Dict[str, int] = Field(alias="Ratios", description="Dictionary where keys are 'CỠ 1', 'CỠ 2'.. and values are integers representing size ratios.")
-    so_lop: int = Field(alias="Số lớp", description="The number of fabric layers for this marker.")
-    so_ban: int = Field(alias="Số bàn", description="The number of cutting tables, default is 1.")
-    chieu_dai_met: float = Field(alias="Chiều dài mét", description="Calculated marker length in meters.")
+# Thiết lập cấu trúc JSON Schema thủ công loại bỏ hoàn toàn additionalProperties
+gemini_raw_json_schema = {
+    "type": "OBJECT",
+    "properties": {
+        "cutting_plan": {
+            "type": "ARRAY",
+            "description": "Danh sách các sơ đồ bàn cắt đã được tối ưu hóa phối cỡ.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "Sơ đồ / Trạng thái": {
+                        "type": "STRING",
+                        "description": "Mã dòng cần điền dữ liệu, ví dụ: 'c01', 'c02', 'c03'..."
+                    },
+                    "Ratios": {
+                        "type": "OBJECT",
+                        "description": "Tỷ lệ phối cỡ, key bắt buộc là 'CỠ 1', 'CỠ 2'...",
+                        "properties": {
+                            f"CỠ {i+1}": {"type": "INTEGER"} for i in range(len(active_sizes))
+                        }
+                    },
+                    "Số lớp": {
+                        "type": "INTEGER",
+                        "description": "Số lớp vải cần trải cho sơ đồ này."
+                    },
+                    "Số bàn": {
+                        "type": "INTEGER",
+                        "description": "Số bàn cắt áp dụng, mặc định là 1."
+                    },
+                    "Chiều dài mét": {
+                        "type": "NUMBER",
+                        "description": "Chiều dài sơ đồ tính toán bằng mét."
+                    }
+                },
+                "required": ["Sơ đồ / Trạng thái", "Ratios", "Số lớp", "Số bàn", "Chiều dài mét"]
+            }
+        }
+    },
+    "required": ["cutting_plan"]
+}
 
-class AIStyleCuttingResponse(BaseModel):
-    model_config = {"extra": "forbid"}
-    
-    cutting_plan: List[CuttingRowModel] = Field(description="The complete optimized cutting plan array.")
-
-# Logic xử lý tiếp nối từ Đoạn 4 khi người dùng nhấn nút gọi AI
+# Khối xử lý tiếp nối khi người dùng bấm nút gọi AI
 if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
     total_remaining_po = sum(calculated_balances.values())
     dinhmuc_met_c2 = round(current_consumption * 0.9144, 3) if 'current_consumption' in locals() else 1.042
@@ -578,7 +602,7 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
             contents=[ai_cutting_prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=AIStyleCuttingResponse,  # Áp dụng schema đã gọt sạch additionalProperties
+                response_schema=gemini_raw_json_schema,  # Ép bằng schema thô sạch hoàn toàn cấu trúc thừa
                 temperature=0.1
             )
         )
@@ -609,7 +633,7 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
                 ai_match = [x for x in ai_vete_res if str(x.get("Sơ đồ / Trạng thái", "")).strip().lower() == s_code]
                 
                 if ai_match:
-                    ai_row = ai_match
+                    ai_row = ai_match[0] # Lấy bản ghi đầu tiên
                     r_dict = ai_row.get("Ratios", {})
                     
                     total_pants_in_marker = 0
@@ -656,6 +680,7 @@ if 'trigger_auto_cutting' in locals() and trigger_auto_cutting:
             
     except Exception as e:
         st.error(f"❌ Lỗi khi phân rã dữ liệu từ AI: {str(e)}")
+
 
 import streamlit as st
 import pandas as pd
