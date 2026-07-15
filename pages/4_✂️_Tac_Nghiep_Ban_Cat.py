@@ -726,15 +726,15 @@ giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
 
-# Trích xuất chính xác phần tử index 0 và 1 của mảng parts để khử hoàn toàn dấu ngoặc vuông []
+# Trích xuất chính xác index 0 và 1 để khử dấu ngoặc vuông lộn xộn
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
     g_val, s_val = "None", c_str
     
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
-        s_val = str(parts[0]).strip()  # Vòng eo (Waist / Size) [INDEX]
-        g_val = str(parts[1]).strip()  # Chiều dài giàng (Inseam) [INDEX]
+        s_val = str(parts[0]).strip()  # Vòng eo làm Size [INDEX]
+        g_val = str(parts[1]).strip()  # Chiều dài giàng làm Giàng [INDEX]
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
         g_val = "None"
