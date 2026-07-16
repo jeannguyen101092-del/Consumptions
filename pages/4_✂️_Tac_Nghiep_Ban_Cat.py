@@ -231,7 +231,7 @@ import copy
 import json
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - KIẾN TRÚC PHẲNG KHÔNG DÙNG CALLBACK (FIX TRIỆT ĐỂ BỘ ĐỆM O LƯỚI) V48
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - KIẾN TRÚC PHẲNG KHÔNG DÙNG CALLBACK - FIX RUNTIMEERROR V49
 # =============================================================================
 
 # 1. Đọc dữ liệu chính thống từ nguồn chân lý UI ra DataFrame hiển thị nền
@@ -258,7 +258,7 @@ config_cot = {
 for i, sz in enumerate(active_sizes):
     config_cot[f"CỠ {i+1}"] = st.column_config.TextColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False)
 
-# 🎯 GIẢI PHÁP LUỒNG PHẲNG: Gán data_editor trực tiếp vào biến edited_df ở luồng chính, tháo bỏ on_change
+# Render lưới tương tác Bảng 1 lên màn hình
 edited_df = st.data_editor(
     df_editor_top_render,
     column_config=config_cot,
@@ -267,20 +267,22 @@ edited_df = st.data_editor(
     key="table_manual_data_editor_final_clean_v1"
 )
 
-# 🎯 ĐỒNG BỘ LIÊN HOÀN VÀO BỘ NHỚ GỐC NGAY TRÊN MAIN THREAD THỜI GIAN THỰC
-# Khi người dùng gõ/sửa, edited_df thay đổi, luồng này sẽ quét tính toán lại toàn bộ bảng lập tức
+# 🎯 FIX TRIỆT ĐỂ RUNTIMEERROR: Quét tính toán và đồng bộ trực tiếp thông qua luồng iterrows() của Pandas
 if edited_df is not None and not edited_df.empty:
-    current_snapshot = edited_df.to_dict(orient='records')
     active_sizes_cb = st.session_state.get("active_sizes_global", [])
+    current_snapshot = []
     
-    # Duyệt và tính toán lại Tổng SL (Tỷ lệ phối * Sơ lớp * Số bàn) cho từng dòng
-    for idx, row in enumerate(current_snapshot):
-        row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+    # Vòng lặp duyệt qua từng dòng thực tế của bảng hiển thị
+    for idx, row in edited_df.iterrows():
+        # Chuyển đổi hàng sang dạng Dictionary Python chuẩn để thoải mái ghi đè dữ liệu
+        row_dict = row.to_dict()
+        row_name = str(row_dict.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
+        
         if row_name not in ["GIÀNG", "SIZE"]:
             total_pcs_row = 0
             
-            # Quét động qua tất cả các nhãn ô hiển thị để cộng dồn tỷ lệ phối
-            for col_header, val_v in row.items():
+            # 🎯 SỬA LỖI MẤU CHỐT: Duyệt qua dict chuẩn để bóc tách số nguyên nhân dòng realtime
+            for col_header, val_v in row_dict.items():
                 if str(col_header).startswith("CỠ "):
                     total_pcs_row += safe_int_final(val_v)
                     
@@ -288,19 +290,21 @@ if edited_df is not None and not edited_df.empty:
                     try:
                         c_num = int(str(col_header).replace("CỠ ", "").strip())
                         if active_sizes_cb and (c_num - 1) < len(active_sizes_cb):
-                            current_snapshot[idx][str(active_sizes_cb[c_num - 1])] = str(val_v).strip()
+                            row_dict[str(active_sizes_cb[c_num - 1])] = str(val_v).strip()
                     except: pass
             
             if row_name != "SẢN LƯỢNG":
-                layers_val = safe_int_final(row.get("SƠ LỚP", 0))
-                tables_val = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
-                # Ghi số lượng tổng đã nhân thời gian thực trực tiếp vào bộ nhớ gốc snapshot
-                current_snapshot[idx]["TỔNG SẢN LƯỢNG"] = int(total_pcs_row * layers_val * tables_val)
+                layers_val = safe_int_final(row_dict.get("SƠ LỚP", 0))
+                tables_val = max(1, safe_int_final(row_dict.get("SỐ BÀN", 1)))
+                # Tính nhân Tổng sản lượng thời gian thực cho dòng sơ đồ tác nghiệp tay
+                row_dict["TỔNG SẢN LƯỢNG"] = int(total_pcs_row * layers_val * tables_val)
             else:
-                current_snapshot[idx]["TỔNG SẢN LƯỢNG"] = int(total_pcs_row)
+                row_dict["TỔNG SẢN LƯỢNG"] = int(total_pcs_row)
                 st.session_state["current_po_target_val"] = int(total_pcs_row)
                 
-    # Lưu kết quả tính toán sạch sẽ vào nguồn chân lý duy nhất
+        current_snapshot.append(row_dict)
+        
+    # Lưu toàn bộ dữ liệu sạch đã tính toán lại vào nguồn chân lý UI duy nhất
     st.session_state["session_editor_snapshot"] = current_snapshot
 
 # --- NÚT BẤM KÍCH HOẠT: BẢO VỆ PHÂN RÃ LUỒNG TUYỆT ĐỐI ---
