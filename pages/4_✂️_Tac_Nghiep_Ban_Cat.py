@@ -131,9 +131,10 @@ if paste_zone_data.strip():
                 st.session_state["session_editor_snapshot"] = None
                 st.rerun()
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6 THỐNG NHẤT: Ô LƯỚI TÁC NGHIỆP TỰ DO VÀ LIÊN KẾT THÔNG SỐ - ĐÃ VÁ LỖI BIẾN V32
+# TẦNG 3 - ĐOẠN 6 THỐNG NHẤT: KHỐI SỐ HÓA VÀ RENDER DATA EDITOR - KHÉP KÍN KHÔNG LỖI V36
 # =============================================================================
 
+# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN ---
 def safe_int_final(value, default=0):
     if value is None: return default
     try:
@@ -144,7 +145,7 @@ def safe_int_final(value, default=0):
     except (ValueError, TypeError):
         return default
 
-# 1. ĐỌC DỮ LIỆU ĐỘNG TỪ BỘ NHỚ EXCEL PASTE
+# --- 1. ĐỌC DỮ LIỆU ĐỘNG TỪ BỘ NHỚ EXCEL PASTE ---
 active_sizes = st.session_state.get("active_sizes_global", ["26", "27", "28", "29", "30", "31", "32", "33", "34"])
 real_size_breakdown = st.session_state.get("manual_parsed_breakdown", {})
 
@@ -172,7 +173,7 @@ giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-# Khôi phục trạng thái bộ nhớ đệm ô lưới
+# --- 2. KHỞI TẠO HOẶC KHÔI PHỤC SNAPSHOT BỘ NHỚ ĐỆM Ô LƯỚI ---
 snapshot = st.session_state.get("session_editor_snapshot")
 is_snapshot_valid = False
 if snapshot and isinstance(snapshot, list) and len(snapshot) > 0:
@@ -212,52 +213,64 @@ else:
 
 st.session_state["session_editor_snapshot"] = display_editor_rows
 
+# --- 3. HÀM CALLBACK CẬP NHẬT KHI CHỈNH SỬA Ô LƯỚI ---
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final_clean_v1" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final_clean_v1"]
-        if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            raw_snapshot = st.session_state.get("session_editor_snapshot", display_editor_rows)
-            current_snapshot = json.loads(json.dumps(raw_snapshot))
+        
+        raw_snapshot = st.session_state.get("session_editor_snapshot", [])
+        if not raw_snapshot: return
             
+        current_snapshot = json.loads(json.dumps(raw_snapshot))
+        active_sizes_cb = st.session_state.get("active_sizes_global", [])
+        
+        if "edited_rows" in st_editor and st_editor["edited_rows"]:
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
                 if current_snapshot and r_idx_int < len(current_snapshot):
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
-                            current_snapshot[r_idx_int][col_header] = str(new_val).strip()
+                            if r_idx_int == 0 or r_idx_int == 1:
+                                current_snapshot[r_idx_int][col_header] = str(new_val).strip()
+                            else:
+                                current_snapshot[r_idx_int][col_header] = str(new_val).strip()
                         elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
                             current_snapshot[r_idx_int][col_header] = safe_int_final(new_val)
                         elif col_header == "DÀI SƠ ĐỒ":
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
+                                
+        if len(current_snapshot) > 2:
+            sl_row_idx = None
+            for idx, row in enumerate(current_snapshot):
+                if str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() == "SẢN LƯỢNG":
+                    sl_row_idx = idx
+                    break
             
-            if len(current_snapshot) > 2:
-                sl_row_idx = None
-                for idx, row in enumerate(current_snapshot):
-                    if str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip() == "SẢN LƯỢNG":
-                        sl_row_idx = idx
-                        break
-                if sl_row_idx is not None:
-                    calc_total = 0
-                    for c_idx in range(len(active_sizes)):
-                        calc_total += safe_int_final(current_snapshot[sl_row_idx].get(f"CỠ {c_idx+1}", 0))
-                    current_snapshot[sl_row_idx]["TỔNG SẢN LƯỢNG"] = calc_total
-                    
-            st.session_state["session_editor_snapshot"] = current_snapshot
+            if sl_row_idx is not None:
+                calc_total = 0
+                for c_idx in range(len(active_sizes_cb)):
+                    calc_total += safe_int_final(current_snapshot[sl_row_idx].get(f"CỠ {c_idx+1}", 0))
+                current_snapshot[sl_row_idx]["TỔNG SẢN LƯỢNG"] = calc_total
+                st.session_state["current_po_target_val"] = calc_total
+                
+        st.session_state["session_editor_snapshot"] = current_snapshot
 
 def wrapper_callback_sync():
     callback_sync_on_the_fly_final()
     st.rerun()
 
-df_editor_top_render = pd.DataFrame(st.session_state["session_editor_snapshot"]).reindex(columns=clean_headers_top).fillna("0")
+# --- 4. TÍNH TOÁN VÀ RENDER MA TRẬN ĐỒ HỌA DATA_EDITOR ---
+current_display_data = st.session_state.get("session_editor_snapshot", [])
+df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna("0")
 
-# Tính toán cột Tổng SL động hiển thị
 for idx, row in df_editor_top_render.iterrows():
     row_name = str(row["BÀN CẮT / TÊN SƠ ĐỒ"]).upper().strip()
     if row_name not in ["GIÀNG", "SIZE"]:
         total_pcs_row = 0
         for i in range(len(active_sizes)):
             total_pcs_row += safe_int_final(row.get(f"CỠ {i+1}", 0))
+            
         if row_name != "SẢN LƯỢNG":
             layers_val = safe_int_final(row.get("SƠ LỚP", 0))
             tables_val = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
@@ -281,18 +294,24 @@ config_cot = {
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
     "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
 }
+
 for i, sz in enumerate(active_sizes):
     config_cot[f"CỠ {i+1}"] = st.column_config.TextColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False)
 
 st.data_editor(df_editor_top_render, column_config=config_cot, use_container_width=True, hide_index=True, key="table_manual_data_editor_final_clean_v1", on_change=wrapper_callback_sync)
 
+# --- 5. NÚT BẤM KÍCH HOẠT VÀ LIÊN KẾT MA TRẬN SANG ENGINE TOÁN HỌC ---
 st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🚀 KÍCH HOẠT THUẬT TOÁN TỰ ĐỘNG CHIA SƠ ĐỒ VÀ VẾT ĐƠN", type="primary", use_container_width=True, key="trigger_python_engine_solve_btn"):
+    # 🎯 VÁ KHÓA CHỐNG MẤT LINK: Biến đổi DataFrame hiện hành thành Snapshot danh sách sạch nạp thẳng sang Đoạn 7a
+    list_rows_clean = []
+    for idx, row in df_editor_top_render.iterrows():
+        list_rows_clean.append(row.to_dict())
+    st.session_state["session_editor_snapshot"] = list_rows_clean
+    
     st.session_state["c2_normal_cut_btn"] = True
-    st.success("🤖 Đang kích hoạt điều độ ngược theo chiều dài bàn vải...")
+    st.success("🤖 Đang truyền dữ liệu và gọi Engine Python khấu trừ điều độ...")
     st.rerun()
-
-
 
 
 
