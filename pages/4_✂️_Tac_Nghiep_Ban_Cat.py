@@ -224,7 +224,8 @@ else:
 
 st.session_state["session_editor_snapshot"] = display_editor_rows
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR VÀ NÚT LIÊN KẾT SANG BẢNG 2 V37
+# =============================================================================
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - BẢN VÁ ÉP TÍNH TỔNG REALTIME SƠ LỚP VÀ SỐ BÀN V38
 # =============================================================================
 
 def callback_sync_on_the_fly_final():
@@ -281,17 +282,20 @@ def wrapper_callback_sync():
 current_display_data = st.session_state.get("session_editor_snapshot", display_editor_rows)
 df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna("0")
 
-# Quét tính tổng SL theo nhãn 'CỠ X' hiển thị để cập nhật nhảy số realtime khi bạn gõ số
+# 🎯 ĐÃ SỬA LUỒNG TÍNH TOÁN: Tách sạch ký tự lạ để nhân (Tỷ lệ phối * Sơ lớp * Số bàn) chuẩn 100%
 for idx, row in df_editor_top_render.iterrows():
     row_name = str(row["BÀN CẮT / TÊN SƠ ĐỒ"]).upper().strip()
     if row_name not in ["GIÀNG", "SIZE"]:
         total_pcs_row = 0
         for i in range(len(active_sizes)):
-            total_pcs_row += safe_int_final(row.get(f"CỠ {i+1}", 0))
+            # Lọc sạch chuỗi để lấy đúng con số tỷ lệ phối bạn gõ tay vào ô lưới
+            raw_cell_val = str(row.get(f"CỠ {i+1}", "0")).strip()
+            total_pcs_row += safe_int_final(raw_cell_val)
             
         if row_name != "SẢN LƯỢNG":
             layers_val = safe_int_final(row.get("SƠ LỚP", 0))
             tables_val = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
+            # 🎯 Công thức nhân chuẩn xác thời gian thực phục vụ xưởng
             df_editor_top_render.at[idx, "TỔNG SẢN LƯỢNG"] = int(total_pcs_row * layers_val * tables_val)
         else:
             df_editor_top_render.at[idx, "TỔNG SẢN LƯỢNG"] = int(total_pcs_row)
@@ -320,7 +324,6 @@ st.data_editor(df_editor_top_render, column_config=config_cot, use_container_wid
 
 st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🚀 KÍCH HOẠT THUẬT TOÁN TỰ ĐỘNG CHIA SƠ ĐỒ VÀ VẾT ĐƠN", type="primary", use_container_width=True, key="trigger_python_engine_solve_btn"):
-    # Đóng gói nguyên bản cả 2 mảng Key phục vụ khấu trừ để link mượt mà sang bảng dưới
     list_rows_clean = []
     snapshot_current_live = st.session_state.get("session_editor_snapshot", [])
     
