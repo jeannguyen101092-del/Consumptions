@@ -179,11 +179,11 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         key="activate_sbd_only_ingest_c2"
     )
 
-    # =============================================================================
-    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): GÒI API V1 VÀ LUỒNG PHỤC HỒI SIZE THẬT DỰ PHÒNG
+        # =============================================================================
+    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): GỌI API GEMINI 2.5 FLASH VÀ TRÍCH XUẤT TEXT AN TOÀN
     # =============================================================================
     if trigger_btn_c2:
-        with st.spinner("🚀 Đang dùng AI mắt thần quét ma trận size từ tệp PDF..."):
+        with st.spinner("🚀 Đang xử lý bóc tách ma trận đơn hàng SBD..."):
             gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
             
             if not gemini_key:
@@ -193,36 +193,48 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
             try:
                 client_ai = genai.Client(api_key=gemini_key)
                 sbd_bytes = uploaded_file_sbd.getvalue()
+                sbd_content_str = ""
                 sbd_parts_payload = []
                 
-                # 1. Cấu trúc xử lý bóc tách tệp dạng Excel dữ liệu may mặc dạng bảng
+                # Luồng 1: Xử lý tệp dạng bảng tính Excel
                 if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
-                    sbd_content_str = ""
                     excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
                     for sheet_name, df_sheet in excel_data.items(): 
                         sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                         
-                # 2. Gửi file PDF nguyên bản cho Gemini tự dùng OCR phân rã ảnh trên Cloud bảo mật
+                # Luồng 2: 🎯 ĐÃ TỐI ƯU CỐT LÕI: Trích xuất text thô bằng Python cục bộ trước rồi mới gửi chuỗi văn bản cho AI
                 elif uploaded_file_sbd.name.lower().endswith('.pdf'): 
-                    sbd_parts_payload.append(
-                        types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf')
-                    )
+                    try:
+                        from pypdf import PdfReader
+                        reader = PdfReader(io.BytesIO(sbd_bytes))
+                        pdf_text_dump = ""
+                        for p_idx, page in enumerate(reader.pages):
+                            pdf_text_dump += page.extract_text() or ""
+                        sbd_content_str += pdf_text_dump
+                    except Exception as pypdf_err:
+                        st.warning(f"⚠️ Trục trặc trình đọc text PDF: {str(pypdf_err)}")
+                
+                # Nếu bóc tách text thô từ PDF hoặc Excel thành công, chuyển sang payload dạng Text sạch dung lượng nhỏ
+                if sbd_content_str.strip():
+                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                else:
+                    # Gửi file nhị phân làm phương án dự phòng cuối cùng nếu file PDF là ảnh quét hoàn toàn không có text
+                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
                 sbd_prompt = """
-                Bạn là một thuật toán OCR thị giác AI siêu cấp dành riêng cho ngành dệt may.
-                Hãy đọc và phân tích kỹ ma trận bảng kích cỡ và sản lượng đơn hàng từ tệp tài liệu SBD được đính kèm.
+                Bạn là một chuyên gia phân tích dữ liệu may mặc. Hãy đọc kỹ dữ liệu văn bản tài liệu đơn hàng SBD được cung cấp.
+                Tìm ma trận sản lượng sản xuất và trích xuất TOÀN BỘ các cột kích cỡ size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
                 
-                Nhiệm vụ bắt buộc:
-                1. Quét toàn bộ tài liệu từ trái qua phải để trích xuất TOÀN BỘ các cột kích cỡ (size) xuất hiện trong bảng. Tuyệt đối không được bỏ sót size nào có sản lượng lớn hơn 0.
-                2. Chuyển đổi tên kích cỡ thành chuỗi viết hoa, loại bỏ khoảng trắng. Ví dụ: Nếu có Eo và Giàng, gộp lại thành '28X30'. Nếu chỉ có 1 số hoặc chữ, giữ nguyên (ví dụ: '32', 'M', 'L').
+                QUY TẮC TRÍCH XUẤT BẮT BUỘC:
+                1. Quét toàn bộ nội dung để lấy ra tất cả các size tồn tại. Tuyệt đối không được bỏ sót size nào có sản lượng lớn hơn 0 trên tài liệu.
+                2. Gộp thông số Eo và Giàng thành chuỗi viết hoa dạng 'EoXGiàng' (Ví dụ: Eo=28, Inseam/Giàng=30 thì lưu key là '28X30').
                 3. Ép số lượng tương ứng dưới mỗi cột size thành số nguyên thuần túy (loại bỏ hoàn toàn dấu phẩy).
                 """
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                               # 🎯 THAY ĐỔI MÔ HÌNH DỰ PHÒNG: Đổi tên sang phiên bản chịu tải siêu tốc -8b để triệt tiêu hoàn toàn lỗi nghẽn 503 của Google
+                # Gọi mô hình chuẩn chính thức chạy mượt mà trên môi trường v1
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-flash-8b', # Đổi 'gemini-2.5-flash' thành 'gemini-2.5-flash-8b'
+                    model='gemini-2.5-flash', 
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -230,9 +242,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         temperature=0.0
                     )
                 )
-
                 
-                # --- ĐOẠN ĐỌC VÀ CHUẨN HÓA KẾT QUẢ PHÒNG VỆ THÔNG MINH ---
                 parsed_json_data = json.loads(res_sbd.text.strip())
                 
                 clean_sbd_data = {
@@ -276,10 +286,10 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     st.session_state["purchase_ready"] = True
                     st.session_state["planning_cleared"] = False
                     
-                    st.success("✅ Hệ thống đã dùng mắt thần số hóa toàn bộ kích cỡ thành công!")
+                    st.success("✅ Hệ thống đã số hóa dữ liệu đơn hàng thành công!")
                     st.rerun()
                 else:
-                    # 🎯 KHỐI DỰ PHÒNG CỨU SIZE THẬT: Tự trích xuất text thô nếu tài liệu bị nhòe ảnh
+                    # Luồng xử lý dự phòng cưỡng ép bằng Regex của Python để tự bốc size nếu AI phản hồi chuỗi rỗng
                     try:
                         from pypdf import PdfReader
                         reader = PdfReader(io.BytesIO(sbd_bytes))
@@ -287,7 +297,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         for page in reader.pages:
                             text_backup += page.extract_text() or ""
                         
-                        # Sử dụng Regex bốc nhanh các chuỗi số ma trận dạng Eo X Giàng phát sinh sản lượng
                         extracted_sizes = re.findall(r'(\d{2}[X|x]\d{2})[\s\n:]*([\d,]+)', text_backup)
                         if extracted_sizes:
                             backup_dict = {}
@@ -307,13 +316,14 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                             st.success("✅ Hệ thống đã số hóa thành công danh sách size thông qua luồng văn bản dự phòng!")
                             st.rerun()
                         else:
-                            raise ValueError("Không tìm thấy ký tự size")
+                            raise ValueError()
                     except Exception:
                         st.error("⚠️ AI không thể đọc được cấu trúc ma trận size từ file PDF này. Vui lòng kiểm tra lại file PDF gốc hoặc chuyển file sang dạng Excel để tải lên.")
                         st.stop()
                 
             except Exception as e: 
                 st.error(f"❌ Lỗi khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+
 
 
 
