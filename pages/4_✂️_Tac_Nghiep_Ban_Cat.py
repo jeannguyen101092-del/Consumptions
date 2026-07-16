@@ -126,7 +126,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: LIÊN KẾT PHÂN TÍCH FILE VÀ CHUẨN HÓA DỮ LIỆU ĐƠN HÀNG SBD
+# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL PDF QUA GEMINI 1.5 FLASH (FIX TRIỆT ĐỂ LỖI 503)
 # =============================================================================
 
 # CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
@@ -135,7 +135,7 @@ if st.session_state.get("planning_cleared", False):
     st.session_state["sbd_parsed_data"] = None
     st.session_state["pur_tp_parsed_data"] = None
 
-# Dựng cấu trúc JSON Schema thô, sạch thuộc tính additionalProperties chống sập API Developer
+# Dựng cấu trúc JSON Schema thô sạch thuộc tính additionalProperties chống sập API Developer
 gemini_sbd_raw_schema = {
     "type": "OBJECT",
     "properties": {
@@ -149,7 +149,7 @@ gemini_sbd_raw_schema = {
         },
         "size_breakdown": {
             "type": "OBJECT",
-            "description": "A dictionary where keys are size names (e.g., '28X30') and values are pure integers."
+            "description": "A flat dictionary where keys are size names (e.g., '28X30', '30X32') and values are pure integers."
         }
     },
     "required": ["style_id", "total_quantity", "size_breakdown"]
@@ -180,7 +180,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
     )
     
     if trigger_btn_c2:
-        with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
+        with st.spinner("🚀 Đang dùng AI mắt thần quét ma trận size từ tệp PDF..."):
             gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
             
             if not gemini_key:
@@ -190,57 +190,41 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
             try:
                 client_ai = genai.Client(api_key=gemini_key)
                 sbd_bytes = uploaded_file_sbd.getvalue()
-                sbd_content_str = ""
                 sbd_parts_payload = []
                 
                 # 1. Cấu trúc xử lý bóc tách tệp dạng Excel dữ liệu may mặc dạng bảng
                 if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
-                    try:
-                        excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                        for sheet_name, df_sheet in excel_data.items(): 
-                            sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
-                    except Exception as e:
-                        st.warning(f"⚠️ Trình đọc dữ liệu Excel dạng bảng gặp lỗi nhỏ: {str(e)}")
+                    sbd_content_str = ""
+                    excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                    for sheet_name, df_sheet in excel_data.items(): 
+                        sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                         
-                # 2. 🎯 ĐÃ SỬA CỐT LÕI: Trích xuất Text trực tiếp từ các trang PDF bằng pypdf an toàn 100% trên Cloud
+                # 2. Gửi file PDF nguyên bản cho Gemini tự dùng OCR phân rã ảnh trên Cloud bảo mật
                 elif uploaded_file_sbd.name.lower().endswith('.pdf'): 
-                    try:
-                        from pypdf import PdfReader
-                        pdf_file_obj = io.BytesIO(sbd_bytes)
-                        reader = PdfReader(pdf_file_obj)
-                        
-                        pdf_text_dump = ""
-                        for p_idx, page in enumerate(reader.pages):
-                            page_text = page.extract_text() or ""
-                            pdf_text_dump += f"\n--- PDF PAGE {p_idx + 1} ---\n{page_text}"
-                        
-                        sbd_content_str += pdf_text_dump
-                    except Exception as pypdf_err:
-                        st.warning(f"⚠️ Thư viện pypdf trục trặc, chuyển đổi luồng nhị phân: {str(pypdf_err)}")
-                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                    sbd_parts_payload.append(
+                        types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf')
+                    )
                 
                 sbd_prompt = """
-                Bạn là một chuyên gia phân tích dữ liệu ngành dệt may. Hãy đọc kỹ chuỗi văn bản dữ liệu SBD được trích xuất từ file.
-                Tìm ma trận bảng kích cỡ và sản lượng đơn hàng, sau đó bốc tách TOÀN BỘ các size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
+                Bạn là một thuật toán OCR thị giác AI siêu cấp dành riêng cho ngành dệt may.
+                Hãy đọc và phân tích kỹ ma trận bảng kích cỡ và sản lượng đơn hàng từ tệp tài liệu SBD được đính kèm.
                 
-                QUY TẮC TRÍCH XUẤT BẮT BUỘC:
-                1. Hãy tìm kiếm tất cả các cột kích cỡ size có sản lượng thực tế lớn hơn 0, tuyệt đối không được bỏ sót size nào.
-                2. Gộp thông số Eo và Giàng thành chuỗi dạng 'EoXGiàng' (Ví dụ: Eo=28, Inseam/Giàng=30 thì lưu key là '28X30'). Nếu size chỉ có 1 thông số (ví dụ: S, M, L hoặc 28, 29, 30) thì giữ nguyên chuỗi đó làm key.
-                3. Ép toàn bộ sản lượng tương ứng của từng cỡ thành số nguyên thuần túy (loại bỏ dấu phẩy) và nạp vào cấu trúc JSON.
+                Nhiệm vụ bắt buộc:
+                1. Quét toàn bộ tài liệu từ trái qua phải để trích xuất TOÀN BỘ các cột kích cỡ (size) xuất hiện trong bảng. Tuyệt đối không được bỏ sót size nào có sản lượng lớn hơn 0.
+                2. Chuyển đổi tên kích cỡ thành chuỗi viết hoa, loại bỏ khoảng trắng. Ví dụ: Nếu có Eo và Giàng, gộp lại thành '28X30'. Nếu chỉ có 1 số hoặc chữ, giữ nguyên (ví dụ: '32', 'M', 'L').
+                3. Ép số lượng tương ứng dưới mỗi cột size thành số nguyên thuần túy (loại bỏ hoàn toàn dấu phẩy).
                 """
-                
-                if sbd_content_str: 
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                # Thực hiện gọi mô hình xử lý sinh cấu trúc dữ liệu JSON định hình sẵn
+                # 🎯 THAY ĐỔI MÔ HÌNH: Chuyển sang gemini-1.5-flash để chịu tải ổn định cao, tránh lỗi 503 khi server nghẽn
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
+                    model='gemini-1.5-flash', 
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         response_schema=gemini_sbd_raw_schema,
-                        temperature=0.1
+                        temperature=0.0 # Ép chặt nhiệt độ về 0 để trích xuất dữ liệu thô chính xác, không sai lệch
                     )
                 )
                 
@@ -273,17 +257,17 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                             continue
                     clean_sbd_data["size_breakdown"] = clean_dict
                 
-                # Nếu bóc tách dữ liệu size thành công, cập nhật lại biến tổng số lượng PO thực tế
+                # Kiểm tra kết quả bóc tách dữ liệu từ AI
                 if clean_sbd_data["size_breakdown"]:
                     clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
+                    st.session_state["sbd_parsed_data"] = clean_sbd_data
                 else:
-                    # Bộ số dữ liệu mẫu fallback chỉ kích hoạt khi file hoàn toàn trống chữ
-                    clean_sbd_data["size_breakdown"] = {"26X30": 120, "28X30": 150, "29X32": 240}
-                    clean_sbd_data["total_quantity"] = 510
+                    # Đưa ra thông báo debug nếu file PDF của xưởng hoàn toàn không có chữ/số hoặc bị mờ nhòe
+                    st.error("⚠️ AI đã đọc tài liệu nhưng cấu trúc bảng size trả về trống. Vui lòng kiểm tra lại độ nét hoặc nội dung file PDF đầu vào.")
+                    st.info(f"Nội dung thô hệ thống trả về: {res_sbd.text}")
+                    st.stop()
                     
-                st.session_state["sbd_parsed_data"] = clean_sbd_data
-                
-                # Giải phóng toàn bộ bộ nhớ cache ô lưới cũ để ép nạp ma trận đơn hàng mới
+                # Giải phóng bộ đệm hiển thị ô lưới để ép nạp ma trận đơn hàng mới
                 keys_to_clear_cache = ["session_editor_snapshot", "auto_cutting_results", "auto_cutting_results_recovered", "fabric_type_recovered"]
                 for cache_key in keys_to_clear_cache:
                     if cache_key in st.session_state:
@@ -293,11 +277,12 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 st.session_state["purchase_ready"] = True
                 st.session_state["planning_cleared"] = False
                 
-                st.success("✅ Hệ thống đã số hóa dữ liệu đơn hàng thành công!")
+                st.success("✅ Hệ thống đã dùng mắt thần số hóa toàn bộ kích cỡ thành công!")
                 st.rerun()
                 
             except Exception as e: 
-                st.error(f"❌ Lỗi nghiêm trọng khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+                st.error(f"❌ Lỗi khi giải cấu trúc tài liệu bằng AI: {str(e)}")
+
 
 
 
