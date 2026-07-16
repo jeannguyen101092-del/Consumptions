@@ -461,145 +461,187 @@ import streamlit as st
 import pandas as pd
 import json
 import re
+from supabase import create_client
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ RESET TOÀN DIỆN MÀN HÌNH INGEST
+# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP VÀ ĐỒNG BỘ ÉP ĐÈ MÃ HÀNG MỚI
 # =============================================================================
 
-# Khởi tạo cục bộ an toàn các thông số kỹ thuật được kế thừa từ các phân hệ trước
-current_fabric_type = st.session_state.get("fabric_selectbox_key", "CHÍNH")
-current_consumption = consumption_input if 'consumption_input' in locals() else 1.140
+# Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
+try:
+    url_direct = st.secrets["SUPABASE_URL"]
+    key_direct = st.secrets["SUPABASE_KEY"]
+except Exception:
+    # FIX LỖI 404: Đổi URL trang chủ thành chuỗi rỗng để chặn gọi nhầm khi thiếu Secrets
+    url_direct = ""
+    key_direct = ""
 
-# Hàm helper tối ưu tốc độ ép số nguyên sạch cho dữ liệu ngành may
-def safe_int(value, default=0):
-    if value is None:
-        return default
+# Hàm helper ép kiểu số nguyên an toàn
+def safe_int_final(value, default=0):
+    if value is None: return default
     try:
         clean_val = str(value).replace(",", "").strip()
-        if not clean_val or clean_val.lower() == "none":
-            return default
-        return int(float(clean_val))
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")
+        return int(clean_val)
     except (ValueError, TypeError):
         return default
 
-# Tạo Layout bảng điều khiển với 3 nút bấm phân hệ chính [INDEX]
-btn_col1, btn_col2, btn_col_clear = st.columns([1.5, 1.5, 1])
-
-with btn_col1: 
-    trigger_auto_cutting = st.button("🤖 1. KÍCH HOẠT AI VÉT SẠCH SẼ LƯỢNG DƯ CÒN LẠI", type="primary", use_container_width=True, key="c2_normal_cut_btn")
-with btn_col2: 
-    trigger_consumption = st.button("🔒 2. TÍNH TOÁN LUỸ TIẾN & KHÓA CHỒNG KHO", type="secondary", use_container_width=True, key="c2_consumption_btn")
-with btn_col_clear:
-    trigger_clear_data = st.button("🧹 XÓA ĐỂ TÍNH LẠI", type="secondary", use_container_width=True, key="c2_clear_all_data_btn")
-
-# 🎯 FIX TRIỆT ĐỂ LỖI KẸT TRẠNG TĨNH: Giải phóng toàn bộ bộ nhớ dải size cũ đưa về màn hình Ingest nạp file mới [INDEX]
-if trigger_clear_data:
-    # 1. Hạ cờ màn hình để mở luồng tải file mới ở Tầng 1 [INDEX]
-    st.session_state["purchase_ready"] = False
+# Hàm callback xử lý tự động tra cứu dữ liệu cũ từ Supabase khi người dùng đổi loại vải
+def handle_fabric_change():
+    current_fabric = st.session_state.get("fabric_selectbox_key")
+    st.session_state["last_checked_fabric"] = current_fabric
     
-    # 2. Xóa sạch dữ liệu ma trận đơn hàng cũ bóc tách từ AI [INDEX]
-    st.session_state["sbd_parsed_data"] = None
-    st.session_state["active_sizes_global"] = []
-    
-    # 3. Giải phóng bộ nhớ tạm ô lưới và phiếu báo cáo lũy tiến [INDEX]
-    keys_to_reset = [
-        "session_editor_snapshot", 
-        "auto_cutting_results", 
-        "final_snapshot_rows_global",
-        "consumption_activated",
-        "fabric_type_recovered"
-    ]
-    for k in keys_to_reset:
-        if k in st.session_state:
-            st.session_state[k] = None
-        
-    # 4. Kích hoạt cờ ngừng xuất dữ liệu toán học cũ xuống bảng dưới [INDEX]
-    st.session_state["planning_cleared"] = True
-    
-    st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp! Hãy tải lên file SBD mới.", icon="🧹")
-    st.rerun() # Ép tải lại trang lập tức quay về màn hình Upload ban đầu [INDEX]
-
-# Xử lý Nút 2: Khóa cứng ma trận nhập tay và kích hoạt tính toán đẩy số liệu xuống bảng dưới
-if trigger_consumption:
-    st.session_state["consumption_activated"] = True
-    st.session_state["planning_cleared"] = False # Cấp quyền tính toán cho Python Engine
-    st.toast("🔒 Đã khóa cứng ma trận nhập tay và đồng bộ xuống bảng theo dõi!", icon="🔒")
-    st.rerun() 
-
-# Xử lý Nút 1: Kích hoạt thuật toán chuẩn bị cấu trúc gửi sang Python Engine giải toán cuốn chiếu
-if trigger_auto_cutting:
-    st.session_state["planning_cleared"] = False # Tắt cờ xóa khi gọi Engine toán học
-    
-    # Khôi phục mảng kích cỡ an toàn từ session_state gốc
-    local_active_sizes = st.session_state.get("active_sizes_global", [])
-    if not local_active_sizes:
-        local_active_sizes = ["26X30", "28X30", "29X32"]
-
-    with st.spinner("🤖 Hệ thống đang quét dữ liệu và giải ma trận phối cỡ cho các sơ đồ trống..."):
-        calculated_balances = {}
-        sbd_store_ref = st.session_state.get("sbd_parsed_data", {})
-        real_breakdown_ref = sbd_store_ref.get("size_breakdown", {}) if isinstance(sbd_store_ref, dict) else {}
-        
-        for sz in local_active_sizes:
-            calculated_balances[sz] = safe_int(real_breakdown_ref.get(sz, 0))
-        
-        empty_slots = []
-        current_grid_structure = []
-        
-        snapshot = st.session_state.get("session_editor_snapshot")
-
-        if snapshot and isinstance(snapshot, list) and len(snapshot) > 0:
-            for idx, row_data in enumerate(snapshot):
-                s_name = str(row_data.get("BÀN CẮT / TÊN SƠ ĐỒ", f"SƠ ĐỒ C{idx+1}")).upper().strip()
-                s_code = f"c{str(idx+1).zfill(2)}"
-                
-                total_ratios_entered = 0
-                row_ratios = {}
-                
-                for sz in local_active_sizes:
-                    r_val = safe_int(row_data.get(sz, row_data.get(f"CỠ {local_active_sizes.index(sz)+1}", 0)))
-                    row_ratios[sz] = r_val
-                    total_ratios_entered += r_val
-                
-                layers = safe_int(row_data.get("SƠ LỚP", 0))
-                tables = safe_int(row_data.get("SỐ BÀN", 1))
-
-                if total_ratios_entered > 0 and layers > 0:
-                    for sz in local_active_sizes:
-                        r_val = row_ratios[sz]
-                        calculated_balances[sz] = max(0, calculated_balances[sz] - (r_val * layers * tables))
-                    
-                    current_grid_structure.append({
-                        "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "GIỮ NGUYÊN KHÔNG ĐỔI"
-                    })
-                else:
-                    empty_slots.append(s_code)
-                    current_grid_structure.append({
-                        "Mã dòng": s_code, "Tên sơ đồ gốc": s_name, "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
-                    })
-        else:
-            empty_slots = ["c01", "c02", "c03", "c04", "c05", "c06"]
+    if url_direct and key_direct:
+        try:
+            sb_client_check = create_client(url_direct, key_direct)
+            current_style = st.session_state.get("style_id_input_key", "").strip().upper()
             
-            fab_letter_c2 = "C"
-            fab_upper_c2 = str(current_fabric_type).upper().strip()
-            if fab_upper_c2 == "LÓT": fab_letter_c2 = "L"
-            elif fab_upper_c2 == "KEO": fab_letter_c2 = "K"
-            elif fab_upper_c2 == "PHỐI": fab_letter_c2 = "P"
+            res_check = (
+                sb_client_check.table("cutting_orders_db")
+                .select("*")
+                .eq("style_id", current_style)
+                .eq("fabric_type", current_fabric)
+                .limit(1)
+                .execute()
+            )
             
-            current_grid_structure = [
-                {
-                    "Mã dòng": f"c{str(i+1).zfill(2)}", "Tên sơ đồ gốc": f"{fab_upper_c2} {fab_letter_c2}{str(i+1).zfill(2)}", "Trạng thái": "AI ĐIỀN VÀO ĐÂY"
-                } for i in range(6)
-            ]
+            if res_check.data and len(res_check.data) > 0:
+                st.session_state["auto_cutting_results_recovered"] = res_check.data[0].get("cutting_matrix_data", [])
+                st.session_state["auto_cutting_results"] = None
+            else:
+                if "auto_cutting_results_recovered" in st.session_state: 
+                    del st.session_state["auto_cutting_results_recovered"]
+        except Exception as e: 
+            st.error(f"⚠️ Trục trặc khi kiểm tra bộ nhớ đám mây: {str(e)}")
+    else:
+        st.warning("⚠️ Chưa cấu hình thông tin Supabase Secrets đầy đủ để tra cứu dữ liệu lịch sử.")
 
-        is_sub_fabric = str(current_fabric_type).upper() in ["LÓT", "KEO", "PHỐI"]
-        fabric_rule_text = ""
-        if is_sub_fabric:
-            fabric_rule_text = "- ĐẶC BIỆT: Đây là vải phụ (KEO/LÓT/PHỐI). Được phép cắt dư nhẹ 5-10 Pcs mỗi size lẻ để tăng tốc gộp sơ đồ lớn, hạn chế sinh sơ đồ quá mỏng."
-        else:
-            fabric_rule_text = "- ĐẶC BIỆT: Đây là vải CHÍNH. Tuyệt đối không cắt dư quá quy định, tính toán phối cỡ và số lớp sao cho sản lượng PO triệt tiêu chuẩn xác về 0 hoặc tiệm cận nhất."
+# Khối xử lý hiển thị chính nằm trong nhánh điều kiện True của "purchase_ready"
+if st.session_state.get("purchase_ready", False):
+    sbd_data_store = st.session_state.get("sbd_parsed_data", {})
+    
+    if isinstance(sbd_data_store, dict) and sbd_data_store:
+        detected_style_id = str(sbd_data_store.get("style_id", "UNKNOWN_STYLE")).strip().upper()
+        detected_total_po = safe_int_final(sbd_data_store.get("total_quantity", 0))
+        
+        # 🎯 FIX TRIỆT ĐỂ KẸT MÃ CŨ: Nếu phát hiện mã hàng mới từ file vừa up, ép đè giá trị mới vào ô nhập liệu [INDEX]
+        if st.session_state.get("last_loaded_style_id") != detected_style_id:
+            st.session_state["last_loaded_style_id"] = detected_style_id
+            st.session_state["style_id_input_key"] = detected_style_id
+            st.session_state["po_qty_input_key"] = detected_total_po
+            
+            # Ép giải phóng lưới ma trận cũ để Tầng 3 tự nạp dải size thật của đơn hàng mới [INDEX]
+            st.session_state["session_editor_snapshot"] = None
+            st.session_state["active_sizes_global"] = []
 
-        dinhmuc_met_c2 = round(current_consumption * 0.9144, 3)
+        # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo bộ dữ liệu size luôn là một Dictionary phẳng
+        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
+        if not isinstance(size_breakdown_main, dict):
+            size_breakdown_main = {}
+
+        if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary", key="back_to_ingest_main_btn"):
+            st.session_state["purchase_ready"] = False
+            st.session_state["sbd_parsed_data"] = {}
+            st.session_state["active_sizes_global"] = []
+            st.session_state["consumption_activated"] = False
+            st.session_state["auto_cutting_results"] = None
+            if "auto_cutting_results_recovered" in st.session_state: 
+                del st.session_state["auto_cutting_results_recovered"]
+            st.rerun()
+
+        st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
+        
+        # Thiết lập hàng nhập liệu số 1 [INDEX]
+        input_col1, input_col2, input_col3, input_col_color = st.columns(4)
+        with input_col1: 
+            style_id_input = st.text_input(
+                "🏷️ Tên mã hàng (Style ID):", 
+                key="style_id_input_key"  # Nhận giá trị đồng bộ ghi đè từ session_state [INDEX]
+            )
+        with input_col2: 
+            po_qty_input = st.number_input(
+                "📦 Số lượng đơn hàng (PO Pcs):", 
+                step=100,
+                key="po_qty_input_key"  # Nhận số lượng PO bóc tách thực tế [INDEX]
+            )
+        with input_col3: 
+            consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
+        with input_col_color: 
+            color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
+
+        # Thiết lập hàng nhập liệu số 2 [INDEX]
+        input_col4, input_col5, input_col6 = st.columns(3)
+        with input_col4: 
+            max_table_length = st.number_input("📏 Chiều dài tối đa bàn vải (Meters):", value=12.00, step=1.0)
+            
+        default_fab = st.session_state.get("fabric_type_recovered", "CHÍNH")
+        available_fabrics = ["CHÍNH", "LÓT", "KEO", "PHỐI"]
+        try: 
+            default_index = available_fabrics.index(default_fab)
+        except ValueError: 
+            default_index = 0
+            
+        with input_col5:
+            fabric_type_input = st.selectbox(
+                "🧵 Loại vải đang tác nghiệp:", 
+                available_fabrics, 
+                index=default_index,
+                key="fabric_selectbox_key",
+                on_change=handle_fabric_change
+            )
+            
+        with input_col6: 
+            cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
+        
+        cad_paste_zone = st.text_area(
+            "Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", 
+            placeholder="Ví dụ:\n5844-c01 1.05\n5844-c02 10", 
+            height=90, 
+            key="cad_bulk_paste_c2"
+        )
+
+        # KHỬ TRIỆT ĐỂ CHUỖI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
+        clean_size_breakdown = {}
+        for k, v in size_breakdown_main.items():
+            try:
+                clean_key = re.sub(r'_\d+$', '', str(k)).strip().upper()
+                if clean_key.startswith("[") and clean_key.endswith("]"):
+                    clean_key = clean_key.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(",", "X").replace(" ", "")
+                
+                clean_v = int(float(str(v).replace(",", "").strip() or 0))
+                if clean_v > 0:
+                    clean_size_breakdown[clean_key] = clean_size_breakdown.get(clean_key, 0) + clean_v
+            except Exception:
+                continue
+        
+        size_breakdown_main = clean_size_breakdown
+
+        # Thuật toán tối ưu sắp xếp danh sách kích cỡ bám hình học bàn vải (Inseam tăng dần -> Eo tăng dần)
+        def key_sort_by_inseam_then_waist(size_string):
+            s_clean = str(size_string).upper().replace(" ", "").strip()
+            parts = re.split(r'[X_-]', s_clean)
+            if len(parts) >= 2:
+                try:
+                    waist = int(float(parts[0]))
+                    inseam = int(float(parts[1]))
+                    return (inseam, waist)
+                except ValueError:
+                    return (999, 999) 
+            else:
+                try: 
+                    return (0, int(float(s_clean)))
+                except ValueError: 
+                    char_hash_code = sum(ord(c) for c in s_clean)
+                    return (0, 1000 + char_hash_code)
+
+        # Trích xuất mảng danh sách size sạch phẳng
+        active_sizes = sorted(list(size_breakdown_main.keys()), key=key_sort_by_inseam_then_waist)
+        if not active_sizes: 
+            active_sizes = ["26X30", "28X30", "29X32"]
+            
+        # Đẩy dải cỡ thật đã sắp xếp ra toàn cục [INDEX]
+        st.session_state["active_sizes_global"] = active_sizes
 
 
 import streamlit as st
