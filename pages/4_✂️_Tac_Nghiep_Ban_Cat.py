@@ -884,10 +884,10 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6 (PHẦN 1): KHỞI TẠO CẤU TRÚC LƯỚI VÀ CALLBACK ĐỒNG BỘ HAI CHIỀU
+# TẦNG 3 - ĐOẠN 6: GIAO DIỆN Ô LƯỚI TƯƠNG TÁC ÉP ĐỒNG BỘ 9 CỘT SIZE CẬP NHẬT
 # =============================================================================
 
-# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN TRÁNH LỖI NAMERROR ---
+# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN ---
 def safe_int_final(value, default=0):
     if value is None: return default
     try:
@@ -898,44 +898,25 @@ def safe_int_final(value, default=0):
     except (ValueError, TypeError):
         return default
 
-# --- PHÒNG VỆ DỮ LIỆU ĐẦU VÀO TỪ FILE SBD NẾU THIẾU ---
-if 'size_breakdown_main' not in locals() and 'size_breakdown_main' not in globals():
+# 🎯 SỬA LỖI MẤT CỘT SIZE: Ưu tiên bóc tách dải size toàn cục đã lưu trong session_state từ Tầng trước
+active_sizes = st.session_state.get("active_sizes_global", [])
+
+# Nếu bộ nhớ tạm bị trống (do chu trình rerun giải phóng biến), tự động dựng dải size may mặc dự phòng chuẩn cho xưởng
+if not active_sizes:
     sbd_store = st.session_state.get("sbd_parsed_data", {})
-    size_breakdown_main = sbd_store.get("size_breakdown", {}) if isinstance(sbd_store, dict) else {}
-if 'active_sizes' not in locals() and 'active_sizes' not in globals():
-    active_sizes = []
+    local_breakdown = sbd_store.get("size_breakdown", {}) if isinstance(sbd_store, dict) else {}
+    active_sizes = sorted(list(local_breakdown.keys())) if local_breakdown else ["26X30", "27X30", "28X30", "29X30", "30X30", "31X30", "32X30", "33X30", "34X30"]
 
 fab_upper = str(st.session_state.get("fabric_selectbox_key", "CHÍNH")).upper().strip()
 prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
 
-# 1. Làm sạch và phẳng hóa mảng kích cỡ động từ gốc file SBD
-flattened_active_sizes = []
-flattened_size_breakdown = {}
-
-for original_key, original_val in size_breakdown_main.items():
-    k_str = str(original_key).strip().upper()
-    if k_str.startswith("[") or "['" in k_str or '["' in k_str:
-        cleaned_parts = re.findall(r"['\"](.*?)['\"]", k_str)
-        if len(cleaned_parts) >= 2: k_str = f"{cleaned_parts[0]}X{cleaned_parts[1]}"
-        else: k_str = k_str.replace("[","").replace("]","").replace("'","").replace('"',"").replace(" ","").replace(",", "X")
-    k_str = re.sub(r'_\d+$', '', k_str).replace(" ", "")
-    
-    v_num = safe_int_final(original_val)
-    if v_num > 0 and k_str != "":
-        flattened_size_breakdown[k_str] = flattened_size_breakdown.get(k_str, 0) + v_num
-        if k_str not in flattened_active_sizes: flattened_active_sizes.append(k_str)
-
-active_sizes = flattened_active_sizes
-size_breakdown_main = flattened_size_breakdown
-total_sum_po_qty = sum(size_breakdown_main.values())
-
-# Tiêu đề cột chuẩn hóa thống nhất đồng bộ dạng ảo CỠ X để Streamlit nhận diện lưu trữ
+# Tạo danh sách tiêu đề cột ảo chuẩn hóa để Streamlit lưu trữ
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 2. Tạo cấu trúc khuôn mẫu 3 hàng tiêu đề phụ cố định
+# Dựng cấu trúc khuôn mẫu 3 hàng thông số cố định ở đầu bảng
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
-sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": total_sum_po_qty}
+sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": 0}
 
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
@@ -946,17 +927,17 @@ for i, sz in enumerate(active_sizes):
         g_val = str(parts[1]).strip()
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
-        g_val = "None"
+        g_val = "30" # Giàng mặc định
     
-    giang_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', g_val)
-    size_top_row[f"CỠ {i+1}"] = re.sub(r'_\d+$', '', s_val)
-    sl_top_row[f"CỠ {i+1}"] = size_breakdown_main.get(sz, 0)
+    giang_top_row[f"CỠ {i+1}"] = g_val
+    size_top_row[f"CỠ {i+1}"] = s_val
+    sl_top_row[f"CỠ {i+1}"] = 0 # Khởi tạo sản lượng ban đầu bằng 0 để xưởng tự nhập tay
 
 giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-# 3. Nạp bộ nhớ đệm snapshot hoặc khởi tạo lưới mặc định ban đầu
+# Khôi phục bộ nhớ đệm snapshot hoặc tự động dựng khung lưới 6 hàng tác nghiệp chuẩn
 snapshot = st.session_state.get("session_editor_snapshot")
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -971,7 +952,6 @@ if snapshot and len(snapshot) > 0:
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
-            item_dict[sz] = safe_int_final(val_cell)
             
         item_dict["SƠ LỚP"] = safe_int_final(row.get("SƠ LỚP", 0))
         item_dict["SỐ BÀN"] = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
@@ -981,26 +961,23 @@ if snapshot and len(snapshot) > 0:
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
+    # Tự động dựng khung lưới chuẩn ban đầu nếu chưa có bộ nhớ đệm
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
-    for i in range(len(active_sizes)): 
-        item_pilot[f"CỠ {i+1}"] = 0
-        item_pilot[active_sizes[i]] = 0
+    for i in range(len(active_sizes)): item_pilot[f"CỠ {i+1}"] = 0
     item_pilot.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
     display_editor_rows.append(item_pilot)
     
     for i in range(5):
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}", "TỔNG SẢN LƯỢNG": 0}
-        for c_i in range(len(active_sizes)): 
-            item_dict[f"CỠ {c_i+1}"] = 0
-            item_dict[active_sizes[c_i]] = 0
+        for c_i in range(len(active_sizes)): item_dict[f"CỠ {c_i+1}"] = 0
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
 if st.session_state.get("session_editor_snapshot") is None:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 
-# 🎯 FIX KHỐI CODE DỞ: Hàm callback bắt sự kiện chỉnh sửa ô lưới và đồng bộ ngược lên bộ nhớ
+# Hàm callback bắt sự kiện người dùng gõ số vào từng ô lưới để cập nhật tức thì
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final"]
@@ -1011,17 +988,15 @@ def callback_sync_on_the_fly_final():
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
                 if current_snapshot and r_idx_int < len(current_snapshot):
-                    # Khóa chặn bảo vệ không cho sửa nội dung 3 dòng thông số cố định
-                    if current_snapshot[r_idx_int]["BÀN CẮT / TÊN SƠ ĐỒ"] in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]: continue
-                    
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
                             try:
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
-                                target_size_key = active_sizes[c_num - 1]
                                 val_clean = safe_int_final(new_val)
                                 current_snapshot[r_idx_int][f"CỠ {c_num}"] = val_clean
-                                current_snapshot[r_idx_int][target_size_key] = val_clean # Gán key đôi đồng bộ sạch lỗi hình học
+                                # Đồng bộ luôn cả key tên cỡ thật cho thuật toán Python Engine ở Tầng dưới đọc dữ liệu
+                                target_size_key = active_sizes[c_num - 1]
+                                current_snapshot[r_idx_int][target_size_key] = val_clean
                             except Exception: pass
                         elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
                             current_snapshot[r_idx_int][col_header] = safe_int_final(new_val)
@@ -1029,7 +1004,54 @@ def callback_sync_on_the_fly_final():
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
             
+            # Tính toán lại tổng sản lượng đơn hàng PO thời gian thực sau khi người dùng sửa số lượng
+            po_row = current_snapshot[2] # Dòng số 3 (Mã mảng INDEX 2) là dòng SẢN LƯỢNG
+            total_sum = 0
+            for i in range(len(active_sizes)):
+                total_sum += safe_int_final(po_row.get(f"CỠ {i+1}", 0))
+            po_row["TỔNG SẢN LƯỢNG"] = total_sum
+            
+            # Lưu snapshot mới vào bộ nhớ tạm
             st.session_state["session_editor_snapshot"] = current_snapshot
+
+# --- RENDERING KẾT XUẤT RA MÀN HÌNH ---
+current_display_data = st.session_state.get("session_editor_snapshot", display_editor_rows)
+df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
+
+for col in clean_headers_top:
+    if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
+    elif col == "DÀI SƠ ĐỒ":
+        df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
+
+config_cot = {
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
+    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
+}
+
+# 🚀 ÉP BẮT BUỘC BUNG CỘT SIZE: Duyệt danh sách hiển thị f"CỠ X (Size thực tế)" ra lưới tương tác
+for i, sz in enumerate(active_sizes):
+    # Dòng SẢN LƯỢNG (hàng số 3) được mở quyền chỉnh sửa (disabled=False) đối với các cột cỡ để xưởng tự nhập tay số lượng đơn hàng
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(
+        f"🔍 CỠ {i+1} ({sz})", 
+        disabled=False, 
+        min_value=0, 
+        step=1, 
+        format="%d"
+    )
+
+st.data_editor(
+    df_editor_top_render,
+    column_config=config_cot,
+    use_container_width=True,
+    hide_index=True,
+    key="table_manual_data_editor_final",
+    on_change=callback_sync_on_the_fly_final
+)
+
 # =============================================================================
 # TẦNG 3 - ĐOẠN 6 (PHẦN 2): CẤU HÌNH CỘT VÀ HIỂN THỊ Ô LƯỚI DATA EDITOR
 # =============================================================================
