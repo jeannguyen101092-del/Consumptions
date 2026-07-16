@@ -140,7 +140,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2 (PHẦN 1): CẤU HÌNH RAW SCHEMA VÀ CHUẨN BỊ TÀI LIỆU SBD
+# TẦNG 1 - ĐOẠN 2 (PHẦN 1): CẤU HÌNH RAW SCHEMA SẠCH LỖI ADDITIONALPROPERTIES
 # =============================================================================
 
 # CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
@@ -149,7 +149,7 @@ if st.session_state.get("planning_cleared", False):
     st.session_state["sbd_parsed_data"] = None
     st.session_state["pur_tp_parsed_data"] = None
 
-# 🎯 FIX TRIỆT ĐỂ: Dựng cấu trúc JSON Schema thô, không dùng Pydantic để loại bỏ additionalProperties
+# 🎯 FIX TRIỆT ĐỂ: Xóa bỏ hoàn toàn key "additionalProperties" trong size_breakdown để an toàn với API thông thường
 gemini_sbd_raw_schema = {
     "type": "OBJECT",
     "properties": {
@@ -163,10 +163,8 @@ gemini_sbd_raw_schema = {
         },
         "size_breakdown": {
             "type": "OBJECT",
-            "description": "A dictionary where keys are size names (e.g., '28X30') and values are pure integers.",
-            "additionalProperties": {
-                "type": "INTEGER"
-            }
+            "description": "A dictionary where keys are size names (e.g., '28X30') and values are pure integers."
+            # 💡 ĐÃ XÓA BỎ DÒNG additionalProperties BỊ LỖI Ở ĐÂY CHỐNG SẬP HỆ THỐNG
         }
     },
     "required": ["style_id", "total_quantity", "size_breakdown"]
@@ -182,6 +180,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         use_container_width=True, 
         key="activate_sbd_only_ingest_c2"
     )
+
     # =============================================================================
     # TẦNG 1 - ĐOẠN 2 (PHẦN 2): GỌI API GEMINI VÀ ĐỒNG BỘ TRẠNG THÁI HỆ THỐNG
     # =============================================================================
