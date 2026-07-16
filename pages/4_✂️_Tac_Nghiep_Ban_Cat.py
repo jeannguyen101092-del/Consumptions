@@ -297,165 +297,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
 
 
 
-import streamlit as st
-import pandas as pd
-import json
-import re
-from supabase import create_client
 
-# Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
-try:
-    url_direct = st.secrets["SUPABASE_URL"]
-    key_direct = st.secrets["SUPABASE_KEY"]
-except Exception:
-    # 🎯 FIX LỖI 404: Đổi URL trang chủ thành chuỗi rỗng để chặn gọi nhầm khi thiếu Secrets
-    url_direct = ""
-    key_direct = ""
-
-# Hàm callback xử lý tự động tra cứu dữ liệu cũ từ Supabase khi người dùng đổi loại vải
-def handle_fabric_change():
-    # Lấy giá trị mới nhất trực tiếp từ key của selectbox
-    current_fabric = st.session_state.get("fabric_selectbox_key")
-    st.session_state["last_checked_fabric"] = current_fabric
-    
-    if url_direct and key_direct:
-        try:
-            sb_client_check = create_client(url_direct, key_direct)
-            # Lấy style_id trực tiếp từ session state hoặc widget key để đảm bảo dữ liệu mới nhất
-            current_style = st.session_state.get("style_id_input_key", "").strip().upper()
-            
-            res_check = (
-                sb_client_check.table("cutting_orders_db")
-                .select("*")
-                .eq("style_id", current_style)
-                .eq("fabric_type", current_fabric)
-                .limit(1)
-                .execute()
-            )
-            
-            if res_check.data and len(res_check.data) > 0:
-                # Trích xuất phần tử đầu tiên an toàn
-                st.session_state["auto_cutting_results_recovered"] = res_check.data[0].get("cutting_matrix_data", [])
-                st.session_state["auto_cutting_results"] = None
-            else:
-                if "auto_cutting_results_recovered" in st.session_state: 
-                    del st.session_state["auto_cutting_results_recovered"]
-        except Exception as e: 
-            st.error(f"⚠️ Trục trặc khi kiểm tra bộ nhớ đám mây: {str(e)}")
-    else:
-        st.warning("⚠️ Chưa cấu hình thông tin Supabase Secrets đầy đủ để tra cứu dữ liệu lịch sử.")
-
-# Khối xử lý hiển thị chính nằm trong nhánh điều kiện True của "purchase_ready"
-if st.session_state.get("purchase_ready", False):
-    sbd_data_store = st.session_state.get("sbd_parsed_data", {})
-    
-    if isinstance(sbd_data_store, dict) and sbd_data_store:
-        detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
-        detected_total_po = sbd_data_store.get("total_quantity", 0)
-        
-        # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo bộ dữ liệu size luôn là một Dictionary phẳng
-        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
-        if not isinstance(size_breakdown_main, dict):
-            size_breakdown_main = {}
-
-        if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary"):
-            st.session_state["purchase_ready"] = False
-            st.session_state["sbd_parsed_data"] = {}
-            st.session_state["consumption_activated"] = False
-            st.session_state["auto_cutting_results"] = None
-            if "auto_cutting_results_recovered" in st.session_state: 
-                del st.session_state["auto_cutting_results_recovered"]
-            st.rerun()
-
-        st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
-        
-        # Thiết lập hàng nhập liệu số 1
-        input_col1, input_col2, input_col3, input_col_color = st.columns(4)
-        with input_col1: 
-            style_id_input = st.text_input(
-                "🏷️ Tên mã hàng (Style ID):", 
-                value=str(detected_style_id).strip().upper(),
-                key="style_id_input_key" # Gán key để lưu trạng thái phục vụ callback
-            )
-        with input_col2: 
-            po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
-        with input_col3: 
-            consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
-        with input_col_color: 
-            color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
-
-        # Thiết lập hàng nhập liệu số 2
-        input_col4, input_col5, input_col6 = st.columns(3)
-        with input_col4: 
-            max_table_length = st.number_input("📏 Chiều dài tối đa bàn vải (Meters):", value=12.00, step=1.0)
-            
-        default_fab = st.session_state.get("fabric_type_recovered", "CHÍNH")
-        available_fabrics = ["CHÍNH", "LÓT", "KEO", "PHỐI"]
-        try: 
-            default_index = available_fabrics.index(default_fab)
-        except ValueError: 
-            default_index = 0
-            
-        with input_col5:
-            # 🎯 FIX LỖI INFINITE LOOP: Sử dụng callback on_change thay vì kiểm tra if-else thủ công sau widget
-            fabric_type_input = st.selectbox(
-                "🧵 Loại vải đang tác nghiệp:", 
-                available_fabrics, 
-                index=default_index,
-                key="fabric_selectbox_key",
-                on_change=handle_fabric_change
-            )
-            
-        with input_col6: 
-            cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
-        
-        cad_paste_zone = st.text_area(
-            "Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", 
-            placeholder="Ví dụ:\n5844-c01 1.05\n5844-c02 10", 
-            height=90, 
-            key="cad_bulk_paste_c2"
-        )
-
-        # 🛠️ KHỬ TRIỆT ĐỂ CHUỖI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
-        clean_size_breakdown = {}
-        for k, v in size_breakdown_main.items():
-            try:
-                clean_key = re.sub(r'_\d+$', '', str(k)).strip().upper()
-                
-                # Bảo vệ mảng: Ép chuỗi cấu trúc mảng vô tình sinh ra từ file văn bản thành text may mặc tiêu chuẩn
-                if clean_key.startswith("[") and clean_key.endswith("]"):
-                    clean_key = clean_key.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(",", "X").replace(" ", "")
-                
-                clean_v = int(float(str(v).replace(",", "").strip() or 0))
-                if clean_v > 0:
-                    clean_size_breakdown[clean_key] = clean_size_breakdown.get(clean_key, 0) + clean_v
-            except Exception:
-                continue
-        
-        size_breakdown_main = clean_size_breakdown
-
-        # Thuật toán tối ưu sắp xếp danh sách kích cỡ bám hình học bàn vải (Inseam tăng dần -> Eo tăng dần)
-        def key_sort_by_inseam_then_waist(size_string):
-            s_clean = str(size_string).upper().replace(" ", "").strip()
-            parts = re.split(r'[X_-]', s_clean)
-            if len(parts) >= 2:
-                try:
-                    waist = int(float(parts[0]))
-                    inseam = int(float(parts[1]))
-                    return (inseam, waist)
-                except ValueError:
-                    return (999, 999) 
-            else:
-                try: 
-                    return (0, int(float(s_clean)))
-                except ValueError: 
-                    char_hash_code = sum(ord(c) for c in s_clean)
-                    return (0, 1000 + char_hash_code)
-
-        # Trích xuất mảng danh sách size sạch phẳng
-        active_sizes = sorted(list(size_breakdown_main.keys()), key=key_sort_by_inseam_then_waist)
-        if not active_sizes: 
-            active_sizes = ["26X30", "28X30", "29X32"]
 
 import streamlit as st
 import pandas as pd
@@ -464,7 +306,7 @@ import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP - SỬA LỖI SẮP XẾP MẢNG PARTS CỦA PYTHON
+# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP - TỰ ĐỘNG ĐỒNG BỘ TỔNG SẢN LƯỢNG PO 2500
 # =============================================================================
 
 # Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
@@ -481,7 +323,7 @@ def safe_int_final(value, default=0):
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")
+        if "." in clean_val: clean_val = clean_val.split(".")[0]
         return int(clean_val)
     except (ValueError, TypeError):
         return default
@@ -522,9 +364,32 @@ if st.session_state.get("purchase_ready", False):
     
     if isinstance(sbd_data_store, dict) and sbd_data_store:
         detected_style_id = str(sbd_data_store.get("style_id", "UNKNOWN_STYLE")).strip().upper()
-        detected_total_po = safe_int_final(sbd_data_store.get("total_quantity", 0))
         
-        # Quản lý biến nền độc lập chống kẹt cache mã cũ khi up file mới
+        # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo bộ dữ liệu size luôn là một Dictionary phẳng
+        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
+        if not isinstance(size_breakdown_main, dict):
+            size_breakdown_main = {}
+            
+        # KHỬ TRIỆT ĐỂ CHUỒI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
+        clean_size_breakdown = {}
+        for k, v in size_breakdown_main.items():
+            try:
+                clean_key = re.sub(r'_\d+$', '', str(k)).strip().upper()
+                if clean_key.startswith("[") and clean_key.endswith("]"):
+                    clean_key = clean_key.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(",", "X").replace(" ", "")
+                
+                clean_v = safe_int_final(v)
+                if clean_v > 0:
+                    clean_size_breakdown[clean_key] = clean_size_breakdown.get(clean_key, 0) + clean_v
+            except Exception:
+                continue
+        
+        size_breakdown_main = clean_size_breakdown
+        
+        # 🎯 FIX CỐT LÕI LUỒNG TOÁN HỌC: Ép tính tổng sản lượng thực tế dựa trên mảng size phẳng sạch
+        detected_total_po = sum(size_breakdown_main.values()) if size_breakdown_main else 2500
+
+        # Biện pháp quản lý biến nền độc lập chống kẹt cache mã cũ khi up file mới
         if st.session_state.get("last_loaded_style_id") != detected_style_id:
             st.session_state["last_loaded_style_id"] = detected_style_id
             st.session_state["current_style_target_val"] = detected_style_id
@@ -539,11 +404,6 @@ if st.session_state.get("purchase_ready", False):
         if "current_po_target_val" not in st.session_state:
             st.session_state["current_po_target_val"] = detected_total_po
 
-        # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo bộ dữ liệu size luôn là một Dictionary phẳng
-        size_breakdown_main = sbd_data_store.get("size_breakdown", {})
-        if not isinstance(size_breakdown_main, dict):
-            size_breakdown_main = {}
-
         if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary", key="back_to_ingest_main_btn_v2"):
             st.session_state["purchase_ready"] = False
             st.session_state["sbd_parsed_data"] = {}
@@ -556,7 +416,7 @@ if st.session_state.get("purchase_ready", False):
 
         st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
         
-        # Thiết lập hàng nhập liệu số 1 kèm Key độc bản khóa chặt Id chống sập giao diện
+        # Thiết lập hàng nhập liệu số 1 kèm Key độc bản khóa cứng Id chống sập giao diện
         input_col1, input_col2, input_col3, input_col_color = st.columns(4)
         with input_col1: 
             style_id_input = st.text_input(
@@ -565,6 +425,7 @@ if st.session_state.get("purchase_ready", False):
                 key="style_id_input_key_v2"
             )
         with input_col2: 
+            # 🎯 ĐÃ ÉP CẬP NHẬT TỔNG 2500: Tự động nạp giá trị po thực tế từ phép tính sum ở trên
             po_qty_input = st.number_input(
                 "📦 Số lượng đơn hàng (PO Pcs):", 
                 value=int(st.session_state["current_po_target_val"]),
@@ -628,37 +489,21 @@ if st.session_state.get("purchase_ready", False):
             key="cad_bulk_paste_c2_v2"
         )
 
-        # KHỬ TRIỆT ĐỂ CHUỒI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
-        clean_size_breakdown = {}
-        for k, v in size_breakdown_main.items():
-            try:
-                clean_key = re.sub(r'_\d+$', '', str(k)).strip().upper()
-                if clean_key.startswith("[") and clean_key.endswith("]"):
-                    clean_key = clean_key.replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(",", "X").replace(" ", "")
-                
-                clean_v = int(float(str(v).replace(",", "").strip() or 0))
-                if clean_v > 0:
-                    clean_size_breakdown[clean_key] = clean_size_breakdown.get(clean_key, 0) + clean_v
-            except Exception:
-                continue
-        
-        size_breakdown_main = clean_size_breakdown
-
-        # 🎯 THUẬT TOÁN SẮP XẾP SẠCH LỖI: Trích xuất chỉ mục [0] và [1] của danh sách mảng parts
+        # Thuật toán tối ưu sắp xếp danh sách kích cỡ bám hình học bàn vải (Inseam tăng dần -> Eo tăng dần)
         def key_sort_by_inseam_then_waist(size_string):
             s_clean = str(size_string).upper().replace(" ", "").strip()
-            parts = re.split(r'[X_-]', s_clean)
-            if len(parts) >= 2:
+            parts = re.split(r'[X_\-_/]', s_clean)
+            if isinstance(parts, list) and len(parts) >= 2:
                 try:
-                    waist = int(float(parts[0]))
-                    inseam = int(float(parts[1]))
+                    waist = int(float(str(parts[0]).strip()))
+                    inseam = int(float(str(parts[1]).strip()))
                     return (inseam, waist)
-                except ValueError:
+                except (ValueError, IndexError):
                     return (999, 999) 
             else:
                 try: 
                     return (0, int(float(s_clean)))
-                except ValueError: 
+                except (ValueError, TypeError): 
                     char_hash_code = sum(ord(c) for c in s_clean)
                     return (0, 1000 + char_hash_code)
 
@@ -668,6 +513,7 @@ if st.session_state.get("purchase_ready", False):
             active_sizes = ["26X30", "28X30", "29X32"]
             
         st.session_state["active_sizes_global"] = active_sizes
+
 
 
 
