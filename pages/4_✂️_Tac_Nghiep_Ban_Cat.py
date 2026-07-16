@@ -272,9 +272,9 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 """
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                # Gọi mô hình siêu cấp bóc tách đa phương thức trực tiếp trên môi trường v1 API
+                                # 🎯 THAY MODEL PRO CAO CẤP: Ép sử dụng gemini-2.5-pro để xử lý trực quan file PDF Scan, dứt điểm lỗi rỗng số liệu
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
+                    model='gemini-2.5-pro', # Đổi 'gemini-2.5-flash' thành 'gemini-2.5-pro'
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -282,6 +282,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         temperature=0.0
                     )
                 )
+
                 
                 parsed_json_data = json.loads(res_sbd.text.strip())
                 
