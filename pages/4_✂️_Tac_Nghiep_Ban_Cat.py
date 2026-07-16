@@ -885,32 +885,32 @@ prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "
 # Tạo danh sách tiêu đề cột ảo chuẩn hóa để hệ thống Streamlit nhận diện lưu trữ
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 🎯 ĐÃ SỬA CỐT LÕI: Khôi phục bộ dữ liệu sản lượng đơn hàng thực tế bóc từ file PDF SBD
+# Khôi phục bộ dữ liệu sản lượng đơn hàng thực tế bóc từ file PDF SBD [INDEX]
 sbd_store_data = st.session_state.get("sbd_parsed_data", {})
 real_size_breakdown = sbd_store_data.get("size_breakdown", {}) if isinstance(sbd_store_data, dict) else {}
 true_total_quantity = sbd_store_data.get("total_quantity", 0)
 
-# Dựng cấu trúc khuôn mẫu 3 hàng thông số cố định ở đầu bảng tác nghiệp
+# Dựng cấu trúc khuôn mẫu 3 hàng thông số cố định ở đầu bảng tác nghiệp [INDEX]
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 
-# 🎯 FIX TRIỆT ĐỂ SỐ 0: Ép cột tổng sản lượng PO gốc tự động lấy từ file SBD thực tế [INDEX]
+# Ép cột tổng sản lượng PO gốc tự động lấy từ file SBD thực tế [INDEX]
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": true_total_quantity}
 
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
-    g_val, s_val = "30", c_str  # Giàng mặc định là 30 nếu chuỗi rỗng
+    g_val, s_val = "30", c_str  # Giàng mặc định là 30 nếu chuỗi rỗng [INDEX]
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
-        s_val = str(parts[0]).strip()
-        g_val = str(parts[1]).strip()
+        s_val = str(parts[0]).strip()  # [INDEX]
+        g_val = str(parts[1]).strip()  # [INDEX]
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
     
     giang_top_row[f"CỠ {i+1}"] = g_val
     size_top_row[f"CỠ {i+1}"] = s_val
     
-    # 🎯 ĐỔ SỐ LIỆU SẢN LƯỢNG THẬT SBD: Đọc số lượng (88, 156, 150...) nạp thẳng vào từng ô [INDEX]
+    # ĐỔ SỐ LIỆU SẢN LƯỢNG THẬT SBD: Đọc số lượng (88, 156, 150...) nạp thẳng vào từng ô [INDEX]
     val_pcs_real = safe_int_final(real_size_breakdown.get(sz, 0))
     sl_top_row[f"CỠ {i+1}"] = val_pcs_real
     sl_top_row[sz] = val_pcs_real  # Lưu song song cả key chuỗi cho thuật toán rải bàn phía sau
@@ -919,7 +919,7 @@ giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-# Khôi phục bộ nhớ đệm snapshot hoặc tự động dựng lưới tác nghiệp
+# Khôi phục bộ nhớ đệm snapshot hoặc tự động dựng lưới tác nghiệp [INDEX]
 snapshot = st.session_state.get("session_editor_snapshot")
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -963,7 +963,7 @@ else:
 if st.session_state.get("session_editor_snapshot") is None:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 
-# Hàm callback bắt sự kiện người dùng chỉnh sửa và tự động đồng bộ hóa lũy tiến dữ liệu
+# Hàm callback bắt sự kiện người dùng chỉnh sửa và tự động đồng bộ hóa lũy tiến dữ liệu [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final_clean_v1" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final_clean_v1"]
@@ -989,14 +989,25 @@ def callback_sync_on_the_fly_final():
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
             
-            # Tính toán lại tổng sản lượng đơn hàng PO tự động ngay khi sửa số
-            po_row = current_snapshot[2]
-            total_sum = 0
-            for i in range(len(active_sizes)):
-                total_sum += safe_int_final(po_row.get(f"CỠ {i+1}", 0))
-            po_row["TỔNG SẢN LƯỢNG"] = total_sum
+            # 🎯 FIX TRIỆT ĐỂ LỖI HỤT SẢN LƯỢNG: Quét toán diện dải cỡ snapshot kết hợp nền SBD [INDEX]
+            po_row = current_snapshot[2] # Khóa chặt dòng SẢN LƯỢNG
+            sbd_store_ref = st.session_state.get("sbd_parsed_data", {})
+            real_breakdown_ref = sbd_store_ref.get("size_breakdown", {}) if isinstance(sbd_store_ref, dict) else {}
             
+            total_sum = 0
+            for idx_sz, sz in enumerate(active_sizes):
+                val_cell_current = po_row.get(f"CỠ {idx_sz+1}", po_row.get(sz, None))
+                if val_cell_current is None or str(val_cell_current).strip() == "" or val_cell_current == 0:
+                    val_cell_current = real_breakdown_ref.get(sz, 0)
+                
+                val_clean_int = safe_int_final(val_cell_current)
+                po_row[f"CỠ {idx_sz+1}"] = val_clean_int
+                po_row[sz] = val_clean_int
+                total_sum += val_clean_int
+                
+            po_row["TỔNG SẢN LƯỢNG"] = total_sum
             st.session_state["session_editor_snapshot"] = current_snapshot
+
 
 # =============================================================================
 # TẦNG 3 - ĐOẠN 6 (PHẦN 2): CẤU HÌNH CỘT RENDER VÀ KẾT XUẤT ĐA GIAO DIỆN CHUẨN KEY
