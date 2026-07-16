@@ -178,19 +178,22 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         use_container_width=True, 
         key="activate_sbd_only_ingest_c2"
     )
-    # =============================================================================
-    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): ALGORITHM QUÉT TỌA ĐỘ LƯỚI KÉP - BÓC SẠCH SBD FORM MAY
+       # =============================================================================
+    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): BỘ DÒ TỌA ĐỘ ĐỘNG 100% - KHÔNG GÁN CỨNG SỐ LIỆU
     # =============================================================================
     if trigger_btn_c2:
-        with st.spinner("🚀 Đang chạy Engine quét tọa độ lưới bóc ma trận size thật..."):
+        with st.spinner("🚀 Engine Python đang quét tọa độ ma trận size và sản lượng tự động..."):
             sbd_bytes = uploaded_file_sbd.getvalue()
             sbd_content_str = ""
             
+            # Khởi tạo đối tượng lưu trữ động hoàn toàn trống
             clean_sbd_data = {
-                "style_id": "MÃ_HÀNG_SBD", "total_quantity": 0, "size_breakdown": {}
+                "style_id": "MÃ_HÀNG_SBD",
+                "total_quantity": 0,
+                "size_breakdown": {}
             }
             
-            # --- LUỒNG 1: ĐỌC FILE EXCEL CỤC BỘ ---
+            # --- LUỒNG 1: TỰ ĐỘNG QUÉT FILE EXCEL DYNAMIC ---
             if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                 try:
                     excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -209,7 +212,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     if excel_dict: clean_sbd_data["size_breakdown"] = excel_dict
                 except: pass
 
-            # --- LUỒNG 2: 🎯 ENGINE SỬA LỖI TÀO LAO - BÓC TÁCH MA TRẬN PHỨC TẠP FILE PDF ---
+            # --- LUỒNG 2: 🎯 ĐÃ SỬA DỨT ĐIỂM: BỘ QUÉT TỌA ĐỘ ĐỘNG TỰ ĐỘNG ĐỌC FILE PDF ---
             elif uploaded_file_sbd.name.lower().endswith('.pdf'):
                 try:
                     from pypdf import PdfReader
@@ -221,77 +224,66 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         for line in text_page.split("\n"):
                             if line.strip(): raw_lines.append(line.strip())
                     
-                    # Tìm hàng chứa thông số mã vải/mã hàng tổng quát
+                    # 1. Tự động tìm Style ID động trong văn bản
                     for line in raw_lines:
-                        if "Tech Pack #" in line or "Style" in line:
-                            st_match = re.search(r'(?:Tech Pack #|Style)[\s\n:]*([0-9A-Z_-]+)', line, re.IGNORECASE)
+                        sbd_content_str += f"\n{line}"
+                        if any(k in line for k in ["Tech Pack", "Style", "Mã hàng", "MÃ"]):
+                            st_match = re.search(r'(?:Tech Pack #|Style|Mã hàng|MÃ)[\s\n:]*([0-9A-Z_-]+)', line, re.IGNORECASE)
                             if st_match: clean_sbd_data["style_id"] = st_match.group(1).upper()
                     
-                    # Tìm vị trí chính xác hàng chứa dải ô tiêu đề Size và hàng SẢN LƯỢNG (Total)
-                    size_headers_list = []
-                    quantity_values_list = []
+                    # 2. Thuật toán quét ma trận kép tự động bắt cặp Size và Sản lượng
+                    dynamic_sizes_list = []
+                    dynamic_qtys_list = []
                     
                     for line in raw_lines:
-                        # Cách A: Quét hàng chứa dải ô kích cỡ xen kẽ kí tự X (Ví dụ: 26 X 30  28 X 30  29 X 30)
-                        sizes_found = re.findall(r'\b\d{2}[\s]*[Xx\-_/][\s]*\d{2}\b', line)
-                        if sizes_found and len(sizes_found) >= 3:
-                            size_headers_list = [s.upper().replace(" ", "") for s in sizes_found]
+                        # Dò tìm dòng chứa dải kích cỡ may mặc (ví dụ: các cụm số có chữ X)
+                        sizes_in_line = re.findall(r'\b\d{2}[\s]*[Xx\-_/][\s]*\d{2}\b', line)
+                        if sizes_in_line and len(sizes_in_line) >= 2:
+                            dynamic_sizes_list = [s.upper().replace(" ", "") for s in sizes_in_line]
                             continue
-                            
-                        # Cách B: Nếu tìm thấy dòng tổng sản lượng (Total) nằm ngay dưới bảng
-                        if ("Total" in line or "TOTAL" in line or "Meteo" in line) and size_headers_list:
-                            # Trích xuất tất cả các cụm số nguyên đứng tách rời nhau (Sản lượng lẻ của từng cỡ)
-                            numbers_in_row = re.findall(r'\b[\d,]+\b', line)
-                            # Loại bỏ số mã phòng ban hoặc mã màu nếu dính ở đầu hàng
-                            clean_numbers = [n.replace(",", "") for n in numbers_in_row if n.replace(",", "").isdigit()]
-                            
-                            # Lọc lấy dải số lượng khớp tương ứng với độ dài danh sách size đã tìm thấy
-                            if len(clean_numbers) >= len(size_headers_list):
-                                # Kiểm tra xem chuỗi có chứa số lượng tổng đơn hàng không (ví dụ: 2500), nếu có thì gọt bớt số tổng ở cuối hàng
-                                if len(clean_numbers) > len(size_headers_list):
-                                    quantity_values_list = clean_numbers[:len(size_headers_list)]
-                                else:
-                                    quantity_values_list = clean_numbers
-                    
-                    # 🚀 TIẾN HÀNH ĐỒNG BỘ NẠP SỐ LIỆU THẬT 100% VÀO MA TRẬN
-                    if size_headers_list and quantity_values_list:
-                        matrix_built = {}
-                        for idx, sz_name in enumerate(size_headers_list):
-                            if idx < len(quantity_values_list):
-                                val_pcs = safe_int_ingest(quantity_values_list[idx])
-                                if val_pcs > 0:
-                                    # Gộp cộng dồn nếu có các cột trùng size (Ví dụ cùng size 30 X 32 ở các nhóm màu khác nhau)
-                                    matrix_built[sz_name] = matrix_built.get(sz_name, 0) + val_pcs
                         
-                        if matrix_built:
-                            clean_sbd_data["size_breakdown"] = matrix_built
-                except Exception as pdf_err:
-                    st.warning(f"⚠️ Trình lọc Grid gặp sự cố nhỏ: {str(pdf_err)}")
+                        # Dò tìm dòng sản lượng nằm ngay dưới dòng size (thường chứa từ Total hoặc nằm kề hàng size)
+                        if dynamic_sizes_list and any(k in line for k in ["Total", "TOTAL", "SẢN LƯỢNG", "Meteo", "rite"]):
+                            # Trích xuất toàn bộ các cụm số sản lượng ngăn cách bằng khoảng trắng
+                            numbers_found = re.findall(r'\b[\d,]+\b', line)
+                            clean_numbers = [n.replace(",", "") for n in numbers_found if n.replace(",", "").isdigit()]
+                            
+                            # Lọc lấy dải số lượng khớp tương ứng với số lượng cột size đã phát hiện
+                            if len(clean_numbers) >= len(dynamic_sizes_list):
+                                dynamic_qtys_list = clean_numbers[:len(dynamic_sizes_list)]
+                                break
+                    
+                    # 🚀 TIẾN HÀNH ĐỒNG BỘ MẢNG ĐỘNG KHÔNG GÁN CỨNG CHỮ NÀO
+                    if dynamic_sizes_list and dynamic_qtys_list:
+                        built_matrix = {}
+                        for idx, sz_name in enumerate(dynamic_sizes_list):
+                            val_pcs = safe_int_ingest(dynamic_qtys_list[idx])
+                            if val_pcs > 0:
+                                built_matrix[sz_name] = built_matrix.get(sz_name, 0) + val_pcs
+                        if built_matrix:
+                            clean_sbd_data["size_breakdown"] = built_matrix
+                except Exception as e:
+                    st.warning(f"⚠️ Trình quét lưới gặp sự cố: {str(e)}")
 
-            # --- LUỒNG DỰ PHÒNG CHỐNG TRỐNG SỐ LIỆU ---
-            if not clean_sbd_data["size_breakdown"]:
-                # Nếu bảng PDF là ảnh quét hoàn toàn bị mất Text Layer, tự động bung dải khung size thực tế từ file SBD của bạn để nhập tay
-                clean_sbd_data["size_breakdown"] = {
-                    "26X30": 88, "28X30": 156, "29X30": 150, "29X32": 122, "30X28": 105, 
-                    "30X32": 177, "31X30": 169, "31X32": 142, "32X30": 162, "32X32": 214, 
-                    "32X34": 209, "33X34": 111, "34X32": 132, "34X34": 150, "36X32": 82, "36X34": 106
-                }
-                clean_sbd_data["style_id"] = "330260046"
+            # --- ĐỒNG BỘ ĐỔ DỮ LIỆU SẠCH RA MÀN HÌNH ---
+            if clean_sbd_data["size_breakdown"]:
+                clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
+                st.session_state["sbd_parsed_data"] = clean_sbd_data
+                
+                # Ép dải kích cỡ bóc tách động lên bộ nhớ toàn cục để ô lưới dưới vẽ cột thật tương ứng
+                st.session_state["active_sizes_global"] = sorted(list(clean_sbd_data["size_breakdown"].keys()))
+                
+                st.session_state["session_editor_snapshot"] = None
+                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                st.session_state["purchase_ready"] = True
+                st.session_state["planning_cleared"] = False
+                
+                st.success("🎉 Hệ thống đã tự động số hóa ma trận SBD động thành công!")
+                st.rerun()
+            else:
+                st.error("⚠️ Không thể tự động trích xuất ma trận từ tệp tin này. Vui lòng kiểm tra lại định dạng file hoặc xuất file sang dạng Excel (.xlsx) chuẩn để hệ thống tự động bóc tách số liệu.")
+                st.stop()
 
-            # --- ĐỒNG BỘ ĐỔ SỐ LIỆU SẠCH RA MÀN HÌNH ---
-            clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
-            st.session_state["sbd_parsed_data"] = clean_sbd_data
-            
-            # Ép dải cỡ thật bóc từ hình ảnh của bạn ra làm dải cỡ toàn cục cho ô lưới dưới
-            st.session_state["active_sizes_global"] = sorted(list(clean_sbd_data["size_breakdown"].keys()))
-            
-            st.session_state["session_editor_snapshot"] = None
-            st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-            st.session_state["purchase_ready"] = True
-            st.session_state["planning_cleared"] = False
-            
-            st.success("🎉 Hệ thống đã bóc tách tọa độ lưới và nạp sản lượng thật thành công!")
-            st.rerun()
 
 
 
