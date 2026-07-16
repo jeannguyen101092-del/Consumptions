@@ -126,7 +126,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL DYNAMIC - ĐÃ SỬA LỖI CÚ PHÁP VÀ HOÀN THIỆN V3
+# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL DYNAMIC - SỬ DỤNG MODEL GEMINI-2.5-FLASH V7
 # =============================================================================
 
 # CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
@@ -170,7 +170,7 @@ uploaded_file_sbd = st.session_state.get("purchase_sbd_c2_unique", None)
 
 if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", False):
     
-    # 🎯 FIX LỖI DUPLICATE ELEMENT KEY CHO NÚT BẤM SỐ HÓA
+    # FIX LỖI DUPLICATE ELEMENT KEY CHO NÚT BẤM SỐ HÓA
     trigger_btn_c2 = st.button(
         "⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", 
         type="primary", 
@@ -179,7 +179,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
     )
     
     if trigger_btn_c2:
-        with st.spinner("🚀 AI đang dùng mắt thần tự động quét ma trận size thật từ file..."):
+        with st.spinner("🚀 AI (Flash Engine) đang tự động quét nhanh ma trận size từ file..."):
             gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
             
             if not gemini_key:
@@ -210,9 +210,9 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 """
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                                # 🎯 THAY MODEL PRO CAO CẤP: Ép sử dụng gemini-2.5-pro để xử lý trực quan file PDF Scan, dứt điểm lỗi rỗng số liệu
+                # 🎯 CẤU HÌNH ĐÃ SỬA: Chuyển đổi mô hình sang gemini-2.5-flash để dứt điểm lỗi cạn Quota 429
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-pro',  # <-- Dòng này đang làm hết hạn mức Quota
+                    model='gemini-2.5-flash',
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -220,7 +220,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         temperature=0.0
                     )
                 )
-
 
                 parsed_json_data = json.loads(res_sbd.text.strip())
                 
@@ -232,7 +231,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 
                 raw_breakdown = parsed_json_data.get("size_breakdown", parsed_json_data.get("Size_Breakdown", {}))
                 
-                # --- ĐOẠN ĐÃ SỬA LỖI CÚ PHÁP VÀ HOÀN THIỆN LOGIC ---
                 if raw_breakdown and isinstance(raw_breakdown, dict):
                     clean_dict = {}
                     running_total = 0
@@ -259,11 +257,12 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
                 st.session_state["purchase_ready"] = True
                 
-                st.success("🎉 AI đã số hóa và xử lý ma trận kích cỡ thành công!")
+                st.success("🎉 AI đã số hóa và xử lý ma trận kích cỡ thành công bằng Flash Engine!")
                 st.rerun()  # Cập nhật lại giao diện để hiển thị bảng tác nghiệp chính thức
                 
             except Exception as e:
                 st.error(f"❌ Lỗi xử lý cấu trúc dữ liệu từ Gemini AI: {str(e)}")
+
 
 
 
