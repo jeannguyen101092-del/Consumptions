@@ -134,16 +134,20 @@ if paste_zone_data.strip():
 # TẦNG 3 - ĐOẠN 6a: PHẦN 1 - KHỞI TẠO KHUNG NỀN VÀ ĐỒNG BỘ ÁNH XẠ KÉP V37
 # =============================================================================
 
-# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN ---
+# --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN CHUẨN HOÀN HẢO ---
 def safe_int_final(value, default=0):
     if value is None: return default
     try:
+        # Xóa dấu phẩy phân tách hàng ngàn và khoảng trắng rác
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")
-        return int(clean_val)
+        
+        # 🎯 SỬA LỖI CHÍ MẠNG: Ép chuỗi sang số thực float trước, rồi mới đổi sang số nguyên int
+        # Cách này xử lý được cả số "1", số thực "10.0", hoặc chữ "0" mà không bị mất dữ liệu
+        return int(float(clean_val))
     except (ValueError, TypeError):
         return default
+
 
 # --- 1. ĐỌC DỮ LIỆU ĐỘNG TỪ BỘ NHỚ EXCEL PASTE ---
 active_sizes = st.session_state.get("active_sizes_global", ["26", "27", "28", "29", "30", "31", "32", "33", "34"])
