@@ -739,7 +739,7 @@ if st.session_state.get("c2_normal_cut_btn", False):
         st.error(f"❌ Lỗi nghiêm trọng khi giải ma trận bàn cắt bằng AI: {str(e)}")
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6a: PHẦN 1 - TRẢ LẠI MA TRẬN KHUNG NỀN MẶC ĐỊNH LUÔN HIỂN THỊ V8
+# TẦNG 3 - ĐOẠN 6a: PHẦN 1 - TỰ ĐỘNG ĐỔ DỮ LIỆU THỰC TẾ DO AI QUÉT FILE SBD V9
 # =============================================================================
 
 def safe_int_final(value, default=0):
@@ -752,29 +752,32 @@ def safe_int_final(value, default=0):
     except (ValueError, TypeError):
         return default
 
-# Đọc dải size toàn cục trong session_state
-active_sizes = st.session_state.get("active_sizes_global", [])
-
-# 🎯 ĐÃ SỬA LUỒNG: Nếu chưa có AI quét hoặc vừa bấm nút Xóa, hệ thống tự nạp dải cỡ nền mặc định để BẢNG TRÊN luôn hiện ra
-if not active_sizes:
-    sbd_store_data = st.session_state.get("sbd_parsed_data")
-    if not isinstance(sbd_store_data, dict): sbd_store_data = {}
-    real_size_breakdown = sbd_store_data.get("size_breakdown", {}) if sbd_store_data else {}
-    if isinstance(real_size_breakdown, dict) and real_size_breakdown:
-        active_sizes = sorted(list(real_size_breakdown.keys()))
-    else:
-        # Tự động dựng 9 cỡ mặc định như trong ảnh của bạn
-        active_sizes = ["26X30", "27X30", "28X30", "29X30", "30X30", "31X30", "32X30", "33X30", "34X30"]
-    st.session_state["active_sizes_global"] = active_sizes
-
+# 🎯 1. BÓC TÁCH DỮ LIỆU LƯU TRỮ CHÍNH XÁC TỪ KẾT QUẢ GEMINI AI QUÉT
 sbd_store_data = st.session_state.get("sbd_parsed_data", {})
-if not isinstance(sbd_store_data, dict): sbd_store_data = {}
-real_size_breakdown = sbd_store_data.get("size_breakdown", {}) if sbd_store_data else {}
+if not isinstance(sbd_store_data, dict): 
+    sbd_store_data = {}
+
+real_size_breakdown = sbd_store_data.get("size_breakdown", {})
+if not isinstance(real_size_breakdown, dict): 
+    real_size_breakdown = {}
+
+# 🎯 2. ĐÃ SỬA LUỒNG LUÔN ƯU TIÊN MẢNG SIZE THẬT CỦA AI, KHÔNG ÉP CỨNG SỐ LẺ MẶC ĐỊNH
+if real_size_breakdown:
+    # Lấy chính xác danh sách size do AI tìm thấy và phân loại sắp xếp
+    active_sizes = sorted(list(real_size_breakdown.keys()))
+    st.session_state["active_sizes_global"] = active_sizes
+else:
+    # Nếu chưa up file hoặc bấm nút xóa, dải size sẽ trống hoàn toàn chứ không tự bịa ra 9 cỡ số 0
+    active_sizes = st.session_state.get("active_sizes_global", [])
+
+# Nếu cả AI lẫn bộ nhớ cục bộ đều trống (Trường hợp vừa Reset xóa dữ liệu)
+if not active_sizes:
+    active_sizes = ["TRỐNG_SBD"] # Khung mốc danh nghĩa phòng vệ cấu hình DataFrame
 
 fab_upper = str(st.session_state.get("fabric_selectbox_key_v2", "CHÍNH")).upper().strip()
 prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "P" if fab_upper == "PHỐI" else "C"
 
-# Sinh tiêu đề cột chuẩn xác
+# Sinh hệ thống tiêu đề cột tương thích với số lượng size thực tế
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 true_total_quantity = safe_int_final(sbd_store_data.get("total_quantity", 0))
 
@@ -782,18 +785,27 @@ giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": true_total_quantity}
 
+# 🎯 3. ĐỔ DỮ LIỆU ĐỘNG TỪ AI VÀO TỪNG Ô LƯỚI
 for i, sz in enumerate(active_sizes):
+    if sz == "TRỐNG_SBD":
+        giang_top_row[f"CỠ {i+1}"] = ""
+        size_top_row[f"CỠ {i+1}"] = ""
+        sl_top_row[f"CỠ {i+1}"] = 0
+        continue
+        
     c_str = str(sz).replace(" ", "").upper()
-    g_val, s_val = "30", c_str
+    g_val, s_val = "", c_str
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
         s_val = str(parts[0]).strip()
         g_val = str(parts[1]).strip()
     elif len(parts) == 1:
         s_val = str(parts[0]).strip()
+        
     giang_top_row[f"CỠ {i+1}"] = g_val
     size_top_row[f"CỠ {i+1}"] = s_val
     
+    # Lấy chuẩn số lượng sản phẩm của từng size mà AI quét được điền thẳng vào đây
     val_pcs_real = safe_int_final(real_size_breakdown.get(sz, 0))
     sl_top_row[f"CỠ {i+1}"] = val_pcs_real
     sl_top_row[sz] = val_pcs_real
@@ -802,8 +814,9 @@ giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
+# Khôi phục hoặc tạo mới snapshot dòng nhập liệu cho xưởng
 snapshot = st.session_state.get("session_editor_snapshot")
-if snapshot and len(snapshot) > 0:
+if snapshot and len(snapshot) > 0 and len(snapshot) > 3:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
     for row in filtered_snapshot:
@@ -825,7 +838,8 @@ else:
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)):
         item_pilot[f"CỠ {i+1}"] = 0
-        item_pilot[active_sizes[i]] = 0
+        if active_sizes[i] != "TRỐNG_SBD":
+            item_pilot[active_sizes[i]] = 0
     item_pilot.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
     display_editor_rows.append(item_pilot)
     
@@ -833,12 +847,13 @@ else:
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": f"{fab_upper} {prefix_letter}{str(i+1).zfill(2)}", "TỔNG SẢN LƯỢNG": 0}
         for c_i in range(len(active_sizes)):
             item_dict[f"CỠ {c_i+1}"] = 0
-            item_dict[active_sizes[c_i]] = 0
+            if active_sizes[c_i] != "TRỐNG_SBD":
+                item_dict[active_sizes[c_i]] = 0
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-if st.session_state.get("session_editor_snapshot") is None:
-    st.session_state["session_editor_snapshot"] = display_editor_rows
+st.session_state["session_editor_snapshot"] = display_editor_rows
+
 # =============================================================================
 # TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR KHÔNG BỊ RÀNG BUỘC KHỐI ĐIỀU KIỆN V8
 # =============================================================================
