@@ -227,22 +227,18 @@ else:
         display_editor_rows.append(item_dict)
 
 st.session_state["session_editor_snapshot"] = display_editor_rows
-# =============================================================================
-import copy
-import json
-
 import copy
 import json
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - BẢN VÁ BÓC TÁCH INDEX VỊ TRÍ TÍNH TỔNG REALTIME V45
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - BẢN VÁ LIÊN KẾT PHẲNG ĐỒNG BỘ KEY TUYỆT ĐỐI V46
 # =============================================================================
 
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final_clean_v1" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final_clean_v1"]
         
-        # Đọc trực tiếp từ bộ nhớ gốc snapshot giao diện (UI)
+        # Đọc trực tiếp bộ nhớ snapshot giao diện gốc
         raw_snapshot = st.session_state.get("session_editor_snapshot", [])
         if not raw_snapshot: 
             return
@@ -250,7 +246,7 @@ def callback_sync_on_the_fly_final():
         current_snapshot = json.loads(json.dumps(raw_snapshot))
         active_sizes_cb = st.session_state.get("active_sizes_global", [])
         
-        # BƯỚC 1: Đồng bộ dữ liệu thô do người dùng chỉnh sửa tay/paste từ Excel vào snapshot tạm
+        # 1. Đồng bộ dữ liệu thô khi người dùng gõ hoặc dán trên ô lưới
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
             for r_idx_edit, change_dict in st_editor["edited_rows"].items():
                 r_idx_int = int(r_idx_edit)
@@ -261,10 +257,11 @@ def callback_sync_on_the_fly_final():
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
                                 val_clean = str(new_val).strip()
                                 
-                                # Ghi đồng thời vào cả Key ảo hiển thị và Key tên size thật
+                                # Ghi nhận chuỗi text đồng thời vào cả hai loại Key (Key hiển thị ảo và Key tên size thật)
                                 current_snapshot[r_idx_int][col_header] = val_clean
                                 if active_sizes_cb and (c_num - 1) < len(active_sizes_cb):
-                                    current_snapshot[r_idx_int][str(active_sizes_cb[c_num - 1])] = val_clean
+                                    target_size_key = str(active_sizes_cb[c_num - 1])
+                                    current_snapshot[r_idx_int][target_size_key] = val_clean
                             except Exception: pass
                         elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
                             current_snapshot[r_idx_int][col_header] = safe_int_final(new_val)
@@ -272,38 +269,34 @@ def callback_sync_on_the_fly_final():
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
 
-        # 🎯 BƯỚC 2: SỬA LỖI CHÍ MẠNG - TÍNH TỔNG SẢN LƯỢNG LIÊN HOÀN TRỰC TIẾP TRÊN MẢNG DICT GỐC
-        # Duyệt qua toàn bộ các dòng của snapshot gốc (loại bỏ hoàn toàn sự phụ thuộc vào DataFrame Pandas)
+        # 2. Vòng lặp quét làm tươi liên hoàn trực tiếp trên bộ nhớ mảng nội bộ (Snapshot)
         for idx, row in enumerate(current_snapshot):
             row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
             if row_name not in ["GIÀNG", "SIZE"]:
                 total_pcs_row = 0
                 for i in range(len(active_sizes_cb)):
-                    # Bốc chuẩn xác theo đúng cấu trúc Key lưu trữ nội bộ của snapshot
                     val_cell = row.get(f"CỠ {i+1}", "0")
                     total_pcs_row += safe_int_final(val_cell)
                 
                 if row_name != "SẢN LƯỢNG":
                     layers_val = safe_int_final(row.get("SƠ LỚP", 0))
                     tables_val = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
-                    # Ép ghi số lượng tổng đã nhân thời gian thực trực tiếp vào bộ nhớ gốc snapshot
+                    # Tự động cộng nhân tổng SL chính xác thời gian thực cho bộ nhớ gốc
                     current_snapshot[idx]["TỔNG SẢN LƯỢNG"] = int(total_pcs_row * layers_val * tables_val)
                 else:
                     current_snapshot[idx]["TỔNG SẢN LƯỢNG"] = int(total_pcs_row)
                     st.session_state["current_po_target_val"] = int(total_pcs_row)
                 
-        # Khóa toàn bộ mảng dữ liệu sạch đã tính toán lại vào bộ nhớ UI trung tâm
         st.session_state["session_editor_snapshot"] = current_snapshot
 
 def wrapper_callback_sync():
     callback_sync_on_the_fly_final()
-    # Tháo bỏ hoàn toàn st.rerun() để tránh xung đột mất nhịp lưu trữ ô lưới
 
-# 3. Đọc dữ liệu chính thống từ nguồn chân lý UI ra DataFrame hiển thị
+# 3. Đọc dữ liệu chính thống từ nguồn chân lý UI ra hiển thị
 current_display_data = st.session_state.get("session_editor_snapshot", [])
 df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna("0")
 
-# Ép kiểu hiển thị an toàn riêng cho các cột hệ thống phụ trợ
+# Ép định dạng layout hiển thị cho ô lưới
 for col in clean_headers_top:
     if col in df_editor_top_render.columns:
         if col in ["SƠ LỚP", "SỐ BÀN"]:
@@ -320,10 +313,11 @@ config_cot = {
     "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
     "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
 }
+
 for i, sz in enumerate(active_sizes):
     config_cot[f"CỠ {i+1}"] = st.column_config.TextColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False)
 
-# Render lưới Bảng 1 lên màn hình
+# Render lưới tương tác Bảng trên
 st.data_editor(
     df_editor_top_render,
     column_config=config_cot,
@@ -333,27 +327,36 @@ st.data_editor(
     on_change=wrapper_callback_sync
 )
 
-# --- NÚT BẤM KÍCH HOẠT: BÀO VỆ PHÂN RÃ LUỒNG TUYỆT ĐỐI ---
+# --- 🎯 NÚT BẤM KÍCH HOẠT ĐỒNG BỘ ÁNH XẠ CHÈN CHẶT HAI CHIỀU ---
 st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🚀 KÍCH HOẠT THUẬT TOÁN TỰ ĐỘNG CHIA SƠ ĐỒ VÀ VẾT ĐƠN", type="primary", use_container_width=True, key="trigger_python_engine_solve_btn"):
     
-    # Nhân sao chép sâu cô lập luồng dữ liệu hiển thị (UI) khỏi thuật toán Engine 7a
+    # Tạo bản sao lưu sâu cô lập luồng hiển thị khỏi luồng tính toán
     final_payload_to_engine = copy.deepcopy(st.session_state.get("session_editor_snapshot", []))
     
-    # Ép kiểu số nguyên sạch cho các hàng phục vụ bài toán khấu trừ lùi của Engine 7a
+    # 🎯 ÁNH XẠ BẮT BUỘC: Ép ghi nhận đồng thời cả mảng Key ảo và tên size thật dưới dạng số nguyên sạch
     for idx, row in enumerate(final_payload_to_engine):
         row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if row_name not in ["GIÀNG", "SIZE"]:
             for i in range(len(active_sizes)):
+                sz_key = str(active_sizes[i])
+                # Trích xuất số nguyên sạch từ ô lưới
                 val_int = safe_int_final(row.get(f"CỠ {i+1}", 0))
+                
+                # Nạp song song vào cả hai loại thuộc tính đối chiếu
                 row[f"CỠ {i+1}"] = val_int
-                if i < len(active_sizes):
-                    row[str(active_sizes[i])] = val_int
+                row[sz_key] = val_int
+        else:
+            # Đối với hàng GIÀNG và SIZE thì giữ nguyên kiểu văn bản chuỗi (Text)
+            for i in range(len(active_sizes)):
+                sz_key = str(active_sizes[i])
+                row[f"CỠ {i+1}"] = str(row.get(f"CỠ {i+1}", "")).strip()
+                row[sz_key] = str(row.get(sz_key, "")).strip()
                     
-    # Lưu vào biến độc lập engine_payload, bảo vệ tuyệt đối session_editor_snapshot
+    # Bàn giao sang biến payload độc lập, thông luồng trực tiếp với Engine 7a
     st.session_state["engine_payload"] = final_payload_to_engine
     st.session_state["c2_normal_cut_btn"] = True
-    st.success("🤖 Giao diện đã được khóa lập phương an toàn! Đang gọi Engine toán học xử lý...")
+    st.success("🤖 Giao diện đã được đồng bộ hóa thành công! Đang kích hoạt Engine thuật toán...")
     st.rerun()
 
 
