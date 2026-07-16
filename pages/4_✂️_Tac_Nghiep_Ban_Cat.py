@@ -1279,6 +1279,37 @@ import re
 # =============================================================================
 # TẦNG 3 - ĐOẠN 7b (PHẦN 1): TÁI CẤU TRÚC PHIẾU BÁO CÁO ĐỒNG BỘ SẢN LƯỢNG THẬT - ĐÃ VÁ LỖI V3
 # =============================================================================
+# =============================================================================
+# ĐOẠN CODE BỔ SUNG: NÚT XÓA SẠCH DỮ LIỆU ĐỂ LẬP PHIẾU MỚI
+# =============================================================================
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Tạo một hàng mới riêng biệt cho tính năng Reset hệ thống
+clear_col1, clear_col2, clear_col3 = st.columns([1, 2, 1])
+
+with clear_col2:
+    if st.button("🗑️ XÓA TOÀN BỘ DỮ LIỆU TÁC NGHIỆP HIỆN TẠI", use_container_width=True, type="secondary", key="clear_all_planning_data_final_btn"):
+        # 1. Kích hoạt cờ xóa dữ liệu để kích hoạt cơ chế phòng vệ khóa chặn
+        st.session_state["planning_cleared"] = True
+        
+        # 2. Reset toàn bộ các biến trạng thái lưu trữ cốt lõi về mặc định
+        st.session_state["purchase_ready"] = False
+        st.session_state["sbd_parsed_data"] = None
+        st.session_state["pur_tp_parsed_data"] = None
+        st.session_state["session_editor_snapshot"] = None
+        st.session_state["active_sizes_global"] = []
+        
+        # Xóa các bộ nhớ đệm lịch sử đồng bộ cũ
+        if "auto_cutting_results_recovered" in st.session_state:
+            del st.session_state["auto_cutting_results_recovered"]
+        if "auto_cutting_results" in st.session_state:
+            del st.session_state["auto_cutting_results"]
+            
+        # 3. Tắt lại cờ phòng vệ sau khi đã dọn dẹp xong bộ nhớ để chuẩn bị cho lượt up file tiếp theo
+        st.session_state["planning_cleared"] = False
+        
+        st.success("🔄 Đã xóa sạch dữ liệu cấu trúc cũ! Hệ thống đang quay về màn hình tải file...")
+        st.rerun() # Tải lại trang ngay lập tức để đưa người dùng về Tầng 1
 
 # Khai báo lại hàm helper cục bộ phòng vệ an toàn hệ thống
 def safe_int_final(value, default=0):
