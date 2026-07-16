@@ -464,7 +464,7 @@ import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP SẠCH LỖI TRÙNG ID WIDGET 100%
+# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP - SỬA LỖI SẮP XẾP MẢNG PARTS CỦA PYTHON
 # =============================================================================
 
 # Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
@@ -628,7 +628,7 @@ if st.session_state.get("purchase_ready", False):
             key="cad_bulk_paste_c2_v2"
         )
 
-        # KHỬ TRIỆT ĐỂ CHUỖI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
+        # KHỬ TRIỆT ĐỂ CHUỒI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
         clean_size_breakdown = {}
         for k, v in size_breakdown_main.items():
             try:
@@ -644,14 +644,14 @@ if st.session_state.get("purchase_ready", False):
         
         size_breakdown_main = clean_size_breakdown
 
-        # Thuật toán tối ưu sắp xếp danh sách kích cỡ bám hình học bàn vải (Inseam tăng dần -> Eo tăng dần)
+        # 🎯 THUẬT TOÁN SẮP XẾP SẠCH LỖI: Trích xuất chỉ mục [0] và [1] của danh sách mảng parts
         def key_sort_by_inseam_then_waist(size_string):
             s_clean = str(size_string).upper().replace(" ", "").strip()
             parts = re.split(r'[X_-]', s_clean)
             if len(parts) >= 2:
                 try:
-                    waist = int(float(parts))
-                    inseam = int(float(parts))
+                    waist = int(float(parts[0]))
+                    inseam = int(float(parts[1]))
                     return (inseam, waist)
                 except ValueError:
                     return (999, 999) 
@@ -668,6 +668,7 @@ if st.session_state.get("purchase_ready", False):
             active_sizes = ["26X30", "28X30", "29X32"]
             
         st.session_state["active_sizes_global"] = active_sizes
+
 
 
 
