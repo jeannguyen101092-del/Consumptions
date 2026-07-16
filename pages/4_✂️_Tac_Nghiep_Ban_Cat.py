@@ -161,7 +161,7 @@ def safe_int_ingest(value, default=0):
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        if "." in clean_val: clean_val = clean_val.split(".")
         return int(clean_val)
     except (ValueError, TypeError):
         return default
@@ -178,130 +178,148 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         use_container_width=True, 
         key="activate_sbd_only_ingest_c2"
     )
-
-        # =============================================================================
-    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): TRÍCH XUẤT TEXT AN TOÀN TUYỆT ĐỐI CHẶN LỖI 503
+    # =============================================================================
+    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): BỘ LỌC ĐA NĂNG TỰ ĐỘNG SỐ HÓA CỤC BỘ CHẶN LỖI 503
     # =============================================================================
     if trigger_btn_c2:
-        with st.spinner("🚀 Đang xử lý bóc tách ma trận đơn hàng SBD..."):
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        with st.spinner("🚀 Hệ thống đang phân tích ma trận đơn hàng SBD..."):
+            sbd_bytes = uploaded_file_sbd.getvalue()
+            sbd_content_str = ""
             
-            if not gemini_key:
-                st.error("❌ Hệ thống chưa được cấu hình GEMINI_API_KEY trong file secrets.toml.")
-                st.stop()
-                
-            try:
-                client_ai = genai.Client(api_key=gemini_key)
-                sbd_bytes = uploaded_file_sbd.getvalue()
-                sbd_content_str = ""
-                sbd_parts_payload = []
-                
-                # Luồng 1: Xử lý tệp dạng bảng tính Excel
-                if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
+            clean_sbd_data = {
+                "style_id": "MÃ_HÀNG_SBD",
+                "total_quantity": 0,
+                "size_breakdown": {}
+            }
+            
+            # 🎯 LUỒNG 1: XỬ LÝ FILE EXCEL CỤC BỘ 100% (KHÔNG SỢ NGHẼN MẠNG GOOGLE)
+            if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
+                try:
                     excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
-                    for sheet_name, df_sheet in excel_data.items(): 
-                        sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                    excel_dict = {}
+                    
+                    for sheet_name, df_sheet in excel_data.items():
+                        df_sheet = df_sheet.fillna("")
+                        sbd_content_str += f"\n{df_sheet.to_csv(index=False)}"
                         
-                # Luồng 2: 🎯 FIX TRIỆT ĐỂ 503: Ép bóc tách text bằng pypdf trước
-                elif uploaded_file_sbd.name.lower().endswith('.pdf'): 
-                    try:
-                        from pypdf import PdfReader
-                        reader = PdfReader(io.BytesIO(sbd_bytes))
-                        pdf_text_dump = ""
-                        for page in reader.pages:
-                            pdf_text_dump += page.extract_text() or ""
-                        sbd_content_str += pdf_text_dump
-                    except Exception as pypdf_err:
-                        st.warning(f"⚠️ Trục trặc trình đọc text PDF: {str(pypdf_err)}")
-                
-                # Chuyển văn bản thô sang payload dạng chuỗi ký tự dung lượng cực nhẹ
-                if sbd_content_str.strip():
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                        # Thuật toán quét nhanh ma trận size trong bảng Excel
+                        for col in df_sheet.columns:
+                            col_str = str(col).strip().upper().replace(" ", "")
+                            if re.search(r'\d{2}[X|x]\d{2}', col_str) or col_str.isdigit():
+                                for v in df_sheet[col]:
+                                    try:
+                                        val_clean = int(float(str(v).replace(",", "").strip() or 0))
+                                        if val_clean > 0:
+                                            excel_dict[col_str] = excel_dict.get(col_str, 0) + val_clean
+                                    except: continue
                     
-                    sbd_prompt = """
-                    Bạn là một chuyên gia dữ liệu ngành may. Hãy đọc chuỗi văn bản dữ liệu SBD được trích xuất từ file.
-                    Trích xuất TOÀN BỘ các cột kích cỡ size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
-                    
-                    QUY TẮC TRÍCH XUẤT BẮT BUỘC:
-                    1. Hãy quét sạch để lấy toàn bộ các cột kích cỡ size có sản lượng lớn hơn 0, không được bỏ sót size nào.
-                    2. Gộp thông số Eo và Giàng thành chuỗi dạng 'EoXGiàng' (Ví dụ: '28X30').
-                    3. Ép số lượng tương ứng dưới mỗi cột size thành số nguyên thuần túy (loại bỏ hoàn toàn dấu phẩy).
-                    """
-                    sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
-                    
-                    # Gọi mô hình chuẩn chính thức chạy mượt mà trên môi trường v1
-                    res_sbd = client_ai.models.generate_content(
-                        model='gemini-2.5-flash', 
-                        contents=sbd_parts_payload, 
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=gemini_sbd_raw_schema,
-                            temperature=0.0
-                        )
-                    )
-                    
-                    parsed_json_data = json.loads(res_sbd.text.strip())
-                    clean_sbd_data = {
-                        "style_id": str(parsed_json_data.get("style_id", "UNKNOWN_STYLE")).strip().upper(),
-                        "total_quantity": 0,
-                        "size_breakdown": {}
-                    }
-                    
-                    raw_breakdown = parsed_json_data.get("size_breakdown", parsed_json_data.get("Size_Breakdown", {}))
-                    if raw_breakdown:
-                        clean_dict = {}
-                        for k, v in raw_breakdown.items():
-                            try:
-                                clean_key = str(k).strip().upper().replace(" ", "")
-                                clean_key = re.sub(r'[^A-Z0-9X_-]', '', clean_key)
-                                val_int = safe_int_ingest(v)
-                                if val_int > 0:
-                                    clean_dict[clean_key] = val_int
-                            except Exception: continue
-                        clean_sbd_data["size_breakdown"] = clean_dict
-                else:
-                    clean_sbd_data = {"size_breakdown": {}}
-                
-                # --- LUỒNG BẮT SỐ LIỆU DỰ PHÒNG BẰNG PYTHON (KHÔNG LO NGHẼN MẠNG GOOGLE) ---
-                if not clean_sbd_data["size_breakdown"]:
-                    # Sử dụng Regex may mặc bốc trực tiếp các cụm số dạng "Eo X Giàng" kèm theo số lượng phía sau
-                    extracted_sizes = re.findall(r'(\d{2}[X|x]\d{2})[\s\n:]*([\d,]+)', sbd_content_str)
-                    
-                    # Nếu file PDF dạng đặc biệt không chứa kí tự X, tự động tìm chuỗi số lẻ phân tách
-                    if not extracted_sizes:
-                        extracted_sizes = re.findall(r'(?:CỠ|SIZE|SZ)[\s\n:]*(\d{2})[\s\n:]*([\d,]+)', sbd_content_str)
+                    if excel_dict:
+                        clean_sbd_data["size_breakdown"] = excel_dict
+                        match_style = re.search(r'(?:STYLE|MÃ HÀNG|PO)[\s\n:]*([A-Z0-9_-]+)', sbd_content_str, re.IGNORECASE)
+                        if match_style: clean_sbd_data["style_id"] = match_style.group(1).upper()
+                except Exception as e:
+                    st.warning(f"⚠️ Trình đọc Excel gặp lỗi nhỏ, chuyển luồng AI: {str(e)}")
+
+            # 🎯 LUỒNG 2: XỬ LÝ FILE PDF CỤC BỘ - BỘ LỌC ĐA NĂNG ĐỌC SẠCH MỌI KIỂU CHỮ/SỐ SIZE THẬT
+            elif uploaded_file_sbd.name.lower().endswith('.pdf'):
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(io.BytesIO(sbd_bytes))
+                    for page in reader.pages:
+                        sbd_content_str += page.extract_text() or ""
                         
+                    # Cách 2.1: Quét cấu trúc Eo và Giàng kết hợp (Ví dụ: 28X30, 28-30, 28/30, 28_30)
+                    extracted_sizes = re.findall(r'(\d{2})[\s\n]*[Xx\-_/][\s\n]*(\d{2})[\s\n:]*([\d,]+)', sbd_content_str)
+                    
                     if extracted_sizes:
                         backup_dict = {}
-                        for sz_k, qty_v in extracted_sizes:
-                            sz_clean = str(sz_k).upper().replace(" ", "").replace("-", "X")
-                            if "X" not in sz_clean:
-                                sz_clean = f"{sz_clean}X30" # Tự gán giàng mặc định nếu file chỉ có size eo lẻ
+                        for waist_k, inseam_k, qty_v in extracted_sizes:
+                            sz_clean = f"{waist_k}X{inseam_k}" # Chuẩn hóa đồng nhất dạng EoXGiàng cho ô lưới hiển thị
                             val_clean = int(str(qty_v).replace(",", ""))
                             if val_clean > 0:
                                 backup_dict[sz_clean] = backup_dict.get(sz_clean, 0) + val_clean
-                                
                         clean_sbd_data["size_breakdown"] = backup_dict
-                        clean_sbd_data["style_id"] = "BẢN_QUÉT_PDF"
+                    
+                    # Cách 2.2: Dự phòng nếu file PDF chỉ ghi đúng số eo độc lập từ size 24 đến 45 (Ví dụ: 28, 29, 30...)
+                    if not clean_sbd_data["size_breakdown"]:
+                        extracted_flat = re.findall(r'\b(2[4-9]|3[0-9]|4[0-5])\b[\s\n:]+([\d,]+)', sbd_content_str)
+                        if extracted_flat:
+                            backup_dict = {}
+                            for waist_k, qty_v in extracted_flat:
+                                sz_clean = f"{waist_k}X30" # Tự động bù thông số giàng mặc định 30 bám hình học bàn vải
+                                val_clean = int(str(qty_v).replace(",", ""))
+                                if val_clean > 0:
+                                    backup_dict[sz_clean] = backup_dict.get(sz_clean, 0) + val_clean
+                            clean_sbd_data["size_breakdown"] = backup_dict
+                            
+                    # Cách 2.3: Dự phòng cho đơn hàng may mặc dùng size kí tự chữ (S, M, L, XL, XXL)
+                    if not clean_sbd_data["size_breakdown"]:
+                        extracted_chars = re.findall(r'\b(S|M|L|XL|XXL|3XL)\b[\s\n:]+([\d,]+)', sbd_content_str, re.IGNORECASE)
+                        if extracted_chars:
+                            backup_dict = {}
+                            for char_sz, qty_v in extracted_chars:
+                                sz_clean = str(char_sz).upper().strip()
+                                val_clean = int(str(qty_v).replace(",", ""))
+                                if val_clean > 0:
+                                    backup_dict[sz_clean] = backup_dict.get(sz_clean, 0) + val_clean
+                            clean_sbd_data["size_breakdown"] = backup_dict
+                except Exception as pdf_read_err:
+                    pass
+
+            # 🎯 LUỒNG 3: GỌI AI GEMINI 2.5 FLASH NẾU KHÔNG TRÍCH XUẤT ĐƯỢC BẰNG CODE THÔ
+            if not clean_sbd_data["size_breakdown"]:
+                gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                if gemini_key:
+                    try:
+                        client_ai = genai.Client(api_key=gemini_key)
+                        sbd_parts_payload = []
+                        if sbd_content_str.strip():
+                            sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                        else:
+                            sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                        
+                        sbd_prompt = "Analyze the garment SBD data text or file. Extract style_id and size_breakdown as JSON."
+                        sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                        
+                        res_sbd = client_ai.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=sbd_parts_payload,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                response_schema=gemini_sbd_raw_schema,
+                                temperature=0.0
+                            )
+                        )
+                        parsed_json_data = json.loads(res_sbd.text.strip())
+                        raw_breakdown = parsed_json_data.get("size_breakdown", parsed_json_data.get("Size_Breakdown", {}))
+                        if raw_breakdown:
+                            clean_dict = {}
+                            for k, v in raw_breakdown.items():
+                                try:
+                                    clean_key = str(k).strip().upper().replace(" ", "")
+                                    val_int = safe_int_ingest(v)
+                                    if val_int > 0: clean_dict[clean_key] = val_int
+                                except: continue
+                            clean_sbd_data["size_breakdown"] = clean_dict
+                            clean_sbd_data["style_id"] = str(parsed_json_data.get("style_id", "AI_STYLE")).upper()
+                    except Exception as ai_err:
+                        pass
+
+            # --- ĐỒNG BỘ VÀ NẠP DỮ LIỆU SẠCH LÊN MÀN HÌNH ---
+            if clean_sbd_data["size_breakdown"]:
+                clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
+                st.session_state["sbd_parsed_data"] = clean_sbd_data
                 
-                # Kiểm tra kết quả đổ ngược dữ liệu ra màn hình
-                if clean_sbd_data["size_breakdown"]:
-                    clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
-                    st.session_state["sbd_parsed_data"] = clean_sbd_data
-                    
-                    st.session_state["session_editor_snapshot"] = None
-                    st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-                    st.session_state["purchase_ready"] = True
-                    st.session_state["planning_cleared"] = False
-                    
-                    st.success("✅ Hệ thống đã số hóa thành công danh sách size thật đơn hàng!")
-                    st.rerun()
-                else:
-                    st.error("⚠️ Không thể trích xuất cấu trúc ma trận size từ file PDF này. Vui lòng chuyển file sang định dạng bảng tính Excel (.xlsx) để hệ thống số hóa chuẩn xác nhất.")
-                    st.stop()
-                    
-            except Exception as e: 
-                st.error(f"❌ Lỗi xử lý tài liệu: {str(e)}")
+                st.session_state["session_editor_snapshot"] = None
+                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                st.session_state["purchase_ready"] = True
+                st.session_state["planning_cleared"] = False
+                
+                st.success("✅ Hệ thống đã số hóa thành công danh sách size thật của đơn hàng!")
+                st.rerun()
+            else:
+                st.error("⚠️ Hệ thống không thể đọc được cấu trúc ma trận size từ file này. Vui lòng kiểm tra lại cấu trúc file hoặc chuyển tệp sang dạng Excel (.xlsx) để số hóa chuẩn xác nhất.")
+                st.stop()
 
 
 
