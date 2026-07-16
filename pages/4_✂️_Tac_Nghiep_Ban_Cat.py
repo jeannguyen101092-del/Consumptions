@@ -135,7 +135,7 @@ if st.session_state.get("planning_cleared", False):
     st.session_state["sbd_parsed_data"] = None
     st.session_state["pur_tp_parsed_data"] = None
 
-# 🎯 Dựng cấu trúc JSON Schema thô, sạch thuộc tính additionalProperties chống sập API Developer
+# Dựng cấu trúc JSON Schema thô, sạch thuộc tính additionalProperties chống sập API Developer
 gemini_sbd_raw_schema = {
     "type": "OBJECT",
     "properties": {
@@ -154,6 +154,17 @@ gemini_sbd_raw_schema = {
     },
     "required": ["style_id", "total_quantity", "size_breakdown"]
 }
+
+# Helper ép kiểu an toàn cục bộ tránh lỗi NameError
+def safe_int_ingest(value, default=0):
+    if value is None: return default
+    try:
+        clean_val = str(value).replace(",", "").strip()
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        return int(clean_val)
+    except (ValueError, TypeError):
+        return default
 
 # Lấy tệp trực tiếp từ session_state thông qua key duy nhất của widget file_uploader
 uploaded_file_sbd = st.session_state.get("purchase_sbd_c2_unique", None)
@@ -182,7 +193,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 sbd_content_str = ""
                 sbd_parts_payload = []
                 
-                # Cấu trúc xử lý bóc tách tệp Excel dữ liệu may mặc dạng bảng
+                # 1. Cấu trúc xử lý bóc tách tệp dạng Excel dữ liệu may mặc dạng bảng
                 if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                     try:
                         excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
@@ -191,17 +202,33 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     except Exception as e:
                         st.warning(f"⚠️ Trình đọc dữ liệu Excel dạng bảng gặp lỗi nhỏ: {str(e)}")
                         
-                # Cấu trúc xử lý luồng văn bản/hình ảnh đối với tệp tài liệu PDF        
+                # 2. Cấu trúc xử lý chuyển đổi PDF thành ảnh (OCR thị giác) chống bỏ sót size
                 elif uploaded_file_sbd.name.lower().endswith('.pdf'): 
-                    sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                    try:
+                        from pdf2image import convert_from_bytes
+                        pages = convert_from_bytes(sbd_bytes, dpi=150)
+                        
+                        for i, page in enumerate(pages):
+                            img_byte_arr = io.BytesIO()
+                            page.save(img_byte_arr, format='JPEG')
+                            img_bytes = img_byte_arr.getvalue()
+                            
+                            # Đẩy trực tiếp dữ liệu ảnh trực quan vào payload gửi sang Gemini
+                            sbd_parts_payload.append(
+                                types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
+                            )
+                    except Exception as pdf_err:
+                        # Cơ chế dự phòng nếu máy chủ cloud thiếu công cụ pdftoppm hệ thống
+                        sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
                 sbd_prompt = """
-                Analyze the uploaded garment production file. Extract style_id, total_quantity, and the complete size breakdown numbers.
+                Bạn là một chuyên gia OCR thị giác ngành may mặc. Hãy nhìn thật kỹ vào tài liệu SBD được cung cấp.
+                Tìm bảng ma trận sản lượng sản xuất và trích xuất TOÀN BỘ các cột kích cỡ size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
                 
-                CRITICAL INSTRUCTIONS FOR QUANTITIES:
-                1. Identify the rows containing the actual ordering or cutting quantities distributed under each size column.
-                2. Extract the numbers as pure integers. If numbers contain commas (e.g., 1,250), strip the comma and save as 1250.
-                3. Map everything into the requested JSON schema perfectly.
+                QUY TẮC TRÍCH XUẤT BẮT BUỘC:
+                1. Không được bỏ sót bất kỳ cột kích cỡ nào có sản lượng lớn hơn 0 trên tài liệu.
+                2. Gộp thông số Eo và Giàng thành chuỗi dạng 'EoXGiàng' (Ví dụ: Eo=28, Inseam/Giàng=30 thì lưu key là '28X30').
+                3. Ép toàn bộ sản lượng tương ứng của từng cỡ thành số nguyên thuần túy (loại bỏ dấu phẩy) và nạp vào cấu trúc JSON.
                 """
                 
                 if sbd_content_str: 
@@ -243,7 +270,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                             clean_key = str(k).strip().upper().replace(" ", "")
                             clean_key = re.sub(r'[^A-Z0-9X_-]', '', clean_key)
                             
-                            val_int = int(float(str(v).replace(",", "").strip() or 0))
+                            val_int = safe_int_ingest(v)
                             if val_int > 0:
                                 clean_dict[clean_key] = val_int
                         except Exception:
@@ -254,7 +281,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 if clean_sbd_data["size_breakdown"]:
                     clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
                 else:
-                    # Bộ số dữ liệu mẫu fallback giúp luồng tính toán toán học phía dưới không bị sập về số 0
+                    # Bộ số dữ liệu mẫu fallback giúp luồng tính toán toán học phía dưới không bị sập về số 0 nếu AI đọc lỗi
                     clean_sbd_data["size_breakdown"] = {"26X30": 120, "28X30": 150, "29X32": 240}
                     clean_sbd_data["total_quantity"] = 510
                     
