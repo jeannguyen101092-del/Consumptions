@@ -188,7 +188,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL DYNAMIC - TỰ ĐỘNG BÓC TÁCH MỌI SBD CHUẨN V1
+# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL DYNAMIC - SỬA LỖI TRÙNG LẶP KEY NÚT BẤM V2
 # =============================================================================
 
 # CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
@@ -232,11 +232,12 @@ uploaded_file_sbd = st.session_state.get("purchase_sbd_c2_unique", None)
 
 if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", False):
     
+    # 🎯 FIX LỖI DUPLICATE ELEMENT KEY CHO NÚT BẤM SỐ HÓA
     trigger_btn_c2 = st.button(
         "⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", 
         type="primary", 
         use_container_width=True, 
-        key="activate_sbd_only_ingest_c2"
+        key="activate_sbd_only_ingest_c2_v2"
     )
     
     if trigger_btn_c2:
@@ -252,7 +253,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 sbd_bytes = uploaded_file_sbd.getvalue()
                 sbd_parts_payload = []
                 
-                # 🎯 GIẢI PHÁP TỰ ĐỘNG ĐỘNG 100%: Gửi nguyên bản luồng byte tệp tin (Excel/PDF) cho Gemini tự dựng hình ảnh bóc tách ma trận cột kép
+                # Gửi nguyên bản luồng byte tệp tin (Excel/PDF) cho Gemini tự dựng hình ảnh bóc tách ma trận cột kép
                 if uploaded_file_sbd.name.lower().endswith(('.xlsx', '.xls')):
                     sbd_parts_payload.append(
                         types.Part.from_bytes(data=sbd_bytes, mime_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -278,7 +279,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         response_schema=gemini_sbd_raw_schema,
-                        temperature=0.0 # Ép chặt nhiệt độ về 0 để trích xuất dữ liệu thô chính xác, không đoán mò bậy bạ
+                        temperature=0.0
                     )
                 )
                 
@@ -310,10 +311,8 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
                     st.session_state["sbd_parsed_data"] = clean_sbd_data
                     
-                    # Cập nhật dải size thực tế bóc được lên bộ nhớ toàn cục để ép Tầng 3 tự vẽ cột tương ứng
                     st.session_state["active_sizes_global"] = sorted(list(clean_sbd_data["size_breakdown"].keys()))
                     
-                    # Giải phóng bộ nhớ đệm cũ để nạp ma trận mới sạch lỗi
                     keys_to_clear_cache = ["session_editor_snapshot", "auto_cutting_results", "auto_cutting_results_recovered", "fabric_type_recovered"]
                     for cache_key in keys_to_clear_cache:
                         if cache_key in st.session_state:
@@ -331,7 +330,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     
             except Exception as e: 
                 st.error(f"❌ Trục trặc hệ thống khi giải cấu trúc bằng AI: {str(e)}")
-
 
 
 
