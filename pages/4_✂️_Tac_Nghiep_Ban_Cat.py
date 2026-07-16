@@ -19,8 +19,8 @@ try:
     key_direct = st.secrets["SUPABASE_KEY"]
 except Exception:
     # Cơ chế dự phòng an toàn nếu chạy local chưa thiết lập secrets
-    url_direct = "https://supabase.co"
-    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." # Thay bằng chuỗi Key thực tế của bạn nếu chạy nội bộ
+    url_direct = "https://ewqqodsfvlvnrzsylawy.supabase.co"
+    key_direct = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc" # Thay bằng chuỗi Key thực tế của bạn nếu chạy nội bộ
 
 sb_load_client = create_client(url_direct, key_direct)
 
