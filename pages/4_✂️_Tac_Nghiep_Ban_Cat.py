@@ -463,10 +463,10 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ KHẮC PHỤC HOÀN TOÀN LỖI EMPTY_SLOTS
+# TẦNG 2 - ĐOẠN 2a: CÁC NÚT BẤM HÀNH ĐỘNG VÀ RESET TOÀN DIỆN MÀN HÌNH INGEST
 # =============================================================================
 
-# Khởi tạo cục bộ an toàn các thông số kỹ thuật được kế thừa từ Đoạn 3 hoặc widget keys
+# Khởi tạo cục bộ an toàn các thông số kỹ thuật được kế thừa từ các phân hệ trước
 current_fabric_type = st.session_state.get("fabric_selectbox_key", "CHÍNH")
 current_consumption = consumption_input if 'consumption_input' in locals() else 1.140
 
@@ -482,7 +482,7 @@ def safe_int(value, default=0):
     except (ValueError, TypeError):
         return default
 
-# Tạo Layout bảng điều khiển với 3 nút bấm phân hệ chính
+# Tạo Layout bảng điều khiển với 3 nút bấm phân hệ chính [INDEX]
 btn_col1, btn_col2, btn_col_clear = st.columns([1.5, 1.5, 1])
 
 with btn_col1: 
@@ -492,64 +492,56 @@ with btn_col2:
 with btn_col_clear:
     trigger_clear_data = st.button("🧹 XÓA ĐỂ TÍNH LẠI", type="secondary", use_container_width=True, key="c2_clear_all_data_btn")
 
-# 🎯 Xử lý Nút 3: Giải phóng bộ nhớ đệm và hạ cờ kích hoạt của bảng dưới
+# 🎯 FIX TRIỆT ĐỂ LỖI KẸT TRẠNG TĨNH: Giải phóng toàn bộ bộ nhớ dải size cũ đưa về màn hình Ingest nạp file mới [INDEX]
 if trigger_clear_data:
-    keys_to_reset = ["session_editor_snapshot", "auto_cutting_results", "consumption_activated"]
+    # 1. Hạ cờ màn hình để mở luồng tải file mới ở Tầng 1 [INDEX]
+    st.session_state["purchase_ready"] = False
+    
+    # 2. Xóa sạch dữ liệu ma trận đơn hàng cũ bóc tách từ AI [INDEX]
+    st.session_state["sbd_parsed_data"] = None
+    st.session_state["active_sizes_global"] = []
+    
+    # 3. Giải phóng bộ nhớ tạm ô lưới và phiếu báo cáo lũy tiến [INDEX]
+    keys_to_reset = [
+        "session_editor_snapshot", 
+        "auto_cutting_results", 
+        "final_snapshot_rows_global",
+        "consumption_activated",
+        "fabric_type_recovered"
+    ]
     for k in keys_to_reset:
-        st.session_state[k] = None
+        if k in st.session_state:
+            st.session_state[k] = None
         
-    # Kích hoạt cờ xóa kế hoạch để bảo bộ máy Python toán học ở dưới ngừng xuất dữ liệu cũ
+    # 4. Kích hoạt cờ ngừng xuất dữ liệu toán học cũ xuống bảng dưới [INDEX]
     st.session_state["planning_cleared"] = True
     
-    st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp và phiếu báo cáo dưới!", icon="🧹")
-    st.rerun()
+    st.toast("🧹 Đã làm sạch toàn bộ ô lưới tác nghiệp! Hãy tải lên file SBD mới.", icon="🧹")
+    st.rerun() # Ép tải lại trang lập tức quay về màn hình Upload ban đầu [INDEX]
 
-# Xử lý Nút 2: Khóa cứng ma trận và tắt cờ xóa để kích hoạt rải số liệu xuống bảng dưới
+# Xử lý Nút 2: Khóa cứng ma trận nhập tay và kích hoạt tính toán đẩy số liệu xuống bảng dưới
 if trigger_consumption:
     st.session_state["consumption_activated"] = True
-    st.session_state["planning_cleared"] = False # Tắt cờ xóa để cấp quyền tính toán
+    st.session_state["planning_cleared"] = False # Cấp quyền tính toán cho Python Engine
     st.toast("🔒 Đã khóa cứng ma trận nhập tay và đồng bộ xuống bảng theo dõi!", icon="🔒")
     st.rerun() 
 
-# Xử lý Nút 1: Kích hoạt thuật toán chuẩn bị cấu trúc gửi sang Gemini AI giải toán điều độ
+# Xử lý Nút 1: Kích hoạt thuật toán chuẩn bị cấu trúc gửi sang Python Engine giải toán cuốn chiếu
 if trigger_auto_cutting:
-    st.session_state["planning_cleared"] = False # Tắt cờ xóa khi gọi AI
+    st.session_state["planning_cleared"] = False # Tắt cờ xóa khi gọi Engine toán học
     
-    # 🎯 FIX LỖI NAMERROR: Phục hồi mảng kích cỡ an toàn từ session_state gốc của file SBD
-    sbd_store = st.session_state.get("sbd_parsed_data", {})
-    local_size_breakdown = sbd_store.get("size_breakdown", {}) if isinstance(sbd_store, dict) else {}
-    
-    # Sử lại thuật toán sắp xếp cục bộ độc lập để phòng vệ NameError khi Rerun
-    def local_sort_key(size_str):
-        s_clean = str(size_str).upper().replace(" ", "").strip()
-        parts = re.split(r'[X_-]', s_clean)
-        if len(parts) >= 2:
-            try: return (int(float(parts[1])), int(float(parts[0])))
-            except ValueError: return (999, 999)
-        try: return (0, int(float(s_clean)))
-        except ValueError: return (0, 1000 + sum(ord(c) for c in s_clean))
-        
-    local_active_sizes = sorted(list(local_size_breakdown.keys()), key=local_sort_key)
+    # Khôi phục mảng kích cỡ an toàn từ session_state gốc
+    local_active_sizes = st.session_state.get("active_sizes_global", [])
     if not local_active_sizes:
         local_active_sizes = ["26X30", "28X30", "29X32"]
 
-    with st.spinner("🤖 AI đang quét dữ liệu và giải ma trận phối cỡ cho các sơ đồ trống..."):
-        if "get_secure_gemini_key" in globals(): 
-            gemini_key = get_secure_gemini_key()
-        else: 
-            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
-            
-        if not gemini_key:
-            st.error("❌ Ứng dụng chưa được cấu hình GEMINI_API_KEY trong file secrets.toml.")
-            st.stop()
-            
-        from google import genai
-        from google.genai import types
-        client_ai = genai.Client(api_key=gemini_key)
-        
+    with st.spinner("🤖 Hệ thống đang quét dữ liệu và giải ma trận phối cỡ cho các sơ đồ trống..."):
         calculated_balances = {}
+        sbd_store_ref = st.session_state.get("sbd_parsed_data", {})
+        real_breakdown_ref = sbd_store_ref.get("size_breakdown", {}) if isinstance(sbd_store_ref, dict) else {}
+        
         for sz in local_active_sizes:
-            calculated_balances[sz] = safe_int(local_size_breakdown.get(sz, 0))
+            calculated_balances[sz] = safe_int(real_breakdown_ref.get(sz, 0))
         
         empty_slots = []
         current_grid_structure = []
@@ -565,16 +557,7 @@ if trigger_auto_cutting:
                 row_ratios = {}
                 
                 for sz in local_active_sizes:
-                    # 🎯 FIX LỖI INDEX TOÁN HỌC: Kiểm tra key trực tiếp chuỗi kích cỡ tĩnh trước
-                    r_val = safe_int(row_data.get(sz))
-                    if r_val == 0:
-                        # Cơ chế dự phòng tìm theo số thứ tự cột CỠ
-                        try:
-                            idx_pos = local_active_sizes.index(sz) + 1
-                            r_val = safe_int(row_data.get(f"CỠ {idx_pos}"))
-                        except ValueError:
-                            r_val = 0
-                            
+                    r_val = safe_int(row_data.get(sz, row_data.get(f"CỠ {local_active_sizes.index(sz)+1}", 0)))
                     row_ratios[sz] = r_val
                     total_ratios_entered += r_val
                 
@@ -617,8 +600,6 @@ if trigger_auto_cutting:
             fabric_rule_text = "- ĐẶC BIỆT: Đây là vải CHÍNH. Tuyệt đối không cắt dư quá quy định, tính toán phối cỡ và số lớp sao cho sản lượng PO triệt tiêu chuẩn xác về 0 hoặc tiệm cận nhất."
 
         dinhmuc_met_c2 = round(current_consumption * 0.9144, 3)
-        
-        # Gợi ý xử lý tiếp theo: Đoạn mã của bạn ở đây sẽ sẵn sàng truyền `calculated_balances` và `empty_slots` vào payload gửi tới Gemini Client...
 
 
 import streamlit as st
