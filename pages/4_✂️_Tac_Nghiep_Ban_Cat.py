@@ -852,7 +852,7 @@ import json
 import re
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6 (PHẦN 1): BỌC PHÒNG VỆ AN TOÀN CHỐNG SẬP GIAO DIỆN KHỞI TẠO
+# TẦNG 3 - ĐOẠN 6 (PHẦN 1): KHỞI TẠO CẤU TRÚC LƯỚI VÀ ĐÓNG BĂNG SẢN LƯỢNG THẬT CHỐNG RESET
 # =============================================================================
 
 # --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN ---
@@ -869,10 +869,9 @@ def safe_int_final(value, default=0):
 # Ưu tiên bóc tách dải size toàn cục đã lưu trong bộ nhớ trung tâm từ Tầng trước
 active_sizes = st.session_state.get("active_sizes_global", [])
 
-# PHÒNG VỆ CẤU TRÚC 1: Nếu chưa khởi tạo dải cỡ, tự dựng bộ khung dải cỡ chuẩn dệt may từ 26 đến 34 làm mốc
+# PHÒNG VỆ CẤU TRÚC 1: Nếu chưa khởi tạo dải cỡ, tự dựng bộ khung dải cỡ chuẩn dệt may làm mốc nền
 if not active_sizes:
     sbd_store = st.session_state.get("sbd_parsed_data", {})
-    # Nếu sbd_store là None hoặc không phải dict, ép về dict trống
     if not isinstance(sbd_store, dict): sbd_store = {}
     local_breakdown = sbd_store.get("size_breakdown", {}) if sbd_store else {}
     if isinstance(local_breakdown, dict) and local_breakdown:
@@ -887,7 +886,7 @@ prefix_letter = "L" if fab_upper == "LÓT" else "K" if fab_upper == "KEO" else "
 # Tạo danh sách tiêu đề cột ảo chuẩn hóa để hệ thống Streamlit nhận diện lưu trữ
 clean_headers_top = ["BÀN CẮT / TÊN SƠ ĐỒ", "TỔNG SẢN LƯỢNG"] + [f"CỠ {i+1}" for i in range(len(active_sizes))] + ["SƠ LỚP", "SỐ BÀN", "DÀI SƠ ĐỒ"]
 
-# 🎯 PHÒNG VỆ CẤU TRÚC 2: Khôi phục an toàn dữ liệu từ session_state, bẻ gãy hoàn toàn lỗi AttributeError 'NoneType'
+# PHÒNG VỆ CẤU TRÚC 2: Khôi phục an toàn dữ liệu từ session_state, bẻ gãy hoàn toàn lỗi AttributeError 'NoneType'
 sbd_store_data = st.session_state.get("sbd_parsed_data", {})
 if not isinstance(sbd_store_data, dict) or sbd_store_data is None:
     sbd_store_data = {}
@@ -898,16 +897,16 @@ if not isinstance(real_size_breakdown, dict) or real_size_breakdown is None:
 
 true_total_quantity = safe_int_final(sbd_store_data.get("total_quantity", 0))
 
-# Dựng cấu trúc khuôn mẫu 3 hàng thông số cố định ở đầu bảng tác nghiệp
+# Dựng cấu trúc khuôn mẫu 3 hàng thông số cố định ở đầu bảng tác nghiệp [INDEX]
 giang_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "GIÀNG", "TỔNG SẢN LƯỢNG": 0}
 size_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SIZE", "TỔNG SẢN LƯỢNG": 0}
 
-# Ép cột tổng sản lượng PO gốc tự động lấy từ file SBD thực tế
+# Ép cột tổng sản lượng PO gốc tự động lấy từ file SBD thực tế [INDEX]
 sl_top_row = {"BÀN CẮT / TÊN SƠ ĐỒ": "SẢN LƯỢNG", "TỔNG SẢN LƯỢNG": true_total_quantity}
 
 for i, sz in enumerate(active_sizes):
     c_str = str(sz).replace(" ", "").upper()
-    g_val, s_val = "30", c_str  # Giàng mặc định là 30 nếu chuỗi rỗng
+    g_val, s_val = "30", c_str  # Giàng mặc định là 30 nếu chuỗi rỗng [INDEX]
     parts = re.split(r'[X_x-]', c_str)
     if len(parts) >= 2:
         s_val = str(parts[0]).strip()
@@ -918,7 +917,7 @@ for i, sz in enumerate(active_sizes):
     giang_top_row[f"CỠ {i+1}"] = g_val
     size_top_row[f"CỠ {i+1}"] = s_val
     
-    # ĐỔ SỐ LIỆU SẢN LƯỢNG THẬT SBD: Đọc số lượng nạp thẳng vào từng ô
+    # ĐỔ SỐ LIỆU SẢN LƯỢNG THẬT SBD: Đọc số lượng nạp thẳng vào từng ô [INDEX]
     val_pcs_real = safe_int_final(real_size_breakdown.get(sz, 0))
     sl_top_row[f"CỠ {i+1}"] = val_pcs_real
     sl_top_row[sz] = val_pcs_real  # Lưu song song cả key chuỗi cho thuật toán rải bàn phía sau
@@ -927,7 +926,7 @@ giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-# Khôi phục bộ nhớ đệm snapshot hoặc tự động dựng lưới tác nghiệp
+# Khôi phục bộ nhớ đệm snapshot hoặc tự động dựng lưới tác nghiệp [INDEX]
 snapshot = st.session_state.get("session_editor_snapshot")
 if snapshot and len(snapshot) > 0:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
@@ -971,7 +970,7 @@ else:
 if st.session_state.get("session_editor_snapshot") is None:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 
-# Hàm callback bắt sự kiện người dùng chỉnh sửa và tự động đồng bộ hóa dữ liệu
+# Hàm callback bắt sự kiện người dùng chỉnh sửa và tự động đồng bộ hóa dữ liệu [INDEX]
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final_clean_v1" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final_clean_v1"]
@@ -997,7 +996,7 @@ def callback_sync_on_the_fly_final():
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
             
-            # Tính tổng lũy tiến dựa trên mốc nền an toàn
+            # 🎯 KHÓA CHẶT BỘ NHỚ TRẠNG THÁI: Chống mất sản lượng khi Streamlit tự động Rerun tải lại luồng trang
             po_row = current_snapshot
             sbd_store_ref = st.session_state.get("sbd_parsed_data", {})
             if not isinstance(sbd_store_ref, dict): sbd_store_ref = {}
@@ -1006,8 +1005,10 @@ def callback_sync_on_the_fly_final():
             
             total_sum = 0
             for idx_sz, sz in enumerate(active_sizes):
-                val_cell_current = po_row.get(f"CỠ {idx_sz+1}", po_row.get(sz, None))
-                if val_cell_current is None or str(val_cell_current).strip() == "" or val_cell_current == 0:
+                val_cell_current = po_row.get(f"CỠ {idx_sz+1}", None)
+                
+                # Nếu ô lưới bị trống số do reset, tự động kéo sản lượng thật từ bộ nhớ gốc SBD đắp ngược vào ô lưới [INDEX]
+                if val_cell_current is None or str(val_cell_current).strip() == "":
                     val_cell_current = real_breakdown_ref.get(sz, 0)
                 
                 val_clean_int = safe_int_final(val_cell_current)
