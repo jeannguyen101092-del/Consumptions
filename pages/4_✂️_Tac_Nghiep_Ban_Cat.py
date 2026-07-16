@@ -822,14 +822,13 @@ st.data_editor(
 
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR FIX TRIỆT ĐỂ LỖI NAMEERROR V12
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR LUÔN HIỂN THỊ, CHỐNG SẬP V14
 # =============================================================================
 
 def callback_sync_on_the_fly_final():
     if "table_manual_data_editor_final_clean_v1" in st.session_state:
         st_editor = st.session_state["table_manual_data_editor_final_clean_v1"]
         if "edited_rows" in st_editor and st_editor["edited_rows"]:
-            # 🎯 FIX LỖI: Sử dụng mảng trống làm fallback an toàn thay vì gọi biến display_editor_rows cục bộ
             raw_snapshot = st.session_state.get("session_editor_snapshot", [])
             if not raw_snapshot: return
             
@@ -861,50 +860,61 @@ def callback_sync_on_the_fly_final():
                 real_breakdown_ref = sbd_store_ref.get("size_breakdown", {}) if sbd_store_ref else {}
                 if not isinstance(real_breakdown_ref, dict): real_breakdown_ref = {}
                 
-                current_snapshot[2]["BÀN CẮT / TÊN SƠ ĐỒ"] = "SẢN LƯỢNG"
-                
+                current_snapshot["BÀN CẮT / TÊN SƠ ĐỒ"] = "SẢN LƯỢNG"
+                current_snapshot["TỔNG SẢN LƯỢNG"] = safe_int_final(sbd_store_ref.get("total_quantity", 0))
+                for c_idx, sz in enumerate(active_sizes_cb):
+                    val_pcs_real = safe_int_final(real_breakdown_ref.get(sz, 0))
+                    current_snapshot[f"CỠ {c_idx+1}"] = val_pcs_real
+                    current_snapshot[sz] = val_pcs_real
+                    
             st.session_state["session_editor_snapshot"] = current_snapshot
 
 def wrapper_callback_sync():
     callback_sync_on_the_fly_final()
     st.rerun()
 
-# 🎯 CHỈ TIẾN HÀNH DỰNG BẢNG VÀ PHÂN TÍCH RENDER KHI ĐÃ CÓ FILE SBD ĐƯỢC QUÉT (BỎ QUA KHI TRỐNG)
+# 🎯 ĐÃ FIX TRIỆT ĐỂ: Khởi tạo mảng fallback trống an toàn ngay tại luồng ngoài để chặn đứng lỗi NameError
+current_display_data = st.session_state.get("session_editor_snapshot", [])
+
+# Nếu chưa có dữ liệu trong bộ nhớ tạm snapshot, DataFrame sẽ tự tạo một khung rỗng an toàn theo tiêu đề cột
+if not current_display_data:
+    df_editor_top_render = pd.DataFrame(columns=clean_headers_top)
+else:
+    df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
+
+# Ép kiểu dữ liệu cho ô lưới
+for col in clean_headers_top:
+    if col in df_editor_top_render.columns:
+        if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
+            df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
+        elif col == "DÀI SƠ ĐỒ":
+            df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
+
+config_cot = {
+    "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
+    "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
+    "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
+    "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
+    "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
+}
+
+# Đọc dải kích cỡ toàn cục hiện hành để map nhãn cột cho bảng
 active_sizes_render = st.session_state.get("active_sizes_global", [])
+if not active_sizes_render:
+    active_sizes_render = ["26X30", "27X30", "28X30", "29X30", "30X30", "31X30", "32X30", "33X30", "34X30"]
 
-if active_sizes_render:
-    current_display_data = st.session_state.get("session_editor_snapshot", [])
-    
-    if current_display_data:
-        df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
+for i, sz in enumerate(active_sizes_render):
+    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False, min_value=0, step=1, format="%d")
 
-        for col in clean_headers_top:
-            if col in df_editor_top_render.columns:
-                if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
-                    df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
-                elif col == "DÀI SƠ ĐỒ":
-                    df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
-
-        config_cot = {
-            "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
-            "TỔNG SẢN LƯỢNG": st.column_config.NumberColumn("📊 Tổng SL", disabled=True),
-            "SƠ LỚP": st.column_config.NumberColumn("🥞 Sơ Lớp", disabled=False, min_value=0, step=1, format="%d"),
-            "SỐ BÀN": st.column_config.NumberColumn("🗂️ Số Bàn", disabled=False, min_value=1, step=1, format="%d"),
-            "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
-        }
-
-        for i, sz in enumerate(active_sizes_render):
-            config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False, min_value=0, step=1, format="%d")
-
-        # Đổ bảng dữ liệu cho phép nhập tay lên màn hình
-        st.data_editor(
-            df_editor_top_render,
-            column_config=config_cot,
-            use_container_width=True,
-            hide_index=True,
-            key="table_manual_data_editor_final_clean_v1", 
-            on_change=wrapper_callback_sync
-        )
+# Gọi kết xuất ô lưới Bảng 1 ra màn hình
+st.data_editor(
+    df_editor_top_render,
+    column_config=config_cot,
+    use_container_width=True,
+    hide_index=True,
+    key="table_manual_data_editor_final_clean_v1", 
+    on_change=wrapper_callback_sync
+)
 
 
 
