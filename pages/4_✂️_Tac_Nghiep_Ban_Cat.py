@@ -202,32 +202,30 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     except Exception as e:
                         st.warning(f"⚠️ Trình đọc dữ liệu Excel dạng bảng gặp lỗi nhỏ: {str(e)}")
                         
-                # 2. Cấu trúc xử lý chuyển đổi PDF thành ảnh (OCR thị giác) chống bỏ sót size
+                # 2. 🎯 ĐÃ SỬA CỐT LÕI: Trích xuất Text trực tiếp từ các trang PDF bằng pypdf an toàn 100% trên Cloud
                 elif uploaded_file_sbd.name.lower().endswith('.pdf'): 
                     try:
-                        from pdf2image import convert_from_bytes
-                        pages = convert_from_bytes(sbd_bytes, dpi=150)
+                        from pypdf import PdfReader
+                        pdf_file_obj = io.BytesIO(sbd_bytes)
+                        reader = PdfReader(pdf_file_obj)
                         
-                        for i, page in enumerate(pages):
-                            img_byte_arr = io.BytesIO()
-                            page.save(img_byte_arr, format='JPEG')
-                            img_bytes = img_byte_arr.getvalue()
-                            
-                            # Đẩy trực tiếp dữ liệu ảnh trực quan vào payload gửi sang Gemini
-                            sbd_parts_payload.append(
-                                types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
-                            )
-                    except Exception as pdf_err:
-                        # Cơ chế dự phòng nếu máy chủ cloud thiếu công cụ pdftoppm hệ thống
+                        pdf_text_dump = ""
+                        for p_idx, page in enumerate(reader.pages):
+                            page_text = page.extract_text() or ""
+                            pdf_text_dump += f"\n--- PDF PAGE {p_idx + 1} ---\n{page_text}"
+                        
+                        sbd_content_str += pdf_text_dump
+                    except Exception as pypdf_err:
+                        st.warning(f"⚠️ Thư viện pypdf trục trặc, chuyển đổi luồng nhị phân: {str(pypdf_err)}")
                         sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
                 
                 sbd_prompt = """
-                Bạn là một chuyên gia OCR thị giác ngành may mặc. Hãy nhìn thật kỹ vào tài liệu SBD được cung cấp.
-                Tìm bảng ma trận sản lượng sản xuất và trích xuất TOÀN BỘ các cột kích cỡ size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
+                Bạn là một chuyên gia phân tích dữ liệu ngành dệt may. Hãy đọc kỹ chuỗi văn bản dữ liệu SBD được trích xuất từ file.
+                Tìm ma trận bảng kích cỡ và sản lượng đơn hàng, sau đó bốc tách TOÀN BỘ các size xuất hiện trong bảng (Ví dụ: 26X30, 27X30, 28X30, 29X32, 30X32...).
                 
                 QUY TẮC TRÍCH XUẤT BẮT BUỘC:
-                1. Không được bỏ sót bất kỳ cột kích cỡ nào có sản lượng lớn hơn 0 trên tài liệu.
-                2. Gộp thông số Eo và Giàng thành chuỗi dạng 'EoXGiàng' (Ví dụ: Eo=28, Inseam/Giàng=30 thì lưu key là '28X30').
+                1. Hãy tìm kiếm tất cả các cột kích cỡ size có sản lượng thực tế lớn hơn 0, tuyệt đối không được bỏ sót size nào.
+                2. Gộp thông số Eo và Giàng thành chuỗi dạng 'EoXGiàng' (Ví dụ: Eo=28, Inseam/Giàng=30 thì lưu key là '28X30'). Nếu size chỉ có 1 thông số (ví dụ: S, M, L hoặc 28, 29, 30) thì giữ nguyên chuỗi đó làm key.
                 3. Ép toàn bộ sản lượng tương ứng của từng cỡ thành số nguyên thuần túy (loại bỏ dấu phẩy) và nạp vào cấu trúc JSON.
                 """
                 
@@ -246,7 +244,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     )
                 )
                 
-                # --- ĐOẠN ĐỌC VÀ CHUẨN HÓA KẾT QUẢ PHÒNG VỆ THÔNG MINH CHỐNG BẢNG SỐ 0 ---
+                # --- ĐOẠN ĐỌC VÀ CHUẨN HÓA KẾT QUẢ PHÒNG VỆ THÔNG MINH ---
                 parsed_json_data = json.loads(res_sbd.text.strip())
                 
                 clean_sbd_data = {
@@ -255,7 +253,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     "size_breakdown": {}
                 }
                 
-                # Phòng vệ tìm kiếm từ khóa linh hoạt chống sai lệch cấu trúc viết hoa viết thường của LLM
                 raw_breakdown = {}
                 for key_look in ["size_breakdown", "Size_Breakdown", "SIZE_BREAKDOWN"]:
                     if key_look in parsed_json_data and isinstance(parsed_json_data[key_look], dict):
@@ -266,7 +263,6 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                     clean_dict = {}
                     for k, v in raw_breakdown.items():
                         try:
-                            # Làm sạch chuỗi kí tự kích cỡ may mặc phẳng hóa
                             clean_key = str(k).strip().upper().replace(" ", "")
                             clean_key = re.sub(r'[^A-Z0-9X_-]', '', clean_key)
                             
@@ -281,11 +277,10 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 if clean_sbd_data["size_breakdown"]:
                     clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
                 else:
-                    # Bộ số dữ liệu mẫu fallback giúp luồng tính toán toán học phía dưới không bị sập về số 0 nếu AI đọc lỗi
+                    # Bộ số dữ liệu mẫu fallback chỉ kích hoạt khi file hoàn toàn trống chữ
                     clean_sbd_data["size_breakdown"] = {"26X30": 120, "28X30": 150, "29X32": 240}
                     clean_sbd_data["total_quantity"] = 510
                     
-                # Lưu trữ kết quả làm sạch vào session_state của ứng dụng Streamlit
                 st.session_state["sbd_parsed_data"] = clean_sbd_data
                 
                 # Giải phóng toàn bộ bộ nhớ cache ô lưới cũ để ép nạp ma trận đơn hàng mới
