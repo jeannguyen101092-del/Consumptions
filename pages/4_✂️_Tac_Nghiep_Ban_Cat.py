@@ -117,7 +117,7 @@ if not st.session_state.get("purchase_ready", False):
         
     st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-import streamlit st
+import streamlit as st
 import pandas as pd
 import json
 import io
@@ -178,6 +178,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         use_container_width=True, 
         key="activate_sbd_only_ingest_c2"
     )
+
     # =============================================================================
     # TẦNG 1 - ĐOẠN 2 (PHẦN 2): GÒI API V1 VÀ LUỒNG PHỤC HỒI SIZE THẬT DỰ PHÒNG
     # =============================================================================
