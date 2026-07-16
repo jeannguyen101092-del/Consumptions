@@ -464,7 +464,7 @@ import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP VÀ ĐỒNG BỘ ÉP ĐÈ MÃ HÀNG MỚI
+# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP CHUẨN ĐỊNH DANH SẠCH LỖI DUPLICATE KEY
 # =============================================================================
 
 # Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
@@ -472,7 +472,6 @@ try:
     url_direct = st.secrets["SUPABASE_URL"]
     key_direct = st.secrets["SUPABASE_KEY"]
 except Exception:
-    # FIX LỖI 404: Đổi URL trang chủ thành chuỗi rỗng để chặn gọi nhầm khi thiếu Secrets
     url_direct = ""
     key_direct = ""
 
@@ -482,20 +481,20 @@ def safe_int_final(value, default=0):
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")
+        if "." in clean_val: clean_val = clean_val.split(".")[0]
         return int(clean_val)
     except (ValueError, TypeError):
         return default
 
 # Hàm callback xử lý tự động tra cứu dữ liệu cũ từ Supabase khi người dùng đổi loại vải
 def handle_fabric_change():
-    current_fabric = st.session_state.get("fabric_selectbox_key")
+    current_fabric = st.session_state.get("fabric_selectbox_key_v2")
     st.session_state["last_checked_fabric"] = current_fabric
     
     if url_direct and key_direct:
         try:
             sb_client_check = create_client(url_direct, key_direct)
-            current_style = st.session_state.get("style_id_input_key", "").strip().upper()
+            current_style = st.session_state.get("style_id_input_key_v2", "").strip().upper()
             
             res_check = (
                 sb_client_check.table("cutting_orders_db")
@@ -525,22 +524,27 @@ if st.session_state.get("purchase_ready", False):
         detected_style_id = str(sbd_data_store.get("style_id", "UNKNOWN_STYLE")).strip().upper()
         detected_total_po = safe_int_final(sbd_data_store.get("total_quantity", 0))
         
-        # 🎯 FIX TRIỆT ĐỂ KẸT MÃ CŨ: Nếu phát hiện mã hàng mới từ file vừa up, ép đè giá trị mới vào ô nhập liệu [INDEX]
+        # Biện pháp quản lý biến nền độc lập chống kẹt cache mã cũ khi up file mới
         if st.session_state.get("last_loaded_style_id") != detected_style_id:
             st.session_state["last_loaded_style_id"] = detected_style_id
-            st.session_state["style_id_input_key"] = detected_style_id
-            st.session_state["po_qty_input_key"] = detected_total_po
+            st.session_state["current_style_target_val"] = detected_style_id
+            st.session_state["current_po_target_val"] = detected_total_po
             
-            # Ép giải phóng lưới ma trận cũ để Tầng 3 tự nạp dải size thật của đơn hàng mới [INDEX]
+            # Giải phóng ô lưới cũ để ép nạp ma trận size của mã hàng mới vừa up
             st.session_state["session_editor_snapshot"] = None
             st.session_state["active_sizes_global"] = []
+
+        if "current_style_target_val" not in st.session_state:
+            st.session_state["current_style_target_val"] = detected_style_id
+        if "current_po_target_val" not in st.session_state:
+            st.session_state["current_po_target_val"] = detected_total_po
 
         # CHUẨN HÓA DỮ LIỆU ĐẦU VÀO: Đảm bảo bộ dữ liệu size luôn là một Dictionary phẳng
         size_breakdown_main = sbd_data_store.get("size_breakdown", {})
         if not isinstance(size_breakdown_main, dict):
             size_breakdown_main = {}
 
-        if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary", key="back_to_ingest_main_btn"):
+        if st.button("🔄 Quay lại Màn Hình Chính / Tải file khác", type="secondary", key="back_to_ingest_main_btn_v2"):
             st.session_state["purchase_ready"] = False
             st.session_state["sbd_parsed_data"] = {}
             st.session_state["active_sizes_global"] = []
@@ -552,25 +556,27 @@ if st.session_state.get("purchase_ready", False):
 
         st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
         
-        # Thiết lập hàng nhập liệu số 1 [INDEX]
+        # Thiết lập hàng nhập liệu số 1 với định danh key_v2 sạch lỗi trùng lặp phần tử
         input_col1, input_col2, input_col3, input_col_color = st.columns(4)
         with input_col1: 
             style_id_input = st.text_input(
                 "🏷️ Tên mã hàng (Style ID):", 
-                key="style_id_input_key"  # Nhận giá trị đồng bộ ghi đè từ session_state [INDEX]
+                value=st.session_state["current_style_target_val"],
+                key="style_id_input_key_v2"
             )
         with input_col2: 
             po_qty_input = st.number_input(
                 "📦 Số lượng đơn hàng (PO Pcs):", 
+                value=int(st.session_state["current_po_target_val"]),
                 step=100,
-                key="po_qty_input_key"  # Nhận số lượng PO bóc tách thực tế [INDEX]
+                key="po_qty_input_key_v2"
             )
         with input_col3: 
             consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
         with input_col_color: 
             color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
 
-        # Thiết lập hàng nhập liệu số 2 [INDEX]
+        # Thiết lập hàng nhập liệu số 2
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: 
             max_table_length = st.number_input("📏 Chiều dài tối đa bàn vải (Meters):", value=12.00, step=1.0)
@@ -587,7 +593,7 @@ if st.session_state.get("purchase_ready", False):
                 "🧵 Loại vải đang tác nghiệp:", 
                 available_fabrics, 
                 index=default_index,
-                key="fabric_selectbox_key",
+                key="fabric_selectbox_key_v2",
                 on_change=handle_fabric_change
             )
             
@@ -598,10 +604,10 @@ if st.session_state.get("purchase_ready", False):
             "Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", 
             placeholder="Ví dụ:\n5844-c01 1.05\n5844-c02 10", 
             height=90, 
-            key="cad_bulk_paste_c2"
+            key="cad_bulk_paste_c2_v2"
         )
 
-        # KHỬ TRIỆT ĐỂ CHUỖI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
+        # KHỬ TRIỆT ĐỂ CHUỒI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
         clean_size_breakdown = {}
         for k, v in size_breakdown_main.items():
             try:
@@ -640,8 +646,8 @@ if st.session_state.get("purchase_ready", False):
         if not active_sizes: 
             active_sizes = ["26X30", "28X30", "29X32"]
             
-        # Đẩy dải cỡ thật đã sắp xếp ra toàn cục [INDEX]
         st.session_state["active_sizes_global"] = active_sizes
+
 
 
 import streamlit as st
