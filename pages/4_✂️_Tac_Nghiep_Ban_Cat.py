@@ -117,7 +117,7 @@ if not st.session_state.get("purchase_ready", False):
         
     st.markdown("<br><p style='font-size:13px; font-weight:700; color:#475569;'>HOẶC LẬP PHIẾU TÁC NGHIỆP MỚI BẰNG FILE SBD:</p>", unsafe_allow_html=True)
     file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
-import streamlit as st
+import streamlit st
 import pandas as pd
 import json
 import io
@@ -126,7 +126,7 @@ from google import genai
 from google.genai import types
 
 # =============================================================================
-# TẦNG 1 - ĐOẠN 2: SỐ HÓA MULTIMODAL PDF QUA GEMINI 1.5 FLASH (FIX TRIỆT ĐỂ LỖI 503)
+# TẦNG 1 - ĐOẠN 2 (PHẦN 1): CẤU HÌNH RAW SCHEMA VÀ CHUẨN BỊ TÀI LIỆU SBD CHUẨN V1
 # =============================================================================
 
 # CƠ CHẾ PHÒNG VỆ KHÓA CHẶN KHI BẤM NÚT XÓA TỪ TẦNG DƯỚI
@@ -178,7 +178,9 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
         use_container_width=True, 
         key="activate_sbd_only_ingest_c2"
     )
-    
+    # =============================================================================
+    # TẦNG 1 - ĐOẠN 2 (PHẦN 2): GÒI API V1 VÀ LUỒNG PHỤC HỒI SIZE THẬT DỰ PHÒNG
+    # =============================================================================
     if trigger_btn_c2:
         with st.spinner("🚀 Đang dùng AI mắt thần quét ma trận size từ tệp PDF..."):
             gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
@@ -217,14 +219,14 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 """
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                # 🎯 THAY ĐỔI MÔ HÌNH: Chuyển sang gemini-1.5-flash để chịu tải ổn định cao, tránh lỗi 503 khi server nghẽn
+                # Gọi mô hình chuẩn xác kết nối v1 không dính lỗi 404
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-1.5-flash', 
+                    model='gemini-2.5-flash', 
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         response_schema=gemini_sbd_raw_schema,
-                        temperature=0.0 # Ép chặt nhiệt độ về 0 để trích xuất dữ liệu thô chính xác, không sai lệch
+                        temperature=0.0
                     )
                 )
                 
@@ -261,24 +263,52 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 if clean_sbd_data["size_breakdown"]:
                     clean_sbd_data["total_quantity"] = sum(clean_sbd_data["size_breakdown"].values())
                     st.session_state["sbd_parsed_data"] = clean_sbd_data
-                else:
-                    # Đưa ra thông báo debug nếu file PDF của xưởng hoàn toàn không có chữ/số hoặc bị mờ nhòe
-                    st.error("⚠️ AI đã đọc tài liệu nhưng cấu trúc bảng size trả về trống. Vui lòng kiểm tra lại độ nét hoặc nội dung file PDF đầu vào.")
-                    st.info(f"Nội dung thô hệ thống trả về: {res_sbd.text}")
-                    st.stop()
                     
-                # Giải phóng bộ đệm hiển thị ô lưới để ép nạp ma trận đơn hàng mới
-                keys_to_clear_cache = ["session_editor_snapshot", "auto_cutting_results", "auto_cutting_results_recovered", "fabric_type_recovered"]
-                for cache_key in keys_to_clear_cache:
-                    if cache_key in st.session_state:
-                        st.session_state[cache_key] = None
+                    # Giải phóng bộ đệm hiển thị ô lưới để ép nạp ma trận đơn hàng mới
+                    keys_to_clear_cache = ["session_editor_snapshot", "auto_cutting_results", "auto_cutting_results_recovered", "fabric_type_recovered"]
+                    for cache_key in keys_to_clear_cache:
+                        if cache_key in st.session_state:
+                            st.session_state[cache_key] = None
+                            
+                    st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                    st.session_state["purchase_ready"] = True
+                    st.session_state["planning_cleared"] = False
+                    
+                    st.success("✅ Hệ thống đã dùng mắt thần số hóa toàn bộ kích cỡ thành công!")
+                    st.rerun()
+                else:
+                    # 🎯 KHỐI DỰ PHÒNG CỨU SIZE THẬT: Tự trích xuất text thô nếu tài liệu bị nhòe ảnh
+                    try:
+                        from pypdf import PdfReader
+                        reader = PdfReader(io.BytesIO(sbd_bytes))
+                        text_backup = ""
+                        for page in reader.pages:
+                            text_backup += page.extract_text() or ""
                         
-                st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
-                st.session_state["purchase_ready"] = True
-                st.session_state["planning_cleared"] = False
-                
-                st.success("✅ Hệ thống đã dùng mắt thần số hóa toàn bộ kích cỡ thành công!")
-                st.rerun()
+                        # Sử dụng Regex bốc nhanh các chuỗi số ma trận dạng Eo X Giàng phát sinh sản lượng
+                        extracted_sizes = re.findall(r'(\d{2}[X|x]\d{2})[\s\n:]*([\d,]+)', text_backup)
+                        if extracted_sizes:
+                            backup_dict = {}
+                            for sz_k, qty_v in extracted_sizes:
+                                sz_clean = str(sz_k).upper().replace(" ", "")
+                                val_clean = int(str(qty_v).replace(",", ""))
+                                if val_clean > 0:
+                                    backup_dict[sz_clean] = val_clean
+                            
+                            clean_sbd_data["size_breakdown"] = backup_dict
+                            clean_sbd_data["total_quantity"] = sum(backup_dict.values())
+                            st.session_state["sbd_parsed_data"] = clean_sbd_data
+                            
+                            st.session_state["session_editor_snapshot"] = None
+                            st.session_state["purchase_ready"] = True
+                            st.session_state["planning_cleared"] = False
+                            st.success("✅ Hệ thống đã số hóa thành công danh sách size thông qua luồng văn bản dự phòng!")
+                            st.rerun()
+                        else:
+                            raise ValueError("Không tìm thấy ký tự size")
+                    except Exception:
+                        st.error("⚠️ AI không thể đọc được cấu trúc ma trận size từ file PDF này. Vui lòng kiểm tra lại file PDF gốc hoặc chuyển file sang dạng Excel để tải lên.")
+                        st.stop()
                 
             except Exception as e: 
                 st.error(f"❌ Lỗi khi giải cấu trúc tài liệu bằng AI: {str(e)}")
