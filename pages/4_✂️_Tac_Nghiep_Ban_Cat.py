@@ -464,7 +464,7 @@ import re
 from supabase import create_client
 
 # =============================================================================
-# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP CHUẨN ĐỊNH DANH SẠCH LỖI DUPLICATE KEY
+# TẦNG 2 - ĐOẠN 1: GIAO DIỆN THÔNG SỐ TÁC NGHIỆP SẠCH LỖI TRÙNG ID WIDGET 100%
 # =============================================================================
 
 # Cấu hình kết nối bảo mật sử dụng chung cấu trúc Secrets của Đoạn 1
@@ -481,7 +481,7 @@ def safe_int_final(value, default=0):
     try:
         clean_val = str(value).replace(",", "").strip()
         if not clean_val or clean_val.lower() == "none": return default
-        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        if "." in clean_val: clean_val = clean_val.split(".")
         return int(clean_val)
     except (ValueError, TypeError):
         return default
@@ -506,7 +506,7 @@ def handle_fabric_change():
             )
             
             if res_check.data and len(res_check.data) > 0:
-                st.session_state["auto_cutting_results_recovered"] = res_check.data[0].get("cutting_matrix_data", [])
+                st.session_state["auto_cutting_results_recovered"] = res_check.data.get("cutting_matrix_data", [])
                 st.session_state["auto_cutting_results"] = None
             else:
                 if "auto_cutting_results_recovered" in st.session_state: 
@@ -524,7 +524,7 @@ if st.session_state.get("purchase_ready", False):
         detected_style_id = str(sbd_data_store.get("style_id", "UNKNOWN_STYLE")).strip().upper()
         detected_total_po = safe_int_final(sbd_data_store.get("total_quantity", 0))
         
-        # Biện pháp quản lý biến nền độc lập chống kẹt cache mã cũ khi up file mới
+        # Quản lý biến nền độc lập chống kẹt cache mã cũ khi up file mới
         if st.session_state.get("last_loaded_style_id") != detected_style_id:
             st.session_state["last_loaded_style_id"] = detected_style_id
             st.session_state["current_style_target_val"] = detected_style_id
@@ -556,7 +556,7 @@ if st.session_state.get("purchase_ready", False):
 
         st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
         
-        # Thiết lập hàng nhập liệu số 1 với định danh key_v2 sạch lỗi trùng lặp phần tử
+        # Thiết lập hàng nhập liệu số 1 kèm Key độc bản khóa chặt Id chống sập giao diện
         input_col1, input_col2, input_col3, input_col_color = st.columns(4)
         with input_col1: 
             style_id_input = st.text_input(
@@ -572,14 +572,29 @@ if st.session_state.get("purchase_ready", False):
                 key="po_qty_input_key_v2"
             )
         with input_col3: 
-            consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
+            consumption_input = st.number_input(
+                "🎯 Định mức tài liệu đề xuất (Yds/Pcs):", 
+                value=1.140, 
+                step=0.001, 
+                format="%.3f",
+                key="consumption_input_key_unique"
+            )
         with input_col_color: 
-            color_input = st.text_input("🎨 Tự gõ Màu vải:", value="BLACK")
+            color_input = st.text_input(
+                "🎨 Tự gõ Màu vải:", 
+                value="BLACK",
+                key="color_input_key_unique"
+            )
 
         # Thiết lập hàng nhập liệu số 2
         input_col4, input_col5, input_col6 = st.columns(3)
         with input_col4: 
-            max_table_length = st.number_input("📏 Chiều dài tối đa bàn vải (Meters):", value=12.00, step=1.0)
+            max_table_length = st.number_input(
+                "📏 Chiều dài tối đa bàn vải (Meters):", 
+                value=12.00, 
+                step=1.0,
+                key="max_table_length_key_unique"
+            )
             
         default_fab = st.session_state.get("fabric_type_recovered", "CHÍNH")
         available_fabrics = ["CHÍNH", "LÓT", "KEO", "PHỐI"]
@@ -598,7 +613,13 @@ if st.session_state.get("purchase_ready", False):
             )
             
         with input_col6: 
-            cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
+            cuttable_width_inch = st.number_input(
+                "📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", 
+                value=56.00, 
+                step=0.50, 
+                format="%.2f",
+                key="cuttable_width_inch_key_unique"
+            )
         
         cad_paste_zone = st.text_area(
             "Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:", 
@@ -607,7 +628,7 @@ if st.session_state.get("purchase_ready", False):
             key="cad_bulk_paste_c2_v2"
         )
 
-        # KHỬ TRIỆT ĐỂ CHUỒI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
+        # KHỬ TRIỆT ĐỂ CHUỖI MẢNG VÀ PHẲNG HÓA SIZE: Dọn sạch đuôi cột phát sinh từ Pandas (_1, _2)
         clean_size_breakdown = {}
         for k, v in size_breakdown_main.items():
             try:
@@ -629,8 +650,8 @@ if st.session_state.get("purchase_ready", False):
             parts = re.split(r'[X_-]', s_clean)
             if len(parts) >= 2:
                 try:
-                    waist = int(float(parts[0]))
-                    inseam = int(float(parts[1]))
+                    waist = int(float(parts))
+                    inseam = int(float(parts))
                     return (inseam, waist)
                 except ValueError:
                     return (999, 999) 
