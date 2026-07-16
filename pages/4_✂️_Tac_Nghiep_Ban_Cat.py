@@ -1075,49 +1075,63 @@ import streamlit as st
 import pandas as pd
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 7a (PHẦN 1): KHÔI PHỤC VÀ KHẤU TRỪ SẢN LƯỢNG SƠ ĐỒ MẪU (PILOT)
+# TẦNG 3 - ĐOẠN 7a: PYTHON ENGINE TỰ ĐỘNG ĐIỀU PHỐI CUỐN CHIẾU ĐỒNG BỘ Ô LƯỚI MỚI
 # =============================================================================
 
-final_snapshot_rows = []
+# Khai báo lại hàm helper để tránh lỗi NameError khi chạy độc lập
+def safe_int_final(value, default=0):
+    if value is None: return default
+    try:
+        clean_val = str(value).replace(",", "").strip()
+        if not clean_val or clean_val.lower() == "none": return default
+        if "." in clean_val: clean_val = clean_val.split(".")[0]
+        return int(clean_val)
+    except (ValueError, TypeError):
+        return default
 
-# --- 0. KHÔI PHỤC DỮ LIỆU ĐẦU VÀO AN TOÀN TỪ STREAMLIT SESSION STATE ---
-sbd_store = st.session_state.get("sbd_parsed_data", {})
-local_size_breakdown = sbd_store.get("size_breakdown", {}) if isinstance(sbd_store, dict) else {}
-
-# Phục hồi danh sách kích cỡ động tránh lỗi NameError
-if 'active_sizes' not in locals() or not active_sizes:
-    active_sizes = sorted(list(local_size_breakdown.keys()))
+# 🎯 ĐỒNG BỘ DANH SÁCH SIZE TOÀN CỤC: Đảm bảo khớp dải cỡ hiển thị trên màn hình
+active_sizes = st.session_state.get("active_sizes_global", [])
 if not active_sizes:
-    active_sizes = ["26X30", "28X30", "29X32"]
+    active_sizes = ["26X30", "27X30", "28X30", "29X30", "30X30", "31X30", "32X30", "33X30", "34X30"]
 
-# Gán biến an toàn cho bộ dữ liệu ô lưới từ data_editor
+final_snapshot_rows = []
+current_order_balances = {}
+
+# 🎯 ĐỒNG BỘ DỮ LIỆU Ô LƯỚI THỜI GIAN THỰC TỪ DATA_EDITOR PHIÊN BẢN MỚI NHẤT
 snapshot_current = st.session_state.get("session_editor_snapshot", [])
 edited_df_raw = pd.DataFrame(snapshot_current) if snapshot_current else pd.DataFrame()
 
-# Tính tổng sản lượng đơn hàng PO đầu vào
-total_sum_po_qty = sum(safe_int_final(local_size_breakdown.get(sz, 0)) for sz in active_sizes)
+# Khởi tạo mảng sản lượng dư dựa trên dòng SẢN LƯỢNG (hàng số 3) mà người dùng gõ tay nhập liệu
+if not edited_df_raw.empty:
+    # Tìm dòng sản lượng thực tế trong bảng để lấy làm mốc đơn hàng PO đầu vào
+    sl_row_data = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"] == "SẢN LƯỢNG"]
+    if not sl_row_data.empty:
+        target_row = sl_row_data.iloc[0]
+        for idx_sz, sz in enumerate(active_sizes):
+            # Đọc từ key ảo CỠ X đã được đồng bộ khi gõ số
+            current_order_balances[sz] = safe_int_final(target_row.get(f"CỠ {idx_sz+1}", 0))
+    else:
+        for sz in active_sizes: current_order_balances[sz] = 0
+else:
+    for sz in active_sizes: current_order_balances[sz] = 0
 
-# --- 1. KHỞI TẠO MẢNG SẢN LƯỢNG ĐƠN HÀNG THỰC TẾ (PO BALANCES) ---
-current_order_balances = {}
-for sz in active_sizes:
-    current_order_balances[sz] = safe_int_final(local_size_breakdown.get(sz, 0))
-
+total_sum_po_qty = sum(current_order_balances.values())
 consumption_in_yards = consumption_input if 'consumption_input' in locals() else 1.140
 
-# --- 2. BƯỚC 1: ĐẨY 3 HÀNG TIÊU ĐỀ PHỤ CỐ ĐỊNH XUỐNG BẢNG THEO DÕI LŨY TIẾN ---
+# --- 1. BƯỚC 1: ĐẨY 3 HÀNG TIÊU ĐỀ PHỤ CỐ ĐỊNH XUỐNG BẢNG 2 ---
 if not edited_df_raw.empty:
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if s_row_name in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]:
             item_dict = {
-                "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": 0, "SỐ BÀN": 0, 
-                "DÀI SƠ ĐỒ": 0.0, "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0
+                "BÀN CẮT / TÊN SƠ ĐỒ": s_row_name, "SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0, 
+                "TỔNG SẢN LƯỢNG": total_sum_po_qty if s_row_name == "SẢN LƯỢNG" else 0
             }
             for c_idx, sz in enumerate(active_sizes):
-                item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
+                item_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", 0))
             final_snapshot_rows.append(item_dict)
 
-    # --- 3. BƯỚC 2: KHẤU TRỪ SẢN LƯỢNG TỪ CÁC DÒNG SƠ ĐỒ CẮT MẪU (PILOT) ĐƯỢC NHẬP TAY ---
+    # --- 2. BƯỚC 2: KHẤU TRỪ SẢN LƯỢNG TỪ CÁC DÒNG SƠ ĐỒ CẮT MẪU (PILOT) ĐƯỢC NHẬP TAY ---
     for idx, row in edited_df_raw.iterrows():
         s_row_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
         if s_row_name not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"] and ("PILOT" in s_row_name or "SS" in s_row_name):
@@ -1128,7 +1142,7 @@ if not edited_df_raw.empty:
             
             r_dict = {}
             for c_idx, sz in enumerate(active_sizes):
-                r_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", row.get(sz, 0)))
+                r_dict[sz] = safe_int_final(row.get(f"CỠ {c_idx+1}", 0))
                 
             row_ratios_total = sum(r_dict.values())
             
@@ -1141,6 +1155,109 @@ if not edited_df_raw.empty:
             item_pilot.update(r_dict)
             item_pilot["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
             final_snapshot_rows.append(item_pilot)
+
+# --- 3. BƯỚC 3: ĐỌC CẤU HÌNH RẢI SƠ ĐỒ CHÍNH TỪ DÒNG CHÍNH C01 TẠI BẢNG NHẬP LIỆU ---
+max_target_length = 11.46
+max_target_layers = 60
+
+if not edited_df_raw.empty:
+    chinh_rows_input = edited_df_raw[edited_df_raw["BÀN CẮT / TÊN SƠ ĐỒ"].str.contains("CHÍNH|C01", na=False, case=False)]
+    
+    if not chinh_rows_input.empty:
+        first_chinh = chinh_rows_input.iloc[0]
+        try: 
+            max_target_length = float(str(first_chinh["DÀI SƠ ĐỒ"]).replace(",", "").strip() or 11.46)
+        except: 
+            max_target_length = 11.46
+        
+        user_layers = safe_int_final(first_chinh["SƠ LỚP"])
+        max_target_layers = user_layers if user_layers > 1 else 60
+
+if max_target_length <= 0: max_target_length = 11.46
+
+# --- 4. BƯỚC 4: THUẬT TOÁN TOÁN HỌC CHIA TỶ LỆ VÀ RẢI SƠ ĐỒ CUỐN CHIẾU LIÊN HOÀN ---
+marker_counter, max_safety_loops = 1, 30
+while sum(current_order_balances.values()) > 0 and marker_counter <= max_safety_loops:
+    s_marker_name = f"CHÍNH C{str(marker_counter).zfill(2)}"
+    total_remaining_po_at_row = sum(current_order_balances.values())
+    
+    garments_per_marker = math.floor(max_target_length / consumption_in_yards) if (max_target_length > 0 and consumption_in_yards > 0) else 0
+    if garments_per_marker <= 0 or total_remaining_po_at_row <= 0: break
+        
+    base_values, remainders = {}, []
+    for sz in active_sizes:
+        if current_order_balances.get(sz, 0) <= 0:
+            base_values[sz] = 0
+            remainders.append({"size": sz, "remainder": 0.0})
+            continue
+        sz_remaining_qty = current_order_balances.get(sz, 0)
+        sz_ratio_pct = sz_remaining_qty / total_remaining_po_at_row if total_remaining_po_at_row > 0 else 0
+        theoretical_qty = garments_per_marker * sz_ratio_pct
+        base_qty = int(theoretical_qty)
+        base_values[sz] = base_qty
+        remainders.append({"size": sz, "remainder": theoretical_qty - base_qty})
+        
+    allocated_more = garments_per_marker - sum(base_values.values())
+    remainders.sort(key=lambda x: x["remainder"], reverse=True)
+    for k in range(min(max(0, allocated_more), len(remainders))):
+        if current_order_balances.get(remainders[k]["size"], 0) > 0:
+            base_values[remainders[k]["size"]] += 1
+            
+    r_dict = base_values
+    row_ratios_total = sum(r_dict.values())
+    
+    possible_layers_dynamic = []
+    for sz in active_sizes:
+        if r_dict.get(sz, 0) > 0:
+            max_layers_allowed_for_sz = math.floor(current_order_balances.get(sz, 0) / r_dict.get(sz, 0))
+            possible_layers_dynamic.append(max_layers_allowed_for_sz if max_layers_allowed_for_sz > 0 else 1)
+                
+    calculated_layers = min(possible_layers_dynamic) if possible_layers_dynamic else 1
+    row_layers = min(max_target_layers, calculated_layers)
+    
+    # Chặn vòng lặp vô hạn phòng vệ an toàn hệ thống
+    if row_layers <= 0 or row_ratios_total <= 0: 
+        break
+        
+    for sz in active_sizes:
+        current_order_balances[sz] = max(0, current_order_balances[sz] - (r_dict.get(sz, 0) * row_layers))
+        
+    item_auto = {
+        "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name, "SƠ LỚP": row_layers, "SỐ BÀN": 1,
+        "DÀI SƠ ĐỒ": round(row_ratios_total * consumption_in_yards, 2), 
+        "TỔNG SẢN LƯỢNG": row_ratios_total * row_layers
+    }
+    item_auto.update(r_dict)
+    item_auto["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+    final_snapshot_rows.append(item_auto)
+    
+    marker_counter += 1
+
+# --- 5. BƯỚC 5: KIỂM TRA DƯ THIẾU CUỐI ĐƠN - TỰ ĐỘNG VÉT SẠCH SỐ LẺ DƯ THỪA CÒN LẠI ---
+leftover_sum = sum(current_order_balances.values())
+if leftover_sum > 0:
+    s_marker_name = f"CHÍNH C{str(marker_counter).zfill(2)} (VÉT SẠCH ĐƠN HÀNG)"
+    vet_ratios = {}
+    total_vet_pants = 0
+    
+    for sz in active_sizes:
+        qty_left = current_order_balances.get(sz, 0)
+        vet_ratios[sz] = qty_left 
+        total_vet_pants += qty_left
+        current_order_balances[sz] = 0 
+        
+    item_vet = {
+        "BÀN CẮT / TÊN SƠ ĐỒ": s_marker_name, "SƠ LỚP": 1, "SỐ BÀN": 1,
+        "DÀI SƠ ĐỒ": round(total_vet_pants * consumption_in_yards, 2),
+        "TỔNG SẢN LƯỢNG": total_vet_pants
+    }
+    item_vet.update(vet_ratios)
+    item_vet["REMAINING_SNAPSHOT_AFTER"] = dict(current_order_balances)
+    final_snapshot_rows.append(item_vet)
+
+# 🎯 ĐỒNG BỘ KẾT QUẢ ĐẦU RA: Lưu mảng kết quả vào session_state để phiếu liên kết Tầng dưới nhận diện bung số liệu
+st.session_state["final_snapshot_rows_global"] = final_snapshot_rows
+
 # =============================================================================
 # TẦNG 3 - ĐOẠN 7a (PHẦN 2): TOÁN HỌC CUỐN CHIẾU LIÊN HOÀN VÀ VÉT SẠCH SỐ LẺ
 # =============================================================================
