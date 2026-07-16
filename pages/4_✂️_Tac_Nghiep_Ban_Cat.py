@@ -216,7 +216,7 @@ else:
 
 st.session_state["session_editor_snapshot"] = display_editor_rows
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR VÀ ĐỒNG BỘ REALTIME V24
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR KHÔNG KHÓA Ô & LIÊN KẾT 2 CHIỀU V26
 # =============================================================================
 
 def callback_sync_on_the_fly_final():
@@ -233,21 +233,24 @@ def callback_sync_on_the_fly_final():
                 if current_snapshot and r_idx_int < len(current_snapshot):
                     for col_header, new_val in change_dict.items():
                         if str(col_header).startswith("CỠ "):
-                            try:
+                            # 🎯 ĐÃ SỬA LỖI CÚ PHÁP: Hàng GIÀNG (0) và hàng SIZE (1) luôn mở khóa để lưu dạng chuỗi Text
+                            if r_idx_int in:
+                                current_snapshot[r_idx_int][col_header] = str(new_val).strip()
+                            else:
+                                # Các dòng sản lượng, sơ đồ phía dưới ép kiểu số nguyên
                                 c_num = int(str(col_header).replace("CỠ ", "").strip())
                                 val_clean = safe_int_final(new_val)
-                                current_snapshot[r_idx_int][f"CỠ {c_num}"] = val_clean
+                                current_snapshot[r_idx_int][col_header] = val_clean
                                 if active_sizes_cb and (c_num - 1) < len(active_sizes_cb):
                                     target_size_key = active_sizes_cb[c_num - 1]
                                     current_snapshot[r_idx_int][target_size_key] = val_clean
-                            except Exception: pass
                         elif col_header in ["SƠ LỚP", "SỐ BÀN"]:
                             current_snapshot[r_idx_int][col_header] = safe_int_final(new_val)
                         elif col_header == "DÀI SƠ ĐỒ":
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
             
-            # Tự động dò dòng SẢN LƯỢNG để cộng dồn tổng đơn hàng PO nếu không dùng file dán
+            # Tự động dò dòng SẢN LƯỢNG để cộng dồn tổng đơn hàng PO thời gian thực
             if len(current_snapshot) > 2:
                 sl_row_idx = None
                 for idx, row in enumerate(current_snapshot):
@@ -255,7 +258,8 @@ def callback_sync_on_the_fly_final():
                         sl_row_idx = idx
                         break
                 
-                if sl_row_idx is not None and not st.session_state.get("manual_parsed_breakdown"):
+                # Tự động cộng dồn sản lượng gõ tay/paste từ Excel lên ô số lượng đơn hàng tổng phía trên
+                if sl_row_idx is not None:
                     calc_total = 0
                     for c_idx in range(len(active_sizes_cb)):
                         calc_total += safe_int_final(current_snapshot[sl_row_idx].get(f"CỠ {c_idx+1}", 0))
@@ -268,7 +272,7 @@ def wrapper_callback_sync():
     callback_sync_on_the_fly_final()
     st.rerun()
 
-# Tính toán tự động cột TỔNG SẢN LƯỢNG động (Tỷ lệ * Sơ lớp * Số bàn) trước khi hiển thị lên màn hình
+# Tính toán tự động cột TỔNG SẢN LƯỢNG động trước khi hiển thị lên màn hình
 current_display_data = st.session_state.get("session_editor_snapshot", display_editor_rows)
 df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
 
@@ -286,13 +290,23 @@ for idx, row in df_editor_top_render.iterrows():
         else:
             df_editor_top_render.at[idx, "TỔNG SẢN LƯỢNG"] = total_pcs_row
 
-# Ép kiểu dữ liệu an toàn cho DataFrame
+# 🎯 ĐẢM BẢO GIỮ CHUẨN CHỮ "00" VÀ SIZE CHỮ TRONG MA TRẬN
 for col in clean_headers_top:
     if col in df_editor_top_render.columns:
-        if col.startswith("CỠ ") or col in ["SƠ LỚP", "SỐ BÀN"]:
+        if col in ["SƠ LỚP", "SỐ BÀN"]:
             df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(int)
         elif col == "DÀI SƠ ĐỒ":
             df_editor_top_render[col] = pd.to_numeric(df_editor_top_render[col], errors='coerce').fillna(0).astype(float)
+        elif col.startswith("CỠ "):
+            # Bảo vệ text chuỗi để không bị dính lỗi mất số 0 đầu
+            df_editor_top_render[col] = df_editor_top_render[col].astype(str).str.strip()
+            for r_idx in range(len(df_editor_top_render)):
+                if r_idx > 1:  # Các hàng sản lượng/sơ đồ đổi về dạng hiển thị số nguyên sạch
+                    try:
+                        val_clean = int(float(df_editor_top_render.at[r_idx, col].replace(",", "")))
+                        df_editor_top_render.at[r_idx, col] = val_clean
+                    except:
+                        df_editor_top_render.at[r_idx, col] = 0
 
 config_cot = {
     "BÀN CẮT / TÊN SƠ ĐỒ": st.column_config.TextColumn("📋 Tên Sơ Đồ", disabled=True, width="medium"), 
@@ -302,8 +316,9 @@ config_cot = {
     "DÀI SƠ ĐỒ": st.column_config.NumberColumn("📏 Dài Sơ Đồ (m)", disabled=False, min_value=0.0, step=0.05, format="%.2f")
 }
 
+# 🎯 TextColumn đa năng: Chấp nhận copy/paste cả chữ '00', số giàng và số lượng tự do
 for i, sz in enumerate(active_sizes):
-    config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False, min_value=0, step=1, format="%d")
+    config_cot[f"CỠ {i+1}"] = st.column_config.TextColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False)
 
 # Đẩy bảng tương tác gõ tay hoàn chỉnh ra màn hình chính thức
 st.data_editor(
