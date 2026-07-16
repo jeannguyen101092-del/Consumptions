@@ -739,7 +739,7 @@ if st.session_state.get("c2_normal_cut_btn", False):
         st.error(f"❌ Lỗi nghiêm trọng khi giải ma trận bàn cắt bằng AI: {str(e)}")
 
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6 THỐNG NHẤT: KHỐI SỐ HÓA MA TRẬN VÀ RENDER DATA EDITOR - FIX NAMERROR V15
+# TẦNG 3 - ĐOẠN 6 THỐNG NHẤT: KHỐI SỐ HÓA VÀ RENDER DATA EDITOR - ĐÃ SỬA TRIỆT ĐỂ LỖI INDERERROR V17
 # =============================================================================
 
 # --- 0. HÀM BỔ TRỢ ÉP KIỂU SỐ NGUYÊN AN TOÀN ---
@@ -802,19 +802,31 @@ giang_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 size_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 sl_top_row.update({"SƠ LỚP": 0, "SỐ BÀN": 0, "DÀI SƠ ĐỒ": 0.0})
 
-# --- 3. ĐỒNG BỘ HOẶC KHỞI TẠO MẢNG DÒNG TÁC NGHIỆP TAY (BẢNG TRÊN) ---
+# --- 3. ĐỒNG BỘ HOẶC KHỞI TẠO MẢNG DÒNG TÁC NGHIỆP TAY (BẢNG TRÊN) - ĐÃ SỬA LỖI CHÍ MẠNG ---
 snapshot = st.session_state.get("session_editor_snapshot")
-if snapshot and len(snapshot) > 0 and f"CỠ {len(active_sizes)}" in snapshot[0] if isinstance(snapshot[0], dict) else True:
+
+# Cơ chế phòng vệ bóc tách: Kiểm tra mảng snapshot lưu trữ có khớp cấu trúc ma trận cột hiện hành không
+is_snapshot_valid = False
+if snapshot and isinstance(snapshot, list) and len(snapshot) > 0:
+    first_item = snapshot[0]
+    if isinstance(first_item, dict) and f"CỠ {len(active_sizes)}" in first_item:
+        is_snapshot_valid = True
+
+if is_snapshot_valid:
     cleaned_snapshot = [giang_top_row, size_top_row, sl_top_row]
     filtered_snapshot = [r for r in snapshot if isinstance(r, dict) and r.get("BÀN CẮT / TÊN SƠ ĐỒ") not in ["GIÀNG", "SIZE", "SẢN LƯỢNG"]]
+    
     for row in filtered_snapshot:
         item_name = str(row.get("BÀN CẮT / TÊN SƠ ĐỒ", "")).upper().strip()
-        if not item_name: item_name = f"{fab_upper} {prefix_letter}{str(len(cleaned_snapshot)-3).zfill(2)}"
+        if not item_name: 
+            item_name = f"{fab_upper} {prefix_letter}{str(len(cleaned_snapshot)-3).zfill(2)}"
+            
         item_dict = {"BÀN CẮT / TÊN SƠ ĐỒ": item_name, "TỔNG SẢN LƯỢNG": 0}
         for c_idx, sz in enumerate(active_sizes):
             val_cell = row.get(f"CỠ {c_idx+1}", row.get(sz, 0))
             item_dict[f"CỠ {c_idx+1}"] = safe_int_final(val_cell)
             item_dict[sz] = safe_int_final(val_cell)
+            
         item_dict["SƠ LỚP"] = safe_int_final(row.get("SƠ LỚP", 0))
         item_dict["SỐ BÀN"] = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
         try: item_dict["DÀI SƠ ĐỒ"] = float(str(row.get("DÀI SƠ ĐỒ", 0.0)).replace(",", "") or 0.0)
@@ -822,8 +834,9 @@ if snapshot and len(snapshot) > 0 and f"CỠ {len(active_sizes)}" in snapshot[0]
         cleaned_snapshot.append(item_dict)
     display_editor_rows = cleaned_snapshot
 else:
-    # Nếu bộ đệm trống hoặc mới đổi mã, nạp sẵn 1 dòng PILOT và 5 dòng sơ đồ trống cho xưởng phối tay
+    # NẾU CHƯA CÓ FILE HOẶC MỚI ĐỔI FILE SBD: Tự động reset bộ đệm và sinh 5 dòng trống cho dải cỡ mới
     display_editor_rows = [giang_top_row, size_top_row, sl_top_row]
+    
     item_pilot = {"BÀN CẮT / TÊN SƠ ĐỒ": "PILOT", "TỔNG SẢN LƯỢNG": 0}
     for i in range(len(active_sizes)):
         item_pilot[f"CỠ {i+1}"] = 0
@@ -839,8 +852,7 @@ else:
         item_dict.update({"SƠ LỚP": 0, "SỐ BÀN": 1, "DÀI SƠ ĐỒ": 0.0})
         display_editor_rows.append(item_dict)
 
-if st.session_state.get("session_editor_snapshot") is None:
-    st.session_state["session_editor_snapshot"] = display_editor_rows
+st.session_state["session_editor_snapshot"] = display_editor_rows
 
 # --- 4. HÀM CALLBACK CẬP NHẬT DỮ LIỆU KHI NGƯỜI DÙNG SỬA Ô LƯỚI ---
 def callback_sync_on_the_fly_final():
@@ -887,7 +899,7 @@ def wrapper_callback_sync():
     callback_sync_on_the_fly_final()
     st.rerun()
 
-# --- 5. TIẾN HÀNH KẾT XUẤT ĐỒ HỌA BẢNG 1 LÊN MÀN HÌNH ---
+# --- 5. TIẾN HÀNH KẾT XUẤT ĐỒ HỌA BẢNG TRÊN MÀN HÌNH ---
 current_display_data = st.session_state.get("session_editor_snapshot", display_editor_rows)
 df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
 
@@ -917,6 +929,7 @@ st.data_editor(
     key="table_manual_data_editor_final_clean_v1", 
     on_change=wrapper_callback_sync
 )
+
 
 
 
