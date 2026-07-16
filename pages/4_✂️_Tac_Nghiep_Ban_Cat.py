@@ -848,7 +848,7 @@ else:
 if st.session_state.get("session_editor_snapshot") is None:
     st.session_state["session_editor_snapshot"] = display_editor_rows
 # =============================================================================
-# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR VÀ NÚT KÍCH HOẠT ENGINE V19
+# TẦNG 3 - ĐOẠN 6b: PHẦN 2 - RENDERING DATA EDITOR VÀ ĐỒNG BỘ TỔNG SẢN LƯỢNG V20
 # =============================================================================
 
 def callback_sync_on_the_fly_final():
@@ -878,19 +878,24 @@ def callback_sync_on_the_fly_final():
                             try: current_snapshot[r_idx_int][col_header] = float(str(new_val).strip() or 0.0)
                             except: current_snapshot[r_idx_int][col_header] = 0.0
             
+            # 🎯 VÁ LỖI HIỂN THỊ TỔNG SẢN LƯỢNG THỜI GIAN THỰC
             if len(current_snapshot) > 2:
                 sbd_store_ref = st.session_state.get("sbd_parsed_data", {})
                 if not isinstance(sbd_store_ref, dict): sbd_store_ref = {}
                 real_breakdown_ref = sbd_store_ref.get("size_breakdown", {}) if sbd_store_ref else {}
                 
-                # Nếu không dùng AI, tính tổng cộng dồn hàng số 2
+                # Nếu không có file AI hoặc file rỗng -> Ép tính tổng từ các ô gõ tay trên hàng SẢN LƯỢNG (Index 2)
                 if not real_breakdown_ref:
                     sl_row_mut = current_snapshot[2]
                     calc_total = 0
                     for c_idx in range(len(active_sizes_cb)):
                         calc_total += safe_int_final(sl_row_mut.get(f"CỠ {c_idx+1}", 0))
                     current_snapshot[2]["TỔNG SẢN LƯỢNG"] = calc_total
+                    
+                    # Đồng bộ ngược sản lượng tổng lên ô Số lượng đơn hàng (PO Pcs) ở phía trên màn hình luôn
+                    st.session_state["current_po_target_val"] = calc_total
                 else:
+                    # Nếu có file AI, ghim cứng số liệu file trả về
                     current_snapshot[2]["BÀN CẮT / TÊN SƠ ĐỒ"] = "SẢN LƯỢNG"
                     current_snapshot[2]["TỔNG SẢN LƯỢNG"] = safe_int_final(sbd_store_ref.get("total_quantity", 0))
                     for c_idx, sz in enumerate(active_sizes_cb):
@@ -906,6 +911,21 @@ def wrapper_callback_sync():
 
 current_display_data = st.session_state.get("session_editor_snapshot", display_editor_rows)
 df_editor_top_render = pd.DataFrame(current_display_data).reindex(columns=clean_headers_top).fillna(0)
+
+# 🎯 ĐÃ SỬA LUỒNG ÉP ĐỒNG BỘ: Tính toán lại cột TỔNG SẢN LƯỢNG động dựa trên tổng các cỡ của hàng đó
+for idx, row in df_editor_top_render.iterrows():
+    if row["BÀN CẮT / TÊN SƠ ĐỒ"] not in ["GIÀNG", "SIZE"]:
+        total_pcs_row = 0
+        for i in range(len(active_sizes)):
+            total_pcs_row += safe_int_final(row.get(f"CỠ {i+1}", 0))
+        # Nếu là dòng sơ đồ sản xuất (PILOT, CHÍNH C01...), tổng sẽ là (Tỷ lệ * Sơ lớp * Số bàn)
+        if row["BÀN CẮT / TÊN SƠ ĐỒ"] not in ["SẢN LƯỢNG"]:
+            layers_val = safe_int_final(row.get("SƠ LỚP", 0))
+            tables_val = max(1, safe_int_final(row.get("SỐ BÀN", 1)))
+            df_editor_top_render.at[idx, "TỔNG SẢN LƯỢNG"] = total_pcs_row * layers_val * tables_val
+        else:
+            # Nếu là dòng SẢN LƯỢNG, chỉ lấy tổng thuần của đơn hàng
+            df_editor_top_render.at[idx, "TỔNG SẢN LƯỢNG"] = total_pcs_row
 
 for col in clean_headers_top:
     if col in df_editor_top_render.columns:
@@ -925,7 +945,7 @@ config_cot = {
 for i, sz in enumerate(active_sizes):
     config_cot[f"CỠ {i+1}"] = st.column_config.NumberColumn(f"🔍 CỠ {i+1} ({sz})", disabled=False, min_value=0, step=1, format="%d")
 
-# Render Bảng 1
+# Render Bảng 1 ra màn hình chính thức
 st.data_editor(
     df_editor_top_render,
     column_config=config_cot,
@@ -935,10 +955,9 @@ st.data_editor(
     on_change=wrapper_callback_sync
 )
 
-# 🎯 ĐOẠN THÊM NÚT BẤM: KHÔI PHỤC NÚT KÍCH HOẠT ENGINE TÍNH TOÁN ĐIỀU ĐỘ
+# NÚT BẤM KÍCH HOẠT ENGINE TÍNH TOÁN
 st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🚀 KÍCH HOẠT THUẬT TOÁN TỰ ĐỘNG CHIA SƠ ĐỒ VÀ VẾT ĐƠN", type="primary", use_container_width=True, key="trigger_python_engine_solve_btn"):
-    # Bật cờ cho phép Tầng 3 - Đoạn 7a (Engine toán học) nhảy vào xử lý rải cuốn chiếu
     st.session_state["c2_normal_cut_btn"] = True
     st.success("🤖 Đang gọi công cụ Engine Python khấu trừ rải vải cuốn chiếu...")
     st.rerun()
