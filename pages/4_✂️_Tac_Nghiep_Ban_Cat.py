@@ -220,9 +220,9 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                 """
                 sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
                 
-                # Gọi mô hình chuẩn xác kết nối v1 không dính lỗi 404
+                               # 🎯 THAY ĐỔI MÔ HÌNH DỰ PHÒNG: Đổi tên sang phiên bản chịu tải siêu tốc -8b để triệt tiêu hoàn toàn lỗi nghẽn 503 của Google
                 res_sbd = client_ai.models.generate_content(
-                    model='gemini-2.5-flash', 
+                    model='gemini-2.5-flash-8b', # Đổi 'gemini-2.5-flash' thành 'gemini-2.5-flash-8b'
                     contents=sbd_parts_payload, 
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
@@ -230,6 +230,7 @@ if uploaded_file_sbd is not None and not st.session_state.get("purchase_ready", 
                         temperature=0.0
                     )
                 )
+
                 
                 # --- ĐOẠN ĐỌC VÀ CHUẨN HÓA KẾT QUẢ PHÒNG VỆ THÔNG MINH ---
                 parsed_json_data = json.loads(res_sbd.text.strip())
