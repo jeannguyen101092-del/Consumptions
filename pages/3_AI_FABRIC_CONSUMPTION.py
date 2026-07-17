@@ -667,6 +667,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         is_shirt_piece = any(k in piece_type_ai for k in ["BODY_FRONT", "BODY_BACK", "SLEEVE"]) or any(k in comp_name for k in ["BODY", "SLEEVE", "TAY"])
         if is_shirt_piece and geo_role == "MAJOR_PANEL":
             if pcs < 2: pcs = 2
+            if raw_w >= 18.0: raw_w = raw_w / 2.0
 
         if mat_class == "FABRIC":
             seamed_l = raw_l + (0.44 * 2.0)
@@ -722,8 +723,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         allocated_shape_fabric_factor = global_gross_fabric / global_total_shape_area
         major_ratio = major_shape_area / global_total_shape_area
     else:
+
         global_gross_fabric, actual_packing_density, allocated_shape_fabric_factor, major_ratio, total_matching_score = 0.0, 0.82, 0.0, 0.0, 0
-    display_data = []
+       display_data = []
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
@@ -747,6 +749,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             is_shirt_piece = any(k in piece_type_ai for k in ["BODY_FRONT", "BODY_BACK", "SLEEVE"]) or any(k in comp_name_raw for k in ["BODY", "SLEEVE", "TAY"])
             if is_shirt_piece and geo_role_raw == "MAJOR_PANEL":
                 if pcs < 2: pcs = 2
+                if raw_w >= 18.0: raw_w = raw_w / 2.0
 
             seamed_l = raw_l + (0.44 * 2.0)
             seamed_w = raw_w + (0.44 * 2.0)
