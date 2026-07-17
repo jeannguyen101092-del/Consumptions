@@ -582,9 +582,6 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
 
-# =====================================================================
-# 🟩 3a. INDUSTRIAL NESTING ENGINE: 2D SKYLINE PACKING SIMULATION
-# =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
@@ -604,7 +601,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     width_match = re.search(r"(khổ|khổ vải)\s*(\d+(\.\d+)?)", user_query_text)
     if width_match: fabric_width = float(width_match.group(2))
 
-    usable_width = fabric_width - 1.0  
+    usable_width = (fabric_width - 1.0) / (1 + weft_shrinkage / 100.0)
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
     
     if any(k in user_query_text for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
@@ -656,23 +653,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
         is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name for k in ["PANEL", "PANFI", "THÂN"])
         if is_trouser_piece and geo_role == "MAJOR_PANEL":
-            if pcs < 2: pcs = 2
+            pcs = 2
             if raw_l <= 35.0: raw_l = raw_l + 10.0  
             
         if mat_class == "FABRIC":
-            # Cộng đường may biên 0.44 inch xung quanh chi tiết rập phẳng
-            seamed_l = raw_l + (0.44 * 2.0)
-            seamed_w = raw_w + (0.44 * 2.0)
-            
-            # Nhân tỷ lệ co rút vải chính xác từ câu lệnh chat vào rập mẫu
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
+            adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
+            adj_w = raw_w + 0.88  
             
             meta = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role))
-            sf, convexity = meta["shape_factor"], meta["convexity"]
-            
             box_area_single = adj_l * adj_w
-            shape_area_single = box_area_single * sf
+            shape_area_single = box_area_single * meta["shape_factor"]
             
             global_total_bounding_area += (box_area_single * pcs)
             global_total_shape_area += (shape_area_single * pcs)
@@ -689,7 +679,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             if "BIAS" in comp_name or "THIÊN" in comp_name: bias_shape_area_weight += (shape_area_single * pcs)
 
             for _ in range(pcs):
-                flat_packing_queue.append({"l": adj_l, "w": adj_w, "sf": sf, "convexity": convexity, "role": geo_role, "type": piece_type_ai})
+                flat_packing_queue.append({"l": adj_l, "w": adj_w, "sf": meta["shape_factor"], "convexity": meta["convexity"], "role": geo_role, "type": piece_type_ai})
 
     if global_total_shape_area > 0 and flat_packing_queue:
         flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
@@ -719,9 +709,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         major_ratio = major_shape_area / global_total_shape_area
     else:
         global_gross_fabric, actual_packing_density, allocated_shape_fabric_factor, major_ratio, total_matching_score = 0.0, 0.82, 0.0, 0.0, 0
-    # =====================================================================
-    # 📐 3b. UI RENDER & PIECE ALLOCATION ENGINE
-    # =====================================================================
     display_data = []
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
@@ -734,22 +721,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
         if raw_l is None or raw_w is None or pcs is None:
-            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
+            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
             is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])
             if is_trouser_piece and geo_role_raw == "MAJOR_PANEL":
-                if pcs < 2: pcs = 2
+                pcs = 2
                 if raw_l <= 35.0: raw_l = raw_l + 10.0
 
-            # Đồng bộ cộng đường may 0.44 inch xung quanh chi tiết cho màn hình hiển thị
-            seamed_l = raw_l + (0.44 * 2.0)
-            seamed_w = raw_w + (0.44 * 2.0)
-            
-            # Đồng bộ nhân tỷ lệ co rút vải cho màn hình hiển thị
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
+            adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
+            adj_w = raw_w + 0.88  
             
             meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw))
             item_shape_area_total = adj_l * adj_w * meta_item["shape_factor"] * pcs
@@ -761,7 +743,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 gross_consumption = round((adj_l * adj_w * pcs / usable_width) / 36.0 / 0.78 * 1.04, 4)
                 calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {adj_l*adj_w*pcs:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
             else:
-                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập riêng cụm."
+                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách định biên độc lập riêng cụm."
 
         display_data.append({
             "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
@@ -788,7 +770,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.info(f"🚀 **FashionINSTA Packing Insights:** "
                 f"Diện tích rập thật: **{global_total_shape_area:.1f} in²** | Tỷ lệ thân lớn: **{major_ratio*100:.1f}%** | "
                 f"Tổng điểm ráp sọc: **{total_matching_score}** | Mật độ lồng ghép rập thực tế: **{actual_packing_density*100:.1f}%** "
-                f"| Tổng hao hụt hệ thống: **{constraint_penalty_multiplier:.3f}x**.")
+                f"| Khổ vải hữu dụng sau co rút: **{usable_width:.2f} inch** | Tổng hao hụt hệ thống: **{constraint_penalty_multiplier:.3f}x**.")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
