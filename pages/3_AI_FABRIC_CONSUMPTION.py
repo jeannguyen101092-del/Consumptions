@@ -587,19 +587,24 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
     extracted_size = str(bom_source.get("detected_base_size", "32")).upper().strip()
 
-    user_query_text = str(st.session_state.get("last_submitted_query", st.session_state.get("ie_workspace_static_chat_input_key", ""))).lower()
+    user_query_text = ""
+    if st.session_state.get("last_submitted_query"):
+        user_query_text = str(st.session_state.get("last_submitted_query")).lower()
+    elif st.session_state.get("ie_workspace_static_chat_input_key"):
+        user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key")).lower()
     
     warp_shrinkage, weft_shrinkage, fabric_width = 0.0, 0.0, 56.0  
     if bom_source.get("user_requested_fabric_width"): fabric_width = float(bom_source.get("user_requested_fabric_width"))
     if bom_source.get("user_requested_shrinkage_warp"): warp_shrinkage = float(bom_source.get("user_requested_shrinkage_warp"))
     if bom_source.get("user_requested_shrinkage_weft"): weft_shrinkage = float(bom_source.get("user_requested_shrinkage_weft"))
 
-    warp_match = re.search(r"(co rút dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text)
-    if warp_match: warp_shrinkage = float(warp_match.group(2))
-    weft_match = re.search(r"(co rút ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
-    if weft_match: weft_shrinkage = float(weft_match.group(2))
-    width_match = re.search(r"(khổ|khổ vải)\s*(\d+(\.\d+)?)", user_query_text)
-    if width_match: fabric_width = float(width_match.group(2))
+    if user_query_text:
+        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text)
+        if width_match: fabric_width = float(width_match.group(2))
+        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text)
+        if warp_match: warp_shrinkage = float(warp_match.group(2))
+        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
+        if weft_match: weft_shrinkage = float(weft_match.group(2))
 
     usable_width = (fabric_width - 1.0) / (1 + weft_shrinkage / 100.0)
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
@@ -651,11 +656,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if raw_l is None or raw_w is None or pcs is None: continue
         raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
         
-        # 🛠️ ĐÃ SỬA: Ép cứng số lượng quần 4 thân và hạ ngưỡng bảo vệ xuống 30.0 inch để chống lỗi nhân đôi chiều dài
         is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name for k in ["PANEL", "PANFI", "THÂN"])
         if is_trouser_piece and geo_role == "MAJOR_PANEL":
-            pcs = 2  # Khóa cứng cấu trúc đối xứng vế quần 4 thân
-            if raw_l <= 30.0: raw_l = raw_l + 10.0  # Chỉ bù nếu AI đọc ra thông số ngắn dưới 30 inch
+            pcs = 2
+            if raw_l <= 30.0: raw_l = raw_l + 10.0  
             
         if mat_class == "FABRIC":
             adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
@@ -722,7 +726,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
         if raw_l is None or raw_w is None or pcs is None:
-            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước đầu vào!"
+            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu thông số đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
@@ -769,9 +773,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
         st.info(f"🚀 **FashionINSTA Packing Insights:** "
-                f"Diện tích rập thật: **{global_total_shape_area:.1f} in²** | Tỷ lệ thân lớn: **{major_ratio*100:.1f}%** | "
-                f"Tổng điểm ráp sọc: **{total_matching_score}** | Mật độ lồng ghép rập thực tế: **{actual_packing_density*100:.1f}%** "
-                f"| Khổ vải hữu dụng sau co rút: **{usable_width:.2f} inch** | Tổng hao hụt hệ thống: **{constraint_penalty_multiplier:.3f}x**.")
+                f"Khổ vải nhập lệnh: **{fabric_width} inch** | "
+                f"Khổ vải hữu dụng sau co ngang ({weft_shrinkage}%): **{usable_width:.2f} inch** | "
+                f"Co rút dọc: **{warp_shrinkage}%** | "
+                f"Mật độ lồng ghép rập thực tế: **{actual_packing_density*100:.1f}%** | "
+                f"Tổng hao hụt hệ thống: **{constraint_penalty_multiplier:.3f}x**.")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
