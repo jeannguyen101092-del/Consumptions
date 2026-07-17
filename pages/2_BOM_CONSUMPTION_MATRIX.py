@@ -3228,197 +3228,265 @@ elif menu_selection == "🛒 Purchase Consumption":
         st.markdown("<hr style='border:1px solid #E2E8F0; margin-top:20px; margin-bottom:20px;'>", unsafe_allow_html=True)
           # =============================================================================
         # =============================================================================
-   import re
-import io
-
-cad_lengths_map = {}
-if cad_paste_zone.strip() and st.session_state.get("consumption_activated", False):
-    cad_lines = cad_paste_zone.strip().split("\n")
-    for line in cad_lines:
-        if not line.strip(): continue
-        match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
-        if match:
-            suffix_key = match.group(1)
-            try: cad_lengths_map[suffix_key] = float(match.group(2))
-            except ValueError: pass
-
-final_rows_display = []
-total_fabric_m = 0.0
-total_cut_pcs_sum = 0
-
-cutting_source = st.session_state.get("auto_cutting_results", [])
-
-for item in cutting_source:
-    display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
-    for sz in active_sizes: display_row[sz] = item["Ratios"].get(sz, 0)
+    # KỊCH BẢN CHỨC NĂNG 2: PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG HOÀN CHỈNH
+    # =============================================================================
+    elif menu_sub.startswith("✂️ CHỨC NĂNG 2"):
         
-    if item["Sơ đồ / Trạng thái"] != "Balance":
-        layers = item["Số lớp"]; tables = item["Số bàn"]; sp_sd = item["Số sp/SĐ"]
-        current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
-        m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state.get("consumption_activated", False) else 0.0
-        vail_can_m = m_len * layers * tables
-        total_fabric_m += vail_can_m
-        total_ratios_sum = sum(item["Ratios"].values())
-        pcs_cut = total_ratios_sum * layers * tables
-        total_cut_pcs_sum += pcs_cut
-        dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
-        
-        display_row["Số lớp"] = layers; display_row["Số bàn"] = tables; display_row["Dài sơ đồ"] = m_len
-        display_row["Số sp/SĐ"] = sp_sd; display_row["Đ.Mức SĐ"] = round(dm_sd, 3); display_row["Vải cần (M)"] = round(vail_can_m, 1)
-    else:
-        display_row["Số lớp"] = ""; display_row["Số bàn"] = ""; display_row["Dài sơ đồ"] = ""
-        display_row["Số sp/SĐ"] = ""; display_row["Đ.Mức SĐ"] = ""; display_row["Vải cần (M)"] = ""
-    final_rows_display.append(display_row)
-    
-if final_rows_display:
-    df_final_report = pd.DataFrame(final_rows_display)
-    total_fabric_yds_final = total_fabric_m * 1.09361
-    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
-    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v35"):
-        try:
-            payload_db = {
-                "style_name": str(style_id_input).strip().upper(), "po_quantity": int(po_qty_input),
-                "planned_cut_pcs": int(total_cut_pcs_sum), "consumption_value": str(round(final_avg_yield, 3)),
-                "total_material_value": str(round(total_fabric_yds_final, 2)), "cuttable_width_inch": float(cuttable_width_inch)
-            }
-            sb_instance = globals().get("supabase", globals().get("supabase_client", st.session_state.get("supabase")))
-            if sb_instance:
-                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
-                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
-        except Exception: pass
-    parsed_size_columns = []
-    is_don_khong_giang = True  # Biến cờ kiểm tra đơn hàng có Giàng hay không
-    
-    for col_name in active_sizes:
-        col_str = str(col_name).strip()
-        col_clean = col_str.replace("'", "").replace('"', '').replace("(", "").replace(")", "")
-        
-        if "giàng" in col_clean.lower() or any(char in col_clean.lower() for char in ["x", "-", "/"]):
-            parts = re.split(r'[\sXx\-\/:]+', col_clean)
-            parts_clean = [p.strip() for p in parts if p.strip().lower() not in ["giàng", "size", "sl", "siz"]]
+        # KIỂM TRA ĐIỀU KIỆN 1: Nếu CHƯA bốc tách file SBD thành công
+        if not st.session_state.get("purchase_ready"):
+            st.markdown("""<div class="card-container"><div class="card-section-header">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG</div>
+            <p style="color: #64748B; font-size:13px; margin:0;">Chức năng này không cần thông số rập mẫu. Chỉ cần tải lên File SBD số lượng để máy tính tự động chia tỷ lệ bàn cắt.</p></div>""", unsafe_allow_html=True)
             
-            if len(parts_clean) >= 2:
-                is_don_khong_giang = False
-                giang_val = parts_clean[1]
-                size_val = parts_clean[0]
-            elif len(parts_clean) == 1:
-                size_val = parts_clean[0]
-                giang_val = ""
-            else:
-                size_val = col_clean
-                giang_val = ""
-        else:
-            size_val = col_clean
-            giang_val = ""
+            file_sbd_c2 = st.file_uploader("📋 Chọn File SBD Số Lượng Đơn Hàng (Excel/PDF)", type=["xlsx", "xls", "pdf"], key="purchase_sbd_c2_unique")
             
-        if str(giang_val).lower() in ["none", "nan", ""]:
-            giang_val = ""
+            if file_sbd_c2:
+                trigger_btn_c2 = st.button("⚡ SỐ HÓA MA TRẬN SẢN LƯỢNG ĐƠN HÀNG TÁC NGHIỆP", type="primary", use_container_width=True, key="activate_sbd_only_ingest_c2")
+                if trigger_btn_c2:
+                    with st.spinner("🚀 Hệ thống đang phân tích mảng phân bổ size phẳng từ file SBD..."):
+                        if "get_secure_gemini_key" in globals(): 
+                            gemini_key = get_secure_gemini_key()
+                        else: 
+                            gemini_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                        
+                        client_ai = genai.Client(api_key=gemini_key)
+                        sbd_bytes = file_sbd_c2.getvalue()
+                        sbd_content_str = ""
+                        sbd_parts_payload = []
+                        
+                        if file_sbd_c2.name.lower().endswith(('.xlsx', '.xls')):
+                            try:
+                                excel_data = pd.read_excel(io.BytesIO(sbd_bytes), sheet_name=None)
+                                for sheet_name, df_sheet in excel_data.items():
+                                    sbd_content_str += f"\n--- SHEET: {sheet_name} ---\n{df_sheet.fillna('').to_csv(index=False)}"
+                            except Exception: 
+                                pass
+                        elif file_sbd_c2.name.lower().endswith('.pdf'):
+                            sbd_parts_payload.append(types.Part.from_bytes(data=sbd_bytes, mime_type='application/pdf'))
+                            
+                        sbd_prompt = "Extract style_id, total_quantity, and flat size mappings. Return raw JSON matching schema: {\"style_id\": \"string\", \"total_quantity\": integer, \"size_breakdown\": {\"Size Name\": integer}}"
+                        if sbd_content_str: 
+                            sbd_parts_payload.append(types.Part.from_text(text=sbd_content_str))
+                        sbd_parts_payload.append(types.Part.from_text(text=sbd_prompt))
+                        
+                        try:
+                            res_sbd = client_ai.models.generate_content(model='gemini-2.5-flash', contents=sbd_parts_payload, config=types.GenerateContentConfig(response_mime_type="application/json"))
+                            st.session_state["sbd_parsed_data"] = json.loads(res_sbd.text.strip().replace("```json", "").replace("```", "").strip())
+                        except Exception: 
+                            pass
+                        
+                        st.session_state["pur_tp_parsed_data"] = {"dummy_status": "skipped_not_needed"}
+                        st.session_state["purchase_ready"] = True
+                        st.rerun()
+        # KIỂM TRA ĐIỀU KIỆN 2: Nếu ĐÃ số hóa xong file SBD -> Màn hình tác nghiệp sản xuất
         else:
-            is_don_khong_giang = False
+            sbd_data_store = st.session_state.get("sbd_parsed_data", {})
+            
+            if isinstance(sbd_data_store, dict) and sbd_data_store:
+                detected_style_id = sbd_data_store.get("style_id", "UNKNOWN_STYLE")
+                detected_total_po = sbd_data_store.get("total_quantity", 0)
+                size_breakdown_main = sbd_data_store.get("size_breakdown", {})
 
-        parsed_size_columns.append({
-            "original": col_name, 
-            "size_num": int(size_val) if str(size_val).isdigit() else size_val, 
-            "giang_num": int(giang_val) if str(giang_val).isdigit() else giang_val
-        })
+                if st.button("🔄 Tải lên File SBD Khác", type="secondary"):
+                    st.session_state["purchase_ready"] = False
+                    st.session_state["sbd_parsed_data"] = {}
+                    st.rerun()
 
-    try:
-        parsed_size_columns.sort(key=lambda x: (
-            0 if x['giang_num'] == "" else int(x['giang_num']),
-            x['size_num'] if isinstance(x['size_num'], int) else str(x['size_num'])
-        ))
-    except Exception:
-        parsed_size_columns.sort(key=lambda x: (str(x['giang_num']), str(x['size_num'])))
+                # KHỐI KHAI BÁO THÔNG SỐ ĐẦU VÀO CỦA MÃ HÀNG HIỆN HÀNH
+                st.markdown("#### 📋 KHAI BÁO THÔNG SỐ TÁC NGHIỆP ĐƠN HÀNG VÀ BÀN VẢI MULTI-INSEAM")
+                input_col1, input_col2, input_col3 = st.columns(3)
+                with input_col1: 
+                    style_id_input = st.text_input("🏷️ Tên mã hàng (Style ID):", value=str(detected_style_id).strip().upper())
+                with input_col2: 
+                    po_qty_input = st.number_input("📦 Số lượng đơn hàng (PO Pcs):", value=int(detected_total_po), step=100)
+                with input_col3: 
+                    consumption_input = st.number_input("🎯 Định mức tài liệu đề xuất (Yds/Pcs):", value=1.140, step=0.001, format="%.3f")
 
-    ordered_size_keys = [item["original"] for item in parsed_size_columns]
-    other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
-    
-    df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-    web_multi_tuples = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
-    
-    for item in parsed_size_columns:
-        orig_key = item['original']
-        po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-        
-        # Tạo đúng 3 lớp giá trị riêng biệt từ trên xuống dưới
-        t0_giang = f"GIÀNG: {item['giang_num']}" if str(item['giang_num']) != "" else "GIÀNG"
-        t1_size = f"{item['size_num']}"
-        t2_san_luong = f"{po_qty_val}"
-        
-        web_multi_tuples.append((t0_giang, t1_size, t2_san_luong))
-        
-    for col_name in other_tech_keys:
-        # Gom nhóm 6 cột phụ kỹ thuật về chung nhãn ở Tầng 0 và Tầng 1
-        web_multi_tuples.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
-        
-    # Chuyển đổi tiêu đề cột của DataFrame sang MultiIndex
-    df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_tuples)
-    # Hàm tô màu nền cho các ô có dữ liệu tỷ lệ sơ đồ
-    def highlight_ratios_and_headers(x):
-        color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-        for r in range(len(x)):
-            if x.iloc[r, 0] == "Balance": continue
-            for c in range(1, len(x.columns)):
-                val = x.iloc[r, c]
-                if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
-                    color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
-        return color_df
+                input_col4, input_col6 = st.columns(2)
+                with input_col4: 
+                    max_table_length = st.number_input("📏 Chiều gia tối đa bàn vải (Meters):", value=12.00, step=1.0)
+                with input_col6: 
+                    cuttable_width_inch = st.number_input("📐 KHỔ CẮT (Khổ vải đi sơ đồ - Inches):", value=56.00, step=0.50, format="%.2f")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("<p style='font-weight:700; font-size:13px; color:#1E3A8A;'>📥 KHU VỰC DÁN DỮ LIỆU CAD (TÊN SƠ ĐỒ & DÀI SƠ ĐỒ COPY TỪ EXCEL)</p>", unsafe_allow_html=True)
+                
+                cad_paste_zone = st.text_area(
+                    "Sau khi xem cấu trúc phối size phía dưới, hãy đi sơ đồ trên máy CAD rồi copy dán kết quả [Tên sơ đồ + Chiều dài mét] vào đây:",
+                    placeholder="Ví dụ dán bảng từ Excel CAD:\n5844-c01 1.05\n5844-c02 10", 
+                    height=90, 
+                    key="cad_bulk_paste_c2"
+                )
+                st.markdown("<p style='font-weight:700; font-size:13px; color:#065F46;'>📊 MA TRẬN SẢN LƯỢNG ĐƠN HÀNG (SIZE BREAKDOWN TỪ SBD)</p>", unsafe_allow_html=True)
+                if size_breakdown_main:
+                    df_size = pd.DataFrame([size_breakdown_main])
+                    st.dataframe(df_size, use_container_width=True, hide_index=True)
+                
+                # --- ĐỒNG BỘ TRUY VẤN TÌM KIẾM SUPABASE ---
+                st.markdown("<p style='font-weight:700; font-size:13px; color:#1E3A8A; margin-top:15px;'>🔍 TRUNG TÂM TRA CỨU DATABASE SUPABASE</p>", unsafe_allow_html=True)
+                db_search_query = st.text_input("Tìm kiếm mã hàng đã tác nghiệp trên hệ thống Supabase:", placeholder="Nhập Style Name để gọi lại thông số cũ...", key="subapat_db_search")
+                if db_search_query.strip():
+                    try:
+                        search_res = st.session_state.supabase.table("tac_nghiep_ban_cat").select("*").eq("style_name", db_search_query.strip().upper()).execute()
+                        if search_res.data:
+                            st.success(f"📌 Tìm thấy dữ liệu lịch sử của mã hàng {db_search_query.strip().upper()} trên Supabase!")
+                            matched_row = search_res.data
+                            st.info(f"Sản lượng cũ: {matched_row.get('po_quantity')} Pcs | Định mức cũ: {matched_row.get('consumption_value')} Yds")
+                    except Exception: pass
 
-    styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
+                active_sizes = [str(k) for k, v in size_breakdown_main.items() if int(v) > 0]
+                if not active_sizes: active_sizes = ["S", "M", "L", "XL", "2XL", "3XL"]
+                detected_inseam = sbd_data_store.get("inseam_group", "None")
+                
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    trigger_auto_cutting = st.button("⚡ 1. KÍCH HOẠT TÍNH TÁC NGHIỆP SƠ ĐỒ (THUẬT TOÁN THUẦN)", type="primary", use_container_width=True, key="c2_normal_cut_btn")
+                with btn_col2:
+                    trigger_consumption = st.button("📊 2. KÍCH HOẠT TÍNH ĐỊNH MỨC (KHI ĐÃ CÓ CAD)", type="secondary", use_container_width=True, key="c2_normal_cons_btn")
 
-    # Tiêm mã CSS khóa chặt dải màu 3 tầng tiêu đề
-    st.markdown("""
-        <style>
-            /* TẦNG 0: Thông tin GIÀNG - Màu Xanh Dương Nhạt */
-            th.col_heading.level0 {
-                background-color: #E0F2FE !important;
-                color: #0369A1 !important;
-                font-weight: 700 !important;
-                font-size: 11px !important;
-                text-align: center !important;
-                border: 1px solid #93C5FD !important;
-            }
-            /* TẦNG 1: Kích cỡ SIZE - Màu Trắng Xám sạch sẽ */
-            th.col_heading.level1 {
-                background-color: #F8FAFC !important;
-                color: #334155 !important;
-                font-weight: 700 !important;
-                font-size: 12px !important;
-                text-align: center !important;
-                border: 1px solid #CBD5E1 !important;
-            }
-            /* TẦNG 2: Khối lượng SẢN LƯỢNG PO - Màu Xanh Dương Đậm */
-            th.col_heading.level2 {
-                background-color: #BAE6FD !important;
-                color: #0369A1 !important;
-                font-weight: 700 !important;
-                font-size: 11px !important;
-                text-align: center !important;
-                border: 1px solid #7DD3FC !important;
-            }
-            /* ĐUÔI BẢNG: Nhóm cột Thông số tác nghiệp - Màu Xanh Mint */
-            th.col_heading[id*="THÔNG_SỐ_TÁC_NGHIỆP"] {
-                background-color: #DCFCE7 !important;
-                color: #166534 !important;
-                font-weight: 700 !important;
-                border: 1px solid #86EFAC !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
+                if "auto_cutting_results" not in st.session_state: st.session_state["auto_cutting_results"] = None
+                if "consumption_activated" not in st.session_state: st.session_state["consumption_activated"] = False
+                # THUẬT TOÁN THUẦN TỰ ĐỘNG BẺ NGẮN SƠ ĐỒ ĐỂ TĂNG SỐ LỚP VẢI KÉO DÀI
+                if trigger_auto_cutting:
+                    st.session_state["consumption_activated"] = False
+                    with st.spinner("🚀 Hệ thống đang phân bổ sơ đồ hình tháp..."):
+                        import math
+                        cons_meters = consumption_input / 1.09361
+                        max_pcs_per_marker = math.floor(max_table_length / (cons_meters if cons_meters > 0 else 1.0))
+                        if max_pcs_per_marker <= 0: max_pcs_per_marker = 6
+                        
+                        balance_tracker = {sz: int(size_breakdown_main.get(sz, 0)) for sz in active_sizes}
+                        calculated_steps = []
+                        step_idx = 1
+                        max_loops = 25
+                        
+                        while sum(balance_tracker.values()) > 0 and step_idx <= max_loops:
+                            marker_id = f"c{step_idx:02d}"
+                            if step_idx == 1: target_layers = 150
+                            elif step_idx == 2: target_layers = 120
+                            elif step_idx == 3: target_layers = 90
+                            else: target_layers = 60
+                            
+                            sorted_sizes = sorted(balance_tracker.items(), key=lambda x: x, reverse=True)
+                            current_ratios = {sz: 0 for sz in active_sizes}
+                            assigned_pcs = 0
+                            
+                            max_remaining_bal = max(balance_tracker.values()) if balance_tracker.values() else 0
+                            effective_max_pcs = max_pcs_per_marker
+                            
+                            if max_remaining_bal < target_layers and max_remaining_bal > 0:
+                                # Giải quyết lỗi 5 lớp: Thu ngắn sơ đồ từ 11 xuống 1-2 áo để kéo số lớp lên dày dặn
+                                effective_max_pcs = min(2, max_pcs_per_marker)
+                                target_layers = max_remaining_bal
+                            
+                            for sz, bal in sorted_sizes:
+                                if bal <= 0 or assigned_pcs >= effective_max_pcs: continue
+                                needed_ratio = math.floor(bal / target_layers)
+                                if needed_ratio > 4: needed_ratio = 4
+                                if needed_ratio == 0 and bal > (target_layers / 2): needed_ratio = 1
+                                if assigned_pcs + needed_ratio > effective_max_pcs: needed_ratio = effective_max_pcs - assigned_pcs
+                                    
+                                current_ratios[sz] = needed_ratio
+                                assigned_pcs += needed_ratio
+                            
+                            if assigned_pcs == 0:
+                                effective_max_pcs = min(2, max_pcs_per_marker)
+                                for sz, bal in sorted_sizes:
+                                    if bal > 0 and assigned_pcs < effective_max_pcs:
+                                        current_ratios[sz] = 1
+                                        assigned_pcs += 1
+                                        
+                            layer_candidates = []
+                            for sz in active_sizes:
+                                rat = current_ratios[sz]
+                                if rat > 0: layer_candidates.append(math.ceil(balance_tracker[sz] / rat))
+                            
+                            computed_layers = min(layer_candidates) if layer_candidates else target_layers
+                            if computed_layers <= 0: computed_layers = 1
+                            
+                            if computed_layers > 150:
+                                num_tables = math.ceil(computed_layers / 120)
+                                computed_layers = math.ceil(computed_layers / num_tables)
+                            else: num_tables = 1
+                                
+                            calculated_steps.append({
+                                "Sơ đồ / Trạng thái": marker_id, "Số lớp": computed_layers, "Số bàn": num_tables,
+                                "Dài sơ đồ": 0.0, "Số sp/SĐ": assigned_pcs, "Ratios": current_ratios
+                            })
+                            
+                            for sz in active_sizes:
+                                total_cut = current_ratios[sz] * computed_layers * num_tables
+                                balance_tracker[sz] = max(0, balance_tracker[sz] - total_cut)
+                                
+                            calculated_steps.append({
+                                "Sơ đồ / Trạng thái": "Balance", "Số lớp": "", "Số bàn": "", "Dài sơ đồ": "", "Số sp/SĐ": "",
+                                "Ratios": {sz: balance_tracker[sz] for sz in active_sizes}
+                            })
+                            step_idx += 1
+                        st.session_state["auto_cutting_results"] = calculated_steps
 
-    st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-    st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
-    
-    st.markdown("---")
-    m_col1, m_col2, m_col3 = st.columns(3)
-    with m_col1: st.metric("Tổng vải tiêu thụ tự động", f"{total_fabric_m:,.1f} Mét")
-    with m_col2: st.metric("Định mức trung bình (Đ.Mức TB)", f"{final_avg_yield:.3f} Yds/Pcs" if st.session_state.get("consumption_activated", False) else "0.000 Yds/Pcs")
-    with m_col3:
-        variance = final_avg_yield - consumption_input if total_fabric_m > 0 and st.session_state.get("consumption_activated", False) else 0.0
-        st.metric("Chênh lệch so với tài liệu", f"{variance:+.3f}" if st.session_state.get("consumption_activated", False) else "0.000", delta_color="inverse" if variance > 0 else "normal")
-else:
-    st.info("💡 Quy trình: Bấm nút 1 để tính tác nghiệp sơ đồ -> Điền độ dài CAD -> Bấm nút 2 để kích hoạt nhảy số định mức.")
-                    # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (FIX CÚ PHÁP)
+                if trigger_consumption:
+                    st.session_state["consumption_activated"] = True
+                    st.rerun()
+                # BƯỚC 3: LIÊN KẾT ĐỐI CHIẾU DỮ LIỆU Ô CAD, ĐẨY SUPABASE & KẾT XUẤT EXCEL ĐÓNG KHUNG CHUẨN
+                if st.session_state.get("auto_cutting_results") is not None:
+                    import re
+                    import io
+                    
+                    cad_lengths_map = {}
+                    if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
+                        cad_lines = cad_paste_zone.strip().split("\n")
+                        for line in cad_lines:
+                            if not line.strip(): continue
+                            match = re.search(r'(c\d{2})[\s\t]+([0-9]*\.?[0-9]+)', line.lower().strip())
+                            if match:
+                                suffix_key = match.group(1)
+                                try: cad_lengths_map[suffix_key] = float(match.group(2))
+                                except ValueError: pass
+
+                    final_rows_display = []
+                    total_fabric_m = 0.0
+                    total_cut_pcs_sum = 0
+                    
+                    for item in st.session_state["auto_cutting_results"]:
+                        display_row = {"SIZE": item["Sơ đồ / Trạng thái"]}
+                        for sz in active_sizes: display_row[sz] = item["Ratios"].get(sz, 0)
+                            
+                        if item["Sơ đồ / Trạng thái"] != "Balance":
+                            layers = item["Số lớp"]; tables = item["Số bàn"]; sp_sd = item["Số sp/SĐ"]
+                            current_marker_id = item["Sơ đồ / Trạng thái"].lower().strip()
+                            m_len = cad_lengths_map.get(current_marker_id, 0.0) if st.session_state["consumption_activated"] else 0.0
+                            vail_can_m = m_len * layers * tables
+                            total_fabric_m += vail_can_m
+                            total_ratios_sum = sum(item["Ratios"].values())
+                            pcs_cut = total_ratios_sum * layers * tables
+                            total_cut_pcs_sum += pcs_cut
+                            dm_sd = (vail_can_m * 1.09361) / pcs_cut if pcs_cut > 0 else 0.0
+                            
+                            display_row["Số lớp"] = layers; display_row["Số bàn"] = tables; display_row["Dài sơ đồ"] = m_len
+                            display_row["Số sp/SĐ"] = sp_sd; display_row["Đ.Mức SĐ"] = round(dm_sd, 3); display_row["Vải cần (M)"] = round(vail_can_m, 1)
+                        else:
+                            display_row["Số lớp"] = ""; display_row["Số bàn"] = ""; display_row["Dài sơ đồ"] = ""
+                            display_row["Số sp/SĐ"] = ""; display_row["Đ.Mức SĐ"] = ""; display_row["Vải cần (M)"] = ""
+                        final_rows_display.append(display_row)
+                        
+                    df_final_report = pd.DataFrame(final_rows_display)
+                    total_fabric_yds_final = total_fabric_m * 1.09361
+                    final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
+                    
+                    if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True, key="sb_sync_btn_final_c2_v35"):
+                        try:
+                            payload_db = {
+                                "style_name": str(style_id_input).strip().upper(), "po_quantity": int(po_qty_input),
+                                "planned_cut_pcs": int(total_cut_pcs_sum), "consumption_value": str(round(final_avg_yield, 3)),
+                                "total_material_value": str(round(total_fabric_yds_final, 2)), "cuttable_width_inch": float(cuttable_width_inch)
+                            }
+                            sb_instance = globals().get("supabase", globals().get("supabase_client", st.session_state.get("supabase")))
+                            if sb_instance:
+                                sb_instance.table("tac_nghiep_ban_cat").insert(payload_db).execute()
+                                st.success(f"🎉 Đã đồng bộ dữ liệu mã hàng {style_id_input} lên hệ thống Supabase thành công!")
+                        except Exception: pass
+
+                                         # 🎯 THUẬT TOÁN BẺ CHUỖI ÉP LẤY SỐ SIZE VÀ LÀM SẠCH GIAO DIỆN TUYỆT ĐỐI (FIX CÚ PHÁP)
                     parsed_size_columns = []
                     is_don_khong_giang = True  # Biến cờ kiểm tra đơn hàng có Giàng hay không
                     
@@ -3472,83 +3540,24 @@ else:
                     other_tech_keys = ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
                     
                     df_final_report = df_final_report[["SIZE"] + ordered_size_keys + other_tech_keys]
-                    # --- XỬ LÝ KHỞI TẠO TIÊU ĐỀ 3 TẦNG ĐỘC LẬP CHO GIAO DIỆN HIỂN THỊ WEB ---
-                    web_multi_tuples = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
-                    
+
+                    # --- XỬ LÝ ĐỔI TÊN TIÊU ĐỀ ĐỂ HIỂN THỊ LÊN MÀN HÌNH STREAMLIT SẠCH ĐẸP ---
+                    streamlit_cols = ["SẢN LƯỢNG"]
                     for item in parsed_size_columns:
-                        orig_key = item['original']
-                        po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                        
-                        # Phân rã thông tin thành đúng 3 tầng: Giàng (Level 0) -> Size (Level 1) -> Sản lượng (Level 2)
-                        t0_giang = f"GIÀNG: {item['giang_num']}" if str(item['giang_num']) != "" else "GIÀNG"
-                        t1_size = f"{item['size_num']}"
-                        t2_san_luong = f"{po_qty_val}"
-                        
-                        web_multi_tuples.append((t0_giang, t1_size, t2_san_luong))
-                        
+                        if is_don_khong_giang:
+                            # 🎯 ĐƠN KHÔNG GIÀNG: Chỉ hiển thị duy nhất tên Size sạch (SMALL, MEDIUM...) trên web
+                            streamlit_cols.append(str(item['size_num']))
+                        else:
+                            # Đơn có nhiều giàng: Hiển thị dạng "Giàng / Size" cho rõ ràng
+                            streamlit_cols.append(f"{item['giang_num']} / {item['size_num']}")
+                            
                     for col_name in other_tech_keys:
-                        # Gom nhóm cố định cho 6 cột thông số kỹ thuật phụ ở biên phải bảng
-                        web_multi_tuples.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
+                        streamlit_cols.append(col_name)
                         
-                    # Ép cấu trúc chỉ mục đa tầng Pandas MultiIndex trực tiếp vào DataFrame hiển thị web
-                    df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_tuples)
+                    # Gán tiêu đề 1 tầng sạch sẽ cho giao diện hiển thị web Streamlit
+                    df_final_report.columns = streamlit_cols
 
-                    # Thuật toán tô vàng cho các ô có số lượng tỷ lệ nhảy sơ đồ
-                    def highlight_ratios_and_headers(x):
-                        color_df = pd.DataFrame('', index=x.index, columns=x.columns)
-                        for r in range(len(x)):
-                            if x.iloc[r, 0] == "Balance": continue
-                            for c in range(1, len(x.columns)):
-                                val = x.iloc[r, c]
-                                if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
-                                    color_df.iloc[r, c] = 'background-color: #FEF08A; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
-                        return color_df
-
-                    styled_df_report = df_final_report.style.apply(highlight_ratios_and_headers, axis=None)
-
-                    # 🎯 KHÓA MÀU CSS CHUẨN ĐỘC LẬP THEO TỪNG TẦNG TIÊU ĐỀ
-                    st.markdown("""
-                        <style>
-                            /* TẦNG 0: Hàng chứa thông tin GIÀNG nhuộm màu Xanh Dương Nhạt bứt phá */
-                            th.col_heading.level0 {
-                                background-color: #E0F2FE !important;
-                                color: #0369A1 !important;
-                                font-weight: 700 !important;
-                                font-size: 11px !important;
-                                text-align: center !important;
-                                border: 1px solid #93C5FD !important;
-                            }
-                            /* TẦNG 1: Hàng số SIZE trần giữ màu trắng xám nền sạch sẽ */
-                            th.col_heading.level1 {
-                                background-color: #F8FAFC !important;
-                                color: #334155 !important;
-                                font-weight: 700 !important;
-                                font-size: 12px !important;
-                                text-align: center !important;
-                                border: 1px solid #CBD5E1 !important;
-                            }
-                            /* TẦNG 2: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm nổi bật */
-                            th.col_heading.level2 {
-                                background-color: #BAE6FD !important;
-                                color: #0369A1 !important;
-                                font-weight: 700 !important;
-                                font-size: 11px !important;
-                                text-align: center !important;
-                                border: 1px solid #7DD3FC !important;
-                            }
-                            /* ĐUÔI BẢNG: Ép nhóm 6 cột phụ thông số kỹ thuật sang màu Xanh Mint đồng bộ */
-                            th.col_heading[id*="THÔNG_SỐ_TÁC_NGHIỆP"] {
-                                background-color: #DCFCE7 !important;
-                                color: #166534 !important;
-                                font-weight: 700 !important;
-                                border: 1px solid #86EFAC !important;
-                            }
-                        </style>
-                    """, unsafe_allow_html=True)
-
-                    st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
-                    st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
-                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI (GIỮ NGUYÊN CAO CẤP) ---
+                    # --- KHỐI KẾT XUẤT FILE EXCEL MỸ THUẬT THƯƠNG MẠI (GIỮ NGUYÊN 2 TẦNG CHUẨN) ---
                     try:
                         buffer = io.BytesIO()
                         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -3572,9 +3581,9 @@ else:
                             for col_name in other_tech_keys:
                                 excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, ""))
                                 
-                            # Sao chép và gán lại MultiIndex cho bản xuất Excel của bạn
                             df_excel_export = df_final_report.copy()
                             df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
+
                             df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=True, startrow=10)
                             
                             worksheet = writer.sheets["BaoCao_TacNghiep"]
@@ -3585,9 +3594,7 @@ else:
                             for r_idx in range(11, worksheet.max_row + 1):
                                 is_balance_row = (worksheet.cell(row=r_idx, column=2).value == "Balance")
                                 for c_idx in range(1, worksheet.max_column + 1):
-                                    cell = worksheet.cell(row=r_idx, column=c_idx)
-                                    cell.border = factory_border
-                                    cell.alignment = align_center
+                                    cell = worksheet.cell(row=r_idx, column=c_idx); cell.border = factory_border; cell.alignment = align_center
                                     if is_balance_row:
                                         cell.fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
                                         cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
@@ -3600,33 +3607,18 @@ else:
                                     if cell_val: max_len = max(max_len, len(str(cell_val)))
                                 worksheet.column_dimensions[col_letter].width = max(max_len + 5, 12)
                         
-                        st.download_button(
-                            label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", 
-                            data=buffer.getvalue(), 
-                            file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", 
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                            use_container_width=True, 
-                            key="excel_download_btn_final_v105"
-                        )
+                        st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="excel_download_btn_final_v105")
                     except Exception: pass
-                    # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
+                                        # 🎯 DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ: Đã điền nhãn đầy đủ cho đuôi bảng để không mất chữ
                     web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
                     for item in parsed_size_columns:
                         orig_key = item['original']
                         po_qty_val = int(size_breakdown_main.get(orig_key, 0))
-                        
-                        # Định hình chuẩn xác cấu trúc 3 tầng độc lập không lồng ghép chữ
-                        t0_giang = f"GIÀNG: {item['giang_num']}" if str(item['giang_num']) != "" else "GIÀNG"
-                        t1_size = f"{item['size_num']}"
-                        t2_san_luong = f"{po_qty_val}"
-                        
-                        web_multi_cols.append((t0_giang, t1_size, t2_san_luong))
-                        
+                        web_multi_cols.append((f"GIÀNG: {item['giang_num']}", f"{item['size_num']}", f"{po_qty_val}"))
                     for col_name in other_tech_keys:
-                        # Gom toàn bộ nhóm cột kỹ thuật về chung một cụm ở biên phải bảng
                         web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
-                        
                     df_final_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
+
                     # Thuật toán tô vàng cho các ô có số lượng tỷ lệ nhảy sơ đồ
                     def highlight_ratios_and_headers(x):
                         color_df = pd.DataFrame('', index=x.index, columns=x.columns)
@@ -3643,13 +3635,8 @@ else:
                     # 🎯 KHÓA MÀU CSS CHUẨN ĐỘC LẬP: Định danh chính xác theo số tầng Level để ép trình duyệt đổ màu 100%
                     st.markdown("""
                         <style>
-                            /* Bắt bộ chọn container chứa bảng để đè màu không bị ảnh hưởng bởi giao diện mặc định */
-                            [data-testid="stDataFrame"] {
-                                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                            }
-                            
                             /* TẦNG 1: Hàng chứa thông tin GIÀNG nhuộm màu Xanh Dương Nhạt bứt phá */
-                            [data-testid="stDataFrame"] th.col_heading.level0 {
+                            th.col_heading.level0 {
                                 background-color: #E0F2FE !important;
                                 color: #0369A1 !important;
                                 font-weight: 700 !important;
@@ -3657,9 +3644,8 @@ else:
                                 text-align: center !important;
                                 border: 1px solid #93C5FD !important;
                             }
-                            
                             /* TẦNG 2: Hàng số SIZE trần giữ màu trắng xám nền sạch sẽ */
-                            [data-testid="stDataFrame"] th.col_heading.level1 {
+                            th.col_heading.level1 {
                                 background-color: #F8FAFC !important;
                                 color: #334155 !important;
                                 font-weight: 700 !important;
@@ -3667,19 +3653,18 @@ else:
                                 text-align: center !important;
                                 border: 1px solid #CBD5E1 !important;
                             }
-                            
-                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Vàng Chanh sáng bóng giống ảnh mẫu thực tế */
-                            [data-testid="stDataFrame"] th.col_heading.level2 {
-                                background-color: #FEF08A !important;
-                                color: #854D0E !important;
+                            /* TẦNG 3: Hàng SẢN LƯỢNG đơn hàng nhuộm màu Xanh Dương Đậm nổi bật hơn */
+                            th.col_heading.level2 {
+                                background-color: #BAE6FD !important;
+                                color: #0369A1 !important;
                                 font-weight: 700 !important;
                                 font-size: 11px !important;
                                 text-align: center !important;
-                                border: 1px solid #FDE047 !important;
+                                border: 1px solid #7DD3FC !important;
                             }
                             
-                            /* ĐUÔI BẢNG: Quét nhóm cột Thông số tác nghiệp ép nhuộm màu Xanh Mint đồng bộ */
-                            [data-testid="stDataFrame"] th.col_heading[id*="THÔNG_SỐ_TÁC_NGHIỆP"] {
+                            /* ĐUÔI BẢNG: Quét tọa độ 6 cột cuối cùng (Thông số tác nghiệp) ép nhuộm màu Xanh Mint đồng bộ */
+                            th.col_heading.blank {
                                 background-color: #DCFCE7 !important;
                                 color: #166534 !important;
                                 font-weight: 700 !important;
@@ -3687,6 +3672,7 @@ else:
                             }
                         </style>
                     """, unsafe_allow_html=True)
+
                     st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>📊 BẢNG THEO DÕI TÁC NGHIỆP & CÂN ĐỐI ĐƠN HÀNG MULTI-INSEAM</p>", unsafe_allow_html=True)
                     st.dataframe(styled_df_report, use_container_width=True, hide_index=True)
                     
