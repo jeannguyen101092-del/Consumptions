@@ -661,6 +661,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             pcs = 2
             if raw_l <= 30.0: raw_l = raw_l + 10.0  
             
+        is_shirt_piece = any(k in piece_type_ai for k in ["BODY_FRONT", "BODY_BACK", "SLEEVE"]) or any(k in comp_name for k in ["BODY", "SLEEVE", "TAY"])
+        if is_shirt_piece and geo_role == "MAJOR_PANEL":
+            if pcs < 2: pcs = 2
+
         if mat_class == "FABRIC":
             adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w + 0.88  
@@ -726,7 +730,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
         if raw_l is None or raw_w is None or pcs is None:
-            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu thông số đầu vào!"
+            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
@@ -734,6 +738,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             if is_trouser_piece and geo_role_raw == "MAJOR_PANEL":
                 pcs = 2
                 if raw_l <= 30.0: raw_l = raw_l + 10.0
+
+            is_shirt_piece = any(k in piece_type_ai for k in ["BODY_FRONT", "BODY_BACK", "SLEEVE"]) or any(k in comp_name_raw for k in ["BODY", "SLEEVE", "TAY"])
+            if is_shirt_piece and geo_role_raw == "MAJOR_PANEL":
+                if pcs < 2: pcs = 2
 
             adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w + 0.88  
