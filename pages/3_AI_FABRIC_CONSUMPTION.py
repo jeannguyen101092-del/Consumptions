@@ -582,7 +582,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     # Mặc định an toàn của ngành nếu không tìm thấy thông tin trong câu lệnh chat
     warp_shrinkage = 0.0
     weft_shrinkage = 0.0
-    fabric_width = 56.0  # Cấu hình mặc định chuẩn là khổ 56 inch thay vì khổ hẹp 28 inch
+    fabric_width = 56.0  # Khổ vải mặc định chuẩn phối sơ đồ
     marker_efficiency = 79.5
 
     # Đọc cấu hình ưu tiên từ AI Blueprint nếu bước trích xuất JSON trước đó đã lưu thành công
@@ -620,10 +620,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         raw_w = r.get("bounding_box_width")
         pcs = r.get("piece_count")
 
-        # KIỂM TRA TÍNH HỢP LỆ BẰNG PYTHON
-        if status_raw == "MISSING_INPUT" or raw_l is None or raw_w is None or pcs is None:
+        # KIỂM TRA TÍNH HỢP LỆ NỚI LỎNG (Đã sửa lỗi gạt về 0 của BODY & SLEEVE)
+        # Bỏ qua kiểm tra status_raw == "MISSING_INPUT", chỉ chặn khi số liệu thực tế bị rỗng (None)
+        if raw_l is None or raw_w is None or pcs is None:
             gross_consumption = 0.0
-            calc_chain = "❌ Bỏ qua: Thiếu thông số hình học đầu vào từ Techpack!"
+            calc_chain = "❌ Bỏ qua: Thiếu hoàn toàn thông số kích thước vật lý!"
             quality_status = "WARNING"
         else:
             try:
@@ -641,12 +642,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     total_area = adj_l * adj_w * pcs
                     
                     if geo_role_raw == "MAJOR_PANEL":
-                        # Định mức dựa trên diện tích phân bổ thực tế trên chiều ngang khổ vải (fabric_width)
+                        # Công thức chuẩn sơ đồ công nghiệp: Tính diện tích trải phẳng chia cho khổ vải
                         gross_consumption = (total_area / fabric_width) / 36.0 / (marker_efficiency / 100.0)
                         calc_chain = f"Thân lớn (Khổ {fabric_width}): ({adj_l:.2f}L * {adj_w:.2f}W * {pcs}Pcs) / {fabric_width}W / 36 / {marker_efficiency/100:.3f}"
                     else:
                         # Chi tiết nhỏ tính xen kẽ lồng rập (Nesting factor) dựa trên diện tích chiếm dụng thực tế
-                        # Thay vì nhân cụm 0.15 thiếu logic khổ vải, áp dụng hệ số hao hụt đường cắt biên 1.15
                         raw_gross = (total_area / fabric_width) / 36.0 / (marker_efficiency / 100.0)
                         gross_consumption = raw_gross * 1.15  
                         calc_chain = f"Xen kẽ (Khổ {fabric_width}): [({adj_l:.2f}L * {adj_w:.2f}W * {pcs}Pcs) / {fabric_width}W / 36 / {marker_efficiency/100:.3f}] * 1.15"
@@ -662,7 +662,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 else:
                     # Các loại phụ liệu cuộn dài hoặc đếm chiếc (Tape, Thread, Accessory...)
                     gross_consumption = 0.0
-                    calc_chain = f"Phụ liệu {mat_class_raw} được bóc tách và tính toán theo cụm định mức riêng."
+                    calc_chain = f"Phụ liệu {mat_class_raw} được tính theo cụm định mức độc lập riêng."
                 
                 quality_status = "PASS" if confidence == "HIGH" else "CHECK REQUIRED"
                 gross_consumption = round(gross_consumption, 4)
