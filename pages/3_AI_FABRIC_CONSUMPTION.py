@@ -592,6 +592,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         user_query_text = str(st.session_state.get("last_submitted_query")).lower()
     elif st.session_state.get("ie_workspace_static_chat_input_key"):
         user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key")).lower()
+        
+    if not user_query_text and st.session_state.get("chat_history"):
+        user_query_text = str(st.session_state.chat_history[-1]["user"]).lower()
     
     warp_shrinkage, weft_shrinkage, fabric_width = 0.0, 0.0, 56.0  
     if bom_source.get("user_requested_fabric_width"): fabric_width = float(bom_source.get("user_requested_fabric_width"))
@@ -606,9 +609,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
 
-    usable_width = (fabric_width - 1.0) / (1 + weft_shrinkage / 100.0)
+    usable_width = fabric_width - 1.0  
+
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-    
     if any(k in user_query_text for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
     if any(k in user_query_text for k in ["caro", "plaid"]): 
         fabric_pattern = "PLAID"
@@ -666,8 +669,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             if pcs < 2: pcs = 2
 
         if mat_class == "FABRIC":
-            adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
-            adj_w = raw_w + 0.88  
+            seamed_l = raw_l + (0.44 * 2.0)
+            seamed_w = raw_w + (0.44 * 2.0)
+            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
+            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
             
             meta = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role))
             box_area_single = adj_l * adj_w
@@ -730,7 +735,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
         if raw_l is None or raw_w is None or pcs is None:
-            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước đầu vào!"
+            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
@@ -743,8 +748,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             if is_shirt_piece and geo_role_raw == "MAJOR_PANEL":
                 if pcs < 2: pcs = 2
 
-            adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
-            adj_w = raw_w + 0.88  
+            seamed_l = raw_l + (0.44 * 2.0)
+            seamed_w = raw_w + (0.44 * 2.0)
+            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
+            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
             
             meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw))
             item_shape_area_total = adj_l * adj_w * meta_item["shape_factor"] * pcs
@@ -782,8 +789,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
         st.info(f"🚀 **FashionINSTA Packing Insights:** "
                 f"Khổ vải nhập lệnh: **{fabric_width} inch** | "
-                f"Khổ vải hữu dụng sau co ngang ({weft_shrinkage}%): **{usable_width:.2f} inch** | "
-                f"Co rút dọc: **{warp_shrinkage}%** | "
+                f"Khổ vải hữu dụng sơ đồ: **{usable_width:.2f} inch** | "
+                f"Rập đã bù co rút: Dọc {warp_shrinkage}% / Ngang {weft_shrinkage}% | "
                 f"Mật độ lồng ghép rập thực tế: **{actual_packing_density*100:.1f}%** | "
                 f"Tổng hao hụt hệ thống: **{constraint_penalty_multiplier:.3f}x**.")
         st.markdown('</div><br>', unsafe_allow_html=True)
