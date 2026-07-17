@@ -568,8 +568,9 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
         except Exception as e:
             st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
 
-
-# 3. KHỐI ĐỒ HỌA UI RENDER - PYTHON ENGINE TỰ ĐỘNG TÍNH TOÁN ĐỊNH MỨC TUYỆT ĐỐI
+# =====================================================================
+# 🟩 3. KHỐI ĐỒ HỌA UI RENDER - PYTHON ENGINE TỰ ĐỘNG TÍNH TOÁN ĐỊNH MỨC TUYỆT ĐỐI
+# =====================================================================
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
@@ -578,13 +579,21 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     # --- PYTHON REGEX: TỰ ĐỘNG BÓC TÁCH CO RÚT & KHỔ VẢI TỪ LỆNH CHAT ---
     user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key", "")).lower()
     
-    # Mặc định an toàn nếu không tìm thấy trong câu lệnh chat
+    # Mặc định an toàn của ngành nếu không tìm thấy thông tin trong câu lệnh chat
     warp_shrinkage = 0.0
     weft_shrinkage = 0.0
-    fabric_width = 56.0
+    fabric_width = 56.0  # Cấu hình mặc định chuẩn là khổ 56 inch thay vì khổ hẹp 28 inch
     marker_efficiency = 79.5
 
-    # Tìm số co rút dọc (warp)
+    # Đọc cấu hình ưu tiên từ AI Blueprint nếu bước trích xuất JSON trước đó đã lưu thành công
+    if bom_source.get("user_requested_fabric_width"):
+        fabric_width = float(bom_source.get("user_requested_fabric_width"))
+    if bom_source.get("user_requested_shrinkage_warp"):
+        warp_shrinkage = float(bom_source.get("user_requested_shrinkage_warp"))
+    if bom_source.get("user_requested_shrinkage_weft"):
+        weft_shrinkage = float(bom_source.get("user_requested_shrinkage_weft"))
+
+    # Bộ lọc Regex dự phòng nâng cao: Quét trực tiếp text chat của người dùng nếu AI phản hồi thiếu trường
     warp_match = re.search(r"(co rút dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text)
     if warp_match: warp_shrinkage = float(warp_match.group(2))
     
@@ -606,15 +615,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
-        # Đọc dữ liệu kích thước thô từ AI
+        # Đọc dữ liệu kích thước vật lý thô từ AI Vision
         raw_l = r.get("bounding_box_length")
         raw_w = r.get("bounding_box_width")
         pcs = r.get("piece_count")
 
-        # KIỂM TRA TÍNH HỢP LỆ BẰNG PYTHON (Đúng theo hiến kế số 3 & 4)
+        # KIỂM TRA TÍNH HỢP LỆ BẰNG PYTHON
         if status_raw == "MISSING_INPUT" or raw_l is None or raw_w is None or pcs is None:
             gross_consumption = 0.0
-            calc_chain = "❌ Bỏ qua: Thiếu thông số đầu vào từ Techpack!"
+            calc_chain = "❌ Bỏ qua: Thiếu thông số hình học đầu vào từ Techpack!"
             quality_status = "WARNING"
         else:
             try:
@@ -622,23 +631,28 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 raw_w = float(raw_w)
                 pcs = int(pcs)
                 
-                # --- PYTHON ENGINE THỰC THI TOÁN HỌC XÁC ĐỊNH ---
+                # --- PYTHON ENGINE THỰC THI TOÁN HỌC XÁC ĐỊNH ĐIỀU CHỈNH ---
                 if mat_class_raw == "FABRIC":
-                    # Áp tỷ lệ co rút dọc vào chiều dài
+                    # Áp tỷ lệ co rút vật lý vào cả 2 chiều dọc và ngang của rập vải chính
                     adj_l = raw_l * (1 + warp_shrinkage / 100.0)
+                    adj_w = raw_w * (1 + weft_shrinkage / 100.0)
+                    
+                    # Tính tổng diện tích bề mặt phẳng của các chi tiết rập (Square Inches)
+                    total_area = adj_l * adj_w * pcs
                     
                     if geo_role_raw == "MAJOR_PANEL":
-                        # Khóa chặt thân chính: Không giảm, không chia đôi
-                        gross_consumption = (adj_l * pcs) / 36.0 / (marker_efficiency / 100.0)
-                        calc_chain = f"Thân lớn: ({adj_l:.2f} L-adj * {pcs} Pcs) / 36 / {marker_efficiency/100:.3f}"
+                        # Định mức dựa trên diện tích phân bổ thực tế trên chiều ngang khổ vải (fabric_width)
+                        gross_consumption = (total_area / fabric_width) / 36.0 / (marker_efficiency / 100.0)
+                        calc_chain = f"Thân lớn (Khổ {fabric_width}): ({adj_l:.2f}L * {adj_w:.2f}W * {pcs}Pcs) / {fabric_width}W / 36 / {marker_efficiency/100:.3f}"
                     else:
-                        # Chi tiết nhỏ tính xen kẽ lồng rập (Nesting factor = 0.15)
-                        raw_gross = (adj_l * pcs) / 36.0 / (marker_efficiency / 100.0)
-                        gross_consumption = raw_gross * 0.15
-                        calc_chain = f"Xen kẽ: [({adj_l:.2f} L-adj * {pcs} Pcs) / 36 / {marker_efficiency/100:.3f}] * 0.15"
+                        # Chi tiết nhỏ tính xen kẽ lồng rập (Nesting factor) dựa trên diện tích chiếm dụng thực tế
+                        # Thay vì nhân cụm 0.15 thiếu logic khổ vải, áp dụng hệ số hao hụt đường cắt biên 1.15
+                        raw_gross = (total_area / fabric_width) / 36.0 / (marker_efficiency / 100.0)
+                        gross_consumption = raw_gross * 1.15  
+                        calc_chain = f"Xen kẽ (Khổ {fabric_width}): [({adj_l:.2f}L * {adj_w:.2f}W * {pcs}Pcs) / {fabric_width}W / 36 / {marker_efficiency/100:.3f}] * 1.15"
                 
                 elif mat_class_raw in ["FUSING", "LINING"]:
-                    # Keo lót & Vải lót tính độc lập theo diện tích phẳng hình học
+                    # Keo lót & Vải lót túi tính độc lập theo diện tích phẳng hình học tiêu chuẩn
                     adj_l = raw_l * (1 + warp_shrinkage / 100.0)
                     adj_w = raw_w * (1 + weft_shrinkage / 100.0)
                     area = adj_l * adj_w * pcs
@@ -646,9 +660,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     calc_chain = f"Diện tích: {area:.2f} in² / {fabric_width} khổ / 36 / {marker_efficiency/100:.3f}"
                 
                 else:
-                    # Các loại phụ liệu Tape, Elastic... mặc định bằng 0 ở bảng vải phẳng
+                    # Các loại phụ liệu cuộn dài hoặc đếm chiếc (Tape, Thread, Accessory...)
                     gross_consumption = 0.0
-                    calc_chain = f"Phụ liệu {mat_class_raw} cắt theo cụm riêng."
+                    calc_chain = f"Phụ liệu {mat_class_raw} được bóc tách và tính toán theo cụm định mức riêng."
                 
                 quality_status = "PASS" if confidence == "HIGH" else "CHECK REQUIRED"
                 gross_consumption = round(gross_consumption, 4)
@@ -692,6 +706,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
         # 📐 BẢNG 2: DETAILED CAD PIECES MATRIX
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-        st.markdown(f'<div class="cad-header">📐 DETAILED HYBRID CAD ENGINE (DỮ LIỆU TỪ AI AI + TOÁN HỌC ĐỊNH BIÊN BỞI PYTHON)</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="cad-header">📐 DETAILED HYBRID CAD ENGINE (DỮ LIỆU TỪ AI + TOÁN HỌC ĐỊNH BIÊN BỞI PYTHON)</div>', unsafe_allow_html=True)
         st.dataframe(df_bom, use_container_width=True, hide_index=True, column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")})
         st.markdown('</div>', unsafe_allow_html=True)
