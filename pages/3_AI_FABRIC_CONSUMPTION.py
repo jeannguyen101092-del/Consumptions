@@ -725,7 +725,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     else:
 
         global_gross_fabric, actual_packing_density, allocated_shape_fabric_factor, major_ratio, total_matching_score = 0.0, 0.82, 0.0, 0.0, 0
-       display_data = []
+    display_data = []
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
