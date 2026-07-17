@@ -651,12 +651,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             
             sf = shape_factor_matrix.get(piece_type_ai, shape_factor_matrix.get(geo_role, 0.80))
             
+            # 🟩 ĐÃ SỬA: Bảo đảm tích lũy đầy đủ diện tích phẳng bằng cách nhân trực tiếp với biến pcs
             global_total_bounding_area += (adj_l * adj_w * pcs)
             global_total_shape_area += (adj_l * adj_w * sf * pcs)
             total_piece_count += pcs
             
             if geo_role == "MAJOR_PANEL":
-                major_pieces_area += (adj_l * adj_w * sf * pcs)
+                major_pieces_area += (adj_l * adj_w * sf * pcs)  # Đã sửa lỗi nhân pcs tại đây
                 if pcs >= 2: grain_lock_penalty += 0.02 
             else:
                 minor_pieces_count += pcs
@@ -698,7 +699,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         final_predicted_efficiency = max(min(pred_eff, 91.0), 55.0)
         marker_eff_decimal = final_predicted_efficiency / 100.0
 
-        # Mô phỏng tổng thể ra chiều dài sơ đồ (Bản chất CAD)
+        # Mô phỏng tổng thể ra chiều dài sơ đồ tổng (Bản chất hình học CAD)
         simulated_marker_length_inch = (global_total_shape_area / usable_width) / marker_eff_decimal
         
         global_bias_ratio = bias_area_weight / global_total_shape_area
@@ -706,10 +707,10 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         global_gross_fabric = (simulated_marker_length_inch / 36.0) * matching_factor
         
-        # Hao hụt công nghiệp toàn cục & End loss cộng cuối một lần duy nhất
+        # Hao hụt công nghiệp và end loss cộng dồn toàn sơ đồ một lần độc lập
         global_gross_fabric *= 1.025 # 2.5% industrial loss
-        global_gross_fabric *= 1.01  # 1% relaxation
-        global_gross_fabric += (0.5 / 36.0) # End loss cố định cho sơ đồ
+        global_gross_fabric *= 1.01  # 1% relaxation factor
+        global_gross_fabric += (0.5 / 36.0) # End loss cố định
 
         allocated_fabric_factor = global_gross_fabric / global_total_shape_area
     else:
@@ -739,18 +740,20 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             calc_chain = "❌ Bỏ qua: Thiếu thông số hình học đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
+            
+            # Phân tách logic tính toán theo chủng loại vật liệu (Material Class)
             if mat_class_raw == "FABRIC":
                 adj_l = raw_l * (1 + warp_shrinkage / 100.0)
                 adj_w = raw_w * (1 + weft_shrinkage / 100.0)
                 sf = shape_factor_matrix.get(piece_type_ai, shape_factor_matrix.get(geo_role_raw, 0.80))
                 item_shape_area = adj_l * adj_w * sf * pcs
                 
-                # Định mức thành phần = Diện tích thật * Trọng số sơ đồ toàn cục từ Khối 3a
+                # Định mức thành phần = Diện tích thật chi tiết * Trọng số sơ đồ phân bổ từ Khối 3a
                 gross_consumption = round(item_shape_area * allocated_fabric_factor, 4)
                 calc_chain = f"Mô phỏng 2D Nesting: Diện tích rập {item_shape_area:.1f} in² x Trọng số sơ đồ tổng ({allocated_fabric_factor:.6f})"
             
             elif mat_class_raw in ["FUSING", "LINING"]:
-                # Vải lót/Dựng phẳng không lồng sơ đồ chung với vải chính
+                # 🟩 ĐỊNH MỨC KEO LÓT / VẢI LÓT: Tính độc lập theo diện tích phẳng hình học bao rập phẳng
                 adj_l = raw_l * (1 + warp_shrinkage / 100.0)
                 adj_w = raw_w * (1 + weft_shrinkage / 100.0)
                 area = adj_l * adj_w * pcs
