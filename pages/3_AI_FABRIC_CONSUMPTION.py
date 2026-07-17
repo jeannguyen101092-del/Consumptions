@@ -654,6 +654,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if raw_l is None or raw_w is None or pcs is None: continue
         raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
         
+        # 🛠️ BỘ LỌC CƯỠNG BỨC (IE HARD RULES): Tự động sửa lỗi AI đọc thiếu Pcs hoặc thiếu chiều dài Quần dài người lớn
+        is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name for k in ["PANEL", "PANFI", "THÂN"])
+        if is_trouser_piece and geo_role == "MAJOR_PANEL":
+            if pcs < 2: pcs = 2 # Ép lên 2 vế rập đối xứng trái/phải cho 1 ống quần
+            if raw_l <= 25.0: raw_l = raw_l * 2.0 # Nếu đọc nhầm thông số ngắn, tự động nhân đôi ra chiều dài quần chuẩn (~40 inch)
+            
         if mat_class == "FABRIC":
             adj_l, adj_w = raw_l * (1 + warp_shrinkage / 100.0), raw_w * (1 + weft_shrinkage / 100.0)
             meta = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role))
@@ -725,6 +731,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
+            
+            # Đồng bộ lại bộ lọc cưỡng bức (IE Hard Rules) ở phần hiển thị bảng chi tiết
+            is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])
+            if is_trouser_piece and geo_role_raw == "MAJOR_PANEL":
+                if pcs < 2: pcs = 2
+                if raw_l <= 25.0: raw_l = raw_l * 2.0
+
             adj_l, adj_w = raw_l * (1 + warp_shrinkage / 100.0), raw_w * (1 + weft_shrinkage / 100.0)
             meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw))
             item_shape_area_total = adj_l * adj_w * meta_item["shape_factor"] * pcs
