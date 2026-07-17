@@ -651,10 +651,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if raw_l is None or raw_w is None or pcs is None: continue
         raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
         
+        # 🛠️ ĐÃ SỬA: Ép cứng số lượng quần 4 thân và hạ ngưỡng bảo vệ xuống 30.0 inch để chống lỗi nhân đôi chiều dài
         is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name for k in ["PANEL", "PANFI", "THÂN"])
         if is_trouser_piece and geo_role == "MAJOR_PANEL":
-            pcs = 2
-            if raw_l <= 35.0: raw_l = raw_l + 10.0  
+            pcs = 2  # Khóa cứng cấu trúc đối xứng vế quần 4 thân
+            if raw_l <= 30.0: raw_l = raw_l + 10.0  # Chỉ bù nếu AI đọc ra thông số ngắn dưới 30 inch
             
         if mat_class == "FABRIC":
             adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
@@ -728,7 +729,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             is_trouser_piece = any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])
             if is_trouser_piece and geo_role_raw == "MAJOR_PANEL":
                 pcs = 2
-                if raw_l <= 35.0: raw_l = raw_l + 10.0
+                if raw_l <= 30.0: raw_l = raw_l + 10.0
 
             adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w + 0.88  
@@ -743,7 +744,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 gross_consumption = round((adj_l * adj_w * pcs / usable_width) / 36.0 / 0.78 * 1.04, 4)
                 calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {adj_l*adj_w*pcs:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
             else:
-                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách định biên độc lập riêng cụm."
+                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập riêng cụm."
 
         display_data.append({
             "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
