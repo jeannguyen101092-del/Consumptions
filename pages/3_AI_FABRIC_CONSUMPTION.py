@@ -610,11 +610,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         fabric_pattern = "NAP"
         is_one_way_nap = True
 
+    # 🛠️ MA TRẬN LOOKUP SHAPE FACTOR MỞ RỘNG (ĐỒNG BỘ ÁO & QUẦN CÔNG NGHIỆP)
     shape_factor_matrix = {
-        "BODY_FRONT": 0.73, "BODY_BACK": 0.76, "SET_IN_SLEEVE": 0.68, 
-        "RAGLAN_SLEEVE": 0.70, "COLLAR": 0.88, "CUFF": 0.92, 
-        "WAISTBAND": 0.96, "POCKET": 0.82, "FLAP": 0.85, "YOKE": 0.78,
-        "FACING": 0.74, "BELT_LOOP": 0.98, "MAJOR_PANEL": 0.75, "MINOR_COMPONENT": 0.85
+        "BODY_FRONT": 0.73, "BODY_BACK": 0.76, "SET_IN_SLEEVE": 0.68, "RAGLAN_SLEEVE": 0.70,
+        "COLLAR": 0.88, "CUFF": 0.92, "YOKE": 0.78, "FACING": 0.74,
+        # Kích hoạt thông số đa giác rập chuẩn ngành quần để chặn lỗi vọt số
+        "TROUSER_FRONT": 0.64, "TROUSER_BACK": 0.67, "PANTS_FRONT": 0.64, "PANTS_BACK": 0.67,
+        "WAISTBAND": 0.96, "LƯNG QUẦN": 0.96, "POCKET_BAG": 0.78, "LÓT TÚI": 0.78,
+        "FLY_FACING": 0.85, "ĐÁP VÀ LÓT TÚI": 0.80,
+        "MAJOR_PANEL": 0.72, "MINOR_COMPONENT": 0.85
     }
 
     # --- GEOMETRY ENGINE: TÍNH TOÁN DIỆN TÍCH SƠ ĐỒ TOÀN CỤC ---
@@ -653,31 +657,30 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             
             if geo_role == "MAJOR_PANEL":
                 major_pieces_bounding_area += box_area
-                if pcs >= 2: grain_lock_penalty += 0.03 # Phạt khóa xoay rập cặp đối xứng
+                # 🛠️ RÀNG BUỘC QUẦN 4 THÂN: Nếu phát hiện cụm chi tiết lớn đối xứng (2 vế trái/phải),
+                # kích hoạt hình phạt khóa canh sợi (Grain-line restriction) làm giảm hiệu suất gộp
+                if pcs >= 2: 
+                    grain_lock_penalty += 0.04 
             
             if "BIAS" in comp_name or "THIÊN" in comp_name:
                 bias_area_weight += box_area
 
             if fabric_pattern in ["STRIPE", "PLAID"]:
-                if any(k in comp_name for k in ["CF", "CB", "SIDE", "POCKET", "YOKE"]):
+                if any(k in comp_name for k in ["CF", "CB", "SIDE", "POCKET", "YOKE", "TRƯỚC", "SAU"]):
                     matching_nodes_count += 1
 
     # --- AI MARKER PREDICTOR ENGINE ---
     if global_total_shape_area > 0:
-        # Tỷ lệ rập thật chiếm trong hộp bao sơ đồ tổng (Mật độ lồng ghép thực tế)
         global_nesting_density = global_total_shape_area / global_total_bounding_area
         
-        # Dự đoán hiệu suất nền tảng dựa trên kiểu dệt/hoa văn vải
         if fabric_pattern == "SOLID": pred_eff = 84.5
         elif fabric_pattern == "STRIPE": pred_eff = 79.0
         elif fabric_pattern == "PLAID": pred_eff = 73.5
         elif fabric_pattern == "NAP": pred_eff = 69.0
         
-        # Điều chỉnh theo khổ vải
         if usable_width < 45.0: pred_eff -= 4.0
         elif usable_width > 58.0: pred_eff += 1.0
         
-        # Phạt hiệu suất vật lý
         if is_one_way_nap: pred_eff -= 6.0
         pred_eff -= (grain_lock_penalty - 1.00) * 100.0
         if plaid_repeat_inch > 0: pred_eff -= (plaid_repeat_inch * 0.5)
@@ -688,8 +691,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         final_predicted_efficiency = max(min(pred_eff, 89.0), 58.0)
         marker_eff_decimal = final_predicted_efficiency / 100.0
 
-        # 🛠️ CÔNG THỨC CAD CỐT LÕI: Tính tổng chiều dài sơ đồ dựa trên BOUNDING AREA phối hợp với Hiệu suất thực tế
-        # Việc chia cho global_nesting_density giúp đảo ngược Shape Factor, đưa về định mức vải thực tế chiếm dụng
+        # CÔNG THỨC CAD TOÀN CỤC: Tính toán dựa trên hộp bao thực tế và độ rỗng Nesting Density
         simulated_marker_length_inch = (global_total_shape_area / usable_width) / marker_eff_decimal / global_nesting_density
         
         if global_total_shape_area > 0:
@@ -698,11 +700,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
         global_gross_fabric = (simulated_marker_length_inch / 36.0) * matching_factor
         
-        # Phụ phí hao hụt nhà máy & End loss bàn cắt
-        global_gross_fabric *= 1.03  # 3% hao hụt cắt thực tế và xả vải công nghiệp
-        global_gross_fabric += (0.5 / 36.0) # Đầu bàn cắt
+        global_gross_fabric *= 1.03  # 3% hao hụt sản xuất công nghiệp
+        global_gross_fabric += (0.5 / 36.0) # Bù đầu bàn cắt cố định
 
-        # 🛠️ TRỌNG SỐ PHÂN BỔ TRÊN DIỆN TÍCH BAO (Phục vụ phân rã bảng chi tiết)
         allocated_fabric_factor = global_gross_fabric / global_total_bounding_area
     else:
         global_gross_fabric = 0.0
@@ -732,19 +732,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
-            # Khởi tạo co rút vật lý nền tảng
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0)
             item_box_area = adj_l * adj_w * pcs
             
             if mat_class_raw == "FABRIC":
-                # Định mức dựa trên Bounding Area thực tế phối hợp trọng số phân bổ toàn cục đã sửa đổi
                 gross_consumption = round(item_box_area * allocated_fabric_factor, 4)
                 calc_chain = f"Mô phỏng 2D Nesting: Diện tích bao {item_box_area:.1f} in² x Trọng số sơ đồ tổng ({allocated_fabric_factor:.6f})"
             
             elif mat_class_raw in ["FUSING", "LINING"]:
-                # 🛠️ SỬA LỖI KEO LÓT THẤP: Mô phỏng Keo lót chạy sơ đồ Mini-Marker lồng ghép hiệu suất phẳng 76%
-                # Thay vì chia trực tiếp ra con số phẳng siêu nhỏ, áp dụng hao hụt xếp cụm mini phụ liệu
+                # Tính toán sơ đồ mini cho vải lót và mếch keo lót dựng phẳng
                 gross_consumption = round((item_box_area / usable_width) / 36.0 / 0.76 * 1.05, 4)
                 calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {item_box_area:.1f} in² / Khổ dụng {usable_width} / Efficiency 76% + 5% hao hụt"
             else:
@@ -768,7 +765,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     if display_data:
         df_bom = pd.DataFrame(display_data)
         
-        # 🟩 BẢNG UI 1: SUMMARY TỔNG HỢP MUA HÀNG LECTRA/GERBER SIMULATION
+        # 🟩 BẢNG UI 1: SUMMARY TỔNG HỢP MUA HÀNG
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown(f'<div class="cad-header" style="background-color: #113F58;">📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN MÔ PHỎNG LÒNG GHÉP SƠ ĐỒ 2D)</div>', unsafe_allow_html=True)
         
@@ -783,7 +780,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         
         st.info(f"💡 **AI Marker Predictor Insights:** Mật độ lồng ghép rập (Nesting Density): **{global_nesting_density*100:.1f}%** | "
                 f"Hiệu suất sơ đồ CAD dự đoán (Marker Efficiency): **{final_predicted_efficiency:.1f}%** | "
-                f"Tổng định mức vải chính mô phỏng: **{global_gross_fabric:.4f} YDS** (Đã tính đủ co rút và hao hụt phòng cắt).")
+                f"Tổng định mức vải chính mô phỏng: **{global_gross_fabric:.4f} YDS** (Đã tính đủ cấu trúc rập 4 thân và hao hụt phòng cắt).")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
         # 📐 BẢNG UI 2: DETAILED CAD PIECES MATRIX
