@@ -229,6 +229,15 @@ else:
 st.session_state["session_editor_snapshot"] = display_editor_rows
 import copy
 import pandas as pd
+import streamlit as st  # Đảm bảo đã import streamlit
+
+# ==========================
+# CẤU HÌNH CỘT (Nếu bạn chưa định nghĩa biến này ở trên)
+# ==========================
+# Đảm bảo tên biến đồng bộ chính xác với tham số truyền vào st.data_editor
+config_cot = {
+    # Bạn có thể bổ sung cấu hình chi tiết cho từng cột tại đây nếu cần
+}
 
 # ==========================
 # ĐỌC SNAPSHOT
@@ -243,13 +252,13 @@ df = (
     .fillna("0")
 )
 
-# ép kiểu
+# ép kiểu dữ liệu an toàn
 for col in df.columns:
-    if col in ["SƠ LỚP","SỐ BÀN"]:
+    if col in ["SƠ LỚP", "SỐ BÀN"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
 
-    elif col=="DÀI SƠ ĐỒ":
-        df[col]=pd.to_numeric(df[col],errors="coerce").fillna(0)
+    elif col == "DÀI SƠ ĐỒ":
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
 # ==========================
 # DATA EDITOR
@@ -257,7 +266,7 @@ for col in df.columns:
 edited_df = st.data_editor(
     df,
     key="table_manual_data_editor_final_clean_v1",
-    column_config=config_cot,
+    column_config=config_cot,  # Đã đồng bộ đúng chính tả (column_config) và đúng tên biến (config_cot)
     hide_index=True,
     use_container_width=True
 )
@@ -267,47 +276,48 @@ edited_df = st.data_editor(
 # ==========================
 active_sizes_cb = st.session_state.get("active_sizes_global", [])
 
-new_snapshot=[]
+new_snapshot = []
 
 for _, row in edited_df.iterrows():
 
-    row=row.to_dict()
+    row_dict = row.to_dict()  # Sử dụng biến riêng để tránh ghi đè trực tiếp lên cấu trúc row của pandas
 
-    row_name=str(
-        row.get("BÀN CẮT / TÊN SƠ ĐỒ","")
+    row_name = str(
+        row_dict.get("BÀN CẮT / TÊN SƠ ĐỒ", "")
     ).upper().strip()
 
-    total=0
+    total = 0
 
-    for i,sz in enumerate(active_sizes_cb):
+    for i, sz in enumerate(active_sizes_cb):
 
-        val=safe_int_final(
-            row.get(f"CỠ {i+1}",0)
+        # Gọi hàm xử lý ép kiểu số nguyên an toàn của bạn
+        val = safe_int_final(
+            row_dict.get(f"CỠ {i+1}", 0)
         )
 
         total += val
 
-        row[f"CỠ {i+1}"]=val
-        row[str(sz)]=val
+        row_dict[f"CỠ {i+1}"] = val
+        row_dict[str(sz)] = val
 
-    if row_name=="SẢN LƯỢNG":
+    if row_name == "SẢN LƯỢNG":
 
-        row["TỔNG SẢN LƯỢNG"]=total
-        st.session_state["current_po_target_val"]=total
+        row_dict["TỔNG SẢN LƯỢNG"] = total
+        st.session_state["current_po_target_val"] = total
 
-    elif row_name not in ["GIÀNG","SIZE"]:
+    elif row_name not in ["GIÀNG", "SIZE"]:
 
-        layer=safe_int_final(row.get("SƠ LỚP",0))
-        table=max(
+        layer = safe_int_final(row_dict.get("SƠ LỚP", 0))
+        table = max(
             1,
-            safe_int_final(row.get("SỐ BÀN",1))
+            safe_int_final(row_dict.get("SỐ BÀN", 1))
         )
 
-        row["TỔNG SẢN LƯỢNG"]=total*layer*table
+        row_dict["TỔNG SẢN LƯỢNG"] = total * layer * table
 
-    new_snapshot.append(row)
+    new_snapshot.append(row_dict)
 
-st.session_state["session_editor_snapshot"]=new_snapshot
+st.session_state["session_editor_snapshot"] = new_snapshot
 
 # ==========================
 # BUTTON
@@ -316,13 +326,14 @@ if st.button(
     "🚀 KÍCH HOẠT THUẬT TOÁN"
 ):
 
-    st.session_state["engine_payload"]=copy.deepcopy(
+    st.session_state["engine_payload"] = copy.deepcopy(
         new_snapshot
     )
 
-    st.session_state["c2_normal_cut_btn"]=True
+    st.session_state["c2_normal_cut_btn"] = True
 
     st.rerun()
+
 
 import math
 # =============================================================================
