@@ -933,15 +933,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
 
-    # Giải nén lại các biến số từ gốc Root an toàn để phục vụ hiển thị
+    # Giải nén lại các biến số
     usable_width = bom_source["usable_width_inch"]
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
 
     # Đọc danh sách dòng BOM chi tiết
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-
-    piece_calculated_data = []
 
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
@@ -951,28 +949,28 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         pcs = int(r.get("piece_count", 1))
         mat_class_raw = str(r.get("material_class", "FABRIC")).upper().strip()
         
-        if raw_l > 0 and raw_w > 0:
-            seamed_l = raw_l + (0.44 * 2.0)
-            seamed_w = raw_w + (0.44 * 2.0)
+        comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
+        geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
+        piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
+        combined_str = f"{comp_name_raw} {piece_type_ai} {mat_class_raw}"
+        
+        status_raw = str(r.get("calculation_status", "READY")).upper().strip()
+        confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
+
+        if raw_l > 0:
+            # 1. Nhân tỉ lệ co rút dọc tiêu chuẩn cho chiều dài cắt sản xuất
+            adj_l = raw_l * (1 + warp_shrinkage / 100.0)
+            adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
-            
-            comp_name_upper = str(r.get("component_name", "")).upper()
-            piece_type_upper = str(r.get("piece_type", "")).upper()
-            combined_str = f"{comp_name_upper} {piece_type_upper}"
-            
-            # --- KHỐI AI LOGIC ĐÃ SỬA: LỌC SỐ LỚP LAI ÁO (x2) & NẮP TÚI 2 BÊN (x4) ---
+            # Khối lọc AI: Kiểm tra số lớp cấu kiện (x2, x4)
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
             pocket_note = ""
             
             double_layer_keywords = [
-                "YOKE", "ĐÔ", "DO ", 
-                "CUFF", "CÚP TAY", "CUP TAY", "MĂNG SÉT", "MANG SET",
-                "WAISTBAND", "LƯNG", "LUNG", "CẠP", "CAP ",
-                "BOTTOM HEM", "LAI ÁO", "LAI AO", "GẤU ÁO"
+                "YOKE", "ĐÔ", "DO ", "CUFF", "CÚP TAY", "CUP TAY", "MĂNG SÉT", "MANG SET",
+                "WAISTBAND", "LƯNG", "LUNG", "CẠP", "CAP ", "BOTTOM HEM", "LAI ÁO", "LAI AO"
             ]
             flap_keywords = ["FLAP", "NẮP TÚI", "NAP TUI"]
             
@@ -984,7 +982,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 is_four_layers = True
 
             is_pocket_bag = any(k in combined_str for k in ["POCKET BAG", "BAO TÚI", "BAO TUI", "LINING POCKET"])
-            is_welt_pocket = any(k in combined_str for k in ["WELT", "WELT POCKET", "TÚI MỔ", "TUI MO", "PIPING POCKET"])
+            is_welt_pocket = any(k in combined_str for k in ["WELT", "WELT POCKET", "TÚI MỔ", "TUI MO"])
             
             if is_pocket_bag or is_welt_pocket:
                 pocket_note = f" [Túi mổ - Dùng {mat_class_raw} theo BOM]"
@@ -992,89 +990,69 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
-            # --- 🚨 SỬA TRỌNG SỐ: NÂNG HỆ SỐ HÌNH HỌC (SHAPE FACTOR) CHO THÂN ÁO JACKET KHÔNG BỊ THẤP ĐỊNH MỨC ---
-            if any(k in combined_str for k in ["JACKET", "BODY", "ÁO", "TEE", "VEST"]):
-                # Nếu là chi tiết thân lớn chính (Front/Back Body Panel) nâng hẳn lên 0.94 để tính đủ diện tích bao phủ sơ đồ
-                if "PANEL" in combined_str or "THÂN" in combined_str:
-                    shape_factor = 0.94
-                else:
-                    shape_factor = 0.88 if "BACK" in combined_str else 0.86
-            elif any(k in combined_str for k in ["SLEEVE", "TAY"]):
-                shape_factor = 0.84
-            elif any(k in combined_str for k in ["DRESS", "ĐẦM", "GOWN", "SKIRT", "VÁY", "TÙNG"]):
-                shape_factor = 0.76
+            # Xuất chuỗi hiển thị số lượng rập lên giao diện
+            if is_four_layers:
+                pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
+            elif is_two_layers:
+                pcs_display = f"{pcs} Pcs (x2 lớp)"
             else:
-                shape_factor = 0.70 if "BACK" in combined_str else 0.66
+                pcs_display = f"{pcs} Pcs"
+
+            # 🚨 KIỂM TRA PHÂN LOẠI: Chi tiết dạng dải cuộn phụ liệu dài hay mảng vải đi sơ đồ Layout
+            is_roll_trim = any(k in combined_str for k in [
+                "ELASTIC", "THUN", "BINDING", "VIỀN", "VIEN", "ZIPPER", "KHÓA", "KHOA", 
+                "HANGER", "LOOP", "TRIM", "ACCESSORY", "BUTTON", "LABEL", "TAG"
+            ])
+
+            if is_roll_trim:
+                # 📏 CÔNG THỨC 1: TÍNH THEO CHIỀU DÀI LŨY KẾ DỌC (Không tính diện tích nhân bản rộng W)
+                # Công thức: (Chiều dài rập sau co rút L-inch * Số lượng rập * Số lớp multiplier) / 36.0 inch để ra YDS
+                # Cộng thêm 4% hao hụt đầu khúc/đầu máy công nghiệp đầu cuộn tiêu chuẩn (* 1.04)
+                gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
+                calc_chain = f"Dải cuộn phụ liệu dọc: Chiều dài L-inch / 36.0"
+                if layer_multiplier > 1: calc_chain += f" (Nhân {layer_multiplier} lớp)"
+            else:
+                # 🗺️ CÔNG THỨC 2: ĐI SƠ ĐỒ LAYOUT ĐA GIÁC (Dành cho rập thân lớn Vải chính / Vải lót)
+                if any(k in combined_str for k in ["JACKET", "BODY", "ÁO", "TEE", "VEST"]):
+                    shape_factor = 0.94 if ("PANEL" in combined_str or "THÂN" in combined_str) else 0.86
+                elif any(k in combined_str for k in ["SLEEVE", "TAY"]):
+                    shape_factor = 0.84
+                elif any(k in combined_str for k in ["DRESS", "ĐẦM", "SKIRT", "VÁY", "TÙNG"]):
+                    shape_factor = 0.76
+                else:
+                    shape_factor = 0.70
+                    
+                if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
+                    shape_factor = 0.94
+
+                # Tính diện tích rập bao gồm đường may biên rập sản xuất
+                seamed_l = adj_l + (0.44 * 2.0)
+                seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.0
+                piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
                 
-            if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
-                shape_factor = 0.94
-            # --------------------------------------------------------------------------------------------------
-                
-            piece_area = adj_l * adj_w * shape_factor * pcs * layer_multiplier
+                if usable_width > 0:
+                    efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
+                    gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
+                    layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
+                    calc_chain = f"Sơ đồ {mat_class_raw} Layout: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}{pocket_note}"
+                else:
+                    gross_consumption = 0.0
+                    calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
         else:
-            piece_area = 0.0
-            is_two_layers = False
-            is_four_layers = False
-            layer_multiplier = 1
-            pocket_note = ""
-            
-        piece_calculated_data.append({
-            "row_ref": r, "piece_area": piece_area, 
-            "is_two_layers": is_two_layers, "is_four_layers": is_four_layers, "pocket_note": pocket_note
+            gross_consumption = 0.0
+            pcs_display = f"{pcs} Pcs"
+            calc_chain = "❌ Bỏ qua: Thiếu kích thước chiều dài đầu vào!"
+
+        processed_display_rows.append({
+            "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
+            "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
+            "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
+            "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
-    # Duyệt tính Gross Consumption lũy kế tự động theo sơ đồ độc lập
-    for item in piece_calculated_data:
-        r = item["row_ref"]
-        piece_area = item["piece_area"]
-        is_two_layers = item["is_two_layers"]
-        is_four_layers = item["is_four_layers"]
-        pocket_note = item["pocket_note"]
-        
-        comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
-        mat_class_raw = str(r.get("material_class", "FABRIC")).upper().strip()
-        geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
-        piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        status_raw = str(r.get("calculation_status", "READY")).upper().strip()
-        confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
-        raw_l = r.get("bounding_box_length", 0.0)
-        raw_w = r.get("bounding_box_width", 0.0)
-        pcs = r.get("piece_count", 1)
-
-        if is_four_layers:
-            pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
-        elif is_two_layers:
-            pcs_display = f"{pcs} Pcs (x2 lớp)"
-        else:
-            pcs_display = f"{pcs} Pcs"
-
-        if raw_l == 0.0 or raw_w == 0.0:
-            gross_consumption = 0.0
-            calc_chain = "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
-        else:
-            # 🚨 ĐÃ SỬA: Cả Vải chính và Phụ liệu đều tính theo sơ đồ Layout độc lập dựa trên Khổ vải thực tế để không bị kẹt định mức thấp
-            if usable_width > 0:
-                efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
-                gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
-                
-                if mat_class_raw == "FABRIC":
-                    layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
-                    calc_chain = f"Sơ đồ Vải chính độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\"{layer_note}{pocket_note}"
-                else:
-                    calc_chain = f"Sơ đồ phụ liệu độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\"{pocket_note}"
-            else:
-                gross_consumption = 0.0
-                calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
-
-            processed_display_rows.append({
-                "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
-                "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
-                "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
-                "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
-            })
-
-    # Đẩy kết quả vào session_state bền vững
+    # Đẩy kết quả vào session_state bền vững phục vụ hiển thị ở Đoạn 2
     st.session_state["processed_display_rows"] = processed_display_rows
+
 # 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
 # Lấy trực tiếp dữ liệu bền vững từ st.session_state
 display_rows_source = st.session_state.get("processed_display_rows", [])
