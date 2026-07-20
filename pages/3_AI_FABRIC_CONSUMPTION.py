@@ -879,26 +879,38 @@ import pandas as pd
 import streamlit as st
 import re
 
-import pandas as pd
-import streamlit as st
-
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (KIẾN TRÚC ĐỒNG BỘ MỚI - CHỈ HIỂN THỊ)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐỒNG BỘ CAD & TỰ ĐỘNG TÍNH LẠI ĐM THỰC TẾ)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
-    # Nhất quán lấy một nguồn dữ liệu duy nhất từ kết quả chạy của Engine CAD mới
     bom_source = st.session_state.get("bom_data", {})
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # Đọc trực tiếp các thông số hệ thống đã được Engine mới tính toán và lưu sẵn
-    # Không tính toán lại, tránh xung đột Cache
-    fabric_width = bom_source.get("fabric_width_inch", 56.0)
-    usable_width = bom_source.get("usable_width_inch", fabric_width)
-    warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
-    weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
-    fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
+    # 1. Trích xuất thông số động từ ô chat để đồng bộ thời gian thực
+    user_query_text = ""
+    if st.session_state.get("last_submitted_query"): 
+        user_query_text = str(st.session_state.get("last_submitted_query"))
+    elif st.session_state.get("ie_workspace_static_chat_input_key"): 
+        user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key"))
+    if not user_query_text and st.session_state.get("chat_history"): 
+        user_query_text = str(st.session_state.chat_history[-1]["user"])
+
+    # Thiết lập thông số mặc định ban đầu
+    fabric_width, warp_shrinkage, weft_shrinkage = 56.0, 0.0, 0.0
+    
+    # Quét nhanh thông số từ câu lệnh chat bằng Regex (Chống lỗi kẹt cache 56)
+    if user_query_text:
+        w_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if w_match: fabric_width = float(w_match.group(2))
+        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if warp_match: warp_shrinkage = float(warp_match.group(2))
+        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if weft_match: weft_shrinkage = float(weft_match.group(2))
+
+    usable_width = fabric_width  # Đồng bộ khổ vải hữu dụng bằng khổ thực tế (không trừ 1)
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
+    fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
 
     display_data = []
     for r in bom_rows_list:
@@ -910,36 +922,62 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
-        # Đọc trực tiếp kích thước và định mức (Gross Consumption) từ Engine mới phát hành
         raw_l = r.get("bounding_box_length", 0.0)
         raw_w = r.get("bounding_box_width", 0.0)
         pcs = r.get("piece_count", 1)
-        gross_consumption = r.get("gross_consumption", 0.0)
-        
-        # Lấy chuỗi mô tả thuật toán từ Engine CAD mới (nếu có) để minh bạch hóa dữ liệu
-        calc_chain = r.get("calculation_chain", "Được phân bổ trực tiếp từ Sơ đồ hình học CAD mới.")
+
+        if raw_l == 0.0 or raw_w == 0.0:
+            gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
+        else:
+            raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
+            
+            # Cộng đường may thô (0.44 inch mỗi biên)
+            seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
+            
+            # Nhân tỉ lệ co rút động lấy trực tiếp từ ô chat
+            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
+            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
+            
+            # Tính diện tích hình chữ nhật bao quanh chi tiết rập
+            bounding_area_total = adj_l * adj_w * pcs
+
+            if mat_class_raw == "FABRIC":
+                # Áp hệ số shape factor chuẩn công nghiệp để tính diện tích đa giác thật của rập
+                shape_factor = 0.73 if geo_role_raw == "MAJOR_PANEL" else 0.85
+                true_shape_area = bounding_area_total * shape_factor
+                
+                # Áp thuật toán mô phỏng sơ đồ CAD thực tế
+                if usable_width > 0 and actual_packing_density > 0:
+                    simulated_length_inch = (true_shape_area / usable_width) / actual_packing_density
+                    # Quy đổi ra YDS và nhân hệ số hao hụt đầu bàn dôi dư tại xưởng (1.025 * 1.010)
+                    gross_consumption = round((simulated_length_inch / 36.0) * 1.025 * 1.010, 4)
+                else:
+                    gross_consumption = 0.0
+                calc_chain = f"Skyline CAD: Diện tích thật {true_shape_area:.1f} in² / Khổ {usable_width} in / Mật độ {actual_packing_density*100:.1f}%"
+            
+            elif mat_class_raw in ["FUSING", "LINING"]:
+                # Công thức tính định mức sơ đồ cho vải lót và keo lót (Hiệu suất mặc định 78%)
+                if usable_width > 0:
+                    gross_consumption = round(((bounding_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
+                else:
+                    gross_consumption = 0.0
+                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
+            else:
+                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
         display_data.append({
-            "Component Name": comp_name_raw, 
-            "Material Class": mat_class_raw, 
-            "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
-            "Số lượng rập (Pcs)": pcs, 
-            "Dài sản xuất (L-inch)": raw_l, 
-            "Rộng sản xuất (W-inch)": raw_w,
-            "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", 
-            "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
-            "Gross Consumption": gross_consumption, 
-            "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", 
-            "Thuật toán mô phỏng CAD": calc_chain
+            "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
+            "Số lượng rập (Pcs)": pcs, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
+            "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
+            "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
-    # Render bảng biểu tổng hợp lên giao diện Streamlit
+    # Render bảng biểu lên UI Streamlit
     if display_data:
         df_bom = pd.DataFrame(display_data)
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown('<div class="cad-header" style="background-color: #0E6251;">📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ CAD)</div>', unsafe_allow_html=True)
         
-        # Gom nhóm hiển thị định mức tổng theo loại nguyên phụ liệu
         df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
         df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
         df_summary["UOM"] = "YDS"
@@ -948,11 +986,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        # Dòng thông tin đồng bộ động hoàn toàn
         st.info(f"🚀 **FashionINSTA Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
-        # Bảng chi tiết từng rập linh kiện
         st.markdown('<div class="cad-card"><div class="cad-header">📐 DETAILED HYBRID CAD ENGINE</div>', unsafe_allow_html=True)
         st.dataframe(df_bom, use_container_width=True, hide_index=True, column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")})
         st.markdown('</div>', unsafe_allow_html=True)
