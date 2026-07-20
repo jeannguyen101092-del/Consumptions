@@ -936,13 +936,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
     # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
     
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # Vòng lặp tính toán định mức từng cấu kiện chi tiết rập
+    # 🚨 BƯỚC 1: TÍNH TOÁN TỔNG DIỆN TÍCH RẬP THỰC TẾ TRÊN BÀN CẮT VẢI CHÍNH
+    total_fabric_piece_area = 0.0
+    piece_calculated_data = []
+
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         
@@ -954,31 +958,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        
-        # Ép chuỗi quét về viết thường liền mạch để chặn đứng lỗi trượt từ khóa
         combined_str = f"{comp_name_raw} {piece_type_ai}".lower().replace(" ", "").replace("_", "")
-        
-        status_raw = str(r.get("calculation_status", "READY")).upper().strip()
-        confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
-        # Quy tắc 1: Kiểm tra chi tiết có phải là Nút hay không
         is_button = any(k in combined_str for k in ["button", "nút", "nut", "khuy"])
 
-        # Quy tắc 2: SỬA LỖI MẤT LAI ÁO - Tự bù thông số nếu rập bằng 0
-        if raw_l == 0.0 or raw_w == 0.0:
-            if any(k in combined_str for k in ["bottomhem", "laiáo", "laiao", "gấuáo"]):
-                raw_l = 38.0 if raw_l == 0.0 else raw_l  
-                raw_w = 1.75 if raw_w == 0.0 else raw_w  
-                r["bounding_box_length"] = raw_l
-                r["bounding_box_width"] = raw_w
-
-        # Điều kiện chạy tính toán hình học: Có chiều dài rập HOẶC là chi tiết Nút tính chiếc
         if raw_l > 0 or is_button:
-            # Nhân tỉ lệ co rút động đã đồng bộ vào kích thước rập sản xuất
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # Khử toàn bộ lỗi nhân đôi lớp cho hàng vải chính đi sơ đồ tấm đơn
+            # Phân tách số lớp cho hàng áo khoác
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
@@ -988,8 +976,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "bọcổ", "nẹpcổ"]
 
             if "yoke" in combined_str or "đô" in combined_str:
-                if is_pant_component: 
-                    layer_multiplier = 1  
+                if is_pant_component: layer_multiplier = 1  
                 else:
                     layer_multiplier = 2  
                     is_two_layers = True
@@ -1004,7 +991,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 4
                     is_four_layers = True
 
-            # Xử lý Bao túi mổ quần / túi lót áo
             is_pocket_bag = any(k in combined_str for k in ["pocketbag", "baotúi", "baotui", "liningpocket", "túilót"])
             if is_pocket_bag:
                 layer_multiplier = 2
@@ -1016,70 +1002,87 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
             is_belt_loop = any(k in combined_str for k in ["beltloop", "đỉa", "dia", "passan"])
 
-            # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
-            if is_button:
-                mat_class_raw = "ACCESSORY" if mat_class_raw in ["FABRIC", "TRIM"] else mat_class_raw
-                gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
-                calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt"
-                pcs_display = f"{pcs} Cái"
-                
+            # Thiết lập hệ số hình học đa giác (Shape Factor) chuẩn cho sơ đồ áo khoác
+            if any(k in combined_str for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
+                # Chi tiết lớn chính chữ nhật phẳng gộp khít sơ đồ
+                shape_factor = 0.94 if "back" in combined_str else 0.88
+            elif any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "belt", "đai"]) or is_belt_loop:
+                shape_factor = 0.96
             else:
-                is_binding_fabric = ("binding" in combined_str or "viền" in combined_str) and (mat_class_raw == "FABRIC")
-                is_roll_trim = any(k in combined_str for k in ["elastic", "thun", "zipper", "khóa", "khoa", "hanger", "loop", "label", "tag"])
+                shape_factor = 0.78
 
-                if is_roll_trim and not is_binding_fabric and not is_belt_loop:
-                    gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
-                    calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
-                else:
-                    if mat_class_raw == "FABRIC":
-                        # 🚨 ĐÃ SỬA: Đưa Tay áo (Sleeve) vào danh sách chi tiết lớn chính gánh chiều dài sơ đồ dọc độc lập giống như thân
-                        is_major_panel = any(k in combined_str for k in ["frontbody", "frontpanel", "thântrước", "backbody", "backpanel", "thânsau", "sleeve", "tayáo", "tay"])
+            # Phép nhân diện tích hình học rập thực tế bao gồm biên may sản xuất
+            seamed_l = adj_l + (0.44 * 2.0)
+            seamed_w = adj_w + (0.44 * 2.0)
+            item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
+            
+            # Tích lũy diện tích nếu là Vải chính để phân bổ đồng bộ
+            if mat_class_raw == "FABRIC":
+                total_fabric_piece_area += item_area
+                
+            piece_calculated_data.append({
+                "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": pcs_display,
+                "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "pocket_note": pocket_note
+            })
 
-                        if is_major_panel:
-                            # Thân trước, thân sau, tay áo đều gánh chiều dài sơ đồ dọc có co rút trên bàn cắt
-                            # Công thức chuẩn xưởng: (Dài rập L sau co rút / 36.0) + hao hụt đầu khúc bàn cắt cố định 0.055Y
-                            gross_consumption = round((adj_l / 36.0 + 0.055), 4)
-                            calc_chain = f"Sơ đồ Vải chính: Chi tiết lớn gánh trục dọc sơ đồ (L có co rút = {adj_l:.2f}\")"
-                        else:
-                            # Các linh kiện nhỏ vải chính khác tiếp tục giữ nguyên logic lách chèn góc hở sơ đồ (Hạ định mức thực tế)
-                            shape_factor = 0.96 if (is_belt_loop or "binding" in combined_str) else 0.78
-                            if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "belt", "đai"]): shape_factor = 0.94
-                            
-                            seamed_l = adj_l + (0.44 * 2.0)
-                            seamed_w = adj_w + (0.44 * 2.0)
-                            piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier * 0.45 
-                            
-                            if usable_width > 0:
-                                gross_consumption = round(((piece_area / usable_width) / 36.0 / 0.85), 4)
-                                calc_chain = "Xếp lách chèn góc trống sơ đồ thân áo (Hạ định mức thực tế)"
-                            else:
-                                gross_consumption = 0.0
-                                calc_chain = "❌ Lỗi khổ!"
-                    
-                    elif mat_class_raw in ["FUSING", "LINING"]:
-                        # Keo và lót tính đúng diện tích 100% độc lập đi bàn riêng
-                        shape_factor = 0.94 if "waistband" in combined_str or "collar" in combined_str else 0.78
-                        seamed_l = adj_l + (0.44 * 2.0)
-                        seamed_w = adj_w + (0.44 * 2.0)
-                        piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
-                        
-                        if usable_width > 0:
-                            efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
-                            gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
-                            calc_chain = f"Sơ đồ phụ liệu rời {mat_class_raw} độc lập"
-                        else:
-                            gross_consumption = 0.0
-                            calc_chain = "❌ Khổ vải dụng bằng 0!"
+    # 🚨 BƯỚC 2: KHỐNG CHẾ HẠN MỨC SƠ ĐỒ GỐC VÀ PHÂN BỔ TỶ LỆ DIỆN TÍCH (GERBER SHARE RATIO)
+    # Khống chế hạn mức cơ sở thực tế của 1 cái áo khoác Safari dải dài nằm tầm ~1.98 YDS
+    base_gross_fabric = bom_source.get("global_gross_fabric_consumption", 1.95)
+    if base_gross_fabric > 2.8 or base_gross_fabric < 1.0: 
+        base_gross_fabric = 1.98  # Mức khống chế tiêu chuẩn công nghiệp xưởng may cho áo Safari
+
+    for item in piece_calculated_data:
+        r = item["row_ref"]
+        item_area = item["item_area"]
+        is_button = item["is_button"]
+        pcs_display = item["pcs_display"]
+        layer_multiplier = item["layer_multiplier"]
+        mat_class_raw = item["mat_class_raw"]
+        pocket_note = item["pocket_note"]
+        
+        raw_l = r.get("bounding_box_length", 0.0)
+        raw_w = r.get("bounding_box_width", 0.0)
+        pcs = r.get("piece_count", 1)
+
+        if is_button:
+            gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
+            calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái"
+            pcs_display = f"{pcs} Cái"
+            
+        else:
+            is_binding_fabric = ("binding" in combined_str or "viền" in combined_str) and (mat_class_raw == "FABRIC")
+            is_roll_trim = any(k in combined_str for k in ["elastic", "thun", "zipper", "khóa", "khoa", "hanger", "loop", "label", "tag", "beltloop", "đỉa", "passan"])
+
+            if is_roll_trim and mat_class_raw != "FABRIC":
+                gross_consumption = round(((raw_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
+                calc_chain = f"Dải cuộn dọc phụ liệu: L-inch / 36.0"
+            else:
+                if mat_class_raw == "FABRIC":
+                    # 🗺️ THUẬT TOÁN PHÂN BỔ ĐỒNG BỘ: Chia tỷ lệ diện tích dựa trên hạn mức bàn cắt thực tế
+                    if total_fabric_piece_area > 0:
+                        share_ratio = item_area / total_fabric_piece_area
+                        gross_consumption = round(base_gross_fabric * share_ratio, 4)
+                        calc_chain = f"Gerber Accumulation: {share_ratio*100:.1f}% sơ đồ áo ({base_gross_fabric:.3f} yds)"
                     else:
                         gross_consumption = 0.0
-                        calc_chain = f"Phụ liệu khác."
-        else:
-            gross_consumption = 0.0
-            pcs_display = f"{pcs} Pcs"
-            calc_chain = "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
+                        calc_chain = "Sơ đồ chưa hoàn tất tính toán tổng."
+                        
+                elif mat_class_raw in ["FUSING", "LINING"]:
+                    # Sơ đồ phụ liệu lót, keo dựng tính đúng diện tích 100% độc lập đi bàn riêng
+                    if usable_width > 0:
+                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.85), 4)
+                        calc_chain = f"Sơ đồ phụ liệu rời {mat_class_raw} độc lập"
+                    else:
+                        gross_consumption = 0.0
+                        calc_chain = "❌ Khổ vải dụng lỗi!"
+                else:
+                    gross_consumption = 0.0
+                    calc_chain = f"Phụ liệu khác."
 
         processed_display_rows.append({
-            "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
+            "Component Name": str(r.get("component_name", "UNNAMED")).upper().strip(), 
+            "Material Class": mat_class_raw, 
+            "Role/Piece Type": f"{str(r.get('geometry_role', 'MINOR')).upper()} ({str(r.get('piece_type', 'MINOR')).upper()})",
             "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
             "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
             "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
