@@ -511,10 +511,11 @@ if safe_user_prompt:
     st.session_state.ai_processing = True
     st.rerun()
 import copy
+import threading  # 🚨 BẮT BUỘC: Thêm thư viện này để tạo bộ đếm ngắt thời gian
 import streamlit as st
 
 # =====================================================================
-# 🟩 KHỐI 2: SECURE AI VISION EXTRACTION PIPELINE (ANTI-LOOP)
+# 🟩 KHỐI 2 (NÂNG CẤP): SECURE AI VISION EXTRACTION WITH HARD TIMEOUT
 # =====================================================================
 
 if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not None:
@@ -522,7 +523,7 @@ if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not N
     
     with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
         try:
-            # Định nghĩa JSON định dạng dữ liệu trả về chuẩn CAD
+            # [A] Định nghĩa JSON định dạng dữ liệu trả về chuẩn CAD (Giữ nguyên)
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -554,13 +555,40 @@ if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not N
 
             prompt_agent_2 = """
             You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
-            (Giữ nguyên nội dung Prompt chi tiết của bạn tại đây)...
             """
 
-            # Thực thi hàm gọi quét API thực tế của bạn
-            blueprint_final = execute_cached_gemini_scan(
-                st.session_state.pdf_bytes, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
-            )
+            # ---------------------------------------------------------
+            # BỘ ĐIỀU KHIỂN CHỐNG TREO: KHỞI CHẠY HÀM API TRÊN LUỒNG PHỤ
+            # ---------------------------------------------------------
+            blueprint_container = {}
+            exception_container = {}
+
+            def worker_thread():
+                try:
+                    # Gọi hàm thực thi API thực tế của bạn
+                    res = execute_cached_gemini_scan(
+                        st.session_state.pdf_bytes, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
+                    )
+                    blueprint_container["result"] = res
+                except Exception as thread_e:
+                    exception_container["exception"] = thread_e
+
+            # Tạo luồng xử lý bất đồng bộ riêng cho API
+            t = threading.Thread(target=worker_thread)
+            t.start()
+            
+            # 🚨 GIỚI HẠN THỜI GIAN: Chờ tối đa 35 giây. Quá 35s luồng chính sẽ tự động bỏ qua để ngắt spinner!
+            t.join(timeout=35.0)
+
+            if t.is_alive():
+                # Nếu luồng API vẫn đang chạy lơ lửng, ném lỗi Timeout chủ động
+                raise TimeoutError("Máy chủ Gemini phản hồi quá lâu hoặc kết nối mạng bị ngắt quãng! Vui lòng thử lại câu lệnh.")
+
+            if "exception" in exception_container:
+                raise exception_container["exception"]
+
+            # Lấy kết quả từ luồng phụ đổ về luồng chính của Streamlit
+            blueprint_final = blueprint_container.get("result")
             
             st.session_state.blueprint_final = blueprint_final
             st.session_state.last_active_blueprint = blueprint_final
@@ -577,10 +605,10 @@ if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not N
             st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
             
         finally:
-            # Giải phóng trạng thái để tránh thắt nút cổ chai (vòng lặp vô hạn spinner)
+            # Chốt chặn cuối cùng: Ép buộc trả trạng thái xử lý về False và Rerun để xóa vòng xoay loading
             st.session_state.ai_processing = False
             st.rerun()
-import re
+
 
 # =====================================================================
 # 🟩 KHỐI 3a: HÀM TÍNH TOÁN HÌNH HỌC SƠ ĐỒ 2D (SKYLINE ENGINE)
