@@ -880,14 +880,14 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐỒNG BỘ CAD & TỰ ĐỘNG TÍNH LẠI ĐM THỰC TẾ)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (CẬP NHẬT HỆ SỐ ÁO & HIỂN THỊ SIZE)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # 1. Trích xuất thông số động từ ô chat để đồng bộ thời gian thực
+    # 1. Trích xuất thông số động từ ô chat
     user_query_text = ""
     if st.session_state.get("last_submitted_query"): 
         user_query_text = str(st.session_state.get("last_submitted_query"))
@@ -898,8 +898,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
     # Thiết lập thông số mặc định ban đầu
     fabric_width, warp_shrinkage, weft_shrinkage = 56.0, 0.0, 0.0
+    target_size = bom_source.get("detected_base_size", "32")  # Lấy size mặc định từ AI quét được
     
-    # Quét nhanh thông số từ câu lệnh chat bằng Regex (Chống lỗi kẹt cache 56)
+    # Quét nhanh thông số từ câu lệnh chat bằng Regex
     if user_query_text:
         w_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if w_match: fabric_width = float(w_match.group(2))
@@ -907,8 +908,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         if warp_match: warp_shrinkage = float(warp_match.group(2))
         weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
+        
+        # 📌 TRÍCH XUẤT SIZE YÊU CẦU TỪ Ô CHAT (Ví dụ: cỡ 32, size M, cỡ L)
+        size_match = re.search(r"(cỡ|size)\s*([a-zA-Z0-9]+)", user_query_text, re.IGNORECASE)
+        if size_match: target_size = str(size_match.group(2)).upper()
 
-    usable_width = fabric_width  # Đồng bộ khổ vải hữu dụng bằng khổ thực tế (không trừ 1)
+    usable_width = fabric_width  
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
 
@@ -934,29 +939,33 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             # Cộng đường may thô (0.44 inch mỗi biên)
             seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
             
-            # Nhân tỉ lệ co rút động lấy trực tiếp từ ô chat
+            # Nhân tỉ lệ co rút động
             adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
             adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
             
-            # Tính diện tích hình chữ nhật bao quanh chi tiết rập
+            # Diện tích hình chữ nhật bao
             bounding_area_total = adj_l * adj_w * pcs
 
             if mat_class_raw == "FABRIC":
-                # Áp hệ số shape factor chuẩn công nghiệp để tính diện tích đa giác thật của rập
-                shape_factor = 0.73 if geo_role_raw == "MAJOR_PANEL" else 0.85
+                # 🛠️ TỰ ĐỘNG PHÂN LOẠI HỆ SỐ ĐỊNH MỨC CHO ÁO (SHIRT/JACKET/BODY) VS QUẦN (TROUSER)
+                if any(k in piece_type_ai for k in ["BODY", "SHIRT", "JACKET", "SLEEVE"]):
+                    # Áo sơ mi/Áo khoác có thân lớn, rập vuông vức -> Hệ số shape_factor cao hơn quần
+                    shape_factor = 0.84 if geo_role_raw == "MAJOR_PANEL" else 0.88
+                else:
+                    # Hệ số mặc định cho rập quần thuôn dài
+                    shape_factor = 0.73 if geo_role_raw == "MAJOR_PANEL" else 0.85
+                
                 true_shape_area = bounding_area_total * shape_factor
                 
-                # Áp thuật toán mô phỏng sơ đồ CAD thực tế
                 if usable_width > 0 and actual_packing_density > 0:
                     simulated_length_inch = (true_shape_area / usable_width) / actual_packing_density
-                    # Quy đổi ra YDS và nhân hệ số hao hụt đầu bàn dôi dư tại xưởng (1.025 * 1.010)
+                    # Quy đổi ra YDS và nhân hệ số hao hụt đầu bàn xưởng cắt (1.025 * 1.010)
                     gross_consumption = round((simulated_length_inch / 36.0) * 1.025 * 1.010, 4)
                 else:
                     gross_consumption = 0.0
                 calc_chain = f"Skyline CAD: Diện tích thật {true_shape_area:.1f} in² / Khổ {usable_width} in / Mật độ {actual_packing_density*100:.1f}%"
             
             elif mat_class_raw in ["FUSING", "LINING"]:
-                # Công thức tính định mức sơ đồ cho vải lót và keo lót (Hiệu suất mặc định 78%)
                 if usable_width > 0:
                     gross_consumption = round(((bounding_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
                 else:
@@ -986,7 +995,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        st.info(f"🚀 **FashionINSTA Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
+        # 📌 ĐÃ BỔ SUNG: Hiển thị Size đang tính toán trực tiếp lên thanh thông tin màu xanh
+        st.info(f"🚀 **FashionINSTA Insights:** Cỡ mẫu đang tính: **SIZE {target_size}** | Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
         st.markdown('<div class="cad-card"><div class="cad-header">📐 DETAILED HYBRID CAD ENGINE</div>', unsafe_allow_html=True)
