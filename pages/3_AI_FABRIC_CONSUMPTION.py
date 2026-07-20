@@ -404,7 +404,7 @@ import streamlit as st
 
 
 # =====================================================================
-# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ TINH KHIẾT - KHÔNG CHỨA UI)
+# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ THÊM TIMEOUT CHỐNG KẸT LUỒNG)
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -419,12 +419,12 @@ def execute_cached_gemini_scan(
     prompt_agent_2,
 ):
     """
-    Hàm thuần (Pure Function) gọi AI quét PDF. 
-    Không chứa các side-effect UI của Streamlit, đóng file an toàn, hash sạch.
+    Hàm gọi AI quét PDF có cấu hình Timeout cứng 15 giây.
+    Bẻ gãy hoàn toàn tình trạng nghẽn mạng gây treo vòng xoay spinner vô tận.
     """
     import copy
+    import hashlib
 
-    # Ép kiểu dữ liệu UploadedFile từ Streamlit về Bytes thô để fitz đọc an toàn
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
@@ -434,18 +434,14 @@ def execute_cached_gemini_scan(
     full_pdf_raw_text = ""
     image_payloads = []
 
-    # Sử dụng ngữ cảnh 'with' để tự động đóng file PDF sau khi đọc, giải phóng RAM
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
-
-        # Tối ưu hóa hiệu năng: Chỉ bóc tách tối đa 3 trang để nhẹ RAM máy chủ Cloud
         for idx in range(min(total_pages, 3)):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
             try:
                 pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                # Payload nhị phân tuân thủ định dạng Part dict của google.generativeai
                 image_payloads.append(
                     {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
                 )
@@ -459,9 +455,9 @@ def execute_cached_gemini_scan(
     )
     gemini_inputs.append(prompt_agent_2)
 
-    # Khởi tạo mô hình trực tiếp trên luồng chính
     model = genai.GenerativeModel("gemini-2.5-flash")
 
+    # 🚨 ĐÃ SỬA: Ép cứng ngắt kết nối sau 15 giây nếu gặp lỗi nghẽn server để giải phóng giao diện
     response = model.generate_content(
         gemini_inputs,
         generation_config={
@@ -469,12 +465,12 @@ def execute_cached_gemini_scan(
             "response_schema": raw_json_schema,
             "temperature": 0.0,
         },
+        request_options={"timeout": 15.0},  # 👈 DÒNG VÀ VÀNG CHỐNG TREO BẤT TẬN
     )
 
     if not response or not response.text:
         raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
-    # Dọn sạch cấu trúc mã bọc ```json ... ``` của mô hình để chống lỗi nổ cú pháp json.loads
     txt = response.text.strip()
     if txt.startswith("```"):
         txt = re.sub(r"^```json\s*", "", txt)
@@ -485,12 +481,11 @@ def execute_cached_gemini_scan(
     try:
         blueprint_worker = json.loads(txt)
     except json.JSONDecodeError as json_err:
-        # Ép lỗi ngoại lệ chuỗi thô để ném ra ngoài rìa, không gọi hàm UI tại đây
         raise RuntimeError(
             f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
         ) from json_err
 
-    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY CỦA BẠN (GIỮ NGUYÊN HOÀN TOÀN 100%) ---
+    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY (GIỮ NGUYÊN 100%) ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -544,6 +539,7 @@ def execute_cached_gemini_scan(
                 row["fabric_width_inch"] = float(active_width)
 
     return blueprint_worker
+
 
 
 
