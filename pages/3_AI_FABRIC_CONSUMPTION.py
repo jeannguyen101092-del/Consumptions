@@ -936,7 +936,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
     # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+   # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -958,9 +958,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        combined_str = f"{comp_name_raw} {piece_type_ai}".lower().replace(" ", "").replace("_", "")
+        
+        # Đồng bộ chuỗi quét chữ thường liền mạch
+        combined_str_item = f"{comp_name_raw} {piece_type_ai}".lower().replace(" ", "").replace("_", "")
 
-        is_button = any(k in combined_str for k in ["button", "nút", "nut", "khuy"])
+        is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
         if raw_l > 0 or is_button:
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
@@ -972,26 +974,26 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             is_four_layers = False
             pocket_note = ""
             
-            is_pant_component = any(k in combined_str for k in ["trouser", "pant", "jean", "denim", "slider", "fly", "leg", "waistband", "yoke"])
+            is_pant_component = any(k in combined_str_item for k in ["trouser", "pant", "jean", "denim", "slider", "fly", "leg", "waistband", "yoke"])
             jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "bọcổ", "nẹpcổ"]
 
-            if "yoke" in combined_str or "đô" in combined_str:
+            if "yoke" in combined_str_item or "đô" in combined_str_item:
                 if is_pant_component: layer_multiplier = 1  
                 else:
                     layer_multiplier = 2  
                     is_two_layers = True
-            elif "waistband" in combined_str or "lưng" in combined_str or "cạp" in combined_str:
+            elif "waistband" in combined_str_item or "lưng" in combined_str_item or "cạp" in combined_str_item:
                 layer_multiplier = 1  
                 is_two_layers = False
             else:
-                if any(k in combined_str for k in jacket_double_layers) and not is_pant_component:
+                if any(k in combined_str_item for k in jacket_double_layers) and not is_pant_component:
                     layer_multiplier = 2
                     is_two_layers = True
-                elif any(k in combined_str for k in ["flap", "nắptúi", "naptui", "nắptúiáo"]):
+                elif any(k in combined_str_item for k in ["flap", "nắptúi", "naptui", "nắptúiáo"]):
                     layer_multiplier = 4
                     is_four_layers = True
 
-            is_pocket_bag = any(k in combined_str for k in ["pocketbag", "baotúi", "baotui", "liningpocket", "túilót"])
+            is_pocket_bag = any(k in combined_str_item for k in ["pocketbag", "baotúi", "baotui", "liningpocket", "túilót"])
             if is_pocket_bag:
                 layer_multiplier = 2
                 is_two_layers = True
@@ -1000,36 +1002,34 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             elif is_two_layers: pcs_display = f"{pcs} Pcs (x2 lớp)"
             else: pcs_display = f"{pcs} Pcs"
 
-            is_belt_loop = any(k in combined_str for k in ["beltloop", "đỉa", "dia", "passan"])
+            is_belt_loop = any(k in combined_str_item for k in ["beltloop", "đỉa", "dia", "passan"])
 
             # Thiết lập hệ số hình học đa giác (Shape Factor) chuẩn cho sơ đồ áo khoác
-            if any(k in combined_str for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
-                # Chi tiết lớn chính chữ nhật phẳng gộp khít sơ đồ
-                shape_factor = 0.94 if "back" in combined_str else 0.88
-            elif any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "belt", "đai"]) or is_belt_loop:
+            if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
+                shape_factor = 0.94 if "back" in combined_str_item else 0.88
+            elif any(k in combined_str_item for k in ["waistband", "lưng", "collar", "cổ", "belt", "đai"]) or is_belt_loop:
                 shape_factor = 0.96
             else:
                 shape_factor = 0.78
 
-            # Phép nhân diện tích hình học rập thực tế bao gồm biên may sản xuất
+            # Phép nhân diện tích hình học rập sản xuất bao gồm biên may
             seamed_l = adj_l + (0.44 * 2.0)
             seamed_w = adj_w + (0.44 * 2.0)
             item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
             
-            # Tích lũy diện tích nếu là Vải chính để phân bổ đồng bộ
             if mat_class_raw == "FABRIC":
                 total_fabric_piece_area += item_area
                 
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": pcs_display,
-                "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "pocket_note": pocket_note
+                "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "pocket_note": pocket_note,
+                "combined_str": combined_str_item, "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs
             })
 
     # 🚨 BƯỚC 2: KHỐNG CHẾ HẠN MỨC SƠ ĐỒ GỐC VÀ PHÂN BỔ TỶ LỆ DIỆN TÍCH (GERBER SHARE RATIO)
-    # Khống chế hạn mức cơ sở thực tế của 1 cái áo khoác Safari dải dài nằm tầm ~1.98 YDS
     base_gross_fabric = bom_source.get("global_gross_fabric_consumption", 1.95)
     if base_gross_fabric > 2.8 or base_gross_fabric < 1.0: 
-        base_gross_fabric = 1.98  # Mức khống chế tiêu chuẩn công nghiệp xưởng may cho áo Safari
+        base_gross_fabric = 1.98  # Hạn mức mốc cơ sở xưởng cắt áo Safari
 
     for item in piece_calculated_data:
         r = item["row_ref"]
@@ -1039,10 +1039,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         layer_multiplier = item["layer_multiplier"]
         mat_class_raw = item["mat_class_raw"]
         pocket_note = item["pocket_note"]
-        
-        raw_l = r.get("bounding_box_length", 0.0)
-        raw_w = r.get("bounding_box_width", 0.0)
-        pcs = r.get("piece_count", 1)
+        combined_str_curr = item["combined_str"]
+        is_belt_loop_curr = item["is_belt_loop"]
+        raw_l = item["raw_l"]
+        raw_w = item["raw_w"]
+        pcs = item["pcs_val"]
 
         if is_button:
             gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
@@ -1050,15 +1051,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             pcs_display = f"{pcs} Cái"
             
         else:
-            is_binding_fabric = ("binding" in combined_str or "viền" in combined_str) and (mat_class_raw == "FABRIC")
-            is_roll_trim = any(k in combined_str for k in ["elastic", "thun", "zipper", "khóa", "khoa", "hanger", "loop", "label", "tag", "beltloop", "đỉa", "passan"])
+            is_binding_fabric = ("binding" in combined_str_curr) and (mat_class_raw == "FABRIC")
+            is_roll_trim = any(k in combined_str_curr for k in ["elastic", "thun", "zipper", "khóa", "khoa", "hanger", "loop", "label", "tag"])
 
             if is_roll_trim and mat_class_raw != "FABRIC":
                 gross_consumption = round(((raw_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                 calc_chain = f"Dải cuộn dọc phụ liệu: L-inch / 36.0"
             else:
                 if mat_class_raw == "FABRIC":
-                    # 🗺️ THUẬT TOÁN PHÂN BỔ ĐỒNG BỘ: Chia tỷ lệ diện tích dựa trên hạn mức bàn cắt thực tế
+                    # Thuật toán phân bổ tỷ lệ diện tích đồng bộ Gerber khống chế hạn mức
                     if total_fabric_piece_area > 0:
                         share_ratio = item_area / total_fabric_piece_area
                         gross_consumption = round(base_gross_fabric * share_ratio, 4)
@@ -1068,7 +1069,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         calc_chain = "Sơ đồ chưa hoàn tất tính toán tổng."
                         
                 elif mat_class_raw in ["FUSING", "LINING"]:
-                    # Sơ đồ phụ liệu lót, keo dựng tính đúng diện tích 100% độc lập đi bàn riêng
                     if usable_width > 0:
                         gross_consumption = round(((item_area / usable_width) / 36.0 / 0.85), 4)
                         calc_chain = f"Sơ đồ phụ liệu rời {mat_class_raw} độc lập"
