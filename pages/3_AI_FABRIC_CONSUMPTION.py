@@ -880,7 +880,7 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN SỬA LỖI ƯU TIÊN HỆ SỐ JACKET/SHIRT)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN VÁ LỖI NHÂN ĐÔI CHIỀU RỘNG THÂN ÁO)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -937,43 +937,43 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
             
-            # Cộng đường may thô sản xuất tiêu chuẩn (0.44 inch mỗi biên)
+            # 🛠️ SỬA LỖI NHÂN ĐÔI: Tự động chia đôi chiều rộng nếu AI bóc tách thông số tổng của 2 thân đối xứng
+            if pcs == 2 and raw_w > 14.0 and any(k in comp_name_raw or k in piece_type_ai for k in ["BODY", "FRONT", "BACK", "THÂN", "SLEEVE", "TAY"]):
+                raw_w = raw_w / 2.0
+            
+            # Cộng đường may thô sản xuất tiêu chuẩn (0.44 inch mỗi biên rập đơn lẻ)
             seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
             
             # Nhân tỉ lệ co rút động theo lệnh chat
             adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
             adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
             
-            # Tính diện tích sơ đồ bao quát (Bounding Box Area)
+            # Tính diện tích sơ đồ bao quát (Bounding Box Area) sau khi đã chia đôi chiều rộng chuẩn xác
             bounding_area_total = adj_l * adj_w * pcs
 
             if mat_class_raw == "FABRIC":
                 combined_check_str = f"{comp_name_raw} {piece_type_ai} {product_type_ai}"
                 
-                # 🔍 THUẬT TOÁN ĐA LUỒNG ƯU TIÊN: ĐƯA NHÓM ÁO/JACKET LÊN ĐẦU BỘ LỌC
+                # THUẬT TOÁN ĐA LUỒNG ƯU TIÊN HỆ SỐ HÌNH HỌC THEO SẢN PHẨM
                 if any(k in combined_check_str for k in ["JACKET", "SHIRT", "BODY", "SLEEVE", "ÁO", "TEE"]):
-                    # Khóa cứng hệ số hình học cao của áo khoác/áo sơ mi, không để chữ 'PANEL' nhận nhầm sang quần
                     if "BACK" in combined_check_str:
                         shape_factor = 0.84 if geo_role_raw == "MAJOR_PANEL" else 0.88
                     else:
                         shape_factor = 0.82 if geo_role_raw == "MAJOR_PANEL" else 0.86
                         
-                # 2. Nhận diện nhóm ĐẦM / VÁY (Dress/Skirt)
                 elif any(k in combined_check_str for k in ["DRESS", "ĐẦM", "GOWN", "SKIRT", "VÁY", "TÙNG"]):
                     shape_factor = 0.70 if geo_role_raw == "MAJOR_PANEL" else 0.84
                     
-                # 3. Nhận diện nhóm QUẦN (Trouser/Jeans/Pants)
                 elif any(k in combined_check_str for k in ["TROUSER", "JEANS", "PANTS", "QUẦN"]):
                     if "BACK" in combined_check_str:
                         shape_factor = 0.68 if geo_role_raw == "MAJOR_PANEL" else 0.85
                     else:
                         shape_factor = 0.64 if geo_role_raw == "MAJOR_PANEL" else 0.84
                 else:
-                    # Mặc định an toàn cho các sản phẩm khác
                     shape_factor = 0.76 if geo_role_raw == "MAJOR_PANEL" else 0.85
                 
-                # Bẫy an toàn riêng cho các chi tiết thẳng tuyệt đối (Cổ áo, nẹp cổ, bo tay, cạp)
-                if any(k in combined_check_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "CUFF", "BO"]):
+                # Bẫy an toàn riêng cho các chi tiết thẳng tuyệt đối (Cổ áo, bo, măng séc)
+                if any(k in combined_check_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "CUFF", "BO", "STAND"]):
                     shape_factor = 0.94
 
                 true_shape_area = bounding_area_total * shape_factor
@@ -1017,6 +1017,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
+        # In dòng thông tin đồng bộ
         st.info(f"🚀 **FashionINSTA Insights:** Size đang tính toán: **SIZE {target_size}** | Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
