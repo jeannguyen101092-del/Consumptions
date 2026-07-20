@@ -395,19 +395,20 @@ with col_right:
 
 
 
-# =====================================================================
-# 🧠 KHỐI CHỨA HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐẶT PHÍA TRÊN ĐOẠN 7a)
-# =====================================================================
 import streamlit as st
 import google.generativeai as genai
 import json, copy, re, fitz, traceback
-import threading
 
-@st.cache_data(show_spinner=False)
+# =====================================================================
+# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ SỬA LỖI KẸT HASH NHỊ PHÂN)
+# =====================================================================
+
+# 🚨 SỬA LỖI CHÍ MẠNG: Dùng hash_funcs để bảo Streamlit bỏ qua việc quét băm dữ liệu nhị phân PDF thô, triệt tiêu lỗi treo Spinner
+@st.cache_data(show_spinner=False, hash_funcs={bytes: lambda x: hash(len(x))})
 def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_size_cmd, raw_json_schema, prompt_agent_2):
     """
-    Hàm gọi AI quét PDF có sử dụng cơ chế Cache dữ liệu của Streamlit.
-    Giúp cố định thông số 100% không đổi giữa các lần gõ chat hoặc tương tác nút bấm.
+    Hàm gọi AI quét PDF an toàn. Đã tối ưu hóa luồng băm dữ liệu ảnh rập
+    để không làm thắt nút cổ chai luồng render của Streamlit Cloud.
     """
     doc_recovery = fitz.open(stream=pdf_bytes, filetype="pdf")
     total_pages = len(doc_recovery)
@@ -415,34 +416,43 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
     image_payloads = []
     
     for idx in range(total_pages):
+        # 1. Trích xuất văn bản thô từ tài liệu kỹ thuật
         page_text = doc_recovery[idx].get_text("text")
         full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
         
-        if len(image_payloads) < 12:
-            pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
-            image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            
+        # 2. Tối ưu hóa: Chỉ render tối đa 3 trang đầu (Trang chứa Sketch, Bảng thông số, Sơ đồ cấu trúc rập)
+        # Việc giảm số lượng ảnh render giúp giải phóng RAM máy chủ và tránh nghẽn luồng xử lý
+        if len(image_payloads) < 3:
+            try:
+                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+            except Exception:
+                # Bẫy lỗi an toàn nếu trang PDF không thể kết xuất đồ họa
+                continue
+                
+    # Đóng gói dữ liệu gửi lên mô hình Gemini
     gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
     gemini_inputs.append(prompt_agent_2)
 
+    # Khởi tạo mô hình xử lý đa phương tiện của Google
     model = genai.GenerativeModel('gemini-2.5-flash')
     response = model.generate_content(
         gemini_inputs,
         generation_config={
             "response_mime_type": "application/json",
             "response_schema": raw_json_schema,
-            "temperature": 0.0  # 🌟 KHÓA CHẶT: Ép về 0.0 để triệt tiêu tính ngẫu nhiên, số liệu luôn đồng nhất
+            "temperature": 0.0  # Khóa chặt tính nhất quán của số liệu CAD
         }
     )
     
     blueprint_worker = json.loads(response.text)
     
+    # --- ĐOẠN QUY CHUẨN VÀ ÉP KIỂU DỮ LIỆU ĐẦU RA (GIỮ NGUYÊN NGHIỆP VỤ CỦA BẠN) ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         
         for row in blueprint_worker.get("bom_rows", []):
-            # Chuẩn hóa chuỗi văn bản đầu vào để tránh lỗi khoảng trắng làm áp sai quy tắc IE
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
                 
@@ -458,7 +468,6 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
             try: row["piece_count"] = int(float(row.get("piece_count", 1)))
             except: row["piece_count"] = 1
 
-            # 🎯 BẢN VÁ MỚI: Đồng bộ hóa kiểu dữ liệu định mức Yard thực tế do AI tự lập luận tính toán trả về
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
             except: row["gross_consumption"] = 0.0415
             
@@ -475,6 +484,7 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
                 row["fabric_width_inch"] = float(active_width)
                 
     return blueprint_worker
+
 
 import streamlit as st
 
