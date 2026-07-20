@@ -952,13 +952,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        combined_str = f"{comp_name_raw} {piece_type_ai} {mat_class_raw}"
+        combined_str = f"{comp_name_raw} {piece_type_ai}"
         
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
         if raw_l > 0:
-            # 1. Nhân tỉ lệ co rút dọc tiêu chuẩn cho chiều dài cắt sản xuất
+            # 1. Nhân tỉ lệ co rút dọc tiêu chuẩn cho chiều dài rập
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
@@ -990,7 +990,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
-            # Xuất chuỗi hiển thị số lượng rập lên giao diện
             if is_four_layers:
                 pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
             elif is_two_layers:
@@ -998,36 +997,39 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             else:
                 pcs_display = f"{pcs} Pcs"
 
-            # 🚨 KIỂM TRA PHÂN LOẠI: Chi tiết dạng dải cuộn phụ liệu dài hay mảng vải đi sơ đồ Layout
+            # 🚨 🛠️ SỬA LỌC QUY TẮC PHÂN LOẠI PHỤ LIỆU CUỘN VÀ VẢI TẤM
+            # Dây viền (Binding) nếu cấu hình là FABRIC thì KHÔNG ĐƯỢC coi là dải cuộn dải dọc phụ liệu mua ngoài (is_roll_trim = False)
+            is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
+            
             is_roll_trim = any(k in combined_str for k in [
-                "ELASTIC", "THUN", "BINDING", "VIỀN", "VIEN", "ZIPPER", "KHÓA", "KHOA", 
-                "HANGER", "LOOP", "TRIM", "ACCESSORY", "BUTTON", "LABEL", "TAG"
-            ])
+                "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", 
+                "HANGER", "LOOP", "BUTTON", "LABEL", "TAG"
+            ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
-            if is_roll_trim:
-                # 📏 CÔNG THỨC 1: TÍNH THEO CHIỀU DÀI LŨY KẾ DỌC (Không tính diện tích nhân bản rộng W)
-                # Công thức: (Chiều dài rập sau co rút L-inch * Số lượng rập * Số lớp multiplier) / 36.0 inch để ra YDS
-                # Cộng thêm 4% hao hụt đầu khúc/đầu máy công nghiệp đầu cuộn tiêu chuẩn (* 1.04)
+            if is_roll_trim and not is_binding_fabric:
+                # 📏 CÔNG THỨC 1: TÍNH LŨY KẾ DỌC THEO CHIỀU DÀI YARDS (Cho thun, dây viền dạng trim)
                 gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                 calc_chain = f"Dải cuộn phụ liệu dọc: Chiều dài L-inch / 36.0"
                 if layer_multiplier > 1: calc_chain += f" (Nhân {layer_multiplier} lớp)"
             else:
-                # 🗺️ CÔNG THỨC 2: ĐI SƠ ĐỒ LAYOUT ĐA GIÁC (Dành cho rập thân lớn Vải chính / Vải lót)
+                # 🗺️ CÔNG THỨC 2: TÍNH ĐI SƠ ĐỒ LAYOUT ĐA GIÁC (Dành cho thân và Binding cắt bằng Vải chính)
                 if any(k in combined_str for k in ["JACKET", "BODY", "ÁO", "TEE", "VEST"]):
                     shape_factor = 0.94 if ("PANEL" in combined_str or "THÂN" in combined_str) else 0.86
                 elif any(k in combined_str for k in ["SLEEVE", "TAY"]):
                     shape_factor = 0.84
                 elif any(k in combined_str for k in ["DRESS", "ĐẦM", "SKIRT", "VÁY", "TÙNG"]):
                     shape_factor = 0.76
+                elif "BINDING" in combined_str or "VIỀN" in combined_str:
+                    shape_factor = 0.96  # Bản rập viền thẳng, hao hụt sơ đồ cắt rất ít (Eff cao)
                 else:
                     shape_factor = 0.70
                     
                 if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                     shape_factor = 0.94
 
-                # Tính diện tích rập bao gồm đường may biên rập sản xuất
+                # Tính diện tích rập bao gồm may biên
                 seamed_l = adj_l + (0.44 * 2.0)
-                seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.0
+                seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.25
                 piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
                 
                 if usable_width > 0:
@@ -1050,8 +1052,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
-    # Đẩy kết quả vào session_state bền vững phục vụ hiển thị ở Đoạn 2
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 # 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
 # Lấy trực tiếp dữ liệu bền vững từ st.session_state
