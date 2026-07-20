@@ -935,7 +935,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+    # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -1004,6 +1004,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 4
                     is_four_layers = True
 
+            # Xử lý Bao túi mổ quần / túi lót áo
             is_pocket_bag = any(k in combined_str for k in ["pocketbag", "baotúi", "baotui", "liningpocket", "túilót"])
             if is_pocket_bag:
                 layer_multiplier = 2
@@ -1031,18 +1032,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
                     if mat_class_raw == "FABRIC":
-                        # 🗺️ THUẬT TOÁN SƠ ĐỒ ĐÔI ÁO SAFARI/JACKET TIÊU CHUẨN XƯỞNG
-                        is_front_panel = any(k in combined_str for k in ["frontbody", "frontpanel", "thântrước"])
-                        is_back_panel = any(k in combined_str for k in ["backbody", "backpanel", "thânsau"])
-                        
-                        if is_back_panel or is_front_panel:
-                            # 🚨 ĐÃ SỬA CHUẨN XÁC: Cả thân trước và thân sau đều tính chiều dài sơ đồ dọc gánh độc lập có co rút
-                            # Công thức: (Dài rập L sau co rút / 36.0) + 0.05Y hao hụt đầu khúc cố định của bàn cắt sơ đồ đôi áo khoác
+                        # 🚨 ĐÃ SỬA: Đưa Tay áo (Sleeve) vào danh sách chi tiết lớn chính gánh chiều dài sơ đồ dọc độc lập giống như thân
+                        is_major_panel = any(k in combined_str for k in ["frontbody", "frontpanel", "thântrước", "backbody", "backpanel", "thânsau", "sleeve", "tayáo", "tay"])
+
+                        if is_major_panel:
+                            # Thân trước, thân sau, tay áo đều gánh chiều dài sơ đồ dọc có co rút trên bàn cắt
+                            # Công thức chuẩn xưởng: (Dài rập L sau co rút / 36.0) + hao hụt đầu khúc bàn cắt cố định 0.055Y
                             gross_consumption = round((adj_l / 36.0 + 0.055), 4)
-                            calc_chain = f"Sơ đồ Vải chính: Trục dọc gánh chiều dài (L sau co rút = {adj_l:.2f}\")"
+                            calc_chain = f"Sơ đồ Vải chính: Chi tiết lớn gánh trục dọc sơ đồ (L có co rút = {adj_l:.2f}\")"
                         else:
-                            # 🚨 CHI TIẾT PHỤ VẢI CHÍNH (Lưng, Đai, Cổ, Túi, Passan): Giữ nguyên thuật toán lách chèn góc trống của bạn
-                            # Áp dụng hệ số lách kẽ (interlocking_factor = 0.45) dựa trên diện tích bản rập thực tế để không gán bằng 0
+                            # Các linh kiện nhỏ vải chính khác tiếp tục giữ nguyên logic lách chèn góc hở sơ đồ (Hạ định mức thực tế)
                             shape_factor = 0.96 if (is_belt_loop or "binding" in combined_str) else 0.78
                             if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "belt", "đai"]): shape_factor = 0.94
                             
