@@ -404,10 +404,12 @@ import streamlit as st
 
 
 # =====================================================================
-# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ THÊM TIMEOUT CHỐNG KẸT LUỒNG)
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ANTI-STALE PATCH)
 # =====================================================================
+# Ép hủy bộ nhớ đệm lỗi cũ sau 60 giây (ttl=60), băm mã SHA-256 nội dung bytes thực tế của file
 @st.cache_data(
     show_spinner=False,
+    ttl=60,
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
 def execute_cached_gemini_scan(
@@ -418,12 +420,12 @@ def execute_cached_gemini_scan(
     raw_json_schema,
     prompt_agent_2,
 ):
-    """
-    Hàm gọi AI quét PDF có cấu hình Timeout cứng 15 giây.
-    Bẻ gãy hoàn toàn tình trạng nghẽn mạng gây treo vòng xoay spinner vô tận.
+    """Hàm thuần (Pure Function) gọi AI quét PDF.
+
+    Đã tinh khiết hóa, đóng file tự động bằng ngữ cảnh 'with', hash SHA-256
+    sạch.
     """
     import copy
-    import hashlib
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -434,8 +436,11 @@ def execute_cached_gemini_scan(
     full_pdf_raw_text = ""
     image_payloads = []
 
+    # Tự động đóng file giải phóng bộ nhớ đệm hệ thống khi thoát khối 'with'
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
+
+        # Quét 3 trang đầu chứa cấu trúc rập của tài liệu kỹ thuật để nhẹ RAM
         for idx in range(min(total_pages, 3)):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
@@ -457,7 +462,7 @@ def execute_cached_gemini_scan(
 
     model = genai.GenerativeModel("gemini-2.5-flash")
 
-    # 🚨 ĐÃ SỬA: Ép cứng ngắt kết nối sau 15 giây nếu gặp lỗi nghẽn server để giải phóng giao diện
+    # Gọi mô hình với cấu hình Timeout cứng 15 giây chống kẹt luồng C-level
     response = model.generate_content(
         gemini_inputs,
         generation_config={
@@ -465,12 +470,13 @@ def execute_cached_gemini_scan(
             "response_schema": raw_json_schema,
             "temperature": 0.0,
         },
-        request_options={"timeout": 15.0},  # 👈 DÒNG VÀ VÀNG CHỐNG TREO BẤT TẬN
+        request_options={"timeout": 15.0},
     )
 
     if not response or not response.text:
         raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
+    # Dọn sạch cấu trúc mã bọc ```json ... ``` trước khi ép kiểu dict
     txt = response.text.strip()
     if txt.startswith("```"):
         txt = re.sub(r"^```json\s*", "", txt)
@@ -485,7 +491,7 @@ def execute_cached_gemini_scan(
             f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
         ) from json_err
 
-    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY (GIỮ NGUYÊN 100%) ---
+    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY CỦA BẠN (GIỮ NGUYÊN) ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -584,40 +590,152 @@ if safe_user_prompt:
     st.rerun()
 
 
-# =====================================================================
-# 🔍 ĐOẠN CODE CHẨN ĐOÁN TRỰC DIỆN (DÁN THAY THẾ ĐOẠN 2 ĐỂ CHECK LỖI)
-# =====================================================================
-if st.session_state.ai_processing:
-    # 1. Kiểm tra sự tồn tại của file PDF trong bộ nhớ đệm
-    active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf")
-    
-    st.write("### 🛠️ KẾT QUẢ CHẨN ĐOÁN HỆ THỐNG:")
-    st.write(f"- Trạng thái câu lệnh: `{st.session_state['last_submitted_query']}`")
-    st.write(f"- File PDF tồn tại trong bộ nhớ: `{active_pdf is not None}`")
-    
-    if active_pdf is not None:
-        try:
-            # 2. Thử gọi trực tiếp mô hình Gemini không qua bộ lọc cache
-            import google.generativeai as genai
-            st.write("- Đang kết nối thử nghiệm đến Google API...")
-            
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            # Gửi một chuỗi kiểm tra ngắn để xem API Key có hoạt động hay không
-            test_response = model.generate_content("Ping! Trả lời chữ Pong ngắn gọn nếu kết nối API thành công.")
-            
-            st.success("✅ Kết nối Google API thành công!")
-            st.write(f"- Phản hồi từ Gemini: `{test_response.text}`")
-            
-        except Exception as api_error:
-            st.error("❌ Kết nối Google API thất bại!")
-            st.exception(api_error)
-    else:
-        st.error("❌ Hệ thống hoàn toàn không tìm thấy dữ liệu file PDF trong Session State!")
-        
-    # Nhả ô chat và dừng luồng để hiển thị thông tin debug cố định
-    st.session_state.ai_processing = False
-    st.stop()
+import copy
+import traceback
+import streamlit as st
 
+# =====================================================================
+# 🟩 ĐOẠN B: LIVE UI CHAT & SECURE EXTRACTION CONTROLLER
+# =====================================================================
+
+# 1. Khởi tạo an toàn các biến Session State toàn cục
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "ai_processing" not in st.session_state:
+    st.session_state.ai_processing = False
+if "last_submitted_query" not in st.session_state:
+    st.session_state.last_submitted_query = ""
+
+# Khung Container render lịch sử tin nhắn
+chat_history_container = st.container()
+with chat_history_container:
+    st.markdown(
+        '<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>',
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("chat_history"):
+        for msg in st.session_state.chat_history:
+            st.chat_message("user").write(msg["user"])
+            st.chat_message("assistant").write(msg["ai"])
+
+# Viết độc lập lề trái hoàn toàn, tách key sang phiên bản patch_v7
+safe_user_prompt = st.chat_input(
+    "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v7",
+)
+
+if safe_user_prompt:
+    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
+    st.session_state.ai_processing = True
+    st.rerun()
+
+# 2. Xử lý logic gọi mô hình trực tiếp khi cờ xử lý bật
+if st.session_state.ai_processing:
+    current_query = st.session_state["last_submitted_query"]
+
+    # Bộ quét tìm nguồn file PDF dự phòng khi chuyển tab đa trang của Streamlit
+    active_pdf = st.session_state.get("pdf_bytes")
+    if active_pdf is None:
+        active_pdf = (
+            st.session_state.get("uploaded_file")
+            or st.session_state.get("current_pdf")
+            or st.session_state.get("pdf_data")
+        )
+
+    if active_pdf is not None:
+        with st.spinner(
+            "🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."
+        ):
+            try:
+                # Dựng cấu trúc Json Schema trả về
+                raw_json_schema = {
+                    "type": "OBJECT",
+                    "properties": {
+                        "detected_product_type": {"type": "STRING"},
+                        "detected_base_size": {"type": "STRING"},
+                        "bom_rows": {
+                            "type": "ARRAY",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "component_name": {"type": "STRING"},
+                                    "material_class": {"type": "STRING"},
+                                    "geometry_role": {"type": "STRING"},
+                                    "piece_type": {"type": "STRING"},
+                                    "uom": {"type": "STRING"},
+                                    "piece_count": {"type": "INTEGER"},
+                                    "bounding_box_length": {"type": "NUMBER"},
+                                    "bounding_box_width": {"type": "NUMBER"},
+                                    "data_confidence": {"type": "STRING"},
+                                    "calculation_status": {"type": "STRING"},
+                                },
+                                "required": [
+                                    "component_name",
+                                    "material_class",
+                                    "geometry_role",
+                                    "piece_type",
+                                    "uom",
+                                    "piece_count",
+                                    "bounding_box_length",
+                                    "bounding_box_width",
+                                    "data_confidence",
+                                    "calculation_status",
+                                ],
+                            },
+                        },
+                    },
+                    "required": [
+                        "detected_product_type",
+                        "detected_base_size",
+                        "bom_rows",
+                    ],
+                }
+
+                prompt_agent_2 = "You are a strict Data Extraction Engine..."
+
+                # Gọi trực tiếp hàm lõi từ Đoạn A
+                blueprint_final = execute_cached_gemini_scan(
+                    active_pdf,
+                    current_query,
+                    56.0,
+                    "32",
+                    raw_json_schema,
+                    prompt_agent_2,
+                )
+
+                st.session_state.blueprint_final = blueprint_final
+                st.session_state.last_active_blueprint = blueprint_final
+
+                if blueprint_final and isinstance(blueprint_final, dict):
+                    bom_rows_list = blueprint_final.get("bom_rows", [])
+                    st.session_state["bom_data"] = blueprint_final
+                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(
+                        bom_rows_list
+                    )
+
+                ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
+                st.session_state.chat_history.append(
+                    {"user": current_query, "ai": ai_response_text}
+                )
+
+            except Exception as e:
+                # Khóa cứng luồng không cho Rerun để hiển thị vết lỗi thô chi tiết phục vụ sửa lỗi
+                st.error("🚨 Chi tiết lỗi hệ thống từ API Core:")
+                st.exception(e)
+                st.code(traceback.format_exc(), language="python")
+
+                st.session_state.ai_processing = False
+                st.stop()
+
+            finally:
+                if st.session_state.ai_processing:
+                    st.session_state.ai_processing = False
+                    st.rerun()
+    else:
+        st.error(
+            "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
+        )
+        st.session_state.ai_processing = False
 
 
 
