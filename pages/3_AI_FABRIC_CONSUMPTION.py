@@ -876,7 +876,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 # =====================================================================
-# KHỐI 3B: BẢN SỬA SẠCH LỖI CÚ PHÁP (SYNTAX ERROR) - CHẠY NGAY
+# KHỐI 3B: BẢN TINH GỌN - TƯƠNG THÍCH MỌI PHIÊN BẢN STREAMLIT
 # =====================================================================
 
 st.subheader("⚠️ DETAILED HYBRID CAD ENGINE")
@@ -927,20 +927,20 @@ def run_cad_recalculation(input_dataframe):
     df_calculated["Gross Consumption"] = results
     return df_calculated
 
-# 2. HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LÊN GIAO DIỆN
+# 2. HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LÊN GIAO DIỆN (ĐÃ LOẠI BỎ BIẾN LỖI PHIÊN BẢN)
 edited_df = st.data_editor(
     st.session_state.df_details,
     num_rows="dynamic",
     column_config={
-        "Component Name": st.column_config.TextColumn("Component Name", placeholder="VD: POCKET BAG...", required=True),
-        "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "ACCESSORY", "THREAD", "TRIM"], default="FABRIC", required=True),
-        "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", default="MINOR_COMPONENT"),
-        "Số lượng rập (Pcs)": st.column_config.NumberColumn("Số lượng rập (Pcs)", min_value=1, max_value=50, step=1, default=1, format="%d"),
-        "Dài sản xuất (L-inch)": st.column_config.NumberColumn("Dài (inch)", min_value=0.0, step=0.25, default=0.0, format="%.2f"),
-        "Rộng sản xuất (W-inch)": st.column_config.NumberColumn("Rộng (inch)", min_value=0.0, step=0.25, default=0.0, format="%.2f"),
-        "Kiểu sơ đồ tùng": st.column_config.TextColumn("Kiểu sơ đồ", default="SOLID LAYOUT"),
-        "Dự đoán Mật độ nén": st.column_config.TextColumn("Mật độ nén", default="85.0%"),
-        "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
+        "Component Name": st.column_config.TextColumn("Component Name"),
+        "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "ACCESSORY", "THREAD", "TRIM"]),
+        "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type"),
+        "Số lượng rập (Pcs)": st.column_config.NumberColumn("Số lượng rập (Pcs)", min_value=1, max_value=50, step=1),
+        "Dài sản xuất (L-inch)": st.column_config.NumberColumn("Dài (inch)", min_value=0.0),
+        "Rộng sản xuất (W-inch)": st.column_config.NumberColumn("Rộng (inch)", min_value=0.0),
+        "Kiểu sơ đồ tùng": st.column_config.TextColumn("Kiểu sơ đồ"),
+        "Dự đoán Mật độ nén": st.column_config.TextColumn("Mật độ nén"),
+        "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", disabled=True),
     },
     key="cad_hybrid_table_editor",
     use_container_width=True
