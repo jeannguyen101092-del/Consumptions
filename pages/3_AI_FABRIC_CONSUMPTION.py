@@ -780,19 +780,19 @@ if st.session_state.ai_processing:
 
 
 # =====================================================================
-# 🟩 KHỐI 3a: HÀM TÍNH TOÁN HÌNH HỌC SƠ ĐỒ 2D (SKYLINE ENGINE)
+# 🟩 KHỐI 3a: HÀM TÍNH TOÁN HÌNH HỌC SƠ ĐỒ 2D (SKYLINE ENGINE) - ĐÃ SỬA LỖI KHỔ VẢI
 # =====================================================================
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     # Khởi tạo tham số mặc định
     warp_shrinkage, weft_shrinkage, fabric_width = 0.0, 0.0, 56.0
     
-    # Trích xuất thông số từ văn bản chat bằng Regex
+    # SỬA LỖI: Thêm re.IGNORECASE để nhận diện chính xác chữ "khổ" hoặc "khổ vải" từ ô chat
     if user_query_text:
-        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text)
+        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if width_match: fabric_width = float(width_match.group(2))
-        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text)
+        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if warp_match: warp_shrinkage = float(warp_match.group(2))
-        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
+        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
 
     # THAY ĐỔI: Khổ vải hữu dụng bằng đúng khổ vải thực tế, không trừ đi 1 inch
@@ -800,12 +800,12 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
     # Nhận diện mẫu vân hoa vải
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-    if any(k in user_query_text for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
-    if any(k in user_query_text for k in ["caro", "plaid"]): 
+    if any(k in str(user_query_text).lower() for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
+    if any(k in str(user_query_text).lower() for k in ["caro", "plaid"]): 
         fabric_pattern = "PLAID"
-        repeat_match = re.search(r"(caro|sọc|repeat)\s*(\d+(\.\d+)?)", user_query_text)
+        repeat_match = re.search(r"(caro|sọc|repeat)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
-    if any(k in user_query_text for k in ["tuyết", "nap", "one way", "một chiều"]): fabric_pattern, is_one_way_nap = "NAP", True
+    if any(k in str(user_query_text).lower() for k in ["tuyết", "nap", "one way", "một chiều"]): fabric_pattern, is_one_way_nap = "NAP", True
 
     # Ma trận đăng ký thông số Shape Factor
     piece_metadata_registry = {
