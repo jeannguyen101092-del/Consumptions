@@ -395,95 +395,138 @@ with col_right:
 
 
 
-import streamlit as st
+import hashlib
+import json
+import re
+import fitz
 import google.generativeai as genai
-import json, copy, re, fitz, traceback
+import streamlit as st
+
 
 # =====================================================================
-# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ SỬA LỖI KẸT HASH NHỊ PHÂN)
+# 🧠 SỬA ĐỔI: KHỐI CHỨA HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP
 # =====================================================================
+# ĐIỂM SỬA 1: Dùng mã băm SHA-256 thực tế để ép bộ cache chạy mượt, không lỗi trùng file
+@st.cache_data(
+    show_spinner=False,
+    hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
+)
+def execute_cached_gemini_scan(
+    pdf_bytes,
+    current_query,
+    active_width,
+    target_size_cmd,
+    raw_json_schema,
+    prompt_agent_2,
+):
 
-# 🚨 SỬA LỖI CHÍ MẠNG: Dùng hash_funcs để bảo Streamlit bỏ qua việc quét băm dữ liệu nhị phân PDF thô, triệt tiêu lỗi treo Spinner
-@st.cache_data(show_spinner=False, hash_funcs={bytes: lambda x: hash(len(x))})
-def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_size_cmd, raw_json_schema, prompt_agent_2):
-    """
-    Hàm gọi AI quét PDF an toàn. Đã tối ưu hóa luồng băm dữ liệu ảnh rập
-    để không làm thắt nút cổ chai luồng render của Streamlit Cloud.
-    """
+    # ĐIỂM SỬA 2: Ép kiểu dữ liệu UploadedFile từ Streamlit về Bytes thô để fitz đọc an toàn, chống crash
+    if hasattr(pdf_bytes, "getvalue"):
+        pdf_bytes = pdf_bytes.getvalue()
+
     doc_recovery = fitz.open(stream=pdf_bytes, filetype="pdf")
     total_pages = len(doc_recovery)
     full_pdf_raw_text = ""
     image_payloads = []
-    
-    for idx in range(total_pages):
-        # 1. Trích xuất văn bản thô từ tài liệu kỹ thuật
+
+    # Tối ưu hóa: Chỉ render tối đa 3 trang để nhẹ RAM máy chủ Cloud, chống nghẽn luồng
+    for idx in range(min(total_pages, 3)):
         page_text = doc_recovery[idx].get_text("text")
         full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
-        
-        # 2. Tối ưu hóa: Chỉ render tối đa 3 trang đầu (Trang chứa Sketch, Bảng thông số, Sơ đồ cấu trúc rập)
-        # Việc giảm số lượng ảnh render giúp giải phóng RAM máy chủ và tránh nghẽn luồng xử lý
-        if len(image_payloads) < 3:
-            try:
-                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            except Exception:
-                # Bẫy lỗi an toàn nếu trang PDF không thể kết xuất đồ họa
-                continue
-                
-    # Đóng gói dữ liệu gửi lên mô hình Gemini
+
+        try:
+            pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+            image_payloads.append(
+                {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
+            )
+        except Exception:
+            continue
+
     gemini_inputs = copy.deepcopy(image_payloads)
-    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+    gemini_inputs.insert(
+        0,
+        f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
+    )
     gemini_inputs.append(prompt_agent_2)
 
-    # Khởi tạo mô hình xử lý đa phương tiện của Google
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(
         gemini_inputs,
         generation_config={
             "response_mime_type": "application/json",
             "response_schema": raw_json_schema,
-            "temperature": 0.0  # Khóa chặt tính nhất quán của số liệu CAD
-        }
+            "temperature": 0.0,
+        },
     )
-    
-    blueprint_worker = json.loads(response.text)
-    
-    # --- ĐOẠN QUY CHUẨN VÀ ÉP KIỂU DỮ LIỆU ĐẦU RA (GIỮ NGUYÊN NGHIỆP VỤ CỦA BẠN) ---
+
+    if not response or not response.text:
+        raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
+
+    # ĐIỂM SỬA 3: Dọn sạch cấu trúc mã bọc ```json ... ``` của mô hình để chống lỗi nổ cú pháp json.loads
+    txt = response.text.strip()
+    if txt.startswith("```"):
+        txt = re.sub(r"^```json\s*", "", txt)
+        txt = re.sub(r"^```\s*", "", txt)
+        txt = re.sub(r"\s*```$", "", txt)
+    txt = txt.strip()
+
+    blueprint_worker = json.loads(txt)
+
+    # --- [ĐOẠN QUY CHUẨN CHI TIẾT RẬP PHÍA DƯỚI CỦA BẠN GIỮ NGUYÊN 100%] ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
-        
         for row in blueprint_worker.get("bom_rows", []):
             if "component_name" in row:
-                row["component_name"] = " ".join(str(row["component_name"]).upper().split())
-                
-            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
-            except: row["bounding_box_length"] = 0.0
-            
-            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
-            except: row["bounding_box_width"] = 0.0
-            
-            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-            except: row["polygon_net_area"] = 0.0
-            
-            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
-            except: row["piece_count"] = 1
-
-            try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
-            except: row["gross_consumption"] = 0.0415
-            
-            try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
-            except: row["marker_efficiency"] = "82.5%"
-
+                row["component_name"] = " ".join(
+                    str(row["component_name"]).upper().split()
+                )
+            try:
+                row["bounding_box_length"] = round(
+                    float(row.get("bounding_box_length", 0.0)), 2
+                )
+            except Exception:
+                row["bounding_box_length"] = 0.0
+            try:
+                row["bounding_box_width"] = round(
+                    float(row.get("bounding_box_width", 0.0)), 2
+                )
+            except Exception:
+                row["bounding_box_width"] = 0.0
+            try:
+                row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+            except Exception:
+                row["polygon_net_area"] = 0.0
+            try:
+                row["piece_count"] = int(float(row.get("piece_count", 1)))
+            except Exception:
+                row["piece_count"] = 1
+            try:
+                row["gross_consumption"] = round(
+                    float(row.get("gross_consumption", 0.0415)), 4
+                )
+            except Exception:
+                row["gross_consumption"] = 0.0415
+            try:
+                row["marker_efficiency"] = str(
+                    row.get("marker_efficiency", "82.5%")
+                ).strip()
+            except Exception:
+                row["marker_efficiency"] = "82.5%"
             try:
                 w_val = row.get("fabric_width_inch")
-                if w_val is None or str(w_val).strip() == "" or float(w_val) <= 0.0:
+                if (
+                    w_val is None
+                    or str(w_val).strip() == ""
+                    or float(w_val) <= 0.0
+                ):
                     row["fabric_width_inch"] = float(active_width)
                 else:
                     row["fabric_width_inch"] = float(w_val)
-            except:
+            except Exception:
                 row["fabric_width_inch"] = float(active_width)
-                
+
     return blueprint_worker
+
 
 
 import streamlit as st
