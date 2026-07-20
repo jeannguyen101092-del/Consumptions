@@ -886,9 +886,10 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
 import pandas as pd
 import streamlit as st
+import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (CHỐNG LỖI NAMEERROR)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐÃ SỬA LỖI ÉP KHỔ VẢI THEO CHAT)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -897,13 +898,20 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
     # Lấy văn bản từ ô chat
     user_query_text = ""
-    if st.session_state.get("last_submitted_query"): user_query_text = str(st.session_state.get("last_submitted_query")).lower()
-    elif st.session_state.get("ie_workspace_static_chat_input_key"): user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key")).lower()
-    if not user_query_text and st.session_state.get("chat_history"): user_query_text = str(st.session_state.chat_history[-1]["user"]).lower()
+    if st.session_state.get("last_submitted_query"): user_query_text = str(st.session_state.get("last_submitted_query"))
+    elif st.session_state.get("ie_workspace_static_chat_input_key"): user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key"))
+    if not user_query_text and st.session_state.get("chat_history"): user_query_text = str(st.session_state.chat_history[-1]["user"])
 
     # 🚨 GỌI HÀM TỪ ĐOẠN 3a ĐỂ LẤY BIẾN AN TOÀN
     metrics = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
     
+    # 🛠️ ÉP ĐÈ GIÁ TRỊ TỪ REGEX ĐỂ BẺ GÃY HOÀN TOÀN LỖI KẸT CACHE 56.0
+    width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+    if width_match:
+        detected_width = float(width_match.group(2))
+        metrics["fabric_width"] = detected_width
+        metrics["usable_width"] = detected_width  # Đồng bộ khổ hữu dụng bằng khổ thực tế (không trừ 1)
+
     # Giải nén nhanh các biến số phục vụ hiển thị
     fabric_width, usable_width = metrics["fabric_width"], metrics["usable_width"]
     warp_shrinkage, weft_shrinkage = metrics["warp_shrinkage"], metrics["weft_shrinkage"]
@@ -939,8 +947,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             item_shape_area_total = adj_l * adj_w * meta_item["shape_factor"] * pcs
             
             if mat_class_raw == "FABRIC":
-                gross_consumption = round(item_shape_area_total * allocated_shape_fabric_factor, 4)
-                calc_chain = f"Skyline Sim: Diện tích thật {item_shape_area_total:.1f} in² x Trọng số ({allocated_shape_fabric_factor:.6f})"
+                # Tính lại hệ số định mức phân bổ dựa trên khổ vải mới được cập nhật thực tế
+                if usable_width > 0 and actual_packing_density > 0:
+                    simulated_marker_length_inch = ((item_shape_area_total / usable_width) / actual_packing_density)
+                    gross_consumption = round((simulated_marker_length_inch / 36.0) * 1.025 * 1.010, 4)
+                else:
+                    gross_consumption = round(item_shape_area_total * allocated_shape_fabric_factor, 4)
+                calc_chain = f"Skyline Sim: Diện tích thật {item_shape_area_total:.1f} in² / Khổ {usable_width} / Mật độ {actual_packing_density*100:.1f}%"
             elif mat_class_raw in ["FUSING", "LINING"]:
                 gross_consumption = round(((adj_l * adj_w * pcs / usable_width) / 36.0 / 0.78 * 1.04), 4)
                 calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {adj_l*adj_w*pcs:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
