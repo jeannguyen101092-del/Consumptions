@@ -779,14 +779,16 @@ if st.session_state.ai_processing:
 
 
 
-# =====================================================================
-# 🟩 KHỐI 3a: HÀM TÍNH TOÁN HÌNH HỌC SƠ ĐỒ 2D (SKYLINE ENGINE)
-# =====================================================================
-def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    # Khởi tạo tham số mặc định
+import re
+
+def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=None):
+    """
+    Đoạn 1: Xử lý văn bản chat, chuẩn hóa kích thước BOM và bóc tách dữ liệu rập.
+    """
+    # 1. Trích xuất thông số vải từ văn bản chat bằng Regex
     warp_shrinkage, weft_shrinkage, fabric_width = 0.0, 0.0, 56.0
+    user_query_text = str(user_query_text or "").lower()
     
-    # Trích xuất thông số từ văn bản chat bằng Regex
     if user_query_text:
         width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text)
         if width_match: fabric_width = float(width_match.group(2))
@@ -795,9 +797,9 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
 
-    usable_width = fabric_width - 1.0
+    usable_width = max(1.0, fabric_width - 1.0) 
 
-    # Nhận diện mẫu vân hoa vải
+    # 2. Xác định kiểu hoa văn và loại sản phẩm (Khớp dữ liệu AI)
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
     if any(k in user_query_text for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
     if any(k in user_query_text for k in ["caro", "plaid"]): 
@@ -806,20 +808,31 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
     if any(k in user_query_text for k in ["tuyết", "nap", "one way", "một chiều"]): fabric_pattern, is_one_way_nap = "NAP", True
 
-    # Ma trận đăng ký thông số Shape Factor
+    product_category = "JACKET_COAT"
+    if blueprint_final and isinstance(blueprint_final, dict):
+        product_category = blueprint_final.get("detected_product_type", "JACKET_COAT").upper()
+    else:
+        if any(k in user_query_text for k in ["shirt", "sơ mi", "polo", "t-shirt"]): product_category = "SHIRT_TOP"
+        elif any(k in user_query_text for k in ["trouser", "pants", "quần", "jeans"]): product_category = "TROUSER_PANTS"
+
+    # 3. Bảng ma trận tỷ lệ rập và cấu hình chặn dưới (Min length)
     piece_metadata_registry = {
-        "BODY_FRONT": {"shape_factor": 0.73, "convexity": 0.82, "allow_rotate": 180, "mirror_required": True, "matching_weight": 3},
-        "BODY_BACK": {"shape_factor": 0.76, "convexity": 0.85, "allow_rotate": 180, "mirror_required": True, "matching_weight": 3},
-        "TROUSER_FRONT": {"shape_factor": 0.64, "convexity": 0.72, "allow_rotate": 0, "mirror_required": True, "matching_weight": 2}, 
-        "TROUSER_BACK": {"shape_factor": 0.67, "convexity": 0.75, "allow_rotate": 0, "mirror_required": True, "matching_weight": 2}, 
-        "WAISTBAND": {"shape_factor": 0.96, "convexity": 0.98, "allow_rotate": 90, "mirror_required": False, "matching_weight": 1},
-        "MAJOR_PANEL": {"shape_factor": 0.72, "convexity": 0.80, "allow_rotate": 180, "mirror_required": True, "matching_weight": 0},
-        "MINOR_COMPONENT": {"shape_factor": 0.85, "convexity": 0.92, "allow_rotate": 180, "mirror_required": False, "matching_weight": 0}
+        "BODY_FRONT": {"shape_factor": 0.73, "allow_rotate": 180, "mirror_required": True, "avg_aspect_ratio": 1.35, "min_len": 24.0},
+        "BODY_BACK": {"shape_factor": 0.76, "allow_rotate": 180, "mirror_required": True, "avg_aspect_ratio": 1.40, "min_len": 25.0},
+        "TROUSER_FRONT": {"shape_factor": 0.64, "allow_rotate": 0, "mirror_required": True, "avg_aspect_ratio": 3.20, "min_len": 38.0}, 
+        "TROUSER_BACK": {"shape_factor": 0.67, "allow_rotate": 0, "mirror_required": True, "avg_aspect_ratio": 3.00, "min_len": 39.0}, 
+        "WAISTBAND": {"shape_factor": 0.96, "allow_rotate": 90, "mirror_required": False, "avg_aspect_ratio": 6.00, "min_len": 18.0},
+        "MAJOR_PANEL": {"shape_factor": 0.72, "allow_rotate": 180, "mirror_required": True, "avg_aspect_ratio": 1.50, "min_len": 20.0},
+        "MINOR_COMPONENT": {"shape_factor": 0.85, "allow_rotate": 180, "mirror_required": False, "avg_aspect_ratio": 1.20, "min_len": 4.0}
     }
 
-    global_total_bounding_area, global_total_shape_area, major_shape_area, minor_shape_area = 0.0, 0.0, 0.0, 0.0
-    total_matching_score, constraint_penalty_multiplier, bias_shape_area_weight = 0, 1.00, 0.0
     flat_packing_queue = []
+    total_net_shape_area, total_bounding_box_area = 0.0, 0.0
+    minor_pieces_count, stripe_matching_penalty_score = 0, 0.0
+    has_mirror_restriction = False
+
+    if not bom_rows_list:
+        return {}
 
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
@@ -827,90 +840,208 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         mat_class = str(r.get("material_class", "FABRIC")).upper().strip()
         geo_role = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role)).upper().strip()
-
-        raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
-        if raw_l is None or raw_w is None or pcs is None: continue
-        raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
         
+        pcs = r.get("piece_count")
+        if pcs is None: continue
+        try:
+            pcs = int(pcs)
+            if pcs <= 0: continue
+        except ValueError: continue
+
+        meta = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role, piece_metadata_registry["MINOR_COMPONENT"]))
+
+        # Ước lượng kích thước thiếu theo Tỷ lệ hình học phẳng
+        raw_l, raw_w = r.get("bounding_box_length"), r.get("bounding_box_width")
+        if raw_l is None and raw_w is not None:
+            raw_l = float(raw_w) * meta["avg_aspect_ratio"]
+        elif raw_w is None and raw_l is not None:
+            raw_w = float(raw_l) / meta["avg_aspect_ratio"]
+        elif raw_l is None and raw_w is None:
+            continue
+            
+        try:
+            raw_l, raw_w = float(raw_l), float(raw_w)
+            if raw_l <= 0 or raw_w <= 0: continue
+        except ValueError: continue
+
+        # Ngưỡng chặn kích thước rập tối thiểu (Min Length Bound)
         if (any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name for k in ["PANEL", "PANFI", "THÂN"])) and geo_role == "MAJOR_PANEL":
-            pcs = 2
-            if raw_l <= 30.0: raw_l += 10.0  
+            pcs = max(pcs, 2)
+            raw_l = max(raw_l, meta["min_len"])
 
         if mat_class == "FABRIC":
+            # Cộng đường may (0.44" mỗi biên) và độ co rút vải
             seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
+            adj_l = seamed_l * (1.0 + max(0.0, warp_shrinkage) / 100.0)
+            adj_w = seamed_w * (1.0 + max(0.0, weft_shrinkage) / 100.0)
             
-            meta = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role, piece_metadata_registry["MINOR_COMPONENT"]))
             box_area_single = adj_l * adj_w
-            shape_area_single = box_area_single * meta["shape_factor"]
-            
-            global_total_bounding_area += (box_area_single * pcs)
-            global_total_shape_area += (shape_area_single * pcs)
-            
-            if geo_role == "MAJOR_PANEL": major_shape_area += (shape_area_single * pcs)
-            else: minor_shape_area += (shape_area_single * pcs)
-                
-            if meta["mirror_required"] and pcs >= 2: constraint_penalty_multiplier += 0.025  
-            if meta["allow_rotate"] == 0 or is_one_way_nap: constraint_penalty_multiplier += 0.040  
-            if fabric_pattern in ["STRIPE", "PLAID"] and any(k in comp_name for k in ["CF", "CB", "SIDE", "POCKET", "YOKE"]): total_matching_score += (meta["matching_weight"] * pcs)
-            if "BIAS" in comp_name or "THIÊN" in comp_name: bias_shape_area_weight += (shape_area_single * pcs)
+            total_bounding_box_area += (box_area_single * pcs)
+            total_net_shape_area += (box_area_single * meta["shape_factor"] * pcs)
 
-            for _ in range(pcs):
-                flat_packing_queue.append({"l": adj_l, "w": adj_w, "sf": meta["shape_factor"], "convexity": meta["convexity"], "role": geo_role, "type": piece_type_ai})
+            if geo_role == "MINOR_COMPONENT": minor_pieces_count += pcs
+            if fabric_pattern in ["STRIPE", "PLAID"] and any(k in comp_name for k in ["CF", "CB", "SIDE", "POCKET", "YOKE"]):
+                stripe_matching_penalty_score += 0.015 * pcs
 
-    if global_total_shape_area > 0 and flat_packing_queue:
-        flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
-        base_pack_density = 0.865 if fabric_pattern == "SOLID" else (0.810 if fabric_pattern == "STRIPE" else (0.755 if fabric_pattern == "PLAID" else 0.720))
-        
-        minor_ratio = minor_shape_area / global_total_shape_area
-        base_pack_density += (minor_ratio * 0.14) if (0.12 <= minor_ratio <= 0.28) else -0.025
-        if plaid_repeat_inch > 0: base_pack_density -= (plaid_repeat_inch * 0.0065)
-        actual_packing_density = max(min(base_pack_density, 0.92), 0.58)
+            if meta["mirror_required"] and is_one_way_nap and meta["allow_rotate"] == 0 and pcs >= 2:
+                has_mirror_restriction = True
 
-        constraint_penalty_multiplier += sum((p["sf"] * 0.008) for p in flat_packing_queue if (p["l"] / p["w"] if p["w"] > 0 else 1.0) > 4.5)
-        simulated_marker_length_inch = ((global_total_shape_area / usable_width) / actual_packing_density) * (1.0 + ((bias_shape_area_weight / global_total_shape_area) * 0.16))
-        simulated_marker_length_inch *= (1.0 + (total_matching_score * 0.008)) * (1.025 if fabric_pattern == "PLAID" else 1.0) * constraint_penalty_multiplier
+            if len(flat_packing_queue) < 3000:
+                for _ in range(pcs):
+                    flat_packing_queue.append({
+                        "l": adj_l, "w": adj_w, 
+                        "allow_rotate": meta["allow_rotate"], "shape_factor": meta["shape_factor"]
+                    })
 
-        global_gross_fabric = (simulated_marker_length_inch / 36.0) * 1.025 * 1.010 + (0.5 / 36.0)
-        allocated_shape_fabric_factor = global_gross_fabric / global_total_shape_area
-    else:
-        global_gross_fabric, actual_packing_density, allocated_shape_fabric_factor = 0.0, 0.82, 0.0
-
-    # Trả về kết quả đóng gói thành một Dictionary để dùng cho Đoạn 3b
     return {
         "fabric_width": fabric_width, "usable_width": usable_width, "warp_shrinkage": warp_shrinkage, "weft_shrinkage": weft_shrinkage,
-        "fabric_pattern": fabric_pattern, "actual_packing_density": actual_packing_density, "allocated_shape_fabric_factor": allocated_shape_fabric_factor,
-        "constraint_penalty_multiplier": constraint_penalty_multiplier, "piece_metadata_registry": piece_metadata_registry
+        "fabric_pattern": fabric_pattern, "plaid_repeat_inch": plaid_repeat_inch, "is_one_way_nap": is_one_way_nap,
+        "flat_packing_queue": flat_packing_queue, "total_bounding_box_area": total_bounding_box_area, "total_net_shape_area": total_net_shape_area,
+        "minor_pieces_count": minor_pieces_count, "stripe_matching_penalty_score": stripe_matching_penalty_score, "has_mirror_restriction": has_mirror_restriction
     }
+def execute_skyline_placement(geometry_data):
+    """
+    Đoạn 2: Lõi thuật toán Skyline Corner xếp rập trực tiếp lên khổ vải và kết xuất định mức sản xuất.
+    """
+    if not geometry_data or not geometry_data.get("flat_packing_queue"):
+        return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
+
+    usable_width = geometry_data["usable_width"]
+    flat_packing_queue = geometry_data["flat_packing_queue"]
+    fabric_pattern = geometry_data["fabric_pattern"]
+    plaid_repeat_inch = geometry_data["plaid_repeat_inch"]
+    is_one_way_nap = geometry_data["is_one_way_nap"]
+    
+    # Ưu tiên chi tiết dài nhất xếp trước như quy tắc đi sơ đồ tay/máy tự động
+    flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
+    
+    # Khởi tạo đường Skyline đáy sơ đồ phẳng: [x_start, width, y_level]
+    skyline = [[0.0, usable_width, 0.0]]
+    simulated_marker_length_inch = 0.0
+    
+    for piece in flat_packing_queue:
+        p_l, p_w = piece["l"], piece["w"]
+        
+        # Thử nghiệm xoay rập tối ưu khổ
+        if piece["allow_rotate"] == 90 and p_l <= usable_width:
+            p_l, p_w = p_w, p_l
+        elif piece["allow_rotate"] == 180 and p_w > usable_width and p_l <= usable_width:
+            p_l, p_w = p_w, p_l
+
+        best_skyline_idx = -1
+        min_y_found = float('inf')
+        
+        for i, segment in enumerate(skyline):
+            if segment >= p_w and segment < min_y_found:
+                min_y_found = segment
+                best_skyline_idx = i
+        
+        if best_skyline_idx == -1:
+            p_l, p_w = min(p_l, p_w), max(p_l, p_w)
+            best_skyline_idx = 0
+            min_y_found = max(seg for seg in skyline)
+
+        seg_x, seg_w, seg_y = skyline[best_skyline_idx]
+        placed_y_top = seg_y + p_l
+        
+        # Cập nhật lưới tọa độ Skyline
+        if abs(seg_w - p_w) < 0.001:
+            skyline[best_skyline_idx] = placed_y_top
+        else:
+            skyline[best_skyline_idx] = seg_x + p_w
+            skyline[best_skyline_idx] = seg_w - p_w
+            skyline.insert(best_skyline_idx, [seg_x, p_w, placed_y_top])
+        
+        simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
+
+    # Thống kê và áp dụng hệ số phạt thiết kế hậu sơ đồ
+    total_queue_len = len(flat_packing_queue)
+    long_pieces_count = sum(1 for p in flat_packing_queue if (p["l"] / p["w"] if p["w"] > 0 else 1.0) > 4.5)
+    
+    long_piece_ratio = long_pieces_count / total_queue_len if total_queue_len > 0 else 0.0
+    aspect_penalty = long_piece_ratio * 0.06
+    
+    minor_ratio = geometry_data["minor_pieces_count"] / total_queue_len if total_queue_len > 0 else 0.0
+    minor_density_bonus = minor_ratio * 0.04
+
+    design_multiplier = 1.0 + aspect_penalty + min(0.05, geometry_data["stripe_matching_penalty_score"]) - minor_density_bonus
+    if geometry_data["has_mirror_restriction"]: design_multiplier += 0.02
+    if is_one_way_nap and fabric_pattern in ["STRIPE", "PLAID"]: design_multiplier += 0.035
+
+    # Áp dụng bộ phạt hình học và tính bước nhảy chu kỳ kẻ Caro
+    simulated_marker_length_inch *= design_multiplier
+    if fabric_pattern == "PLAID" and plaid_repeat_inch > 0:
+        remainder = simulated_marker_length_inch % plaid_repeat_inch
+        if remainder > 0: simulated_marker_length_inch += (plaid_repeat_inch - remainder)
+
+    # Kết xuất định mức tổng sản xuất (Gross Consumption) bao gồm đầu cây end-loss
+    global_gross_fabric_yard = (simulated_marker_length_inch / 36.0) * 1.020 * 1.015 + (0.75 / 36.0)
+    
+    actual_packing_density = geometry_data["total_bounding_box_area"] / (simulated_marker_length_inch * usable_width) if simulated_marker_length_inch > 0 else 0.82
+    actual_packing_density = max(min(actual_packing_density, 0.94), 0.55)
+
+    allocated_shape_fabric_factor = global_gross_fabric_yard / geometry_data["total_net_shape_area"] if geometry_data["total_net_shape_area"] > 0 else 0.0
+
+    return {
+        "fabric_width": geometry_data["fabric_width"], "usable_width": usable_width,
+        "fabric_pattern": fabric_pattern, "actual_packing_density": actual_packing_density,
+        "allocated_shape_fabric_factor": allocated_shape_fabric_factor,
+        "simulated_marker_length_yard": simulated_marker_length_inch / 36.0,
+        "global_gross_fabric_consumption": global_gross_fabric_yard
+    }
+
 
 import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (CHỐNG LỖI NAMEERROR)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐỒNG BỘ SKYLINE PLACEMENT)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
     bom_source = st.session_state.get("bom_data", {})
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # Lấy văn bản từ ô chat
+    # 1. Thu thập văn bản chat từ session state
     user_query_text = ""
-    if st.session_state.get("last_submitted_query"): user_query_text = str(st.session_state.get("last_submitted_query")).lower()
-    elif st.session_state.get("ie_workspace_static_chat_input_key"): user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key")).lower()
-    if not user_query_text and st.session_state.get("chat_history"): user_query_text = str(st.session_state.chat_history[-1]["user"]).lower()
+    if st.session_state.get("last_submitted_query"): 
+        user_query_text = str(st.session_state.get("last_submitted_query")).lower()
+    elif st.session_state.get("ie_workspace_static_chat_input_key"): 
+        user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key")).lower()
+    if not user_query_text and st.session_state.get("chat_history"): 
+        user_query_text = str(st.session_state.chat_history[-1]["user"]).lower()
 
-    # 🚨 GỌI HÀM TỪ ĐOẠN 3a ĐỂ LẤY BIẾN AN TOÀN
-    metrics = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
+    # Lấy thông tin bản thiết kế AI nếu có để truyền vào nhận diện loại sản phẩm
+    blueprint_final = st.session_state.get("blueprint_final", None)
+
+    # 🚨 GỌI ĐOẠN 1: Chuẩn hóa dữ liệu hình học phẳng và bóc tách rập
+    geometry_data = prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final)
     
-    # Giải nén nhanh các biến số phục vụ hiển thị
-    fabric_width, usable_width = metrics["fabric_width"], metrics["usable_width"]
-    warp_shrinkage, weft_shrinkage = metrics["warp_shrinkage"], metrics["weft_shrinkage"]
-    fabric_pattern, actual_packing_density = metrics["fabric_pattern"], metrics["actual_packing_density"]
-    allocated_shape_fabric_factor = metrics["allocated_shape_fabric_factor"]
-    constraint_penalty_multiplier = metrics["constraint_penalty_multiplier"]
-    piece_metadata_registry = metrics["piece_metadata_registry"]
+    # 🚨 GỌI ĐOẠN 2: Lõi Skyline Corner xếp hình thực tế thu định mức tổng
+    metrics = execute_skyline_placement(geometry_data)
+    
+    # Giải nén an toàn các thông số cấu hình tổng hợp từ kết quả trả về
+    fabric_width = metrics.get("fabric_width", 56.0)
+    usable_width = metrics.get("usable_width", 55.0)
+    fabric_pattern = metrics.get("fabric_pattern", "SOLID")
+    actual_packing_density = metrics.get("actual_packing_density", 0.82)
+    allocated_shape_fabric_factor = metrics.get("allocated_shape_fabric_factor", 0.0)
+    global_gross_fabric_consumption = metrics.get("global_gross_fabric_consumption", 0.0)
+
+    # Lấy lại các biến phụ trợ từ geometry_data của Đoạn 1 để tính toán hiển thị dòng chi tiết
+    warp_shrinkage = geometry_data.get("warp_shrinkage", 0.0)
+    weft_shrinkage = geometry_data.get("weft_shrinkage", 0.0)
+
+    # Khởi tạo lại bảng ma trận cục bộ để đồng bộ hiển thị cấu trúc rập
+    piece_metadata_registry = {
+        "BODY_FRONT": {"shape_factor": 0.73, "avg_aspect_ratio": 1.35, "min_len": 24.0},
+        "BODY_BACK": {"shape_factor": 0.76, "avg_aspect_ratio": 1.40, "min_len": 25.0},
+        "TROUSER_FRONT": {"shape_factor": 0.64, "avg_aspect_ratio": 3.20, "min_len": 38.0}, 
+        "TROUSER_BACK": {"shape_factor": 0.67, "avg_aspect_ratio": 3.00, "min_len": 39.0}, 
+        "WAISTBAND": {"shape_factor": 0.96, "avg_aspect_ratio": 6.00, "min_len": 18.0},
+        "MAJOR_PANEL": {"shape_factor": 0.72, "avg_aspect_ratio": 1.50, "min_len": 20.0},
+        "MINOR_COMPONENT": {"shape_factor": 0.85, "avg_aspect_ratio": 1.20, "min_len": 4.0}
+    }
 
     display_data = []
     for r in bom_rows_list:
@@ -922,44 +1053,68 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
-        raw_l, raw_w, pcs_raw = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
-        if raw_l is None or raw_w is None or pcs_raw is None:
-            pcs, gross_consumption, calc_chain = 0, 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
-        else:
-            raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs_raw)
-            if (any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])) and geo_role_raw == "MAJOR_PANEL":
-                pcs = 2
-                if raw_l <= 30.0: raw_l += 10.0
+        pcs_raw = r.get("piece_count")
+        raw_l = r.get("bounding_box_length")
+        raw_w = r.get("bounding_box_width")
+        
+        meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw, piece_metadata_registry["MINOR_COMPONENT"]))
 
-            seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
-            
-            meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw, piece_metadata_registry["MINOR_COMPONENT"]))
-            item_shape_area_total = adj_l * adj_w * meta_item["shape_factor"] * pcs
-            
-            if mat_class_raw == "FABRIC":
-                gross_consumption = round(item_shape_area_total * allocated_shape_fabric_factor, 4)
-                calc_chain = f"Skyline Sim: Diện tích thật {item_shape_area_total:.1f} in² x Trọng số ({allocated_shape_fabric_factor:.6f})"
-            elif mat_class_raw in ["FUSING", "LINING"]:
-                gross_consumption = round(((adj_l * adj_w * pcs / usable_width) / 36.0 / 0.78 * 1.04), 4)
-                calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {adj_l*adj_w*pcs:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
+        # Ước lượng kích thước thiếu đồng bộ với Đoạn 1
+        if pcs_raw is None:
+            pcs, gross_consumption, calc_chain = 0, 0.0, "❌ Bỏ qua: Thiếu số lượng chi tiết!"
+            raw_l, raw_w = 0.0, 0.0
+        else:
+            pcs = int(pcs_raw)
+            if raw_l is None and raw_w is not None:
+                raw_l = float(raw_w) * meta_item["avg_aspect_ratio"]
+            elif raw_w is None and raw_l is not None:
+                raw_w = float(raw_l) / meta_item["avg_aspect_ratio"]
+                
+            if raw_l is None or raw_w is None:
+                pcs, gross_consumption, calc_chain = 0, 0.0, "❌ Bỏ qua: Khuyết thông số rập!"
+                raw_l, raw_w = 0.0, 0.0
             else:
-                gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
+                raw_l, raw_w = float(raw_l), float(raw_w)
+                
+                # Áp dụng chặn min_len đồng bộ thuật toán gốc (Sửa bỏ logic cũ +10)
+                if (any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])) and geo_role_raw == "MAJOR_PANEL":
+                    pcs = max(pcs, 2)
+                    raw_l = max(raw_l, meta_item["min_len"])
+
+                # Cộng đường may & co rút để phục vụ in chuỗi logic giải trình
+                seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
+                adj_l = seamed_l * (1.0 + max(0.0, warp_shrinkage) / 100.0)
+                adj_w = seamed_w * (1.0 + max(0.0, weft_shrinkage) / 100.0)
+                
+                # SỬA LOGIC: Sử dụng DIỆN TÍCH THẬT (Box Area) để phân bổ định mức vải chính
+                box_area_total = adj_l * adj_w * pcs
+                net_shape_area_total = box_area_total * meta_item["shape_factor"]
+
+                if mat_class_raw == "FABRIC":
+                    # Phân bổ định mức dựa theo tỷ lệ đóng đóng gói hình học phẳng thực tế của rập
+                    gross_consumption = round(net_shape_area_total * allocated_shape_fabric_factor, 4)
+                    calc_chain = f"Skyline Corner Placement: Diện tích net {net_shape_area_total:.1f} in² x Hệ số phân bổ rập ({allocated_shape_fabric_factor:.6f})"
+                elif mat_class_raw in ["FUSING", "LINING"]:
+                    # Công thức tính nhanh định mức phụ liệu dựng keo/lót dạng cuộn thẳng
+                    gross_consumption = round(((box_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
+                    calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {box_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
+                else:
+                    gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
         display_data.append({
             "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
-            "Số lượng rập (Pcs)": pcs, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
+            "Số lượng rập (Pcs)": pcs, "Dài sản xuất (L-inch)": round(raw_l, 2), "Rộng sản xuất (W-inch)": round(raw_w, 2),
             "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
             "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
-    # Render bảng biểu lên UI Streamlit
+    # Render bảng biểu lên giao diện Streamlit
     if display_data:
         df_bom = pd.DataFrame(display_data)
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown('<div class="cad-header" style="background-color: #0E6251;">📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN 2D SKYLINE)</div>', unsafe_allow_html=True)
         
+        # Tạo bảng tổng hợp định mức theo nhóm nguyên phụ liệu
         df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
         df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
         df_summary["UOM"] = "YDS"
@@ -968,9 +1123,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        st.info(f"🚀 **FashionINSTA Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ: **{actual_packing_density*100:.1f}%**")
+        # Thẻ thông tin Insights kỹ thuật từ CAD
+        st.info(f"🚀 **FashionINSTA CAD Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}% / Ngang {weft_shrinkage}% | Mật độ đi sơ đồ thực tế: **{actual_packing_density*100:.1f}%** | Tổng định mức vải chính: **{global_gross_fabric_consumption:.4f} YDS**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
-        st.markdown('<div class="cad-card"><div class="cad-header">📐 DETAILED HYBRID CAD ENGINE</div>', unsafe_allow_html=True)
+        # Thẻ thông tin chi tiết từng rập bán thành phẩm
+        st.markdown('<div class="cad-card"><div class="cad-header">📐 DETAILED HYBRID CAD ENGINE (PLACEMENT-BASED)</div>', unsafe_allow_html=True)
         st.dataframe(df_bom, use_container_width=True, hide_index=True, column_config={"Gross Consumption": st.column_config.NumberColumn(format="%.4f")})
         st.markdown('</div>', unsafe_allow_html=True)
