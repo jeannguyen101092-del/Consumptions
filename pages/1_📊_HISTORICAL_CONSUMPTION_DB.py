@@ -83,38 +83,46 @@ if uploaded_file is not None:
 
 st.write("---")
 
-# ==============================================================================
-# 3. 🔴 CHỨC NĂNG SỬA ĐỔI: XÓA CHÍNH XÁC 1 DÒNG SẢN PHẨM KHỚP MÃ
+# 3. 🔴 CHỨC NĂNG SỬA ĐỔI: XÓA CHÍNH XÁC 1 DÒNG SẢN PHẨM KHỚP MÃ (Yêu cầu mật khẩu Admin)
 # ==============================================================================
 st.subheader("🗑️ Quản Lý Xóa Dòng Dữ Liệu Lỗi")
 with st.expander("👉 Bấm vào đây để mở vùng xóa duy nhất 1 dòng lỗi", expanded=False):
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3) # Đổi thành 3 cột để thêm ô nhập mật khẩu
     with col1:
         delete_style_code = st.text_input("1. Nhập Mã hàng (Style Name):", placeholder="Ví dụ: P08-500722").strip()
     with col2:
         delete_article_code = st.text_input("2. Nhập Mã vải / Vật tư (Article Name):", placeholder="Ví dụ: D01527").strip()
+    with col3:
+        # Ô nhập mật khẩu mã hóa dấu chấm để bảo mật
+        admin_password = st.text_input("3. Xác thực Mật khẩu Admin:", type="password", placeholder="Nhập pass khóa...").strip()
     
     if delete_style_code and delete_article_code:
-        st.warning(f"⚠️ Hệ thống sẽ xóa duy nhất dòng có Mã hàng: `{delete_style_code}` và Mã vải: `{delete_article_code}`.")
+        st.warning(f"⚠️ Hệ thống chuẩn bị xóa dòng có Mã hàng: `{delete_style_code}` và Mã vải: `{delete_article_code}`.")
+        
         if st.button("🔥 Xác nhận xóa dòng này khỏi kho", type="primary"):
-            with st.spinner("Đang thực hiện xóa dòng chỉ định..."):
-                try:
-                    # Lệnh xóa kết hợp 2 điều kiện bằng .eq() nối tiếp nhau để định vị đúng 1 dòng duy nhất
-                    delete_response = supabase.table("san_pham")\
-                                              .delete()\
-                                              .eq("style_name", delete_style_code)\
-                                              .eq("article_name", delete_article_code)\
-                                              .execute()
-                    
-                    if delete_response.data:
-                        st.success(f"✅ Đã xóa thành công dòng sản phẩm khớp mã khỏi database!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Không tìm thấy dòng nào khớp chính xác đồng thời cả Mã hàng và Mã vải trên.")
-                except Exception as del_err:
-                    st.error(f"Lỗi khi thực hiện xóa: {str(del_err)}")
+            # CẤU HÌNH MẬT KHẨU ADMIN TẠI ĐÂY (Thay "admin1234" bằng mật khẩu bạn muốn đặt)
+            if admin_password == "admin1234":
+                with st.spinner("Đang thực hiện xóa dòng chỉ định..."):
+                    try:
+                        # Lệnh xóa kết hợp 2 điều kiện bằng .eq() nối tiếp nhau để định vị đúng 1 dòng duy nhất
+                        delete_response = supabase.table("san_pham")\
+                                                  .delete()\
+                                                  .eq("style_name", delete_style_code)\
+                                                  .eq("article_name", delete_article_code)\
+                                                  .execute()
+                        
+                        if delete_response.data:
+                            st.success(f"✅ Đã xóa thành công dòng sản phẩm khớp mã khỏi database!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Không tìm thấy dòng nào khớp chính xác đồng thời cả Mã hàng và Mã vải trên.")
+                    except Exception as del_err:
+                        st.error(f"Lỗi khi thực hiện xóa: {str(del_err)}")
+            else:
+                st.error("❌ Mật khẩu Admin không chính xác! Bạn không có quyền xóa dữ liệu này.")
 
 st.write("---")
+
 
 # ==============================================================================
 # 4. CHỨC NĂNG KẾT HỢP TRA CỨU / TRUY VẤN KHO TRỰC TIẾP
