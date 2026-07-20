@@ -937,6 +937,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     st.session_state["bom_data"] = bom_source
        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -985,18 +986,25 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             is_four_layers = False
             pocket_note = ""
             
+            # Phát hiện cấu kiện thuộc hàng Quần để chặn nhân đôi lớp sai bản chất
             is_pant_component = any(k in combined_str for k in ["trouser", "pant", "jean", "denim", "slider", "fly", "leg", "waistband", "yoke"])
+
+            # 🚨 ĐÃ SỬA: Định nghĩa mảng viết thường liền mạch đồng bộ để hết lỗi NameError ở dòng 999
+            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ"]
 
             # Khử lỗi nhân đôi lớp cho Đô quần (YOKE) và Lưng quần (WAISTBAND)
             if "yoke" in combined_str or "đô" in combined_str:
-                layer_multiplier = 1  
-                is_two_layers = False
+                if is_pant_component:
+                    layer_multiplier = 1  # Đô quần chỉ cắt 1 lớp độc bản
+                else:
+                    layer_multiplier = 2  # Đô áo Jacket tính 2 lớp lộn
+                    is_two_layers = True
             elif "waistband" in combined_str or "lưng" in combined_str or "cạp" in combined_str:
-                layer_multiplier = 1  
+                layer_multiplier = 1  # Lưng quần bản rộng rập sẵn đã tính gập, ép về 1 lớp
                 is_two_layers = False
             else:
-                double_layer_jacket_keywords = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo"]
-                if any(k in double_layer_jacket_keywords) and not is_pant_component:
+                # Kiểm tra nhân lớp cho hàng áo
+                if any(k in combined_str for k in jacket_double_layers) and not is_pant_component:
                     layer_multiplier = 2
                     is_two_layers = True
                 elif any(k in combined_str for k in ["flap", "nắptúi", "naptui"]):
@@ -1040,11 +1048,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ HẠ ĐỊNH MỨC CHI TIẾT PHỤ THỰC TẾ
+                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ PHÂN LOẠI CHÈN GÓC HỞ CHUẨN XƯỞNG
                     interlocking_factor = 1.0 
                     
                     if any(k in combined_str for k in ["panel", "front", "back", "thân"]):
-                        # 🚨 Thân lớn (Vải chính): Giữ hệ số chuẩn phom rộng (0.78 Thân trước, 0.82 Thân sau) để định mức thân không bị thấp quá hụt vải
+                        # Thân lớn (Vải chính): Giữ hệ số chuẩn (0.78 Thân trước, 0.82 Thân sau) để định mức không bị thấp quá hụt vải
                         shape_factor = 0.82 if "back" in combined_str else 0.78
                         calc_chain_type = f"Sơ đồ {mat_class_raw} Layout Thân lớn"
                     else:
@@ -1053,8 +1061,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "bo"]):
                             shape_factor = 0.94
                             
-                        # 🚨 ĐÃ SỬA CHUẨN XÁC: Chi tiết phụ Vải chính (Lưng, Đô, Passan, Túi lẻ...) được hạ xuống hệ số lách kẽ (interlocking_factor = 0.45)
-                        # Phương pháp này giúp hiển thị rõ số định mức thực tế của chi tiết phụ chứ không gán bằng 0
+                        # Chi tiết phụ Vải chính (Lưng, Đô, Passan, Túi lẻ...) -> Hạ định mức xuống hệ số lách kẽ 0.45
                         if mat_class_raw == "FABRIC":
                             interlocking_factor = 0.45 
                             calc_chain_type = "Xếp lách chèn góc trống sơ đồ Vải chính (Hạ đm thực tế)"
@@ -1090,7 +1097,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
-
 
 
 
