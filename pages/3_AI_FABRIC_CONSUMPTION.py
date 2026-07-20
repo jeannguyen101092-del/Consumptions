@@ -901,9 +901,8 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
     }
 def execute_skyline_placement(geometry_data):
     """
-    Đoạn 2: Lõi thuật toán Skyline Corner xếp rập thực tế.
-    Đã nâng cấp cơ chế Multi-Column Packing cho phép xếp rập song song theo chiều ngang khổ vải.
-    Đưa định mức quần về đúng giá trị thực tế (~1.35 - 1.45 YDS).
+    Đoạn 2: Lõi thuật toán Skyline Corner với cơ chế Thử hướng xoay và Lấp khoảng trống (Gap Filling).
+    Sửa lỗi gộp sai phân đoạn đứt gãy trên trục X.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -913,116 +912,141 @@ def execute_skyline_placement(geometry_data):
     fabric_pattern = geometry_data["fabric_pattern"]
     plaid_repeat_inch = geometry_data["plaid_repeat_inch"]
     is_one_way_nap = geometry_data["is_one_way_nap"]
-    
-    # Sắp xếp rập ưu tiên chi tiết dài nhất xếp trước
-    flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
-    
-    # Khởi tạo ma trận đường chân trời Skyline: [x_start, width, y_level]
+
+    # 1. PHÂN TÁCH HÀNG ĐỢI THEO VAI TRÒ HÌNH HỌC (GỐI ĐẦU CHO GAP FILLING)
+    major_queue = [p for p in flat_packing_queue if p["role"] == "MAJOR_PANEL"]
+    minor_queue = [p for p in flat_packing_queue if p["role"] != "MAJOR_PANEL"]
+
+    # Xếp thứ tự ưu tiên chi tiết lớn nhất lên trước
+    major_queue.sort(key=lambda x: max(x["l"], x["w"]), reverse=True)
+    minor_queue.sort(key=lambda x: max(x["l"], x["w"]), reverse=True)
+
+    # Khởi tạo ma trận đường chân trời: [x_start, width, y_level]
     skyline = [[0.0, usable_width, 0.0]]
     simulated_marker_length_inch = 0.0
-    
-    for piece in flat_packing_queue:
-        p_l, p_w = piece["l"], piece["w"]
-        
-        # Thử nghiệm xoay hướng rập tối ưu khổ nếu cấu hình cho phép
-        if piece["allow_rotate"] == 90 and p_l <= usable_width:
-            p_l, p_w = p_w, p_l
-        elif piece["allow_rotate"] == 180 and p_w > usable_width and p_l <= usable_width:
-            p_l, p_w = p_w, p_l
 
-        best_skyline_idx = -1
-        num_segments_spanned = 1
-        min_y_found = float('inf')
+    def place_piece_into_skyline(piece, current_skyline):
+        """Hàm Heuristic tìm kiếm vị trí đặt và xoay rập tối ưu nhất trên lưới Skyline"""
+        best_idx = -1
+        best_num_spanned = 1
+        best_y = float('inf')
+        best_l, best_w = piece["l"], piece["w"]
         
-        # 🚨 ĐỘT PHÁ CẢI TIẾN: Tìm kiếm vùng phẳng có độ cao Y thấp nhất và tối ưu khoảng trống nằm ngang
-        for i in range(len(skyline)):
-            accumulated_w = 0.0
-            max_y_in_range = 0.0
-            segments_count = 0
+        # Thử nghiệm các hướng xoay được cấu hình cho phép
+        allowed_orientations = [(piece["l"], piece["w"])]
+        if piece["allow_rotate"] == 90:
+            allowed_orientations.append((piece["w"], piece["l"]))
+        elif piece["allow_rotate"] == 180:
+            allowed_orientations.append((piece["w"], piece["l"])) # Thử cả hai thế nằm đứng/ngang
+
+        for test_l, test_w in allowed_orientations:
+            if test_w > usable_width: continue # Bỏ qua nếu rập rộng vượt khổ vải
             
-            for j in range(i, len(skyline)):
-                seg_x, seg_w, seg_y = skyline[j]
-                accumulated_w += seg_w
-                max_y_in_range = max(max_y_in_range, seg_y)
-                segments_count += 1
+            # Quét tìm vùng phẳng liên kết trên trục X
+            for i in range(len(current_skyline)):
+                accumulated_w = 0.0
+                max_y_in_range = 0.0
+                segments_count = 0
                 
-                if accumulated_w >= p_w:
-                    # Ưu tiên đặt rập vào phân đoạn có độ cao Y thấp nhất để dàn hàng ngang
-                    if max_y_in_range < min_y_found:
-                        min_y_found = max_y_in_range
-                        best_skyline_idx = i
-                        num_segments_spanned = segments_count
-                    break
+                for j in range(i, len(current_skyline)):
+                    _, seg_w, seg_y = current_skyline[j]
+                    accumulated_w += seg_w
+                    max_y_in_range = max(max_y_in_range, seg_y)
+                    segments_count += 1
+                    
+                    if accumulated_w >= test_w:
+                        # Chọn hướng xoay và vị trí tạo ra điểm nhô Y thấp nhất (Khớp Gerber Heuristic)
+                        if max_y_in_range < best_y:
+                            best_y = max_y_in_range
+                            best_idx = i
+                            best_num_spanned = segments_count
+                            best_l, best_w = test_l, test_w
+                        break
+        return best_idx, best_num_spanned, best_y, best_l, best_w
 
-        # Trường hợp rập to hơn biên khổ vải hữu dụng (Hạ tầng an toàn)
-        if best_skyline_idx == -1:
-            best_skyline_idx = 0
-            num_segments_spanned = len(skyline)
+    # =====================================================================
+    # b1. ĐẶT TOÀN BỘ CHI TIẾT LỚN (MAJOR PANELS) ĐỂ ĐỊNH HÌNH KHUNG SƠ ĐỒ
+    # =====================================================================
+    for piece in major_queue:
+        best_idx, num_spanned, min_y_found, p_l, p_w = place_piece_into_skyline(piece, skyline)
+        
+        if best_idx == -1:
+            best_idx = 0
+            num_spanned = len(skyline)
             min_y_found = max(seg[2] for seg in skyline)
+            p_l, p_w = min(piece["l"], piece["w"]), max(piece["l"], piece["w"])
 
-        # Lấy tọa độ gốc của phân đoạn bắt đầu đặt rập
-        seg_x = skyline[best_skyline_idx][0]
-        placed_y_top = min_y_found + p_l  # Đặt rập tựa lên điểm phẳng cao nhất của vùng gộp
+        seg_x = skyline[best_idx][0]
+        placed_y_top = min_y_found + p_l
+        total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
         
-        # Tính tổng chiều rộng của toàn bộ các phân đoạn sẽ bị chi tiết này đè lên
-        total_spanned_w = sum(skyline[j][1] for j in range(best_skyline_idx, best_skyline_idx + num_segments_spanned))
-        
-        # Tạo danh sách phân đoạn mới thay thế hoàn toàn các phân đoạn bị lấn chiếm
         new_segments = [[seg_x, p_w, placed_y_top]]
-        
-        # Nếu vùng gộp còn dư khoảng trống chiều rộng, giữ nguyên độ cao cũ của phân đoạn thừa để chi tiết sau gài vào song song
         if total_spanned_w > p_w:
             new_segments.append([seg_x + p_w, total_spanned_w - p_w, min_y_found])
             
-        # Xóa bỏ các phân đoạn cũ bị lấn chiếm và chèn cụm phân đoạn mới vào lưới Skyline
-        skyline[best_skyline_idx : best_skyline_idx + num_segments_spanned] = new_segments
+        skyline[best_idx : best_idx + num_spanned] = new_segments
 
-        # Liên tục liên kết các phân đoạn liền kề nếu chúng có cùng độ cao y_level để làm sạch lưới tọa độ trục X
+        # 🚨 SỬA LỖI GỘP PHÂN ĐOẠN: Kiểm tra cả độ cao Y và tính liền kề trục X
         merged_skyline = []
         for seg in skyline:
-            if merged_skyline and abs(merged_skyline[-1][2] - seg[2]) < 0.001:
-                merged_skyline[-1][1] += seg[1] # Cộng dồn chiều rộng trục X nếu cùng độ cao phẳng
+            if (merged_skyline 
+                and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
+                and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
+                merged_skyline[-1][1] += seg[1] # Hợp nhất chiều rộng nếu liền kề khít nhau
             else:
                 merged_skyline.append(seg)
         skyline = merged_skyline
-
-        # Tìm điểm nhô cao nhất của sơ đồ thực tế
         simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
-    # Thống kê và áp dụng hệ số phạt thiết kế hậu sơ đồ
-    total_queue_len = len(flat_packing_queue)
-    long_pieces_count = sum(1 for p in flat_packing_queue if (p["l"] / p["w"] if p["w"] > 0 else 1.0) > 4.5)
-    
-    long_piece_ratio = long_pieces_count / total_queue_len if total_queue_len > 0 else 0.0
-    aspect_penalty = long_piece_ratio * 0.04  # Chuẩn hóa hệ số phạt hình học mảnh
-    
-    minor_ratio = geometry_data["minor_pieces_count"] / total_queue_len if total_queue_len > 0 else 0.0
-    minor_density_bonus = minor_ratio * 0.04
+    # =====================================================================
+    # b2. THUẬT TOÁN GAP FILLING: QUAY LẠI TÌM HỐC TRỐNG LẤP CHI TIẾT NHỎ
+    # =====================================================================
+    for piece in minor_queue:
+        best_idx, num_spanned, min_y_found, p_l, p_w = place_piece_into_skyline(piece, skyline)
+        
+        if best_idx != -1:
+            seg_x = skyline[best_idx][0]
+            placed_y_top = min_y_found + p_l
+            total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
+            
+            new_segments = [[seg_x, p_w, placed_y_top]]
+            if total_spanned_w > p_w:
+                new_segments.append([seg_x + p_w, total_spanned_w - p_w, min_y_found])
+                
+            skyline[best_idx : best_idx + num_spanned] = new_segments
 
-    design_multiplier = 1.0 + aspect_penalty + min(0.04, geometry_data["stripe_matching_penalty_score"]) - minor_density_bonus
-    if geometry_data["has_mirror_restriction"]: design_multiplier += 0.015
-    if is_one_way_nap and fabric_pattern in ["STRIPE", "PLAID"]: design_multiplier += 0.025
+            # Làm sạch lưới liên kết trục X hậu Gap Filling
+            merged_skyline = []
+            for seg in skyline:
+                if (merged_skyline 
+                    and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
+                    and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
+                    merged_skyline[-1][1] += seg[1]
+                else:
+                    merged_skyline.append(seg)
+            skyline = merged_skyline
+            simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
-    simulated_marker_length_inch *= design_multiplier
+    # 4. ÁP DỤNG BIÊN HAO HỤT VÀ CHU KỲ KẺ CARO THEO VẬT LÝ THỰC TẾ
     if fabric_pattern == "PLAID" and plaid_repeat_inch > 0:
         remainder = simulated_marker_length_inch % plaid_repeat_inch
         if remainder > 0: simulated_marker_length_inch += (plaid_repeat_inch - remainder)
 
-    # Kết xuất định mức tổng sản xuất (Gross Consumption) bao gồm hao hụt đầu cây
-    global_gross_fabric_yard = (simulated_marker_length_inch / 36.0) * 1.015 * 1.010 + (0.5 / 36.0)
+    # Loại bỏ hoàn toàn các hệ số phạt ép định mức cũ. Chỉ giữ hao hụt đầu cây vật lý (0.5 inch)
+    global_gross_fabric_consumption_yard = (simulated_marker_length_inch / 36.0) + (0.5 / 36.0)
     
     total_bounding_box_area = geometry_data["total_bounding_box_area"]
     actual_packing_density = total_bounding_box_area / (simulated_marker_length_inch * usable_width) if simulated_marker_length_inch > 0 else 0.82
-    actual_packing_density = max(min(actual_packing_density, 0.92), 0.65)
+    actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
 
-    allocated_shape_fabric_factor = global_gross_fabric_yard / geometry_data["total_net_shape_area"] if geometry_data["total_net_shape_area"] > 0 else 0.0
+    allocated_shape_fabric_factor = global_gross_fabric_consumption_yard / geometry_data["total_net_shape_area"] if geometry_data["total_net_shape_area"] > 0 else 0.0
 
     return {
         "fabric_width": geometry_data["fabric_width"], "usable_width": usable_width,
         "fabric_pattern": fabric_pattern, "actual_packing_density": actual_packing_density,
         "allocated_shape_fabric_factor": allocated_shape_fabric_factor,
         "simulated_marker_length_yard": simulated_marker_length_inch / 36.0,
-        "global_gross_fabric_consumption": global_gross_fabric_yard
+        "global_gross_fabric_consumption": global_gross_fabric_consumption_yard
     }
 
 
