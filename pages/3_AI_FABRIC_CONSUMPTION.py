@@ -880,7 +880,7 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN CHUẨN ĐỒNG BỘ CHO MÃ HÀNG QUẦN JEANS)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (THUẬT TOÁN TỰ ĐỘNG CÂN BẰNG CHU VI 4 THÂN)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -936,47 +936,47 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             gross_consumption, calc_chain = 0.0, "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
         else:
             raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
+            combined_check_str = f"{comp_name_raw} {piece_type_ai} {product_type_ai}"
             
-            # ✅ ĐÃ SỬA: GỠ BỎ TOÀN BỘ LOGIC CHIA ĐÔI CHIỀU RỘNG (Giữ nguyên kích thước gốc để nhân co rút)
-            # Kích thước sản xuất thực tế trên bàn cắt
+            # 🛠️ THUẬT TOÁN ĐỒNG BỘ CHU VI: TỰ ĐỘNG CHIA ĐÔI RỘNG VÀ ÉP PCS=2 CHO CẢ THÂN TRƯỚC VÀ THÂN SAU LỚN
+            # Nếu bản rập có chiều rộng thô lớn (>14 in) thể hiện số đo nửa vòng tròn Techpack, hệ thống tách rời thành rập đơn đối xứng
+            if raw_w > 14.0 and any(k in combined_check_str for k in ["FRONT", "BACK", "BODY", "THÂN", "PANEL", "JACKET", "SHIRT"]):
+                raw_w = raw_w / 2.0  # Chia đôi để ra chiều rộng rập của 1 mảnh đơn lẻ
+                pcs = 2              # Ép số lượng bằng 2 để cắt đủ 2 bên Trái và Phải ngoài bàn cắt
+            
+            # Cộng đường may thô sản xuất tiêu chuẩn (0.44 inch mỗi biên rập đơn lẻ)
             seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
             
             # Nhân tỉ lệ co rút động theo lệnh chat
             adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
             adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
             
-            # Tính diện tích sơ đồ bao quát (Bounding Box Area) chuẩn xác cho từng chi tiết quần Jeans
+            # Tính diện tích sơ đồ bao quát (Bounding Box Area) bảo toàn trọn vẹn chu vi vòng tròn sản phẩm
             bounding_area_total = adj_l * adj_w * pcs
 
             if mat_class_raw == "FABRIC":
-                combined_check_str = f"{comp_name_raw} {piece_type_ai} {product_type_ai}"
-                
-                # THUẬT TOÁN HỆ SỐ HÌNH HỌC KHỚP VỚI MÃ HÀNG QUẦN JEANS THỰC TẾ
-                if any(k in combined_check_str for k in ["JACKET", "SHIRT", "BODY", "SLEEVE", "ÁO", "TEE"]):
+                # Hệ số an toàn hình học tối ưu hóa định mức đầy đặn cho xưởng
+                if any(k in combined_check_str for k in ["JACKET", "SHIRT", "BODY", "SLEEVE", "ÁO", "TEE", "VEST"]):
                     if "BACK" in combined_check_str:
-                        shape_factor = 0.84 if geo_role_raw == "MAJOR_PANEL" else 0.88
+                        shape_factor = 0.82 if geo_role_raw == "MAJOR_PANEL" else 0.88
                     else:
-                        shape_factor = 0.82 if geo_role_raw == "MAJOR_PANEL" else 0.86
-                        
+                        shape_factor = 0.80 if geo_role_raw == "MAJOR_PANEL" else 0.86
                 elif any(k in combined_check_str for k in ["DRESS", "ĐẦM", "GOWN", "SKIRT", "VÁY", "TÙNG"]):
-                    shape_factor = 0.70 if geo_role_raw == "MAJOR_PANEL" else 0.84
-                    
+                    shape_factor = 0.74 if geo_role_raw == "MAJOR_PANEL" else 0.86
                 elif any(k in combined_check_str for k in ["TROUSER", "JEANS", "PANTS", "QUẦN"]):
-                    # Áp đúng hệ số rập cong hao hụt của quần Jeans tiêu chuẩn công nghiệp
                     if "BACK" in combined_check_str:
                         shape_factor = 0.68 if geo_role_raw == "MAJOR_PANEL" else 0.85
                     else:
                         shape_factor = 0.64 if geo_role_raw == "MAJOR_PANEL" else 0.84
                 else:
-                    shape_factor = 0.73 if geo_role_raw == "MAJOR_PANEL" else 0.84
+                    shape_factor = 0.76 if geo_role_raw == "MAJOR_PANEL" else 0.85
                 
-                # Khóa hệ số vuông tuyệt đối cho cạp quần, cổ áo, bo tay
+                # Bẫy an toàn riêng cho các chi tiết thẳng tuyệt đối
                 if any(k in combined_check_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "CUFF", "BO", "STAND"]):
                     shape_factor = 0.94
 
                 true_shape_area = bounding_area_total * shape_factor
                 
-                # Mô phỏng thuật toán sơ đồ CAD Skyline thực tế
                 if usable_width > 0 and actual_packing_density > 0:
                     simulated_length_inch = (true_shape_area / usable_width) / actual_packing_density
                     # Quy đổi ra YDS và nhân hệ số hao hụt dôi dư xưởng cắt tiêu chuẩn (1.025 * 1.010)
@@ -990,7 +990,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round(((bounding_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
                 else:
                     gross_consumption = 0.0
-                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
+                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
             else:
                 gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
@@ -1015,7 +1015,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        # Hiển thị size đồng bộ chuẩn xác từ tài liệu Vineyard Vines
         st.info(f"🚀 **FashionINSTA Insights:** Size đang tính toán: **SIZE {target_size}** | Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
