@@ -936,7 +936,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
     # 🚨 ĐÃ THÊM: Định nghĩa lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -977,24 +977,22 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # --- 🛠️ KHỐI LỌC AI: PHÂN TÁCH LỚP CHUẨN GIỮA ÁO VÀ QUẦN ---
+            # --- KHỐI LỌC AI: PHÂN TÁCH LỚP CHUẨN ĐÃ KHỬ LỖI QUẦN JEAN ---
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
             pocket_note = ""
             
-            # Kiểm tra xem chi tiết rập có thuộc kết cấu Quần (Trouser/Pant/Jean) hay không
             is_pant_component = any(k in combined_str for k in ["TROUSER", "PANT", "JEAN", "DENIM", "SLIDER", "FLY", "LEG", "WAISTBAND", "YOKE"])
 
-            # 1. Khử lỗi Đô Quần (YOKE) và Lưng quần (WAISTBAND) lộn ngược lớp
+            # Khử hoàn toàn lỗi nhân đôi lớp cho Đô quần (YOKE) và Lưng quần (WAISTBAND)
             if "YOKE" in combined_str or "ĐÔ" in combined_str:
-                layer_multiplier = 1  # Đô quần Jean luôn cắt 1 lớp đơn lẻ trên bàn vải chính
+                layer_multiplier = 1  
                 is_two_layers = False
             elif "WAISTBAND" in combined_str or "LƯNG" in combined_str or "CẠP" in combined_str:
-                layer_multiplier = 1  # Lưng quần bản rộng rập sẵn đã tính gập, ép buộc về 1 lớp
+                layer_multiplier = 1  
                 is_two_layers = False
             else:
-                # Nếu là mã áo hoặc cấu kiện khác mới xét lộn lớp lẻ
                 double_layer_jacket_keywords = [" CUFF ", " CÚP TAY ", " CUP TAY ", " MĂNG SÉT ", " BOTTOM HEM ", " LAI ÁO "]
                 if any(k in combined_str for k in double_layer_jacket_keywords) and not is_pant_component:
                     layer_multiplier = 2
@@ -1013,7 +1011,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
-            # Xuất chuỗi hiển thị số lớp lên UI
             if is_four_layers:
                 pcs_display = f"{pcs} Pcs (x4 lớp)"
             elif is_two_layers:
@@ -1021,11 +1018,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             else:
                 pcs_display = f"{pcs} Pcs"
 
-            # 🚨 KIỂM TRA ĐỈA QUẦN (PASSAN) ĐỂ BÙ TO BẢN CẮT THỰC TẾ 1.5"
+            # Kiểm tra đỉa quần (PASSAN)
             is_belt_loop = any(k in combined_str for k in ["BELT LOOP", "BELT_LOOP", "ĐỈA", "DIA ", "PASSAN"])
-            if is_belt_loop:
-                adj_w = 1.5  # 👈 ÉP BUỘC: Thay thế bản rộng thành phẩm bằng To bản cắt 1.5" thực tế xưởng
-                r["bounding_box_width"] = 1.5  # Cập nhật hiển thị lên bảng chi tiết để đối chiếu công nghệ
 
             # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
             if is_button:
@@ -1036,28 +1030,33 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 
             else:
                 is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
+                
+                # 🚨 ĐÃ SỬA: Loại bỏ hoàn toàn BELT_LOOP khỏi nhóm dải cuộn dọc mua ngoài (is_roll_trim = False)
+                # Hệ thống ép Passan vải chính phải tính theo sơ đồ diện tích hình học mảng lớn Layout chung
                 is_roll_trim = any(k in combined_str for k in [
                     "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG"
                 ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
-                if is_roll_trim and not is_binding_fabric:
+                if is_roll_trim and not is_binding_fabric and not is_belt_loop:
+                    # Công thức tính phụ liệu dải dọc cuộn mua sẵn bên ngoài
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # Thuật toán tính theo sơ đồ Layout đa giác (Cho Thân quần, bao túi, đỉa quần vải chính)
+                    # 🗺️ THUẬT TOÁN ĐỒNG BỘ: TÍNH THEO SƠ ĐỒ LAYOUT ĐA GIÁC (Dành cho Vải chính, Bao túi và cả Passan)
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        shape_factor = 0.42 if pcs >= 2 else 0.84
+                        # 🚨 ĐÃ SỬA: Nâng hệ số đa giác hình học rập thân quần lên mức chuẩn cao để tránh định mức thấp
+                        shape_factor = 0.88 if "BACK" in combined_str else 0.84
                     elif "BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop:
-                        shape_factor = 0.96  # Băng đỉa/băng viền đi thẳng dọc biên sơ đồ cắt cực kỳ khít, rất ít hao hụt góc
+                        shape_factor = 0.96  # Băng đỉa, băng viền đi thẳng khít, hệ số nén sơ đồ tuyệt đối
                     else:
-                        shape_factor = 0.74
+                        shape_factor = 0.76
                         
                     if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                         shape_factor = 0.94
 
-                    # Phép toán diện tích sơ đồ bàn cắt thực tế
+                    # Phép toán nhân diện tích sơ đồ bàn cắt chuẩn công nghiệp
                     seamed_l = adj_l + (0.44 * 2.0)
-                    seamed_w = adj_w + (0.44 * 2.0) if not is_belt_loop else adj_w  # Đỉa xé dải dọc biên không cần cộng biên may W
+                    seamed_w = adj_w + (0.44 * 2.0)
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
                     
                     if usable_width > 0:
@@ -1066,9 +1065,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
                         
                         if is_belt_loop:
-                            calc_chain = f"Sơ đồ băng đỉa (To bản cắt 1.5\"): Eff {efficiency_factor*100:.1f}%"
+                            calc_chain = f"Sơ đồ Layout diện tích Passan: Eff {efficiency_factor*100:.1f}%"
                         else:
-                            calc_chain = f"Sơ đồ lồng ghép CAD: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
+                            calc_chain = f"Sơ đồ {mat_class_raw} Layout: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
                     else:
                         gross_consumption = 0.0
                         calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
@@ -1085,6 +1084,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 
 
