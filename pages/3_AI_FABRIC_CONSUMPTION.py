@@ -589,13 +589,13 @@ import traceback
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 2: SECURE AI VISION EXTRACTION PIPELINE & TRACEBACK ENGINE
+# 🟩 ĐOẠN 2 (BẢN SỬA ĐỔI IN LỖI CHI TIẾT): AI CORE ENGINE
 # =====================================================================
 
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
 
-    # QUÉT TÌM FILE DỰ PHÒNG: Hỗ trợ tìm kiếm file từ tất cả các biến lưu trữ có thể có trong hệ thống
+    # Quét tìm file PDF dự phòng từ tất cả các nguồn trong bộ nhớ
     active_pdf = st.session_state.get("pdf_bytes")
     if active_pdf is None:
         active_pdf = (
@@ -690,26 +690,12 @@ if st.session_state.ai_processing:
                     ],
                 }
 
-                # 2. PROMPT CHUYÊN GIA PHÂN LOẠI CẤU TRÚC RẬP CÔNG NGHIỆP
+                # 2. PROMPT CHUYÊN GIA CAD
                 prompt_agent_2 = """
                 You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
-                
-                CRITICAL EXTRACTION & CLASSIFICATION DIRECTIVES:
-                1. PRIORITIZE DATA RETRIEVAL: Extract the exact bounding_box_length, bounding_box_width, and piece_count if numerical markers exist. Only set to null if completely blank.
-                
-                2. PRODUCT ARCHITECTURE & PIECE_TYPE RULES (CRITICAL FOR JEANS/PANTS):
-                   - If the Techpack represents PANTS, TROUSERS, or JEANS:
-                     * MAJOR_PANEL includes: FRONT PANEL, BACK PANEL, LEG PANEL. You MUST classify them with piece_type = "TROUSER_FRONT" or "TROUSER_BACK". Do not group trouser panels into a generic "BODY" row.
-                     * MINOR_COMPONENT includes: WAISTBAND (WAIST BAND), POCKET BAG (POCKETING), FLY FACING, COIN POCKET, BELT LOOP.
-                   - If the Techpack represents a JACKET, COAT, or SHIRT:
-                     * MAJOR_PANEL includes: FRONT BODY, BACK BODY, SLEEVE. Map to piece_type = "BODY_FRONT", "BODY_BACK", "SET_IN_SLEEVE".
-                     * MINOR_COMPONENT includes: COLLAR, CUFF, POCKET, FLAP, YOKE, FACING.
-                
-                3. MATERIAL SEPARATION AND INTERLINING:
-                   - If a row like COLLAR, WAISTBAND, or FLAP explicitly indicates fusing, interlining, or adhesive interfacing, change material_class to "FUSING" and geometry_role to "MINOR_COMPONENT".
                 """
 
-                # 3. GỌI HÀM LÕI TRỰC TIẾP TRÊN LUỒNG CHÍNH ĐỂ KHÔNG BỊ TREO CACHE
+                # 3. GỌI HÀM LÕI TRÊN LUỒNG CHÍNH AN TOÀN
                 blueprint_final = execute_cached_gemini_scan(
                     active_pdf,
                     current_query,
@@ -735,15 +721,14 @@ if st.session_state.ai_processing:
                 )
 
             except Exception as e:
-                # 🚨 BẪY VẾT LỖI TỐI THƯỢNG: Nếu phát sinh lỗi kết nối API, lỗi SDK hoặc JSON gãy,
-                # bung toàn bộ vết mã nguồn màu đen để "bắt sống" nguyên nhân tại chỗ.
+                # 🚨 ĐÃ SỬA: Ép hiện đầy đủ nội dung lỗi kỹ thuật thô bằng hàm st.exception hoặc st.code để nhìn thấy lý do nghẽn
                 st.error(
                     "🚨 Hệ thống phát hiện lỗi luồng xử lý thực tế từ API Core:"
                 )
+                st.exception(e)
                 st.code(traceback.format_exc(), language="python")
 
             finally:
-                # Giải phóng trạng thái và ép làm mới trang
                 st.session_state.ai_processing = False
                 st.rerun()
     else:
