@@ -880,7 +880,7 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (HỆ THỐNG BAO QUÁT TOÀN NGÀNH MAY)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN VÁ LỖI BỘ LỌC TỪ KHÓA ÁO/ĐẦM)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -899,6 +899,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     # Thiết lập thông số mặc định ban đầu và trích xuất Size mẫu
     fabric_width, warp_shrinkage, weft_shrinkage = 56.0, 0.0, 0.0
     target_size = bom_source.get("calculated_on_size", bom_source.get("detected_base_size", "32")).upper()
+    product_type_ai = str(bom_source.get("detected_product_type", "JEANS")).upper().strip()
     
     # Quét nhanh thông số từ câu lệnh chat bằng Regex (Chống lỗi kẹt cache)
     if user_query_text:
@@ -909,35 +910,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
         
-        # Bắt thông tin Size mẫu yêu cầu từ ô chat (Ví dụ: cỡ L, size 34, cỡ m)
+        # Bắt thông tin Size mẫu yêu cầu từ ô chat
         size_match = re.search(r"(cỡ|size)\s*([a-zA-Z0-9]+)", user_query_text, re.IGNORECASE)
         if size_match: target_size = str(size_match.group(2)).upper()
 
     usable_width = fabric_width  
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
-
-    # 📊 MA TRẬN TRỌNG SỐ HÌNH HỌC RẬP TOÀN NGÀNH MAY (ĐÃ BỔ SUNG ĐẦM DRESS, VÁY SKIRT)
-    # Shape Factor thể hiện tỷ lệ diện tích thực của đa giác so với hình chữ nhật bao quanh
-    industry_shape_matrix = {
-        # 1. NHÓM ĐẦM / VÁY (DRESS & SKIRT)
-        "DRESS_BODY": 0.70,     # Thân đầm (thường dài, loe rộng nhẹ)
-        "DRESS_PANEL": 0.68,    # Các mảnh rã rập phối của đầm
-        "SKIRT_PANEL": 0.65,    # Thân váy, tùng váy loe/xòe (hao hụt biên lớn)
-        "SKIRT_PLEAT": 0.88,    # Ly váy, nếp gấp váy (rập rất vuông vức)
-        # 2. NHÓM ÁO (SHIRT, JACKET, HOODIE, T-SHIRT)
-        "FRONT_BODY": 0.82,     # Thân trước áo sơ mi / áo thun / jacket
-        "BACK_BODY": 0.84,      # Thân sau áo (bằng phẳng, ít rã cúp)
-        "SLEEVE": 0.78,         # Tay áo (dáng quả núi thuôn nhỏ về cửa tay)
-        "COLLAR": 0.90,         # Cổ áo, chân cổ (rập nhỏ, rất vuông)
-        # 3. NHÓM QUẦN (JEANS, TROUSER, SHORTS)
-        "TROUSER_FRONT": 0.64,  # Thân trước quần (khuyết góc đũng lớn)
-        "TROUSER_BACK": 0.68,   # Thân sau quần (vát đũng sâu để ngồi thoải mái)
-        "WAISTBAND": 0.96,      # Lưng quần, cạp quần (gần như thẳng tuyệt đối)
-        # 4. NHÓM CHI TIẾT PHỤ ĐA NĂNG CHUNG CHUNG
-        "MAJOR_PANEL": 0.75,    # Thân lớn mặc định cho các sản phẩm lạ khác
-        "MINOR_COMPONENT": 0.85 # Chi tiết nhỏ (Túi, nắp túi, đỉa, đáp túi...)
-    }
 
     display_data = []
     for r in bom_rows_list:
@@ -969,20 +948,33 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             bounding_area_total = adj_l * adj_w * pcs
 
             if mat_class_raw == "FABRIC":
-                # Động quét ma trận tìm trọng số thiết kế tương thích
-                shape_factor = 0.75 # Mặc định hệ số an toàn cho vải chính
+                # 🔍 THUẬT TOÁN QUÉT TỪ KHÓA ĐỘNG HOÀN TOÀN KHÔNG PHỤ THUỘC AI PHÂN LOẠI CHỦNG LOẠI GỐC
+                combined_check_str = f"{comp_name_raw} {piece_type_ai} {product_type_ai}"
                 
-                # Quét theo piece_type bóc tách từ AI trước
-                for key_pattern, factor_value in industry_shape_matrix.items():
-                    if key_pattern in piece_type_ai or key_pattern in comp_name_raw:
-                        shape_factor = factor_value
-                        break
+                # Thiết lập mặc định cho Thân lớn và chi tiết Nhỏ
+                shape_factor = 0.75 if geo_role_raw == "MAJOR_PANEL" else 0.85
                 
-                # Quét bổ sung theo từ khóa đặc thù Đầm/Váy nếu AI phân loại thiếu
-                if any(k in comp_name_raw or k in piece_type_ai for k in ["DRESS", "ĐẦM", "GOWN"]):
-                    shape_factor = 0.70 if geo_role_raw == "MAJOR_PANEL" else 0.85
-                elif any(k in comp_name_raw or k in piece_type_ai for k in ["SKIRT", "VÁY", "TÙNG"]):
-                    shape_factor = 0.65 if geo_role_raw == "MAJOR_PANEL" else 0.85
+                # 1. Nhận diện nhóm ÁO (Shirt/Jacket/Tee/Body)
+                if any(k in combined_check_str for k in ["SHIRT", "JACKET", "BODY", "SLEEVE", "ÁO", "TEE"]):
+                    if "BACK" in combined_check_str:
+                        shape_factor = 0.84 if geo_role_raw == "MAJOR_PANEL" else 0.88
+                    else:
+                        shape_factor = 0.82 if geo_role_raw == "MAJOR_PANEL" else 0.86
+                        
+                # 2. Nhận diện nhóm ĐẦM / VÁY (Dress/Skirt)
+                elif any(k in combined_check_str for k in ["DRESS", "ĐẦM", "GOWN", "SKIRT", "VÁY", "TÙNG"]):
+                    shape_factor = 0.70 if geo_role_raw == "MAJOR_PANEL" else 0.84
+                    
+                # 3. Nhận diện nhóm QUẦN (Trouser/Jeans/Pants)
+                elif any(k in combined_check_str for k in ["TROUSER", "JEANS", "PANTS", "QUẦN"]):
+                    if "BACK" in combined_check_str:
+                        shape_factor = 0.68 if geo_role_raw == "MAJOR_PANEL" else 0.85
+                    else:
+                        shape_factor = 0.64 if geo_role_raw == "MAJOR_PANEL" else 0.84
+                
+                # Bẫy an toàn nếu là cạp/lưng quần hoặc cổ áo vuông tuyệt đối
+                if "WAISTBAND" in combined_check_str or "LƯNG" in combined_check_str or "COLLAR" in combined_check_str:
+                    shape_factor = 0.94
 
                 true_shape_area = bounding_area_total * shape_factor
                 
@@ -993,15 +985,14 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round((simulated_length_inch / 36.0) * 1.025 * 1.010, 4)
                 else:
                     gross_consumption = 0.0
-                calc_chain = f"Skyline Matrix: Diện tích thật {true_shape_area:.1f} in² / Khổ {usable_width} in"
+                calc_chain = f"Skyline Matrix: Diện tích thật {true_shape_area:.1f} in² / Hệ số rập {shape_factor}"
             
             elif mat_class_raw in ["FUSING", "LINING"]:
-                # Tính sơ đồ phụ liệu độc lập (Hiệu suất mặc định 78%)
                 if usable_width > 0:
                     gross_consumption = round(((bounding_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
                 else:
                     gross_consumption = 0.0
-                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
+                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
             else:
                 gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
@@ -1026,7 +1017,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        # 📌 TRẢ VỀ KẾT QUẢ ĐỒNG BỘ ĐẦY ĐỦ CẢ SIZE MẪU ĐANG TÍNH ĐỘNG
+        # In dòng thông tin đồng bộ
         st.info(f"🚀 **FashionINSTA Insights:** Size đang tính toán: **SIZE {target_size}** | Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
