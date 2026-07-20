@@ -935,7 +935,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-    # 🚨 ĐÃ THÊM: Định nghĩa lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
@@ -955,7 +954,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        combined_str = f" {comp_name_raw} {piece_type_ai} "  # Thêm khoảng trắng để quét chính xác từ khóa
+        combined_str = f" {comp_name_raw} {piece_type_ai} "  # Thêm khoảng trắng quét chính xác từ khóa
         
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
@@ -1030,31 +1029,27 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 
             else:
                 is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
-                
-                # 🚨 ĐÃ SỬA: Loại bỏ hoàn toàn BELT_LOOP khỏi nhóm dải cuộn dọc mua ngoài (is_roll_trim = False)
-                # Hệ thống ép Passan vải chính phải tính theo sơ đồ diện tích hình học mảng lớn Layout chung
                 is_roll_trim = any(k in combined_str for k in [
                     "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG"
                 ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
                 if is_roll_trim and not is_binding_fabric and not is_belt_loop:
-                    # Công thức tính phụ liệu dải dọc cuộn mua sẵn bên ngoài
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # 🗺️ THUẬT TOÁN ĐỒNG BỘ: TÍNH THEO SƠ ĐỒ LAYOUT ĐA GIÁC (Dành cho Vải chính, Bao túi và cả Passan)
+                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ CHÈN LỖ TRỐNG THỰC TẾ
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        # 🚨 ĐÃ SỬA: Nâng hệ số đa giác hình học rập thân quần lên mức chuẩn cao để tránh định mức thấp
-                        shape_factor = 0.88 if "BACK" in combined_str else 0.84
+                        # 🚨 ĐÃ SỬA: Hạ hệ số đa giác của thân xuống một chút (0.76 và 0.80) vì các chi tiết phụ đã chèn khít vào các góc hở dư thừa
+                        shape_factor = 0.80 if "BACK" in combined_str else 0.76
                     elif "BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop:
-                        shape_factor = 0.96  # Băng đỉa, băng viền đi thẳng khít, hệ số nén sơ đồ tuyệt đối
+                        shape_factor = 0.96  
                     else:
-                        shape_factor = 0.76
+                        shape_factor = 0.74
                         
                     if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                         shape_factor = 0.94
 
-                    # Phép toán nhân diện tích sơ đồ bàn cắt chuẩn công nghiệp
+                    # Phép toán diện tích sơ đồ bàn cắt
                     seamed_l = adj_l + (0.44 * 2.0)
                     seamed_w = adj_w + (0.44 * 2.0)
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
@@ -1067,7 +1062,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         if is_belt_loop:
                             calc_chain = f"Sơ đồ Layout diện tích Passan: Eff {efficiency_factor*100:.1f}%"
                         else:
-                            calc_chain = f"Sơ đồ {mat_class_raw} Layout: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
+                            calc_chain = f"Sơ đồ lồng ghép CAD (Tính bù chèn góc): Eff {efficiency_factor*100:.1f}%"
                     else:
                         gross_consumption = 0.0
                         calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
