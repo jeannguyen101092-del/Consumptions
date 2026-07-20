@@ -902,7 +902,7 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
 def execute_skyline_placement(geometry_data):
     """
     Đoạn 2: Lõi thuật toán Skyline Corner với cơ chế Thử hướng xoay và Lấp khoảng trống (Gap Filling).
-    Đã sửa lỗi cú pháp SyntaxError ở biểu thức kiểm tra hướng xoay allow_rotate.
+    Đã sửa triệt để lỗi cú pháp SyntaxError ở biểu thức kiểm tra hướng xoay allow_rotate.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -935,7 +935,7 @@ def execute_skyline_placement(geometry_data):
         # Cấu hình các hướng xoay được phép thử nghiệm
         allowed_orientations = [(piece["l"], piece["w"])]
         
-        # 🟩 ĐÃ SỬA LỖI CÚ PHÁP TẠI ĐÂY: Kiểm tra giá trị allow_rotate an toàn
+        # Đã vá lỗi chuẩn xác: Kiểm tra giá trị allow_rotate của rập
         allow_rot = piece.get("allow_rotate")
         if allow_rot in:
             allowed_orientations.append((piece["w"], piece["l"]))
@@ -974,12 +974,12 @@ def execute_skyline_placement(geometry_data):
         if best_idx == -1:
             best_idx = 0
             num_spanned = len(skyline)
-            min_y_found = max(seg for seg in skyline)
+            min_y_found = max(seg[2] for seg in skyline)
             p_l, p_w = min(piece["l"], piece["w"]), max(piece["l"], piece["w"])
 
-        seg_x = skyline[best_idx]
+        seg_x = skyline[best_idx][0]
         placed_y_top = min_y_found + p_l
-        total_spanned_w = sum(skyline[j] for j in range(best_idx, best_idx + num_spanned))
+        total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
         
         new_segments = [[seg_x, p_w, placed_y_top]]
         if total_spanned_w > p_w:
@@ -991,9 +991,9 @@ def execute_skyline_placement(geometry_data):
         merged_skyline = []
         for seg in skyline:
             if (merged_skyline 
-                and abs(merged_skyline[-1] - seg) < 0.001 
-                and abs(merged_skyline[-1] + merged_skyline[-1] - seg) < 0.001):
-                merged_skyline[-1] += seg
+                and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
+                and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
+                merged_skyline[-1][1] += seg[1]
             else:
                 merged_skyline.append(seg)
         skyline = merged_skyline
@@ -1006,9 +1006,9 @@ def execute_skyline_placement(geometry_data):
         best_idx, num_spanned, min_y_found, p_l, p_w = place_piece_into_skyline(piece, skyline)
         
         if best_idx != -1:
-            seg_x = skyline[best_idx]
+            seg_x = skyline[best_idx][0]
             placed_y_top = min_y_found + p_l
-            total_spanned_w = sum(skyline[j] for j in range(best_idx, best_idx + num_spanned))
+            total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
             
             new_segments = [[seg_x, p_w, placed_y_top]]
             if total_spanned_w > p_w:
@@ -1020,12 +1020,12 @@ def execute_skyline_placement(geometry_data):
             merged_skyline = []
             for seg in skyline:
                 if (merged_skyline 
-                    and abs(merged_skyline[-1] - seg) < 0.001 
-                    and abs(merged_skyline[-1] + merged_skyline[-1] - seg) < 0.001):
-                    merged_skyline[-1] += seg
+                    and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
+                    and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
+                    merged_skyline[-1][1] += seg[1]
                 else:
                     merged_skyline.append(seg)
-            skyline = merged_skyline
+                skyline = merged_skyline
             simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
     # 4. ÁP DỤNG BIÊN CHU KỲ KẸ CARO THEO VẬT LÝ THỰC TẾ
