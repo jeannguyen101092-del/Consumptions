@@ -936,8 +936,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
     # 🚨 ĐÃ THÊM: Định nghĩa lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-    usable_width = bom_source.get("usable_width_inch", 56.0)
+        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+    usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
     
@@ -977,7 +977,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # --- 🛠️ KHỐI LỌC AI MỚI: PHÂN TÁCH LỚP VÀ KHỬ NHÂN ĐÔI TRÙNG LẶP CHO QUẦN ---
+            # --- 🛠️ KHỐI LỌC AI: PHÂN TÁCH LỚP CHUẨN GIỮA ÁO VÀ QUẦN ---
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
@@ -1015,11 +1015,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
             # Xuất chuỗi hiển thị số lớp lên UI
             if is_four_layers:
-                pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
+                pcs_display = f"{pcs} Pcs (x4 lớp)"
             elif is_two_layers:
                 pcs_display = f"{pcs} Pcs (x2 lớp)"
             else:
                 pcs_display = f"{pcs} Pcs"
+
+            # 🚨 KIỂM TRA ĐỈA QUẦN (PASSAN) ĐỂ BÙ TO BẢN CẮT THỰC TẾ 1.5"
+            is_belt_loop = any(k in combined_str for k in ["BELT LOOP", "BELT_LOOP", "ĐỈA", "DIA ", "PASSAN"])
+            if is_belt_loop:
+                adj_w = 1.5  # 👈 ÉP BUỘC: Thay thế bản rộng thành phẩm bằng To bản cắt 1.5" thực tế xưởng
+                r["bounding_box_width"] = 1.5  # Cập nhật hiển thị lên bảng chi tiết để đối chiếu công nghệ
 
             # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
             if is_button:
@@ -1030,40 +1036,39 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 
             else:
                 is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
-                
-                # Ép đỉa quần (BELT LOOP) tính theo dải cuộn dọc đơn thuần
                 is_roll_trim = any(k in combined_str for k in [
-                    "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG", "BELT_LOOP", "BELT LOOP"
+                    "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG"
                 ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
                 if is_roll_trim and not is_binding_fabric:
-                    # Tính đỉa thun dải cuộn dọc cực kỳ nhỏ lẻ
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # 🗺️ THUẬT TOÁN 3: SƠ ĐỒ INTERLOCKING LAYOUT (LỒNG GHÉP HÌNH HỌC) DÀNH CHO THÂN QUẦN
+                    # Thuật toán tính theo sơ đồ Layout đa giác (Cho Thân quần, bao túi, đỉa quần vải chính)
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        # 💡 CẢI TIẾN CỐT LÕI: Thân quần xếp lồng đầu đuôi xen kẽ trên bàn cắt thực tế
-                        # Thay vì lấy diện tích nhân đơn lẻ, ta áp dụng hệ số lồng ghép sơ đồ CAD thực tế (0.42 cho mỗi cặp)
                         shape_factor = 0.42 if pcs >= 2 else 0.84
-                    elif "BINDING" in combined_str or "VIỀN" in combined_str:
-                        shape_factor = 0.96  
+                    elif "BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop:
+                        shape_factor = 0.96  # Băng đỉa/băng viền đi thẳng dọc biên sơ đồ cắt cực kỳ khít, rất ít hao hụt góc
                     else:
                         shape_factor = 0.74
                         
                     if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                         shape_factor = 0.94
 
-                    # Phép toán diện tích lồng ghép
+                    # Phép toán diện tích sơ đồ bàn cắt thực tế
                     seamed_l = adj_l + (0.44 * 2.0)
-                    seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.25
+                    seamed_w = adj_w + (0.44 * 2.0) if not is_belt_loop else adj_w  # Đỉa xé dải dọc biên không cần cộng biên may W
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
                     
                     if usable_width > 0:
                         efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
                         gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
                         layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
-                        calc_chain = f"Sơ đồ lồng ghép CAD: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
+                        
+                        if is_belt_loop:
+                            calc_chain = f"Sơ đồ băng đỉa (To bản cắt 1.5\"): Eff {efficiency_factor*100:.1f}%"
+                        else:
+                            calc_chain = f"Sơ đồ lồng ghép CAD: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
                     else:
                         gross_consumption = 0.0
                         calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
@@ -1080,6 +1085,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 
 # Lấy trực tiếp dữ liệu bền vững từ st.session_state gán ở Đoạn 1b
