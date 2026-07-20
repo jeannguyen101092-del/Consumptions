@@ -880,7 +880,7 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN VÁ LỖI BỘ LỌC TỪ KHÓA ÁO/ĐẦM)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (BẢN SỬA LỖI ƯU TIÊN HỆ SỐ JACKET/SHIRT)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -948,14 +948,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             bounding_area_total = adj_l * adj_w * pcs
 
             if mat_class_raw == "FABRIC":
-                # 🔍 THUẬT TOÁN QUÉT TỪ KHÓA ĐỘNG HOÀN TOÀN KHÔNG PHỤ THUỘC AI PHÂN LOẠI CHỦNG LOẠI GỐC
                 combined_check_str = f"{comp_name_raw} {piece_type_ai} {product_type_ai}"
                 
-                # Thiết lập mặc định cho Thân lớn và chi tiết Nhỏ
-                shape_factor = 0.75 if geo_role_raw == "MAJOR_PANEL" else 0.85
-                
-                # 1. Nhận diện nhóm ÁO (Shirt/Jacket/Tee/Body)
-                if any(k in combined_check_str for k in ["SHIRT", "JACKET", "BODY", "SLEEVE", "ÁO", "TEE"]):
+                # 🔍 THUẬT TOÁN ĐA LUỒNG ƯU TIÊN: ĐƯA NHÓM ÁO/JACKET LÊN ĐẦU BỘ LỌC
+                if any(k in combined_check_str for k in ["JACKET", "SHIRT", "BODY", "SLEEVE", "ÁO", "TEE"]):
+                    # Khóa cứng hệ số hình học cao của áo khoác/áo sơ mi, không để chữ 'PANEL' nhận nhầm sang quần
                     if "BACK" in combined_check_str:
                         shape_factor = 0.84 if geo_role_raw == "MAJOR_PANEL" else 0.88
                     else:
@@ -971,9 +968,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         shape_factor = 0.68 if geo_role_raw == "MAJOR_PANEL" else 0.85
                     else:
                         shape_factor = 0.64 if geo_role_raw == "MAJOR_PANEL" else 0.84
+                else:
+                    # Mặc định an toàn cho các sản phẩm khác
+                    shape_factor = 0.76 if geo_role_raw == "MAJOR_PANEL" else 0.85
                 
-                # Bẫy an toàn nếu là cạp/lưng quần hoặc cổ áo vuông tuyệt đối
-                if "WAISTBAND" in combined_check_str or "LƯNG" in combined_check_str or "COLLAR" in combined_check_str:
+                # Bẫy an toàn riêng cho các chi tiết thẳng tuyệt đối (Cổ áo, nẹp cổ, bo tay, cạp)
+                if any(k in combined_check_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "CUFF", "BO"]):
                     shape_factor = 0.94
 
                 true_shape_area = bounding_area_total * shape_factor
@@ -981,7 +981,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 # Mô phỏng thuật toán sơ đồ CAD Skyline thực tế
                 if usable_width > 0 and actual_packing_density > 0:
                     simulated_length_inch = (true_shape_area / usable_width) / actual_packing_density
-                    # Quy đổi ra YDS và nhân hệ số hao hụt cắt thực tế tại nhà máy (1.025 * 1.010)
+                    # Quy đổi ra YDS và nhân hệ số hao hụt dôi dư xưởng cắt tiêu chuẩn (1.025 * 1.010)
                     gross_consumption = round((simulated_length_inch / 36.0) * 1.025 * 1.010, 4)
                 else:
                     gross_consumption = 0.0
@@ -992,7 +992,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round(((bounding_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
                 else:
                     gross_consumption = 0.0
-                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
+                calc_chain = f"Sơ đồ phụ liệu: Diện tích bao {bounding_area_total:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
             else:
                 gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
@@ -1017,7 +1017,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         df_summary["Material Class"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, x))
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
-        # In dòng thông tin đồng bộ
         st.info(f"🚀 **FashionINSTA Insights:** Size đang tính toán: **SIZE {target_size}** | Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}%/Ngang {weft_shrinkage}% | Mật độ nén thực tế: **{actual_packing_density*100:.1f}%**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
