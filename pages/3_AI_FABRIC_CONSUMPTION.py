@@ -584,162 +584,40 @@ if safe_user_prompt:
     st.rerun()
 
 
-import copy
-import traceback
-import streamlit as st
-
 # =====================================================================
-# 🟩 ĐOẠN 2 (BẢN VÁ HIỂN THỊ LOG LỖI): AI CORE ENGINE
+# 🔍 ĐOẠN CODE CHẨN ĐOÁN TRỰC DIỆN (DÁN THAY THẾ ĐOẠN 2 ĐỂ CHECK LỖI)
 # =====================================================================
-
 if st.session_state.ai_processing:
-    current_query = st.session_state["last_submitted_query"]
-
-    # Quét tìm nguồn file PDF dự phòng từ bộ nhớ đệm
-    active_pdf = st.session_state.get("pdf_bytes")
-    if active_pdf is None:
-        active_pdf = (
-            st.session_state.get("uploaded_file")
-            or st.session_state.get("current_pdf")
-            or st.session_state.get("pdf_data")
-        )
-
+    # 1. Kiểm tra sự tồn tại của file PDF trong bộ nhớ đệm
+    active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf")
+    
+    st.write("### 🛠️ KẾT QUẢ CHẨN ĐOÁN HỆ THỐNG:")
+    st.write(f"- Trạng thái câu lệnh: `{st.session_state['last_submitted_query']}`")
+    st.write(f"- File PDF tồn tại trong bộ nhớ: `{active_pdf is not None}`")
+    
     if active_pdf is not None:
-        with st.spinner(
-            "🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."
-        ):
-            try:
-                # 1. JSON SCHEMA MỞ RỘNG MÁ TRẬN ĐA GIÁC CAD
-                raw_json_schema = {
-                    "type": "OBJECT",
-                    "properties": {
-                        "detected_product_type": {
-                            "type": "STRING",
-                            "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT",
-                        },
-                        "detected_base_size": {
-                            "type": "STRING",
-                            "description": "Size mẫu trích xuất, ví dụ: 32",
-                        },
-                        "bom_rows": {
-                            "type": "ARRAY",
-                            "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "component_name": {
-                                        "type": "STRING",
-                                        "description": "Tên chi tiết rập gốc từ tài liệu",
-                                    },
-                                    "material_class": {
-                                        "type": "STRING",
-                                        "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY",
-                                    },
-                                    "geometry_role": {
-                                        "type": "STRING",
-                                        "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT",
-                                    },
-                                    "piece_type": {
-                                        "type": "STRING",
-                                        "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành.",
-                                    },
-                                    "uom": {
-                                        "type": "STRING",
-                                        "description": "Cố định: YDS",
-                                    },
-                                    "piece_count": {
-                                        "type": "INTEGER",
-                                        "description": "Số lượng rập chi tiết gốc (Pcs).",
-                                    },
-                                    "bounding_box_length": {
-                                        "type": "NUMBER",
-                                        "description": "Chiều dài chi tiết rập L-inch.",
-                                    },
-                                    "bounding_box_width": {
-                                        "type": "NUMBER",
-                                        "description": "Chiều rộng chi tiết rập W-inch.",
-                                    },
-                                    "data_confidence": {
-                                        "type": "STRING",
-                                        "description": "Allowed: HIGH, LOW",
-                                    },
-                                    "calculation_status": {
-                                        "type": "STRING",
-                                        "description": "Allowed: READY, MISSING_INPUT",
-                                    },
-                                },
-                                "required": [
-                                    "component_name",
-                                    "material_class",
-                                    "geometry_role",
-                                    "piece_type",
-                                    "uom",
-                                    "piece_count",
-                                    "bounding_box_length",
-                                    "bounding_box_width",
-                                    "data_confidence",
-                                    "calculation_status",
-                                ],
-                            },
-                        },
-                    },
-                    "required": [
-                        "detected_product_type",
-                        "detected_base_size",
-                        "bom_rows",
-                    ],
-                }
-
-                # 2. PROMPT CHUYÊN GIA CAD PHÂN LOẠI LINH KIỆN
-                prompt_agent_2 = """
-                You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
-                """
-
-                # 3. GỌI HÀM LÕI TRÊN LUỒNG CHÍNH
-                blueprint_final = execute_cached_gemini_scan(
-                    active_pdf,
-                    current_query,
-                    56.0,
-                    "32",
-                    raw_json_schema,
-                    prompt_agent_2,
-                )
-
-                st.session_state.blueprint_final = blueprint_final
-                st.session_state.last_active_blueprint = blueprint_final
-
-                if blueprint_final and isinstance(blueprint_final, dict):
-                    bom_rows_list = blueprint_final.get("bom_rows", [])
-                    st.session_state["bom_data"] = blueprint_final
-                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(
-                        bom_rows_list
-                    )
-
-                ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
-                st.session_state.chat_history.append(
-                    {"user": current_query, "ai": ai_response_text}
-                )
-
-            except Exception as e:
-                # 🚨 ĐÃ SỬA: Ép dừng luồng giao diện để hiển thị khối log lỗi màu đen chi tiết lên màn hình
-                st.error("🚨 Chi tiết lỗi hệ thống từ API Core:")
-                st.exception(e)
-                st.code(traceback.format_exc(), language="python")
-
-                # Trả trạng thái bận về False trực tiếp tại đây để nhả ô chat nhập lệnh mới
-                st.session_state.ai_processing = False
-                st.stop()  # 👈 BẺ GÃY LUỒNG: Chặn đứng lệnh rerun để lưu vết lỗi
-
-            finally:
-                # Khối này chỉ tự động làm mới trang khi try thành công trơn tru
-                if st.session_state.ai_processing:
-                    st.session_state.ai_processing = False
-                    st.rerun()
+        try:
+            # 2. Thử gọi trực tiếp mô hình Gemini không qua bộ lọc cache
+            import google.generativeai as genai
+            st.write("- Đang kết nối thử nghiệm đến Google API...")
+            
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            # Gửi một chuỗi kiểm tra ngắn để xem API Key có hoạt động hay không
+            test_response = model.generate_content("Ping! Trả lời chữ Pong ngắn gọn nếu kết nối API thành công.")
+            
+            st.success("✅ Kết nối Google API thành công!")
+            st.write(f"- Phản hồi từ Gemini: `{test_response.text}`")
+            
+        except Exception as api_error:
+            st.error("❌ Kết nối Google API thất bại!")
+            st.exception(api_error)
     else:
-        st.error(
-            "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
-        )
-        st.session_state.ai_processing = False
+        st.error("❌ Hệ thống hoàn toàn không tìm thấy dữ liệu file PDF trong Session State!")
+        
+    # Nhả ô chat và dừng luồng để hiển thị thông tin debug cố định
+    st.session_state.ai_processing = False
+    st.stop()
+
 
 
 
