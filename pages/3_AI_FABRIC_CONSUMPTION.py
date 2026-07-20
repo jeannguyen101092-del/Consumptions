@@ -901,7 +901,8 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
     }
 def execute_skyline_placement(geometry_data):
     """
-    Đoạn 2: Lõi thuật toán Skyline Corner xếp rập trực tiếp lên khổ vải và kết xuất định mức sản xuất.
+    Đoạn 2: Lõi thuật toán Skyline Corner xếp rập thực tế.
+    Đã sửa lỗi TypeError so sánh giữa List và Float của cấu trúc segment.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -912,17 +913,17 @@ def execute_skyline_placement(geometry_data):
     plaid_repeat_inch = geometry_data["plaid_repeat_inch"]
     is_one_way_nap = geometry_data["is_one_way_nap"]
     
-    # Ưu tiên chi tiết dài nhất xếp trước như quy tắc đi sơ đồ tay/máy tự động
+    # Sắp xếp rập ưu tiên chi tiết dài nhất xếp trước
     flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
     
-    # Khởi tạo đường Skyline đáy sơ đồ phẳng: [x_start, width, y_level]
+    # Khởi tạo ma trận đường chân trời Skyline: [x_khởi_đầu, chiều_rộng_đoạn, y_độ_cao]
     skyline = [[0.0, usable_width, 0.0]]
     simulated_marker_length_inch = 0.0
     
     for piece in flat_packing_queue:
         p_l, p_w = piece["l"], piece["w"]
         
-        # Thử nghiệm xoay rập tối ưu khổ
+        # Thử nghiệm xoay hướng rập tối ưu khổ
         if piece["allow_rotate"] == 90 and p_l <= usable_width:
             p_l, p_w = p_w, p_l
         elif piece["allow_rotate"] == 180 and p_w > usable_width and p_l <= usable_width:
@@ -931,25 +932,29 @@ def execute_skyline_placement(geometry_data):
         best_skyline_idx = -1
         min_y_found = float('inf')
         
+        # SỬA LỖI TẠI ĐÂY: Giải nén đúng cấu trúc phân đoạn rập phẳng [x, w, y]
         for i, segment in enumerate(skyline):
-            if segment >= p_w and segment < min_y_found:
-                min_y_found = segment
+            seg_x, seg_w, seg_y = segment  # Bóc tách list phần tử
+            
+            # So sánh độ rộng phân đoạn seg_w (kiểu float) với độ rộng rập p_w (kiểu float)
+            if seg_w >= p_w and seg_y < min_y_found:
+                min_y_found = seg_y
                 best_skyline_idx = i
         
+        # Nếu chi tiết rập quá lớn vượt biên khổ vải, xử lý hạ tầng an toàn
         if best_skyline_idx == -1:
             p_l, p_w = min(p_l, p_w), max(p_l, p_w)
             best_skyline_idx = 0
-            min_y_found = max(seg for seg in skyline)
+            min_y_found = max(segment[2] for segment in skyline)
 
         seg_x, seg_w, seg_y = skyline[best_skyline_idx]
-        placed_y_top = seg_y + p_l
+        placed_y_top = min_y_found + p_l  # Đặt rập tựa lên đáy thấp nhất tìm được
         
-        # Cập nhật lưới tọa độ Skyline
+        # Cập nhật và tổ chức lại lưới tọa độ Skyline mới sau khi gài rập
         if abs(seg_w - p_w) < 0.001:
-            skyline[best_skyline_idx] = placed_y_top
+            skyline[best_skyline_idx] = [seg_x, seg_w, placed_y_top]
         else:
-            skyline[best_skyline_idx] = seg_x + p_w
-            skyline[best_skyline_idx] = seg_w - p_w
+            skyline[best_skyline_idx] = [seg_x + p_w, seg_w - p_w, seg_y]
             skyline.insert(best_skyline_idx, [seg_x, p_w, placed_y_top])
         
         simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
@@ -968,16 +973,17 @@ def execute_skyline_placement(geometry_data):
     if geometry_data["has_mirror_restriction"]: design_multiplier += 0.02
     if is_one_way_nap and fabric_pattern in ["STRIPE", "PLAID"]: design_multiplier += 0.035
 
-    # Áp dụng bộ phạt hình học và tính bước nhảy chu kỳ kẻ Caro
+    # Nhân hệ số định mức và xử lý bước nhảy chu kỳ kẻ Caro
     simulated_marker_length_inch *= design_multiplier
     if fabric_pattern == "PLAID" and plaid_repeat_inch > 0:
         remainder = simulated_marker_length_inch % plaid_repeat_inch
         if remainder > 0: simulated_marker_length_inch += (plaid_repeat_inch - remainder)
 
-    # Kết xuất định mức tổng sản xuất (Gross Consumption) bao gồm đầu cây end-loss
+    # Kết xuất định mức tổng sản xuất (Gross Consumption) bao gồm hao hụt đầu tấm
     global_gross_fabric_yard = (simulated_marker_length_inch / 36.0) * 1.020 * 1.015 + (0.75 / 36.0)
     
-    actual_packing_density = geometry_data["total_bounding_box_area"] / (simulated_marker_length_inch * usable_width) if simulated_marker_length_inch > 0 else 0.82
+    total_bounding_box_area = geometry_data["total_bounding_box_area"]
+    actual_packing_density = total_bounding_box_area / (simulated_marker_length_inch * usable_width) if simulated_marker_length_inch > 0 else 0.82
     actual_packing_density = max(min(actual_packing_density, 0.94), 0.55)
 
     allocated_shape_fabric_factor = global_gross_fabric_yard / geometry_data["total_net_shape_area"] if geometry_data["total_net_shape_area"] > 0 else 0.0
