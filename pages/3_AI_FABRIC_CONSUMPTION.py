@@ -1051,6 +1051,7 @@ def execute_skyline_placement(geometry_data):
     }
 
 
+
 import pandas as pd
 import streamlit as st
 
