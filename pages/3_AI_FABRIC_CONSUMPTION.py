@@ -902,7 +902,7 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
 def execute_skyline_placement(geometry_data):
     """
     Đoạn 2: Lõi thuật toán Skyline Corner với cơ chế Thử hướng xoay và Lấp khoảng trống (Gap Filling).
-    Đã sửa lỗi KeyError bằng cách đồng bộ trường dữ liệu an toàn.
+    Đã sửa lỗi cú pháp SyntaxError ở biểu thức kiểm tra hướng xoay allow_rotate.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -913,7 +913,7 @@ def execute_skyline_placement(geometry_data):
     plaid_repeat_inch = geometry_data["plaid_repeat_inch"]
     is_one_way_nap = geometry_data["is_one_way_nap"]
 
-    # 🚨 SỬA LỖI KEYERROR: Sử dụng phương thức .get() an toàn để bóc tách hàng đợi
+    # Phân tách hàng đợi theo vai trò hình học phục vụ cho Gap Filling
     major_queue = [p for p in flat_packing_queue if p.get("role") == "MAJOR_PANEL"]
     minor_queue = [p for p in flat_packing_queue if p.get("role") != "MAJOR_PANEL"]
 
@@ -932,9 +932,12 @@ def execute_skyline_placement(geometry_data):
         best_y = float('inf')
         best_l, best_w = piece["l"], piece["w"]
         
-        # Thử nghiệm các hướng xoay được cấu hình cho phép
+        # Cấu hình các hướng xoay được phép thử nghiệm
         allowed_orientations = [(piece["l"], piece["w"])]
-        if piece.get("allow_rotate") in:
+        
+        # 🟩 ĐÃ SỬA LỖI CÚ PHÁP TẠI ĐÂY: Kiểm tra giá trị allow_rotate an toàn
+        allow_rot = piece.get("allow_rotate")
+        if allow_rot in:
             allowed_orientations.append((piece["w"], piece["l"]))
 
         for test_l, test_w in allowed_orientations:
@@ -971,12 +974,12 @@ def execute_skyline_placement(geometry_data):
         if best_idx == -1:
             best_idx = 0
             num_spanned = len(skyline)
-            min_y_found = max(seg[2] for seg in skyline)
+            min_y_found = max(seg for seg in skyline)
             p_l, p_w = min(piece["l"], piece["w"]), max(piece["l"], piece["w"])
 
-        seg_x = skyline[best_idx][0]
+        seg_x = skyline[best_idx]
         placed_y_top = min_y_found + p_l
-        total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
+        total_spanned_w = sum(skyline[j] for j in range(best_idx, best_idx + num_spanned))
         
         new_segments = [[seg_x, p_w, placed_y_top]]
         if total_spanned_w > p_w:
@@ -984,13 +987,13 @@ def execute_skyline_placement(geometry_data):
             
         skyline[best_idx : best_idx + num_spanned] = new_segments
 
-        # SỬA LỖI GỘP PHÂN ĐOẠN: Sửa cấu trúc giải nén mảng danh sách cho chuẩn [x, w, y]
+        # Gộp phân đoạn liền kề khít nhau trên trục X có cùng độ cao
         merged_skyline = []
         for seg in skyline:
             if (merged_skyline 
-                and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
-                and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
-                merged_skyline[-1][1] += seg[1] # Hợp nhất chiều rộng nếu khít nhau
+                and abs(merged_skyline[-1] - seg) < 0.001 
+                and abs(merged_skyline[-1] + merged_skyline[-1] - seg) < 0.001):
+                merged_skyline[-1] += seg
             else:
                 merged_skyline.append(seg)
         skyline = merged_skyline
@@ -1003,9 +1006,9 @@ def execute_skyline_placement(geometry_data):
         best_idx, num_spanned, min_y_found, p_l, p_w = place_piece_into_skyline(piece, skyline)
         
         if best_idx != -1:
-            seg_x = skyline[best_idx][0]
+            seg_x = skyline[best_idx]
             placed_y_top = min_y_found + p_l
-            total_spanned_w = sum(skyline[j][1] for j in range(best_idx, best_idx + num_spanned))
+            total_spanned_w = sum(skyline[j] for j in range(best_idx, best_idx + num_spanned))
             
             new_segments = [[seg_x, p_w, placed_y_top]]
             if total_spanned_w > p_w:
@@ -1017,9 +1020,9 @@ def execute_skyline_placement(geometry_data):
             merged_skyline = []
             for seg in skyline:
                 if (merged_skyline 
-                    and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
-                    and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
-                    merged_skyline[-1][1] += seg[1]
+                    and abs(merged_skyline[-1] - seg) < 0.001 
+                    and abs(merged_skyline[-1] + merged_skyline[-1] - seg) < 0.001):
+                    merged_skyline[-1] += seg
                 else:
                     merged_skyline.append(seg)
             skyline = merged_skyline
@@ -1046,6 +1049,7 @@ def execute_skyline_placement(geometry_data):
         "simulated_marker_length_yard": simulated_marker_length_inch / 36.0,
         "global_gross_fabric_consumption": global_gross_fabric_consumption_yard
     }
+
 
 
 import pandas as pd
