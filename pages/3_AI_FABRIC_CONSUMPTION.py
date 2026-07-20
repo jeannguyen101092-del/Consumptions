@@ -795,7 +795,8 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text)
         if weft_match: weft_shrinkage = float(weft_match.group(2))
 
-    usable_width = fabric_width - 1.0
+    # THAY ĐỔI: Khổ vải hữu dụng bằng đúng khổ vải thực tế, không trừ đi 1 inch
+    usable_width = fabric_width
 
     # Nhận diện mẫu vân hoa vải
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
@@ -877,7 +878,6 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     else:
         global_gross_fabric, actual_packing_density, allocated_shape_fabric_factor = 0.0, 0.82, 0.0
 
-    # Trả về kết quả đóng gói thành một Dictionary để dùng cho Đoạn 3b
     return {
         "fabric_width": fabric_width, "usable_width": usable_width, "warp_shrinkage": warp_shrinkage, "weft_shrinkage": weft_shrinkage,
         "fabric_pattern": fabric_pattern, "actual_packing_density": actual_packing_density, "allocated_shape_fabric_factor": allocated_shape_fabric_factor,
