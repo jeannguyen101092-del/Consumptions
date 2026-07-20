@@ -404,9 +404,8 @@ import streamlit as st
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ANTI-STALE PATCH)
+# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI
 # =====================================================================
-# Ép hủy bộ nhớ đệm lỗi cũ sau 60 giây (ttl=60), băm mã SHA-256 nội dung bytes thực tế của file
 @st.cache_data(
     show_spinner=False,
     ttl=60,
@@ -420,12 +419,12 @@ def execute_cached_gemini_scan(
     raw_json_schema,
     prompt_agent_2,
 ):
-    """Hàm thuần (Pure Function) gọi AI quét PDF.
+    """Hàm gọi AI quét TOÀN BỘ các trang trong file Techpack để bóc tách trọn
 
-    Đã tinh khiết hóa, đóng file tự động bằng ngữ cảnh 'with', hash SHA-256
-    sạch.
+    vẹn cấu trúc Vải chính, Vải lót và Keo lót (Fusing).
     """
     import copy
+    import hashlib
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -436,33 +435,50 @@ def execute_cached_gemini_scan(
     full_pdf_raw_text = ""
     image_payloads = []
 
-    # Tự động đóng file giải phóng bộ nhớ đệm hệ thống khi thoát khối 'with'
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
-        # Quét 3 trang đầu chứa cấu trúc rập của tài liệu kỹ thuật để nhẹ RAM
-        for idx in range(min(total_pages, 3)):
+        # 🚨 ĐÃ SỬA: Quét toàn bộ số trang của file Techpack để tìm sạch linh kiện keo/phụ liệu ở trang sau
+        for idx in range(total_pages):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            try:
-                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                image_payloads.append(
-                    {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
-                )
-            except Exception:
-                continue
+            # Chỉ render ảnh cho 5 trang đầu hoặc trang chứa hình vẽ rập để tối ưu hóa dung lượng gửi đi
+            if len(image_payloads) < 5:
+                try:
+                    pix = doc_recovery[idx].get_pixmap(
+                        dpi=72, colorspace=fitz.csRGB
+                    )
+                    image_payloads.append(
+                        {
+                            "mime_type": "image/jpeg",
+                            "data": pix.tobytes("jpeg"),
+                        }
+                    )
+                except Exception:
+                    continue
 
     gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(
         0,
         f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
     )
-    gemini_inputs.append(prompt_agent_2)
+
+    # 🚨 ĐÃ CẬP NHẬT PROMPT ÉP ĐẦU RA TOÀN DIỆN NGUYÊN PHỤ LIỆU
+    extended_prompt = (
+        prompt_agent_2
+        + """
+    CRITICAL MULTI-MATERIAL EXTRACTION RULES:
+    - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
+    - Carefully scan for pocket linings, waist linings, and fusing/interfacing descriptors.
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
+    - Do not omit any minor panels or components from the final JSON structure.
+    """
+    )
+    gemini_inputs.append(extended_prompt)
 
     model = genai.GenerativeModel("gemini-2.5-flash")
-
-    # Gọi mô hình với cấu hình Timeout cứng 15 giây chống kẹt luồng C-level
     response = model.generate_content(
         gemini_inputs,
         generation_config={
@@ -470,13 +486,12 @@ def execute_cached_gemini_scan(
             "response_schema": raw_json_schema,
             "temperature": 0.0,
         },
-        request_options={"timeout": 15.0},
+        request_options={"timeout": 60.0},
     )
 
     if not response or not response.text:
         raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
-    # Dọn sạch cấu trúc mã bọc ```json ... ``` trước khi ép kiểu dict
     txt = response.text.strip()
     if txt.startswith("```"):
         txt = re.sub(r"^```json\s*", "", txt)
@@ -491,7 +506,6 @@ def execute_cached_gemini_scan(
             f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
         ) from json_err
 
-    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY CỦA BẠN (GIỮ NGUYÊN) ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -590,45 +604,13 @@ import traceback
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN B: LIVE UI CHAT & SECURE EXTRACTION CONTROLLER
+# 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
 # =====================================================================
 
-# 1. Khởi tạo an toàn các biến Session State toàn cục
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "ai_processing" not in st.session_state:
-    st.session_state.ai_processing = False
-if "last_submitted_query" not in st.session_state:
-    st.session_state.last_submitted_query = ""
-
-# Khung Container render lịch sử tin nhắn
-chat_history_container = st.container()
-with chat_history_container:
-    st.markdown(
-        '<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>',
-        unsafe_allow_html=True,
-    )
-    if st.session_state.get("chat_history"):
-        for msg in st.session_state.chat_history:
-            st.chat_message("user").write(msg["user"])
-            st.chat_message("assistant").write(msg["ai"])
-
-# Viết độc lập lề trái hoàn toàn, tách key sang phiên bản patch_v7
-safe_user_prompt = st.chat_input(
-    "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_final_patch_v7",
-)
-
-if safe_user_prompt:
-    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
-    st.session_state.ai_processing = True
-    st.rerun()
-
-# 2. Xử lý logic gọi mô hình trực tiếp khi cờ xử lý bật
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
 
-    # Bộ quét tìm nguồn file PDF dự phòng khi chuyển tab đa trang của Streamlit
+    # Bộ quét tự động tìm file PDF dự phòng từ bộ nhớ đệm dùng chung khi chuyển tab
     active_pdf = st.session_state.get("pdf_bytes")
     if active_pdf is None:
         active_pdf = (
@@ -642,27 +624,64 @@ if st.session_state.ai_processing:
             "🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."
         ):
             try:
-                # Dựng cấu trúc Json Schema trả về
+                # 1. JSON SCHEMA MỞ RỘNG MÁ TRẬN ĐA GIÁC CAD
                 raw_json_schema = {
                     "type": "OBJECT",
                     "properties": {
-                        "detected_product_type": {"type": "STRING"},
-                        "detected_base_size": {"type": "STRING"},
+                        "detected_product_type": {
+                            "type": "STRING",
+                            "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT",
+                        },
+                        "detected_base_size": {
+                            "type": "STRING",
+                            "description": "Size mẫu trích xuất, ví dụ: 32",
+                        },
                         "bom_rows": {
                             "type": "ARRAY",
+                            "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "component_name": {"type": "STRING"},
-                                    "material_class": {"type": "STRING"},
-                                    "geometry_role": {"type": "STRING"},
-                                    "piece_type": {"type": "STRING"},
-                                    "uom": {"type": "STRING"},
-                                    "piece_count": {"type": "INTEGER"},
-                                    "bounding_box_length": {"type": "NUMBER"},
-                                    "bounding_box_width": {"type": "NUMBER"},
-                                    "data_confidence": {"type": "STRING"},
-                                    "calculation_status": {"type": "STRING"},
+                                    "component_name": {
+                                        "type": "STRING",
+                                        "description": "Tên chi tiết rập gốc từ tài liệu",
+                                    },
+                                    "material_class": {
+                                        "type": "STRING",
+                                        "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY",
+                                    },
+                                    "geometry_role": {
+                                        "type": "STRING",
+                                        "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT",
+                                    },
+                                    "piece_type": {
+                                        "type": "STRING",
+                                        "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành.",
+                                    },
+                                    "uom": {
+                                        "type": "STRING",
+                                        "description": "Cố định: YDS",
+                                    },
+                                    "piece_count": {
+                                        "type": "INTEGER",
+                                        "description": "Số lượng rập chi tiết gốc (Pcs).",
+                                    },
+                                    "bounding_box_length": {
+                                        "type": "NUMBER",
+                                        "description": "Chiều dài chi tiết rập L-inch.",
+                                    },
+                                    "bounding_box_width": {
+                                        "type": "NUMBER",
+                                        "description": "Chiều rộng chi tiết rập W-inch.",
+                                    },
+                                    "data_confidence": {
+                                        "type": "STRING",
+                                        "description": "Allowed: HIGH, LOW",
+                                    },
+                                    "calculation_status": {
+                                        "type": "STRING",
+                                        "description": "Allowed: READY, MISSING_INPUT",
+                                    },
                                 },
                                 "required": [
                                     "component_name",
@@ -686,9 +705,33 @@ if st.session_state.ai_processing:
                     ],
                 }
 
-                prompt_agent_2 = "You are a strict Data Extraction Engine..."
+                # 2. PROMPT CHUYÊN GIA CAD TRÍCH XUẤT & SUY LUẬN KHÔNG GIAN RẬP
+                prompt_agent_2 = """
+                You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Your absolute priority is to extract or intelligently estimate the physical dimensions (Length and Width in INCHES) for EVERY garment component found in the Techpack.
+                
+                🚨 CRITICAL DIMENSION RETRIEVAL & ESTIMATION DIRECTIVES (ANTI-ZERO RULE):
+                1. PRIMARY SOURCE (TABLES): Search all pages for spec tables, graded measurement sheets, or marker detail blocks. Extract the exact 'bounding_box_length' and 'bounding_box_width' for the base size (Size 32).
+                
+                2. SECONDARY SOURCE (PATTERN SKETCH ESTIMATION): If numerical dimensions are NOT explicitly written in a structured table, you MUST estimate the bounding rectangle directly from the technical flat sketches, drawings, or pattern diagrams.
+                   - Use the overall garment proportions and drawing scale to approximate the bounding box.
+                   - NEVER output 0.0 or null for 'bounding_box_width' or 'bounding_box_length' if the component physically exists in the design sketch. A pant leg or waistband CANNOT have a width of 0.
+                
+                3. INDUSTRIAL GARMENT HEURISTIC BOUNDS (GUARDRAILS FOR JEANS/PANTS):
+                   If you cannot find exact metrics and must estimate from the sketch, apply these standard apparel industry geometric boundaries to prevent mathematically impossible zeros:
+                   - TROUSER_FRONT / TROUSER_BACK (Main Leg Panels): Length typically ranges between 35.0 to 45.0 inches. Width MUST be estimated based on the leg opening/thigh ratio, typically between 10.0 to 16.0 inches. NEVER leave width as 0.
+                   - WAISTBAND / LƯNG QUẦN: Length is tied to waist size (e.g., Size 32 approx 32.0-35.0 inches if flat/curved). Width is standard waistband height, typically 1.5 to 2.5 inches.
+                   - POCKET BAG / LÓT TÚI: Length typically 10.0 to 13.0 inches, Width typically 6.0 to 8.0 inches.
+                   - COIN POCKET / FLAP / MINOR PIECES: Length 3.0 to 5.0 inches, Width 3.0 to 5.0 inches.
+                
+                4. DATA CONFIDENCE & STATUS LOGIC:
+                   - Set data_confidence = "HIGH" and calculation_status = "READY" ONLY if the numbers are explicitly extracted from text/tables.
+                   - Set data_confidence = "LOW" and calculation_status = "READY" if the dimensions are mathematically estimated/reconstructed from the pattern sketch or garment guardrails.
+                   - ONLY set calculation_status = "MISSING_INPUT" if the component name is mentioned but there is absolutely zero visual representation or context to infer size.
+                
+                Ensure your output strictly adheres to the requested JSON structure. Every valid component must have non-zero geometric properties to allow proper 2D packing area calculation.
+                """
 
-                # Gọi trực tiếp hàm lõi từ Đoạn A
+                # 3. GỌI THỰC THI HÀM LÕI TRÊN LUỒNG CHÍNH AN TOÀN
                 blueprint_final = execute_cached_gemini_scan(
                     active_pdf,
                     current_query,
@@ -714,11 +757,10 @@ if st.session_state.ai_processing:
                 )
 
             except Exception as e:
-                # Khóa cứng luồng không cho Rerun để hiển thị vết lỗi thô chi tiết phục vụ sửa lỗi
+                # Bẫy lỗi và đóng băng giao diện để bảo lưu vết mã nguồn kĩ thuật thô màu đen khi xảy ra sự cố
                 st.error("🚨 Chi tiết lỗi hệ thống từ API Core:")
                 st.exception(e)
                 st.code(traceback.format_exc(), language="python")
-
                 st.session_state.ai_processing = False
                 st.stop()
 
@@ -726,6 +768,7 @@ if st.session_state.ai_processing:
                 if st.session_state.ai_processing:
                     st.session_state.ai_processing = False
                     st.rerun()
+   
     else:
         st.error(
             "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
