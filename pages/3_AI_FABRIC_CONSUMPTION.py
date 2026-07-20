@@ -404,9 +404,8 @@ import streamlit as st
 
 
 # =====================================================================
-# 🧠 SỬA ĐỔI: KHỐI CHỨA HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP
+# 🧠 KHỐI HÀM CACHE AI CỐ ĐỊNH THÔNG SỐ RẬP (ĐÃ TINH KHIẾT - KHÔNG CHỨA UI)
 # =====================================================================
-# ĐIỂM SỬA 1: Dùng mã băm SHA-256 thực tế để ép bộ cache chạy mượt, không lỗi trùng file
 @st.cache_data(
     show_spinner=False,
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
@@ -419,28 +418,39 @@ def execute_cached_gemini_scan(
     raw_json_schema,
     prompt_agent_2,
 ):
+    """
+    Hàm thuần (Pure Function) gọi AI quét PDF. 
+    Không chứa các side-effect UI của Streamlit, đóng file an toàn, hash sạch.
+    """
+    import copy
 
-    # ĐIỂM SỬA 2: Ép kiểu dữ liệu UploadedFile từ Streamlit về Bytes thô để fitz đọc an toàn, chống crash
+    # Ép kiểu dữ liệu UploadedFile từ Streamlit về Bytes thô để fitz đọc an toàn
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
-    doc_recovery = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = len(doc_recovery)
+    if not isinstance(pdf_bytes, bytes):
+        raise TypeError("Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!")
+
     full_pdf_raw_text = ""
     image_payloads = []
 
-    # Tối ưu hóa: Chỉ render tối đa 3 trang để nhẹ RAM máy chủ Cloud, chống nghẽn luồng
-    for idx in range(min(total_pages, 3)):
-        page_text = doc_recovery[idx].get_text("text")
-        full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+    # Sử dụng ngữ cảnh 'with' để tự động đóng file PDF sau khi đọc, giải phóng RAM
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
+        total_pages = len(doc_recovery)
 
-        try:
-            pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-            image_payloads.append(
-                {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
-            )
-        except Exception:
-            continue
+        # Tối ưu hóa hiệu năng: Chỉ bóc tách tối đa 3 trang để nhẹ RAM máy chủ Cloud
+        for idx in range(min(total_pages, 3)):
+            page_text = doc_recovery[idx].get_text("text")
+            full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+
+            try:
+                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                # Payload nhị phân tuân thủ định dạng Part dict của google.generativeai
+                image_payloads.append(
+                    {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
+                )
+            except Exception:
+                continue
 
     gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(
@@ -449,7 +459,9 @@ def execute_cached_gemini_scan(
     )
     gemini_inputs.append(prompt_agent_2)
 
+    # Khởi tạo mô hình trực tiếp trên luồng chính
     model = genai.GenerativeModel("gemini-2.5-flash")
+
     response = model.generate_content(
         gemini_inputs,
         generation_config={
@@ -462,7 +474,7 @@ def execute_cached_gemini_scan(
     if not response or not response.text:
         raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
-    # ĐIỂM SỬA 3: Dọn sạch cấu trúc mã bọc ```json ... ``` của mô hình để chống lỗi nổ cú pháp json.loads
+    # Dọn sạch cấu trúc mã bọc ```json ... ``` của mô hình để chống lỗi nổ cú pháp json.loads
     txt = response.text.strip()
     if txt.startswith("```"):
         txt = re.sub(r"^```json\s*", "", txt)
@@ -470,9 +482,15 @@ def execute_cached_gemini_scan(
         txt = re.sub(r"\s*```$", "", txt)
     txt = txt.strip()
 
-    blueprint_worker = json.loads(txt)
+    try:
+        blueprint_worker = json.loads(txt)
+    except json.JSONDecodeError as json_err:
+        # Ép lỗi ngoại lệ chuỗi thô để ném ra ngoài rìa, không gọi hàm UI tại đây
+        raise RuntimeError(
+            f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
+        ) from json_err
 
-    # --- [ĐOẠN QUY CHUẨN CHI TIẾT RẬP PHÍA DƯỚI CỦA BẠN GIỮ NGUYÊN 100%] ---
+    # --- ĐOẠN QUY CHUẨN CHI TIẾT RẬP NGÀNH MAY CỦA BẠN (GIỮ NGUYÊN HOÀN TOÀN 100%) ---
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -529,6 +547,8 @@ def execute_cached_gemini_scan(
 
 
 
+
+
 import streamlit as st
 
 import streamlit as st
@@ -569,55 +589,113 @@ if safe_user_prompt:
 
 
 import copy
+import traceback
 import streamlit as st
 
 # =====================================================================
-# 🟩 KHỐI 2 (CHẠY TRỰC TIẾP TRÊN LUỒNG CHÍNH - SỬA LỖI KẸT CACHE LUỒNG): AI ENGINE
+# 🟩 ĐOẠN 2: SECURE AI VISION EXTRACTION PIPELINE & TRACEBACK ENGINE
 # =====================================================================
 
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
-    
-    # Quét tìm nguồn file PDF dự phòng từ bộ nhớ đệm
+
+    # QUÉT TÌM FILE DỰ PHÒNG: Hỗ trợ tìm kiếm file từ tất cả các biến lưu trữ có thể có trong hệ thống
     active_pdf = st.session_state.get("pdf_bytes")
     if active_pdf is None:
-        active_pdf = st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+        active_pdf = (
+            st.session_state.get("uploaded_file")
+            or st.session_state.get("current_pdf")
+            or st.session_state.get("pdf_data")
+        )
 
     if active_pdf is not None:
-        with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
+        with st.spinner(
+            "🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."
+        ):
             try:
                 # 1. JSON SCHEMA MỞ RỘNG MÁ TRẬN ĐA GIÁC CAD
                 raw_json_schema = {
                     "type": "OBJECT",
                     "properties": {
-                        "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT"},
-                        "detected_base_size": {"type": "STRING", "description": "Size mẫu trích xuất, ví dụ: 32"},
+                        "detected_product_type": {
+                            "type": "STRING",
+                            "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT",
+                        },
+                        "detected_base_size": {
+                            "type": "STRING",
+                            "description": "Size mẫu trích xuất, ví dụ: 32",
+                        },
                         "bom_rows": {
                             "type": "ARRAY",
                             "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "component_name": {"type": "STRING", "description": "Tên chi tiết rập gốc từ tài liệu (Ví dụ: FRONT PANEL, BACK YOKE, COLLAR...)"},
-                                    "material_class": {"type": "STRING", "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY"},
-                                    "geometry_role": {"type": "STRING", "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT"},
-                                    "piece_type": {"type": "STRING", "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành. Allowed: BODY_FRONT, BODY_BACK, SET_IN_SLEEVE, RAGLAN_SLEEVE, TROUSER_FRONT, TROUSER_BACK, PANTS_FRONT, PANTS_BACK, COLLAR, CUFF, YOKE, WAISTBAND, LƯNG QUẦN, POCKET, FLAP, POCKET_BAG, LÓT TÚI, FACING, BELT_LOOP, MAJOR_PANEL, MINOR_COMPONENT"},
-                                    "uom": {"type": "STRING", "description": "Cố định: YDS"},
-                                    "piece_count": {"type": "INTEGER", "description": "Số lượng rập chi tiết gốc (Pcs). Nếu không thấy điền null."},
-                                    "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài chi tiết rập L-inch. Nếu không thấy điền null."},
-                                    "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng chi tiết rập W-inch. Nếu không thấy điền null."},
-                                    "data_confidence": {"type": "STRING", "description": "Allowed: HIGH, LOW"},
-                                    "calculation_status": {"type": "STRING", "description": "Allowed: READY, MISSING_INPUT"}
+                                    "component_name": {
+                                        "type": "STRING",
+                                        "description": "Tên chi tiết rập gốc từ tài liệu",
+                                    },
+                                    "material_class": {
+                                        "type": "STRING",
+                                        "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY",
+                                    },
+                                    "geometry_role": {
+                                        "type": "STRING",
+                                        "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT",
+                                    },
+                                    "piece_type": {
+                                        "type": "STRING",
+                                        "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành.",
+                                    },
+                                    "uom": {
+                                        "type": "STRING",
+                                        "description": "Cố định: YDS",
+                                    },
+                                    "piece_count": {
+                                        "type": "INTEGER",
+                                        "description": "Số lượng rập chi tiết gốc (Pcs).",
+                                    },
+                                    "bounding_box_length": {
+                                        "type": "NUMBER",
+                                        "description": "Chiều dài chi tiết rập L-inch.",
+                                    },
+                                    "bounding_box_width": {
+                                        "type": "NUMBER",
+                                        "description": "Chiều rộng chi tiết rập W-inch.",
+                                    },
+                                    "data_confidence": {
+                                        "type": "STRING",
+                                        "description": "Allowed: HIGH, LOW",
+                                    },
+                                    "calculation_status": {
+                                        "type": "STRING",
+                                        "description": "Allowed: READY, MISSING_INPUT",
+                                    },
                                 },
-                                "required": ["component_name", "material_class", "geometry_role", "piece_type", "uom", "piece_count", "bounding_box_length", "bounding_box_width", "data_confidence", "calculation_status"]
-                            }
-                        }
+                                "required": [
+                                    "component_name",
+                                    "material_class",
+                                    "geometry_role",
+                                    "piece_type",
+                                    "uom",
+                                    "piece_count",
+                                    "bounding_box_length",
+                                    "bounding_box_width",
+                                    "data_confidence",
+                                    "calculation_status",
+                                ],
+                            },
+                        },
                     },
-                    "required": ["detected_product_type", "detected_base_size", "bom_rows"]
+                    "required": [
+                        "detected_product_type",
+                        "detected_base_size",
+                        "bom_rows",
+                    ],
                 }
 
                 # 2. PROMPT CHUYÊN GIA PHÂN LOẠI CẤU TRÚC RẬP CÔNG NGHIỆP
-                prompt_agent_2 = f"""
+                prompt_agent_2 = """
                 You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
                 
                 CRITICAL EXTRACTION & CLASSIFICATION DIRECTIVES:
@@ -635,32 +713,49 @@ if st.session_state.ai_processing:
                    - If a row like COLLAR, WAISTBAND, or FLAP explicitly indicates fusing, interlining, or adhesive interfacing, change material_class to "FUSING" and geometry_role to "MINOR_COMPONENT".
                 """
 
-                # 🚨 ĐÃ SỬA: Chạy trực tiếp trên luồng chính để không làm lỗi cơ chế Cache của Streamlit
+                # 3. GỌI HÀM LÕI TRỰC TIẾP TRÊN LUỒNG CHÍNH ĐỂ KHÔNG BỊ TREO CACHE
                 blueprint_final = execute_cached_gemini_scan(
-                    active_pdf, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
+                    active_pdf,
+                    current_query,
+                    56.0,
+                    "32",
+                    raw_json_schema,
+                    prompt_agent_2,
                 )
-                
+
                 st.session_state.blueprint_final = blueprint_final
                 st.session_state.last_active_blueprint = blueprint_final
-                
+
                 if blueprint_final and isinstance(blueprint_final, dict):
                     bom_rows_list = blueprint_final.get("bom_rows", [])
                     st.session_state["bom_data"] = blueprint_final
-                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(bom_rows_list)
-                
+                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(
+                        bom_rows_list
+                    )
+
                 ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
-                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
-                
+                st.session_state.chat_history.append(
+                    {"user": current_query, "ai": ai_response_text}
+                )
+
             except Exception as e:
-                st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
-                
+                # 🚨 BẪY VẾT LỖI TỐI THƯỢNG: Nếu phát sinh lỗi kết nối API, lỗi SDK hoặc JSON gãy,
+                # bung toàn bộ vết mã nguồn màu đen để "bắt sống" nguyên nhân tại chỗ.
+                st.error(
+                    "🚨 Hệ thống phát hiện lỗi luồng xử lý thực tế từ API Core:"
+                )
+                st.code(traceback.format_exc(), language="python")
+
             finally:
-                # Ép giải phóng trạng thái bận và Rerun để vẽ bảng dữ liệu CAD ngay lập tức
+                # Giải phóng trạng thái và ép làm mới trang
                 st.session_state.ai_processing = False
                 st.rerun()
     else:
-        st.error("⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat.")
+        st.error(
+            "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
+        )
         st.session_state.ai_processing = False
+
 
 
 
