@@ -876,7 +876,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 # =====================================================================
-# KHỐI 3B: BẢN TINH GỌN - TƯƠNG THÍCH MỌI PHIÊN BẢN STREAMLIT
+# KHỐI 3B + BẢNG ĐỊNH MỨC TỔNG ĐỒNG BỘ TỰ ĐỘNG
 # =====================================================================
 
 st.subheader("⚠️ DETAILED HYBRID CAD ENGINE")
@@ -927,7 +927,7 @@ def run_cad_recalculation(input_dataframe):
     df_calculated["Gross Consumption"] = results
     return df_calculated
 
-# 2. HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LÊN GIAO DIỆN (ĐÃ LOẠI BỎ BIẾN LỖI PHIÊN BẢN)
+# 2. HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LÊN GIAO DIỆN
 edited_df = st.data_editor(
     st.session_state.df_details,
     num_rows="dynamic",
@@ -947,6 +947,26 @@ edited_df = st.data_editor(
 )
 
 # 3. ĐỒNG BỘ DỮ LIỆU ĐỂ HỆ THỐNG TỰ ĐỘNG CẬP NHẬT
+total_fabric = 0.0
+total_accessory = 0.0
+
 if edited_df is not None:
     df_recalculated = run_cad_recalculation(edited_df)
     st.session_state.df_details = df_recalculated
+    
+    # Tính tổng giá trị định mức cho từng nhóm vật liệu
+    import pandas as pd
+    total_fabric = round(float(df_recalculated[df_recalculated["Material Class"] == "FABRIC"]["Gross Consumption"].sum()), 4)
+    total_accessory = round(float(df_recalculated[df_recalculated["Material Class"] == "ACCESSORY"]["Gross Consumption"].sum()), 4)
+
+# --- BẢNG ĐỊNH MỨC TỔNG HỢP HIỂN THỊ LẠI ---
+st.write("---")
+st.subheader("📊 BẢNG TỔNG HỢP TIÊU HAO VẬT LIỆU")
+
+summary_data = {
+    "Material Class": ["ACCESSORY", "VẢI CHÍNH (MAIN FABRIC)", "THREAD", "TRIM"],
+    "Gross Consumption": [total_accessory, total_fabric, 0.0, 0.0],
+    "UOM": ["YDS", "YDS", "YDS", "YDS"]
+}
+import pandas as pd
+st.dataframe(pd.DataFrame(summary_data), use_container_width=True)
