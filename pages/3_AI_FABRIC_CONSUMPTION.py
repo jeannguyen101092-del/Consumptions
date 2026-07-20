@@ -935,8 +935,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-    # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-   # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -1020,10 +1019,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             if mat_class_raw == "FABRIC":
                 total_fabric_piece_area += item_area
                 
+            # Đọc thêm thông tin trạng thái từ rập để lưu trữ đồng bộ
+            status_raw = str(r.get("calculation_status", "READY")).upper().strip()
+            confidence_raw = str(r.get("data_confidence", "HIGH")).upper().strip()
+                
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": pcs_display,
                 "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "pocket_note": pocket_note,
-                "combined_str": combined_str_item, "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs
+                "combined_str": combined_str_item, "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs,
+                "status_raw": status_raw, "confidence_raw": confidence_raw # Chuyển biến an toàn vào mảng
             })
 
     # 🚨 BƯỚC 2: KHỐNG CHẾ HẠN MỨC SƠ ĐỒ GỐC VÀ PHÂN BỔ TỶ LỆ DIỆN TÍCH (GERBER SHARE RATIO)
@@ -1044,6 +1048,8 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         raw_l = item["raw_l"]
         raw_w = item["raw_w"]
         pcs = item["pcs_val"]
+        status_raw = item["status_raw"]
+        confidence = item["confidence_raw"] # 🚨 ĐÃ SỬA: Lấy chính xác biến đã đóng gói từ Bước 1
 
         if is_button:
             gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
