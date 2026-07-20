@@ -1066,13 +1066,55 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
 
     # Đẩy kết quả vào session_state bền vững
     st.session_state["processed_display_rows"] = processed_display_rows
-            if mat_class_raw == "FABRIC":
-                # CHUYỂN ĐỔI: Tính định mức tích lũy độc lập dựa trên Khổ vải dụng (usable_width) để không bị thấp định mức
-                if usable_width > 0:
-                    # Công thức: (Diện tích chi tiết / Khổ vải) / 36.0 inch sang Yds / Hiệu suất mật độ nén sơ đồ thực tế
-                    efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
-                    gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
-                    calc_chain = f"Sơ đồ Vải chính độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\""
-                else:
-                    gross_consumption = 0.0
-                    calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
+# 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
+display_rows_source = st.session_state.get("processed_display_rows", [])
+
+if display_rows_source:
+    df_bom = pd.DataFrame(display_rows_source)
+    
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0;">'
+        '📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ GERBER ACCUMULATION)'
+        '</div>', 
+        unsafe_allow_html=True
+    )
+    
+    # 1. XỬ LÝ BẢNG TỔNG HỢP ĐỊNH MỨC (SUMMARY)
+    df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
+    df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
+    df_summary["UOM"] = "YDS"
+    
+    class_mapping = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)",
+        "FUSING": "KEO/DỰNG (FUSING)",
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)"
+    }
+    df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
+    
+    # Hiển thị bảng tổng hợp lên giao diện
+    st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
+    
+    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP (DETAILED CAD)
+    st.subheader("Bảng chi tiết cấu trúc rập (Bộ lọc thông minh Bao túi mổ)")
+    st.dataframe(df_bom, use_container_width=True)
+    
+    # 3. HIỂN THỊ THÔNG BÁO THÔNG SỐ ĐỘNG TỪ AI
+    bom_source = st.session_state.get("bom_data", {})
+    current_size = bom_source.get("calculated_on_size", "32")
+    current_warp = bom_source.get("warp_shrinkage_percent", 0.0)
+    current_weft = bom_source.get("weft_shrinkage_percent", 0.0)
+    current_width = bom_source.get("fabric_width_inch", 56.0)
+    
+    st.markdown(
+        f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
+        f'🤖 AI ghi nhận lệnh tính toán: Tính định mức <b>Cỡ {current_size}</b> | Khổ vải: <b>{current_width}"</b> | '
+        f'Co rút dọc: <b>{current_warp}%</b> | Co rút ngang: <b>{current_weft}%</b>.'
+        f'</p>', 
+        unsafe_allow_html=True
+    )
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+else:
+    st.warning("⚠️ Không tìm thấy dữ liệu cấu trúc BOM rập hoặc sơ đồ CAD chưa được nạp vào hệ thống.")
