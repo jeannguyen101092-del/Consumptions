@@ -904,13 +904,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     if not user_query_text and st.session_state.get("chat_history"): 
         user_query_text = str(st.session_state.chat_history[-1]["user"])
 
-    # Thiết lập thông số mặc định ban đầu phòng hờ
+    # Thiết lập thông số mặc định ban đầu phòng hờ từ file gốc
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
     warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
     weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
-    target_size = bom_source.get("calculated_on_size", bom_source.get("detected_base_size", "32")).upper()
+    
+    # 🚨 ĐÃ SỬA: Ưu tiên quét size mẫu (Base Size/Sample Size) từ file gốc, không để cứng 32 mặc định
+    detected_size = bom_source.get("detected_base_size", bom_source.get("calculated_on_size", "32"))
+    target_size = str(detected_size).upper()
 
-    # Quét nhanh thông số từ câu lệnh chat bằng Regex
+    # Quét nhanh thông số từ câu lệnh chat bằng Regex (Chỉ ghi đè nếu người dùng ép thông số khác trong chat)
     if user_query_text:
         w_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
         if w_match: fabric_width = float(w_match.group(2))
@@ -924,7 +927,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         size_match = re.search(r"(cỡ|size)\s*([a-zA-Z0-9]+)", user_query_text, re.IGNORECASE)
         if size_match: target_size = str(size_match.group(2)).upper()
 
-    # Cập nhật và ghi đè đồng bộ các thông số mới thẳng vào ROOT của bom_source
+    # Ghi đè đồng bộ các thông số mới thẳng vào ROOT của bom_source để bộ nhớ hệ thống luôn nhất quán
     bom_source["fabric_width_inch"] = fabric_width
     bom_source["usable_width_inch"] = fabric_width  
     bom_source["warp_shrinkage_percent"] = warp_shrinkage
@@ -932,13 +935,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-
-    # Giải nén lại các biến số
+    # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source["usable_width_inch"]
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
 
-    # Đọc danh sách dòng BOM chi tiết
+    # Đọc danh sách dòng BOM chi tiết từ bộ nhớ hệ thống
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
     for r in bom_rows_list:
@@ -957,15 +959,24 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
-        # Kiểm tra chi tiết có phải là Nút áo hay không
+        # Quy tắc 1: Kiểm tra chi tiết có phải là Nút áo hay không
         is_button = any(k in combined_str for k in ["BUTTON", "NÚT", "NUT", "KHUY"])
 
-        # Điều kiện chạy tính toán: Có chiều dài rập HOẶC là chi tiết Nút áo tính theo chiếc
+        # Quy tắc 2: SỬA LỖI MẤT LAI ÁO - Nếu là lai/gấu áo bị thiếu kích thước, tự bù thông số tiêu chuẩn sản xuất
+        if raw_l == 0.0 or raw_w == 0.0:
+            if any(k in combined_str for k in ["BOTTOM HEM", "LAI ÁO", "LAI AO", "GẤU ÁO"]):
+                raw_l = 38.0 if raw_l == 0.0 else raw_l  
+                raw_w = 1.75 if raw_w == 0.0 else raw_w  
+                r["bounding_box_length"] = raw_l
+                r["bounding_box_width"] = raw_w
+
+        # Điều kiện chạy tính toán hình học: Có chiều dài rập HOẶC là chi tiết Nút áo tính chiếc
         if raw_l > 0 or is_button:
+            # Nhân tỉ lệ co rút động đã đồng bộ vào kích thước rập sản xuất
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # Khối lọc AI: Kiểm tra số lớp cấu kiện (x2, x4)
+            # Khối lọc AI: Nhân đôi lớp đặc thù (x2) & Nắp túi 2 bên (x4)
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
@@ -993,6 +1004,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
+            # Định dạng hiển thị nhãn số lượng chiếc/lớp lên bảng biểu UI
             if is_four_layers:
                 pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
             elif is_two_layers:
@@ -1000,42 +1012,45 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             else:
                 pcs_display = f"{pcs} Pcs"
 
-            # 🚨 🛠️ CẬP NHẬT LOGIC TÍNH ĐỊNH MỨC NÚT ÁO VÀ PHỤ LIỆU
+            # 🚨 THUẬT TOÁN 1: XỬ LÝ RIÊNG BIỆT CHO NÚT ÁO (Tính theo chiếc)
             if is_button:
-                # 📌 CÔNG THỨC CHO NÚT ÁO: Tính lũy kế theo số lượng chiếc đơn thuần, không chia 36.
-                # Đơn vị định mức là PCS (Cái). Cộng 3% hao hụt vỡ/rơi rớt phụ liệu công nghiệp (* 1.03)
                 mat_class_raw = "ACCESSORY" if mat_class_raw in ["FABRIC", "TRIM"] else mat_class_raw
                 gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
                 calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt hao phí"
                 pcs_display = f"{pcs} Cái"
+                
             else:
-                # Xác định các chi tiết dạng dải cuộn phụ liệu dọc mua ngoài (Dây thun, Dây viền rời)
+                # Phân tách: Nếu dải viền (Binding) là FABRIC thì tính theo Layout, ngược lại mới tính theo cuộn
                 is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
+                
+                # Kiểm tra chi tiết dạng cuộn dọc phụ liệu dài mua ngoài (Thun, khóa, hanger loop...)
                 is_roll_trim = any(k in combined_str for k in [
                     "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG"
                 ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
                 if is_roll_trim and not is_binding_fabric:
-                    # 📏 CÔNG THỨC DẢI CUỘN DỌC: Tính theo Yards (Chia 36)
+                    # 📏 THUẬT TOÁN 2: TÍNH LŨY KẾ THEO CHIỀU DÀI YARDS (Cho thun, khóa, dây viền trim...)
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn phụ liệu dọc: Chiều dài L-inch / 36.0"
                     if layer_multiplier > 1: calc_chain += f" (Nhân {layer_multiplier} lớp)"
                 else:
-                    # 🗺️ CÔNG THỨC SƠ ĐỒ LAYOUT ĐA GIÁC: Cho các mảng vải chính/vải lót
+                    # 🗺️ THUẬT TOÁN 3: TÍNH THEO SƠ ĐỒ LAYOUT ĐA GIÁC CỦA VẢI (Cho Thân, Bao túi, Viền vải chính)
                     if any(k in combined_str for k in ["JACKET", "BODY", "ÁO", "TEE", "VEST"]):
+                        # 🚨 Nâng hệ số thân áo chính (Panel) lên 0.94 để không bị thấp định mức
                         shape_factor = 0.94 if ("PANEL" in combined_str or "THÂN" in combined_str) else 0.86
                     elif any(k in combined_str for k in ["SLEEVE", "TAY"]):
                         shape_factor = 0.84
                     elif any(k in combined_str for k in ["DRESS", "ĐẦM", "SKIRT", "VÁY", "TÙNG"]):
                         shape_factor = 0.76
                     elif "BINDING" in combined_str or "VIỀN" in combined_str:
-                        shape_factor = 0.96
+                        shape_factor = 0.96  
                     else:
                         shape_factor = 0.70
                         
                     if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                         shape_factor = 0.94
 
+                    # Phép toán nhân diện tích sơ đồ bàn cắt bao gồm biên may sản xuất
                     seamed_l = adj_l + (0.44 * 2.0)
                     seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.25
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
@@ -1051,8 +1066,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         else:
             gross_consumption = 0.0
             pcs_display = f"{pcs} Pcs"
-            calc_chain = "❌ Bỏ qua: Thiếu thông số đầu vào!"
+            calc_chain = "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
 
+        # Lưu kết quả tính toán chi tiết
         processed_display_rows.append({
             "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
             "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
@@ -1060,12 +1076,9 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
+    # Đẩy kết quả đã xử lý tối ưu bền vững vào session_state cho Đoạn 2 đọc hiển thị
     st.session_state["processed_display_rows"] = processed_display_rows
-
-
-
-# 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
-# Lấy trực tiếp dữ liệu bền vững từ st.session_state
+# Lấy trực tiếp dữ liệu bền vững từ st.session_state gán ở Đoạn 1b
 display_rows_source = st.session_state.get("processed_display_rows", [])
 
 if display_rows_source:
@@ -1087,7 +1100,8 @@ if display_rows_source:
     class_mapping = {
         "FABRIC": "VẢI CHÍNH (MAIN FABRIC)",
         "FUSING": "KEO/DỰNG (FUSING)",
-        "LINING": "VẢI LÓT/BAO TÚI (LINING)"
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)",
+        "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
     }
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
@@ -1095,23 +1109,23 @@ if display_rows_source:
     st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
     
-    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP
+    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP (DETAILED CAD)
     st.subheader("Bảng chi tiết cấu trúc rập (Bộ lọc thông minh Bao túi mổ)")
     st.dataframe(df_bom, use_container_width=True)
     
-    # 3. 🚨 ĐÃ SỬA: ĐỌC THÔNG SỐ AN TOÀN TRÁNH LỖI SẬP KHI BẤM CLEAR MEMORY
+    # 3. HIỂN THỊ THÔNG BÁO THÔNG SỐ ĐỘNG TỪ AI (Đọc chuẩn size mẫu từ file)
     bom_source = st.session_state.get("bom_data", {})
     if not isinstance(bom_source, dict): 
-        bom_source = {}  # Ép buộc về dict trống nếu bấm Clear bị rỗng
+        bom_source = {}
         
-    current_size = bom_source.get("calculated_on_size", "32")
+    current_size = bom_source.get("calculated_on_size", "Mẫu")
     current_warp = bom_source.get("warp_shrinkage_percent", 0.0)
     current_weft = bom_source.get("weft_shrinkage_percent", 0.0)
     current_width = bom_source.get("fabric_width_inch", 56.0)
     
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
-        f'🤖 AI ghi nhận lệnh tính toán: Tính định mức <b>Cỡ {current_size}</b> | Khổ vải: <b>{current_width}"</b> | '
+        f'🤖 AI ghi nhận lệnh tính toán: Tính định mức dựa trên <b>Size may mẫu: {current_size}</b> quét từ Techpack | Khổ vải: <b>{current_width}"</b> | '
         f'Co rút dọc: <b>{current_warp}%</b> | Co rút ngang: <b>{current_weft}%</b>.'
         f'</p>', 
         unsafe_allow_html=True
@@ -1119,5 +1133,5 @@ if display_rows_source:
     
     st.markdown('</div>', unsafe_allow_html=True)
 else:
-    # Khi bấm Clear, hệ thống rơi vào đây và xóa sạch giao diện cũ một cách an toàn
-    st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc câu lệnh mới để tính toán.")
+    # Khi bấm Clear Memory hoặc chưa nạp file, hệ thống hiển thị dòng này một cách an toàn tránh lỗi sập giao diện
+    st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
