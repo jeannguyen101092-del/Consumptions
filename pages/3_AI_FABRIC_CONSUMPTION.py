@@ -935,9 +935,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+         # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -989,30 +987,30 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             # Phát hiện cấu kiện thuộc hàng Quần để chặn nhân đôi lớp sai bản chất
             is_pant_component = any(k in combined_str for k in ["trouser", "pant", "jean", "denim", "slider", "fly", "leg", "waistband", "yoke"])
 
-            # 🚨 ĐÃ SỬA: Định nghĩa mảng viết thường liền mạch đồng bộ để hết lỗi NameError ở dòng 999
-            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ"]
+            # Định nghĩa mảng viết thường liền mạch đồng bộ
+            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "bọcổ", "nẹp cổ"]
 
             # Khử lỗi nhân đôi lớp cho Đô quần (YOKE) và Lưng quần (WAISTBAND)
             if "yoke" in combined_str or "đô" in combined_str:
                 if is_pant_component:
-                    layer_multiplier = 1  # Đô quần chỉ cắt 1 lớp độc bản
+                    layer_multiplier = 1  
                 else:
-                    layer_multiplier = 2  # Đô áo Jacket tính 2 lớp lộn
+                    layer_multiplier = 2  # Đô áo Jacket tính 2 lớp lộn chuẩn xác
                     is_two_layers = True
             elif "waistband" in combined_str or "lưng" in combined_str or "cạp" in combined_str:
-                layer_multiplier = 1  # Lưng quần bản rộng rập sẵn đã tính gập, ép về 1 lớp
+                layer_multiplier = 1  
                 is_two_layers = False
             else:
-                # Kiểm tra nhân lớp cho hàng áo
+                # Kiểm tra nhân lớp cho hàng áo (Cổ, măng sét, nắp túi x4)
                 if any(k in combined_str for k in jacket_double_layers) and not is_pant_component:
                     layer_multiplier = 2
                     is_two_layers = True
-                elif any(k in combined_str for k in ["flap", "nắptúi", "naptui"]):
+                elif any(k in combined_str for k in ["flap", "nắptúi", "naptui", "nắptúiáo"]):
                     layer_multiplier = 4
                     is_four_layers = True
 
-            # Xử lý Bao túi mổ quần
-            is_pocket_bag = any(k in combined_str for k in ["pocketbag", "baotúi", "baotui", "liningpocket"])
+            # Xử lý Bao túi mổ quần / túi lót áo
+            is_pocket_bag = any(k in combined_str for k in ["pocketbag", "baotúi", "baotui", "liningpocket", "túilót"])
             is_welt_pocket = any(k in combined_str for k in ["welt", "túimổ", "tuimo"])
             
             if is_pocket_bag or is_welt_pocket:
@@ -1028,12 +1026,13 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             else:
                 pcs_display = f"{pcs} Pcs"
 
-            # Quét trúng Passan viết liền viết rời 100%
+            # Quét trúng Passan viết liền viết rời
             is_belt_loop = any(k in combined_str for k in ["beltloop", "đỉa", "dia", "passan"])
 
             # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
             if is_button:
                 mat_class_raw = "ACCESSORY" if mat_class_raw in ["FABRIC", "TRIM"] else mat_class_raw
+                # Nút tính theo chiếc đơn thuần (Không chia 36)
                 gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
                 calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt"
                 pcs_display = f"{pcs} Cái"
@@ -1051,14 +1050,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ PHÂN LOẠI CHÈN GÓC HỞ CHUẨN XƯỞNG
                     interlocking_factor = 1.0 
                     
-                    if any(k in combined_str for k in ["panel", "front", "back", "thân"]):
-                        # Thân lớn (Vải chính): Giữ hệ số chuẩn (0.78 Thân trước, 0.82 Thân sau) để định mức không bị thấp quá hụt vải
-                        shape_factor = 0.82 if "back" in combined_str else 0.78
+                    if any(k in combined_str for k in ["panel", "front", "back", "thân", "body"]):
+                        # 🚨 ĐÃ SỬA CHUẨN XÁC: Phân tách hệ số giữa Áo khoác (Jacket) và Quần (Jean)
+                        if is_pant_component:
+                            shape_factor = 0.82 if "back" in combined_str else 0.78 # Hệ số quần Jean
+                        else:
+                            shape_factor = 0.92 if "back" in combined_str else 0.88 # 👈 NÂNG HỆ SỐ THÂN ÁO KHOÁC KHÔNG BỊ THẤP
                         calc_chain_type = f"Sơ đồ {mat_class_raw} Layout Thân lớn"
                     else:
                         # Thiết lập hệ số hình học mặc định chi tiết nhỏ
                         shape_factor = 0.96 if ("binding" in combined_str or "viền" in combined_str or is_belt_loop) else 0.78
-                        if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "bo"]):
+                        if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "bo", "nẹp"]):
                             shape_factor = 0.94
                             
                         # Chi tiết phụ Vải chính (Lưng, Đô, Passan, Túi lẻ...) -> Hạ định mức xuống hệ số lách kẽ 0.45
@@ -1097,6 +1099,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 
 
