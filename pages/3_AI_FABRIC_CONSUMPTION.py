@@ -516,91 +516,121 @@ if safe_user_prompt:
 
 
 import copy
+import threading
 import streamlit as st
-import threading  # 🚨 ĐÃ SỬA LỖI: Khai báo thư viện để hết lỗi NameError
 
 # =====================================================================
-# 🟩 KHỐI 2: SECURE AI VISION EXTRACTION WITH HARD TIMEOUT
+# 🟩 KHỐI 2 (ĐÃ SỬA LỖI MẤT BIẾN PDF KHI CHUYỂN TRANG): AI CORE ENGINE
 # =====================================================================
 
-if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not None:
+# 🚨 ĐÃ SỬA: Chỉ kiểm tra cờ ai_processing, cho phép lọt vào luồng xử lý để phản hồi chat ngay lập tức
+if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
     
-    with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
-        try:
-            raw_json_schema = {
-                "type": "OBJECT",
-                "properties": {
-                    "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT"},
-                    "detected_base_size": {"type": "STRING", "description": "Size mẫu trích xuất, ví dụ: 32"},
-                    "bom_rows": {
-                        "type": "ARRAY",
-                        "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
-                        "items": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "component_name": {"type": "STRING", "description": "Tên chi tiết rập gốc từ tài liệu"},
-                                "material_class": {"type": "STRING", "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY"},
-                                "geometry_role": {"type": "STRING", "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT"},
-                                "piece_type": {"type": "STRING", "description": "BẮT BUỘC phân loại nhãn rập ngành."},
-                                "uom": {"type": "STRING", "description": "Cố định: YDS"},
-                                "piece_count": {"type": "INTEGER", "description": "Số lượng rập chi tiết gốc"},
-                                "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài chi tiết rập L-inch"},
-                                "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng chi tiết rập W-inch"},
-                                "data_confidence": {"type": "STRING", "description": "Allowed: HIGH, LOW"},
-                                "calculation_status": {"type": "STRING", "description": "Allowed: READY, MISSING_INPUT"}
-                            },
-                            "required": ["component_name", "material_class", "geometry_role", "piece_type", "uom", "piece_count", "bounding_box_length", "bounding_box_width", "data_confidence", "calculation_status"]
+    # 🔍 TỰ ĐỘNG QUÉT TÌM FILE DỰ PHÒNG: Tìm kiếm file từ tất cả các biến lưu trữ có thể có trong hệ thống
+    active_pdf = st.session_state.get("pdf_bytes")
+    if active_pdf is None:
+        active_pdf = st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+
+    # Nếu tìm thấy một nguồn file hợp lệ, kích hoạt AI Vision trích xuất dữ liệu rập
+    if active_pdf is not None:
+        with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
+            try:
+                # 1. JSON SCHEMA MỞ RỘNG MÁ TRẬN ĐA GIÁC CAD
+                raw_json_schema = {
+                    "type": "OBJECT",
+                    "properties": {
+                        "detected_product_type": {"type": "STRING", "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT"},
+                        "detected_base_size": {"type": "STRING", "description": "Size mẫu trích xuất, ví dụ: 32"},
+                        "bom_rows": {
+                            "type": "ARRAY",
+                            "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
+                            "items": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "component_name": {"type": "STRING", "description": "Tên chi tiết rập gốc từ tài liệu (Ví dụ: FRONT PANEL, BACK YOKE, COLLAR...)"},
+                                    "material_class": {"type": "STRING", "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY"},
+                                    "geometry_role": {"type": "STRING", "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT"},
+                                    "piece_type": {"type": "STRING", "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành. Allowed: BODY_FRONT, BODY_BACK, SET_IN_SLEEVE, RAGLAN_SLEEVE, TROUSER_FRONT, TROUSER_BACK, PANTS_FRONT, PANTS_BACK, COLLAR, CUFF, YOKE, WAISTBAND, LƯNG QUẦN, POCKET, FLAP, POCKET_BAG, LÓT TÚI, FACING, BELT_LOOP, MAJOR_PANEL, MINOR_COMPONENT"},
+                                    "uom": {"type": "STRING", "description": "Cố định: YDS"},
+                                    "piece_count": {"type": "INTEGER", "description": "Số lượng rập chi tiết gốc (Pcs). Nếu không thấy điền null."},
+                                    "bounding_box_length": {"type": "NUMBER", "description": "Chiều dài chi tiết rập L-inch. Nếu không thấy điền null."},
+                                    "bounding_box_width": {"type": "NUMBER", "description": "Chiều rộng chi tiết rập W-inch. Nếu không thấy điền null."},
+                                    "data_confidence": {"type": "STRING", "description": "Allowed: HIGH, LOW"},
+                                    "calculation_status": {"type": "STRING", "description": "Allowed: READY, MISSING_INPUT"}
+                                },
+                                "required": ["component_name", "material_class", "geometry_role", "piece_type", "uom", "piece_count", "bounding_box_length", "bounding_box_width", "data_confidence", "calculation_status"]
+                            }
                         }
-                    }
-                },
-                "required": ["detected_product_type", "detected_base_size", "bom_rows"]
-            }
+                    },
+                    "required": ["detected_product_type", "detected_base_size", "bom_rows"]
+                }
 
-            prompt_agent_2 = """
-            You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
-            """
+                # 2. PROMPT CHUYÊN GIA PHÂN LOẠI CẤU TRÚC RẬP CÔNG NGHIỆP
+                prompt_agent_2 = f"""
+                You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
+                
+                CRITICAL EXTRACTION & CLASSIFICATION DIRECTIVES:
+                1. PRIORITIZE DATA RETRIEVAL: Extract the exact bounding_box_length, bounding_box_width, and piece_count if numerical markers exist. Only set to null if completely blank.
+                
+                2. PRODUCT ARCHITECTURE & PIECE_TYPE RULES (CRITICAL FOR JEANS/PANTS):
+                   - If the Techpack represents PANTS, TROUSERS, or JEANS:
+                     * MAJOR_PANEL includes: FRONT PANEL, BACK PANEL, LEG PANEL. You MUST classify them with piece_type = "TROUSER_FRONT" or "TROUSER_BACK". Do not group trouser panels into a generic "BODY" row.
+                     * MINOR_COMPONENT includes: WAISTBAND (WAIST BAND), POCKET BAG (POCKETING), FLY FACING, COIN POCKET, BELT LOOP.
+                   - If the Techpack represents a JACKET, COAT, or SHIRT:
+                     * MAJOR_PANEL includes: FRONT BODY, BACK BODY, SLEEVE. Map to piece_type = "BODY_FRONT", "BODY_BACK", "SET_IN_SLEEVE".
+                     * MINOR_COMPONENT includes: COLLAR, CUFF, POCKET, FLAP, YOKE, FACING.
+                
+                3. MATERIAL SEPARATION AND INTERLINING:
+                   - If a row like COLLAR, WAISTBAND, or FLAP explicitly indicates fusing, interlining, or adhesive interfacing, change material_class to "FUSING" and geometry_role to "MINOR_COMPONENT".
+                """
 
-            blueprint_container = {}
-            exception_container = {}
+                # 3. THỰC THI LUỒNG GỌI API CHỐNG TREO BẰNG THREADING (Sử dụng active_pdf an toàn)
+                blueprint_container = {}
+                exception_container = {}
 
-            def worker_thread():
-                try:
-                    res = execute_cached_gemini_scan(
-                        st.session_state.pdf_bytes, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
-                    )
-                    blueprint_container["result"] = res
-                except Exception as thread_e:
-                    exception_container["exception"] = thread_e
+                def worker_thread():
+                    try:
+                        res = execute_cached_gemini_scan(
+                            active_pdf, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
+                        )
+                        blueprint_container["result"] = res
+                    except Exception as thread_e:
+                        exception_container["exception"] = thread_e
 
-            t = threading.Thread(target=worker_thread)
-            t.start()
-            t.join(timeout=35.0)
+                t = threading.Thread(target=worker_thread)
+                t.start()
+                t.join(timeout=35.0)
 
-            if t.is_alive():
-                raise TimeoutError("Máy chủ Gemini phản hồi quá lâu hoặc kết nối mạng bị ngắt quãng! Vui lòng thử lại câu lệnh.")
+                if t.is_alive():
+                    raise TimeoutError("Máy chủ Gemini phản hồi quá lâu hoặc kết nối mạng bị ngắt quãng! Vui lòng thử lại câu lệnh.")
 
-            if "exception" in exception_container:
-                raise exception_container["exception"]
+                if "exception" in exception_container:
+                    raise exception_container["exception"]
 
-            blueprint_final = blueprint_container.get("result")
-            st.session_state.blueprint_final = blueprint_final
-            st.session_state.last_active_blueprint = blueprint_final
-            
-            if blueprint_final and isinstance(blueprint_final, dict):
-                bom_rows_list = blueprint_final.get("bom_rows", [])
-                st.session_state["bom_data"] = blueprint_final
-                st.session_state["accumulated_bom_rows"] = copy.deepcopy(bom_rows_list)
-            
-            ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
-            st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
-            
-        except Exception as e:
-            st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
-            
-        finally:
-            st.session_state.ai_processing = False
-            st.rerun()
+                blueprint_final = blueprint_container.get("result")
+                st.session_state.blueprint_final = blueprint_final
+                st.session_state.last_active_blueprint = blueprint_final
+                
+                if blueprint_final and isinstance(blueprint_final, dict):
+                    bom_rows_list = blueprint_final.get("bom_rows", [])
+                    st.session_state["bom_data"] = blueprint_final
+                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(bom_rows_list)
+                
+                ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
+                st.session_state.chat_history.append({"user": current_query, "ai": ai_response_text})
+                
+            except Exception as e:
+                st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
+                
+            finally:
+                st.session_state.ai_processing = False
+                st.rerun()
+    else:
+        # 🛡️ BÁO LỖI CHỦ ĐỘNG LÊN MÀN HÌNH NẾU KHÔNG TÌM THẤY BẤT KỲ FILE PDF NÀO
+        st.error("⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat.")
+        st.session_state.ai_processing = False
+
 
 
 
