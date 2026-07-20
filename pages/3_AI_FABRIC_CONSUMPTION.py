@@ -599,10 +599,6 @@ if safe_user_prompt:
     st.session_state.ai_processing = True
     st.rerun()
 
-import copy
-import traceback
-import streamlit as st
-
 # =====================================================================
 # 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
 # =====================================================================
@@ -618,6 +614,20 @@ if st.session_state.ai_processing:
             or st.session_state.get("current_pdf")
             or st.session_state.get("pdf_data")
         )
+
+    # 🛠️ TRÍCH XUẤT KHỔ VẢI ĐỘNG TỪ Ô CHAT ĐỂ BẺ GÃY SỐ 56 CỐ ĐỊNH
+    dynamic_width = 56.0  # Giá trị mặc định phòng hờ
+    target_size = "32"    # Cỡ mẫu mặc định
+    
+    if current_query:
+        import re
+        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        if width_match:
+            dynamic_width = float(width_match.group(2))
+            
+        size_match = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
+        if size_match:
+            target_size = str(size_match.group(2))
 
     if active_pdf is not None:
         with st.spinner(
@@ -704,7 +714,6 @@ if st.session_state.ai_processing:
                         "bom_rows",
                     ],
                 }
-
                 # 2. PROMPT CHUYÊN GIA CAD TRÍCH XUẤT & SUY LUẬN KHÔNG GIAN RẬP
                 prompt_agent_2 = """
                 You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Your absolute priority is to extract or intelligently estimate the physical dimensions (Length and Width in INCHES) for EVERY garment component found in the Techpack.
@@ -731,49 +740,30 @@ if st.session_state.ai_processing:
                 Ensure your output strictly adheres to the requested JSON structure. Every valid component must have non-zero geometric properties to allow proper 2D packing area calculation.
                 """
 
-                # 3. GỌI THỰC THI HÀM LÕI TRÊN LUỒNG CHÍNH AN TOÀN
-                blueprint_final = execute_cached_gemini_scan(
-                    active_pdf,
-                    current_query,
-                    56.0,
-                    "32",
-                    raw_json_schema,
-                    prompt_agent_2,
+                # 3. GỌI HÀM QUÉT AI CACHE VÀ TRUYỀN KHỔ VẢI ĐỘNG ĐÃ TRÍCH XUẤT
+                bom_data = execute_cached_gemini_scan(
+                    pdf_bytes=active_pdf,
+                    current_query=current_query,
+                    active_width=dynamic_width,  # ✅ ĐÃ SỬA: Thay số 56.0 cố định cũ bằng biến động dynamic_width
+                    target_size_cmd=target_size,
+                    raw_json_schema=raw_json_schema,
+                    prompt_agent_2=prompt_agent_2
                 )
-
-                st.session_state.blueprint_final = blueprint_final
-                st.session_state.last_active_blueprint = blueprint_final
-
-                if blueprint_final and isinstance(blueprint_final, dict):
-                    bom_rows_list = blueprint_final.get("bom_rows", [])
-                    st.session_state["bom_data"] = blueprint_final
-                    st.session_state["accumulated_bom_rows"] = copy.deepcopy(
-                        bom_rows_list
-                    )
-
-                ai_response_text = "✅ **AI Core đã đồng bộ cấu trúc rập thành công! Dữ liệu đã chuyển giao toàn diện cho Skyline Packing Engine.**"
-                st.session_state.chat_history.append(
-                    {"user": current_query, "ai": ai_response_text}
-                )
+                
+                # Lưu kết quả bóc tách vào session_state
+                st.session_state["bom_data"] = bom_data
+                if bom_data and "bom_rows" in bom_data:
+                    st.session_state["accumulated_bom_rows"] = bom_data["bom_rows"]
+                
+                st.session_state.ai_processing = False
+                st.success("✅ AI Core đã đồng bộ cấu trúc rập thành công!")
+                st.rerun()
 
             except Exception as e:
-                # Bẫy lỗi và đóng băng giao diện để bảo lưu vết mã nguồn kĩ thuật thô màu đen khi xảy ra sự cố
-                st.error("🚨 Chi tiết lỗi hệ thống từ API Core:")
-                st.exception(e)
-                st.code(traceback.format_exc(), language="python")
                 st.session_state.ai_processing = False
-                st.stop()
-
-            finally:
-                if st.session_state.ai_processing:
-                    st.session_state.ai_processing = False
-                    st.rerun()
-   
-    else:
-        st.error(
-            "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
-        )
-        st.session_state.ai_processing = False
+                st.error(f"❌ Lỗi xử lý AI Core Engine: {str(e)}")
+                import traceback
+                st.text(traceback.format_exc())
 
 
 
