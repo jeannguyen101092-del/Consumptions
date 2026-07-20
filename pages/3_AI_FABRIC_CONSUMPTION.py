@@ -935,7 +935,7 @@ def execute_skyline_placement(geometry_data):
         # Cấu hình các hướng xoay được phép thử nghiệm
         allowed_orientations = [(piece["l"], piece["w"])]
         
-        # Đã vá lỗi chuẩn xác: Kiểm tra giá trị allow_rotate của rập
+        # 🟩 ĐÃ VÁ LỖI CHUẨN XÁC: Kiểm tra hướng xoay trong danh sách số nguyên tường minh
         allow_rot = piece.get("allow_rotate")
         if allow_rot in:
             allowed_orientations.append((piece["w"], piece["l"]))
@@ -1025,7 +1025,7 @@ def execute_skyline_placement(geometry_data):
                     merged_skyline[-1][1] += seg[1]
                 else:
                     merged_skyline.append(seg)
-                skyline = merged_skyline
+            skyline = merged_skyline
             simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
     # 4. ÁP DỤNG BIÊN CHU KỲ KẸ CARO THEO VẬT LÝ THỰC TẾ
@@ -1049,7 +1049,6 @@ def execute_skyline_placement(geometry_data):
         "simulated_marker_length_yard": simulated_marker_length_inch / 36.0,
         "global_gross_fabric_consumption": global_gross_fabric_consumption_yard
     }
-
 
 
 import pandas as pd
