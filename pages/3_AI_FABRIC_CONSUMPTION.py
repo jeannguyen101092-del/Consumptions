@@ -936,11 +936,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
     # 🚨 ĐÃ THÊM: Định nghĩa lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("usable_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
     
-    # 🚨 ĐÃ THÊM BIẾN NÀY ĐỂ HẾT LỖI NAMEERROR
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
     # Vòng lặp tính toán định mức từng cấu kiện chi tiết rập
@@ -955,17 +955,17 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        combined_str = f"{comp_name_raw} {piece_type_ai}"
+        combined_str = f" {comp_name_raw} {piece_type_ai} "  # Thêm khoảng trắng để quét chính xác từ khóa
         
         status_raw = str(r.get("calculation_status", "READY")).upper().strip()
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
         # Quy tắc 1: Kiểm tra chi tiết có phải là Nút áo/quần hay không
-        is_button = any(k in combined_str for k in ["BUTTON", "NÚT", "NUT", "KHUY"])
+        is_button = any(k in combined_str for k in [" BUTTON ", " NÚT ", " NUT ", " KHUY "])
 
         # Quy tắc 2: SỬA LỖI MẤT LAI ÁO - Nếu là lai/gấu áo bị thiếu kích thước, tự bù thông số tiêu chuẩn sản xuất
         if raw_l == 0.0 or raw_w == 0.0:
-            if any(k in combined_str for k in ["BOTTOM HEM", "LAI ÁO", "LAI AO", "GẤU ÁO"]):
+            if any(k in combined_str for k in [" BOTTOM HEM ", " LAI ÁO ", " LAI AO ", " GẤU ÁO "]):
                 raw_l = 38.0 if raw_l == 0.0 else raw_l  
                 raw_w = 1.75 if raw_w == 0.0 else raw_w  
                 r["bounding_box_length"] = raw_l
@@ -977,47 +977,35 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # --- KHỐI LỌC AI ĐÃ SỬA: PHÂN TÁCH LỚP CHUẨN GIỮA ÁO VÀ QUẦN ---
+            # --- 🛠️ KHỐI LỌC AI MỚI: PHÂN TÁCH LỚP VÀ KHỬ NHÂN ĐÔI TRÙNG LẶP CHO QUẦN ---
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
             pocket_note = ""
             
-            # Kiểm tra xem có phải mã hàng Quần (Trouser/Pant/Denim/Jean) dựa trên từ khóa hay không
-            is_pant_component = any(k in combined_str for k in ["TROUSER", "PANT", "JEAN", "DENIM", "SLIDER", "FLY", "LEG"])
-            
-            # Danh sách từ khóa nhân đôi lớp cho ÁO KHÓAC / JACKET
-            double_layer_jacket_keywords = [
-                "CUFF", "CÚP TAY", "CUP TAY", "MĂNG SÉT", "MANG SET",
-                "BOTTOM HEM", "LAI ÁO", "LAI AO", "COLLAR", "CỔ"
-            ]
-            
-            # Đô quần Jean chỉ tính 1 lớp cắt độc bản, lưng quần W >= 2.5" giữ nguyên 1 lớp
-            if "YOKE" in combined_str or "ĐÔ" in combined_str or "DO " in combined_str:
-                if is_pant_component or any(k in combined_str for k in ["TROUSER", "PANT"]):
-                    layer_multiplier = 1  
-                else:
-                    layer_multiplier = 2  
-                    is_two_layers = True
-                    
+            # Kiểm tra xem chi tiết rập có thuộc kết cấu Quần (Trouser/Pant/Jean) hay không
+            is_pant_component = any(k in combined_str for k in ["TROUSER", "PANT", "JEAN", "DENIM", "SLIDER", "FLY", "LEG", "WAISTBAND", "YOKE"])
+
+            # 1. Khử lỗi Đô Quần (YOKE) và Lưng quần (WAISTBAND) lộn ngược lớp
+            if "YOKE" in combined_str or "ĐÔ" in combined_str:
+                layer_multiplier = 1  # Đô quần Jean luôn cắt 1 lớp đơn lẻ trên bàn vải chính
+                is_two_layers = False
             elif "WAISTBAND" in combined_str or "LƯNG" in combined_str or "CẠP" in combined_str:
-                if raw_w >= 2.5:
-                    layer_multiplier = 1
-                else:
+                layer_multiplier = 1  # Lưng quần bản rộng rập sẵn đã tính gập, ép buộc về 1 lớp
+                is_two_layers = False
+            else:
+                # Nếu là mã áo hoặc cấu kiện khác mới xét lộn lớp lẻ
+                double_layer_jacket_keywords = [" CUFF ", " CÚP TAY ", " CUP TAY ", " MĂNG SÉT ", " BOTTOM HEM ", " LAI ÁO "]
+                if any(k in combined_str for k in double_layer_jacket_keywords) and not is_pant_component:
                     layer_multiplier = 2
                     is_two_layers = True
-                    
-            elif any(k in combined_str for k in double_layer_jacket_keywords) and not is_pant_component:
-                layer_multiplier = 2
-                is_two_layers = True
-                
-            elif any(k in combined_str for k in ["FLAP", "NẮP TÚI", "NAP TUI"]):
-                layer_multiplier = 4
-                is_four_layers = True
+                elif any(k in combined_str for k in [" FLAP ", " NẮP TÚI ", " NAP TUI "]):
+                    layer_multiplier = 4
+                    is_four_layers = True
 
-            # Xử lý Bao túi mổ
+            # Xử lý Bao túi mổ quần
             is_pocket_bag = any(k in combined_str for k in ["POCKET BAG", "BAO TÚI", "BAO TUI", "LINING POCKET"])
-            is_welt_pocket = any(k in combined_str for k in ["WELT", "WELT POCKET", "TÚI MỔ", "TUI MO"])
+            is_welt_pocket = any(k in combined_str for k in ["WELT", "TÚI MỔ", "TUI MO"])
             
             if is_pocket_bag or is_welt_pocket:
                 pocket_note = f" [Túi mổ - Dùng {mat_class_raw} theo BOM]"
@@ -1025,7 +1013,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
-            # Hiển thị thông tin lớp
+            # Xuất chuỗi hiển thị số lớp lên UI
             if is_four_layers:
                 pcs_display = f"{pcs} Pcs (x4 lớp tổng)"
             elif is_two_layers:
@@ -1033,37 +1021,40 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             else:
                 pcs_display = f"{pcs} Pcs"
 
-            # THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
+            # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
             if is_button:
                 mat_class_raw = "ACCESSORY" if mat_class_raw in ["FABRIC", "TRIM"] else mat_class_raw
                 gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
-                calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt hao phí"
+                calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt"
                 pcs_display = f"{pcs} Cái"
                 
             else:
                 is_binding_fabric = ("BINDING" in combined_str or "VIỀN" in combined_str) and (mat_class_raw == "FABRIC")
                 
-                # Đỉa quần (BELT LOOP) đưa vào nhóm phụ liệu dải cuộn dọc (L / 36)
+                # Ép đỉa quần (BELT LOOP) tính theo dải cuộn dọc đơn thuần
                 is_roll_trim = any(k in combined_str for k in [
-                    "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG", "BELT LOOP"
+                    "ELASTIC", "THUN", "ZIPPER", "KHÓA", "KHOA", "HANGER", "LOOP", "LABEL", "TAG", "BELT_LOOP", "BELT LOOP"
                 ]) or (("BINDING" in combined_str or "VIỀN" in combined_str) and mat_class_raw != "FABRIC")
 
                 if is_roll_trim and not is_binding_fabric:
+                    # Tính đỉa thun dải cuộn dọc cực kỳ nhỏ lẻ
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
-                    calc_chain = f"Dải cuộn dọc: Chiều dài L-inch / 36.0"
-                    if layer_multiplier > 1: calc_chain += f" (Nhân {layer_multiplier} lớp)"
+                    calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # Thuật toán tính theo sơ đồ Layout đa giác (Cho Thân quần, bao túi)
+                    # 🗺️ THUẬT TOÁN 3: SƠ ĐỒ INTERLOCKING LAYOUT (LỒNG GHÉP HÌNH HỌC) DÀNH CHO THÂN QUẦN
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        shape_factor = 0.88 if "BACK" in combined_str else 0.84
+                        # 💡 CẢI TIẾN CỐT LÕI: Thân quần xếp lồng đầu đuôi xen kẽ trên bàn cắt thực tế
+                        # Thay vì lấy diện tích nhân đơn lẻ, ta áp dụng hệ số lồng ghép sơ đồ CAD thực tế (0.42 cho mỗi cặp)
+                        shape_factor = 0.42 if pcs >= 2 else 0.84
                     elif "BINDING" in combined_str or "VIỀN" in combined_str:
                         shape_factor = 0.96  
                     else:
-                        shape_factor = 0.76  
+                        shape_factor = 0.74
                         
                     if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                         shape_factor = 0.94
 
+                    # Phép toán diện tích lồng ghép
                     seamed_l = adj_l + (0.44 * 2.0)
                     seamed_w = adj_w + (0.44 * 2.0) if adj_w > 0 else 1.25
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
@@ -1072,7 +1063,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
                         gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
                         layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
-                        calc_chain = f"Sơ đồ {mat_class_raw} Layout: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}{pocket_note}"
+                        calc_chain = f"Sơ đồ lồng ghép CAD: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
                     else:
                         gross_consumption = 0.0
                         calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
