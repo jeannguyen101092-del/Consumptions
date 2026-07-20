@@ -1067,6 +1067,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     # Đẩy kết quả vào session_state bền vững
     st.session_state["processed_display_rows"] = processed_display_rows
 # 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
+# Lấy trực tiếp dữ liệu bền vững từ st.session_state
 display_rows_source = st.session_state.get("processed_display_rows", [])
 
 if display_rows_source:
@@ -1096,12 +1097,15 @@ if display_rows_source:
     st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
     
-    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP (DETAILED CAD)
+    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP
     st.subheader("Bảng chi tiết cấu trúc rập (Bộ lọc thông minh Bao túi mổ)")
     st.dataframe(df_bom, use_container_width=True)
     
-    # 3. HIỂN THỊ THÔNG BÁO THÔNG SỐ ĐỘNG TỪ AI
+    # 3. 🚨 ĐÃ SỬA: ĐỌC THÔNG SỐ AN TOÀN TRÁNH LỖI SẬP KHI BẤM CLEAR MEMORY
     bom_source = st.session_state.get("bom_data", {})
+    if not isinstance(bom_source, dict): 
+        bom_source = {}  # Ép buộc về dict trống nếu bấm Clear bị rỗng
+        
     current_size = bom_source.get("calculated_on_size", "32")
     current_warp = bom_source.get("warp_shrinkage_percent", 0.0)
     current_weft = bom_source.get("weft_shrinkage_percent", 0.0)
@@ -1117,4 +1121,5 @@ if display_rows_source:
     
     st.markdown('</div>', unsafe_allow_html=True)
 else:
-    st.warning("⚠️ Không tìm thấy dữ liệu cấu trúc BOM rập hoặc sơ đồ CAD chưa được nạp vào hệ thống.")
+    # Khi bấm Clear, hệ thống rơi vào đây và xóa sạch giao diện cũ một cách an toàn
+    st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc câu lệnh mới để tính toán.")
