@@ -936,6 +936,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
          # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -988,7 +989,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             is_pant_component = any(k in combined_str for k in ["trouser", "pant", "jean", "denim", "slider", "fly", "leg", "waistband", "yoke"])
 
             # Định nghĩa mảng viết thường liền mạch đồng bộ
-            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "bọcổ", "nẹp cổ"]
+            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "bọcổ", "nẹpcổ"]
 
             # Khử lỗi nhân đôi lớp cho Đô quần (YOKE) và Lưng quần (WAISTBAND)
             if "yoke" in combined_str or "đô" in combined_str:
@@ -1032,7 +1033,6 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             # 📏 THUẬT TOÁN ĐỊNH MỨC THEO PHÂN LOẠI VẬT TƯ
             if is_button:
                 mat_class_raw = "ACCESSORY" if mat_class_raw in ["FABRIC", "TRIM"] else mat_class_raw
-                # Nút tính theo chiếc đơn thuần (Không chia 36)
                 gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
                 calc_chain = f"Đếm chiếc phụ liệu: {pcs} cái * Hao hụt"
                 pcs_display = f"{pcs} Cái"
@@ -1051,11 +1051,11 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     interlocking_factor = 1.0 
                     
                     if any(k in combined_str for k in ["panel", "front", "back", "thân", "body"]):
-                        # 🚨 ĐÃ SỬA CHUẨN XÁC: Phân tách hệ số giữa Áo khoác (Jacket) và Quần (Jean)
+                        # 🚨 ĐÃ SỬA CHUẨN XÁC: Nâng hệ số đa giác hình khối chữ nhật lớn cho riêng Thân Áo Khoác
                         if is_pant_component:
                             shape_factor = 0.82 if "back" in combined_str else 0.78 # Hệ số quần Jean
                         else:
-                            shape_factor = 0.92 if "back" in combined_str else 0.88 # 👈 NÂNG HỆ SỐ THÂN ÁO KHOÁC KHÔNG BỊ THẤP
+                            shape_factor = 1.15 if "back" in combined_str else 1.12 # 👈 ÉP TĂNG: Thân áo khối chữ nhật thẳng, chiếm diện tích lớn bao phủ bàn cắt
                         calc_chain_type = f"Sơ đồ {mat_class_raw} Layout Thân lớn"
                     else:
                         # Thiết lập hệ số hình học mặc định chi tiết nhỏ
@@ -1063,9 +1063,12 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                         if any(k in combined_str for k in ["waistband", "lưng", "collar", "cổ", "bo", "nẹp"]):
                             shape_factor = 0.94
                             
-                        # Chi tiết phụ Vải chính (Lưng, Đô, Passan, Túi lẻ...) -> Hạ định mức xuống hệ số lách kẽ 0.45
+                        # 🚨 ĐÃ SỬA: Đối với Áo khoác chữ nhật, kẽ hở hụt rất ít nên chi tiết phụ chỉ giảm nhẹ (interlocking_factor = 0.65)
                         if mat_class_raw == "FABRIC":
-                            interlocking_factor = 0.45 
+                            if is_pant_component:
+                                interlocking_factor = 0.45 # Hàng quần chèn kẽ sâu
+                            else:
+                                interlocking_factor = 0.65 # Hàng áo khoác chữ nhật chèn lách vừa phải
                             calc_chain_type = "Xếp lách chèn góc trống sơ đồ Vải chính (Hạ đm thực tế)"
                         else:
                             # Keo và Lót đi sơ đồ bàn cắt riêng -> Tính đúng 100% diện tích độc lập
@@ -1099,6 +1102,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 
 
