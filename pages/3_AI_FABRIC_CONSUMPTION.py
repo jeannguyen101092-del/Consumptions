@@ -550,13 +550,10 @@ def execute_cached_gemini_scan(
 
 
 
-
-import streamlit as st
-
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (ÉP RA NGOÀI CÙNG FILE - CHỐNG KẸT FORM)
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
 # =====================================================================
 
 # 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
@@ -576,19 +573,17 @@ with chat_history_container:
             st.chat_message("user").write(msg["user"])
             st.chat_message("assistant").write(msg["ai"])
 
-# 🚨 QUAN TRỌNG: TUYỆT ĐỐI không cho dòng này vào trong khối "with" hay khối "form" nào cả!
-# Đặt nó ở lề trái ngoài cùng hoàn toàn độc lập, thay sang key _v4 hoàn toàn mới.
+# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_v4"
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý khi người dùng gửi thành công
+# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
 if safe_user_prompt:
     st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
     st.session_state.ai_processing = True
     st.rerun()
-
 
 import copy
 import traceback
