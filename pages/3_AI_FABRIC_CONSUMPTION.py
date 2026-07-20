@@ -486,7 +486,7 @@ def execute_cached_gemini_scan(
             "response_schema": raw_json_schema,
             "temperature": 0.0,
         },
-        request_options={"timeout": 60.0},
+        request_options={"timeout": 120.0},
     )
 
     if not response or not response.text:
