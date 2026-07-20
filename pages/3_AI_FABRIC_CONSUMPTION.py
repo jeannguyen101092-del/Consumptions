@@ -476,13 +476,15 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
 
 import streamlit as st
 
+import streamlit as st
+
 # =====================================================================
-# 🟩 KHỐI 1: CHAT INTERACTION & ASYNC UI LIFECYCLE CONTROLLER
+# 🟩 ĐOẠN 1 (ĐÃ SỬA LỖI KHÓA Ô CHAT): CHAT INTERACTION & LIVE UI
 # =====================================================================
 
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
-# Khởi tạo trạng thái bộ nhớ đệm hệ thống (Session State)
+# Khởi tạo an toàn bộ nhớ đệm hệ thống
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_processing" not in st.session_state:
@@ -490,7 +492,7 @@ if "ai_processing" not in st.session_state:
 if "last_submitted_query" not in st.session_state:
     st.session_state.last_submitted_query = ""
 
-# Hiển thị lịch sử hội thoại Workspace cũ
+# Hiển thị lịch sử hội thoại Workspace
 if st.session_state.get("chat_history"):
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
@@ -498,9 +500,10 @@ if st.session_state.get("chat_history"):
 
 chat_input_container = st.container()
 with chat_input_container:
+    # 🚨 ĐÃ SỬA: Đổi định danh key mới độc lập để giải phóng bộ nhớ đệm, mở khóa ô nhập
     safe_user_prompt = st.chat_input(
         "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-        key="ie_workspace_static_chat_input_key"
+        key="ie_workspace_fixed_dynamic_chat_v3"
     )
 
 st.markdown('</div>', unsafe_allow_html=True)
@@ -510,9 +513,6 @@ if safe_user_prompt:
     st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
     st.session_state.ai_processing = True
     st.rerun()
-import copy
-import threading  # 🚨 BẮT BUỘC: Thêm thư viện này để tạo bộ đếm ngắt thời gian
-import streamlit as st
 
 # =====================================================================
 # 🟩 KHỐI 2 (NÂNG CẤP): SECURE AI VISION EXTRACTION WITH HARD TIMEOUT
