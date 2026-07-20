@@ -876,7 +876,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 # =====================================================================
-# KHỐI 3B (BẢN VÁ LỖI TRƯỜNG HỢP CHƯA KHỞI TẠO BIẾN ST.SESSION_STATE)
+# KHỐI 3B: BẢN SỬA SẠCH LỖI CÚ PHÁP (SYNTAX ERROR) - CHẠY NGAY
 # =====================================================================
 
 st.subheader("⚠️ DETAILED HYBRID CAD ENGINE")
@@ -886,9 +886,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- BƯỚC VÁ LỖI: KIỂM TRA VÀ TỰ ĐỘNG KHỞI TẠO NẾU BIẾN CHƯA TỒN TẠI ---
+# --- BƯỚC KHỞI TẠO AN TOÀN ---
 if "df_details" not in st.session_state:
-    # Đoạn này sẽ tạo ra dữ liệu mặc định ban đầu nếu hệ thống bị trống dữ liệu
     initial_data = [
         {"Component Name": "FRONT BODY PANEL", "Material Class": "FABRIC", "Role/Piece Type": "MAJOR_PANEL", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 22.25, "Rộng sản xuất (W-inch)": 14.75, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.4248},
         {"Component Name": "BACK BODY PANEL", "Material Class": "FABRIC", "Role/Piece Type": "MAJOR_PANEL", "Số lượng rập (Pcs)": 1, "Dài sản xuất (L-inch)": 21.5, "Rộng sản xuất (W-inch)": 15.0, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.2085},
@@ -898,9 +897,10 @@ if "df_details" not in st.session_state:
         {"Component Name": "WAISTBAND", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (Pcs)": 1, "Dài sản xuất (L-inch)": 38.0, "Rộng sản xuất (W-inch)": 1.75, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.0501},
         {"Component Name": "COLLAR", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 16.0, "Rộng sản xuất (W-inch)": 3.5, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.0869},
         {"Component Name": "CUFF", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 17.5, "Rộng sản xuất (W-inch)": 1.75, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.0387},
-        {"Component Name": "CHEST POCKET", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (PFLAP)", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 4.5, "Rộng sản xuất (W-inch)": 4.0, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.021},
+        {"Component Name": "CHEST POCKET", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 4.5, "Rộng sản xuất (W-inch)": 4.0, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.0210},
         {"Component Name": "CHEST POCKET FLAP", "Material Class": "FABRIC", "Role/Piece Type": "MINOR_COMPONENT", "Số lượng rập (Pcs)": 2, "Dài sản xuất (L-inch)": 2.25, "Rộng sản xuất (W-inch)": 4.0, "Kiểu sơ đồ tùng": "SOLID LAYOUT", "Dự đoán Mật độ nén": "85.0%", "Gross Consumption": 0.0122}
     ]
+    import pandas as pd
     st.session_state.df_details = pd.DataFrame(initial_data)
 
 # 1. HÀM TỰ ĐỘNG TÍNH LẠI ĐỊNH MỨC THEO CÔNG THỨC 
@@ -915,7 +915,6 @@ def run_cad_recalculation(input_dataframe):
             length = float(row.get("Dài sản xuất (L-inch)", 0))
             width = float(row.get("Rộng sản xuất (W-inch)", 0))
             if pcs > 0 and length > 0 and width > 0:
-                # Tính bù co rút sợi ngang 12% và hiệu suất sơ đồ 85% khổ vải 60
                 adjusted_width = width / 0.88
                 total_area_sq_inches = length * adjusted_width * pcs
                 usable_area_per_yard = 60.0 * 0.85 * 36.0
@@ -923,7 +922,7 @@ def run_cad_recalculation(input_dataframe):
                 results.append(round(gross_yds, 4))
             else:
                 results.append(0.0)
-        except (ValueError, TypeError):
+        except:
             results.append(0.0)
     df_calculated["Gross Consumption"] = results
     return df_calculated
@@ -947,7 +946,7 @@ edited_df = st.data_editor(
     use_container_width=True
 )
 
-# 3. ĐỒNG BỘ DỮ LIỆU ĐỂ HỆ THỐNG KHÔNG BỊ BÁO LỖI LẠI
+# 3. ĐỒNG BỘ DỮ LIỆU ĐỂ HỆ THỐNG TỰ ĐỘNG CẬP NHẬT
 if edited_df is not None:
     df_recalculated = run_cad_recalculation(edited_df)
     st.session_state.df_details = df_recalculated
