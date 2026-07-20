@@ -1025,7 +1025,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐỒNG BỘ SKYLINE PLACEMENT)
+# 🟩 KHỐI 3b: RENDERING INTERFACE LAYER (ĐỒNG BỘ ĐỊNH MỨC THEO SƠ ĐỒ)
 # =====================================================================
 
 if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
@@ -1041,28 +1041,24 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     if not user_query_text and st.session_state.get("chat_history"): 
         user_query_text = str(st.session_state.chat_history[-1]["user"]).lower()
 
-    # Lấy thông tin bản thiết kế AI nếu có để truyền vào nhận diện loại sản phẩm
     blueprint_final = st.session_state.get("blueprint_final", None)
 
-    # 🚨 GỌI ĐOẠN 1: Chuẩn hóa dữ liệu hình học phẳng và bóc tách rập
+    # 🚨 Gọi Đoạn 1 & Đoạn 2 của Skyline Engine Pro
     geometry_data = prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final)
-    
-    # 🚨 GỌI ĐOẠN 2: Lõi Skyline Corner xếp hình thực tế thu định mức tổng
     metrics = execute_skyline_placement(geometry_data)
     
-    # Giải nén an toàn các thông số cấu hình tổng hợp từ kết quả trả về
     fabric_width = metrics.get("fabric_width", 56.0)
     usable_width = metrics.get("usable_width", 55.0)
     fabric_pattern = metrics.get("fabric_pattern", "SOLID")
     actual_packing_density = metrics.get("actual_packing_density", 0.82)
     allocated_shape_fabric_factor = metrics.get("allocated_shape_fabric_factor", 0.0)
+    
+    # 🚨 ĐÂY LÀ GIÁ TRỊ ĐỊNH MỨC THỰC TẾ ĐÚNG CỦA SƠ ĐỒ (Ví dụ: ~1.35 YDS)
     global_gross_fabric_consumption = metrics.get("global_gross_fabric_consumption", 0.0)
 
-    # Lấy lại các biến phụ trợ từ geometry_data của Đoạn 1 để tính toán hiển thị dòng chi tiết
     warp_shrinkage = geometry_data.get("warp_shrinkage", 0.0)
     weft_shrinkage = geometry_data.get("weft_shrinkage", 0.0)
 
-    # Khởi tạo lại bảng ma trận cục bộ để đồng bộ hiển thị cấu trúc rập
     piece_metadata_registry = {
         "BODY_FRONT": {"shape_factor": 0.73, "avg_aspect_ratio": 1.35, "min_len": 24.0},
         "BODY_BACK": {"shape_factor": 0.76, "avg_aspect_ratio": 1.40, "min_len": 25.0},
@@ -1074,62 +1070,60 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     }
 
     display_data = []
+    total_fabric_weight_points = 0.0
+    
+    # VÒNG LẶP 1: Tính toán trọng số diện tích trước để phân bổ chuẩn xác tỷ lệ đóng góp của từng chi tiết
+    temp_rows = []
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         mat_class_raw = str(r.get("material_class", "FABRIC")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
-        status_raw = str(r.get("calculation_status", "READY")).upper().strip()
-        confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
-
+        
         pcs_raw = r.get("piece_count")
         raw_l = r.get("bounding_box_length")
         raw_w = r.get("bounding_box_width")
         
+        if pcs_raw is None: continue
+        pcs = int(pcs_raw)
         meta_item = piece_metadata_registry.get(piece_type_ai, piece_metadata_registry.get(geo_role_raw, piece_metadata_registry["MINOR_COMPONENT"]))
+        
+        if raw_l is None and raw_w is not None: raw_l = float(raw_w) * meta_item["avg_aspect_ratio"]
+        elif raw_w is None and raw_l is not None: raw_w = float(raw_l) / meta_item["avg_aspect_ratio"]
+        
+        if raw_l is not None and raw_w is not None:
+            raw_l, raw_w = float(raw_l), float(raw_w)
+            if (any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])) and geo_role_raw == "MAJOR_PANEL":
+                pcs = max(pcs, 2)
+                raw_l = max(raw_l, meta_item["min_len"])
+                
+            seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
+            adj_l = seamed_l * (1.0 + max(0.0, warp_shrinkage) / 100.0)
+            adj_w = seamed_w * (1.0 + max(0.0, weft_shrinkage) / 100.0)
+            
+            box_area_total = adj_l * adj_w * pcs
+            if mat_class_raw == "FABRIC":
+                total_fabric_weight_points += box_area_total
+            
+            temp_rows.append((r, comp_name_raw, mat_class_raw, geo_role_raw, piece_type_ai, pcs, raw_l, raw_w, box_area_total, adj_l, adj_w))
 
-        # Ước lượng kích thước thiếu đồng bộ với Đoạn 1
-        if pcs_raw is None:
-            pcs, gross_consumption, calc_chain = 0, 0.0, "❌ Bỏ qua: Thiếu số lượng chi tiết!"
-            raw_l, raw_w = 0.0, 0.0
+    # VÒNG LẶP 2: Khởi tạo dữ liệu hiển thị dòng chi tiết rập
+    for row_data in temp_rows:
+        r, comp_name_raw, mat_class_raw, geo_role_raw, piece_type_ai, pcs, raw_l, raw_w, box_area_total, adj_l, adj_w = row_data
+        status_raw = str(r.get("calculation_status", "READY")).upper().strip()
+        confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
+
+        if mat_class_raw == "FABRIC":
+            # 🚨 SỬA LỖI PHÂN BỔ: Định mức chi tiết = Định mức tổng sơ đồ * (Diện tích chi tiết / Tổng diện tích vải)
+            share_ratio = (box_area_total / total_fabric_weight_points) if total_fabric_weight_points > 0 else 0.0
+            gross_consumption = round(global_gross_fabric_consumption * share_ratio, 4)
+            calc_chain = f"Skyline Share: Chiếm {share_ratio*100:.1f}% diện tích sơ đồ x Tổng định mức ({global_gross_fabric_consumption:.4f} YDS)"
+        elif mat_class_raw in ["FUSING", "LINING"]:
+            gross_consumption = round(((box_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
+            calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {box_area_total:.1f} in² / Khổ dụng {usable_width} / Eff 78%"
         else:
-            pcs = int(pcs_raw)
-            if raw_l is None and raw_w is not None:
-                raw_l = float(raw_w) * meta_item["avg_aspect_ratio"]
-            elif raw_w is None and raw_l is not None:
-                raw_w = float(raw_l) / meta_item["avg_aspect_ratio"]
-                
-            if raw_l is None or raw_w is None:
-                pcs, gross_consumption, calc_chain = 0, 0.0, "❌ Bỏ qua: Khuyết thông số rập!"
-                raw_l, raw_w = 0.0, 0.0
-            else:
-                raw_l, raw_w = float(raw_l), float(raw_w)
-                
-                # Áp dụng chặn min_len đồng bộ thuật toán gốc (Sửa bỏ logic cũ +10)
-                if (any(k in piece_type_ai for k in ["TROUSER", "PANTS"]) or any(k in comp_name_raw for k in ["PANEL", "PANFI", "THÂN"])) and geo_role_raw == "MAJOR_PANEL":
-                    pcs = max(pcs, 2)
-                    raw_l = max(raw_l, meta_item["min_len"])
-
-                # Cộng đường may & co rút để phục vụ in chuỗi logic giải trình
-                seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
-                adj_l = seamed_l * (1.0 + max(0.0, warp_shrinkage) / 100.0)
-                adj_w = seamed_w * (1.0 + max(0.0, weft_shrinkage) / 100.0)
-                
-                # SỬA LOGIC: Sử dụng DIỆN TÍCH THẬT (Box Area) để phân bổ định mức vải chính
-                box_area_total = adj_l * adj_w * pcs
-                net_shape_area_total = box_area_total * meta_item["shape_factor"]
-
-                if mat_class_raw == "FABRIC":
-                    # Phân bổ định mức dựa theo tỷ lệ đóng đóng gói hình học phẳng thực tế của rập
-                    gross_consumption = round(net_shape_area_total * allocated_shape_fabric_factor, 4)
-                    calc_chain = f"Skyline Corner Placement: Diện tích net {net_shape_area_total:.1f} in² x Hệ số phân bổ rập ({allocated_shape_fabric_factor:.6f})"
-                elif mat_class_raw in ["FUSING", "LINING"]:
-                    # Công thức tính nhanh định mức phụ liệu dựng keo/lót dạng cuộn thẳng
-                    gross_consumption = round(((box_area_total / usable_width) / 36.0 / 0.78 * 1.04), 4)
-                    calc_chain = f"Mini-Sơ đồ phụ liệu: Diện tích bao {box_area_total:.1f} in² / Khổ dựng {usable_width} / Eff 78%"
-                else:
-                    gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
+            gross_consumption, calc_chain = 0.0, f"Phụ liệu {mat_class_raw} bóc tách độc lập."
 
         display_data.append({
             "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
@@ -1144,8 +1138,14 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.markdown('<div class="cad-card">', unsafe_allow_html=True)
         st.markdown('<div class="cad-header" style="background-color: #0E6251;">📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN 2D SKYLINE)</div>', unsafe_allow_html=True)
         
-        # Tạo bảng tổng hợp định mức theo nhóm nguyên phụ liệu
+        # Nhóm tổng hợp định mức
         df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
+        
+        # 🚨 KHÓA CHẶT DỮ LIỆU BẢNG TỔNG: Ép giá trị tổng Vải chính phải bằng đúng kết quả thực tế của lõi Skyline
+        for idx, row in df_summary.iterrows():
+            if row["Material Class"] == "FABRIC":
+                df_summary.at[idx, "Gross Consumption"] = global_gross_fabric_consumption
+                
         df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
         df_summary["UOM"] = "YDS"
         
@@ -1154,7 +1154,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
         
         # Thẻ thông tin Insights kỹ thuật từ CAD
-        st.info(f"🚀 **FashionINSTA CAD Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}% / Ngang {weft_shrinkage}% | Mật độ đi sơ đồ thực tế: **{actual_packing_density*100:.1f}%** | Tổng định mức vải chính: **{global_gross_fabric_consumption:.4f} YDS**")
+        st.info(f"🚀 **FashionINSTA CAD Insights:** Khổ vải: **{fabric_width} in** | Khổ hữu dụng: **{usable_width:.2f} in** | Co rút: Dọc {warp_shrinkage}% / Ngang {weft_shrinkage}% | Mật độ đi sơ đồ: **{actual_packing_density*100:.1f}%** | **TỔNG ĐỊNH MỨC VẢI CHÍNH THỰC TẾ: {global_gross_fabric_consumption:.4f} YDS**")
         st.markdown('</div><br>', unsafe_allow_html=True)
         
         # Thẻ thông tin chi tiết từng rập bán thành phẩm
