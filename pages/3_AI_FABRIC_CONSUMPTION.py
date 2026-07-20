@@ -922,20 +922,16 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["weft_shrinkage_percent"] = weft_shrinkage
     bom_source["calculated_on_size"] = target_size
     
-    # Đẩy ngược cấu trúc đã đồng bộ hoàn chỉnh vào bộ nhớ hệ thống
     st.session_state["bom_data"] = bom_source
 
     # Giải nén lại các biến số từ gốc Root an toàn để phục vụ hiển thị
     usable_width = bom_source["usable_width_inch"]
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
-    global_gross_fabric_consumption = bom_source.get("global_gross_fabric_consumption", 1.382)  
 
     # Đọc danh sách dòng BOM chi tiết
     bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
 
-    # TÍNH TOÁN THEO TỶ LỆ DIỆN TÍCH ĐA GIÁC (GERBER SHARE RATIO)
-    total_piece_area = 0.0
     piece_calculated_data = []
 
     for r in bom_rows_list:
@@ -957,7 +953,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             piece_type_upper = str(r.get("piece_type", "")).upper()
             combined_str = f"{comp_name_upper} {piece_type_upper}"
             
-            # Khối lọc AI: Nhân đôi lớp & Đọc túi mổ từ dữ liệu BOM gốc
+            # --- KHỐI AI LOGIC ĐÃ SỬA: LỌC SỐ LỚP LAI ÁO (x2) & NẮP TÚI 2 BÊN (x4) ---
             layer_multiplier = 1
             is_two_layers = False
             is_four_layers = False
@@ -987,20 +983,25 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     layer_multiplier = 2
                     is_two_layers = True
 
-            # Hệ số hình học (shape_factor)
-            if any(k in combined_str for k in ["JACKET", "SHIRT", "BODY", "SLEEVE", "ÁO", "TEE", "VEST"]):
-                shape_factor = 0.84 if "BACK" in combined_str else 0.82
+            # --- 🚨 SỬA TRỌNG SỐ: NÂNG HỆ SỐ HÌNH HỌC (SHAPE FACTOR) CHO THÂN ÁO JACKET KHÔNG BỊ THẤP ĐỊNH MỨC ---
+            if any(k in combined_str for k in ["JACKET", "BODY", "ÁO", "TEE", "VEST"]):
+                # Nếu là chi tiết thân lớn chính (Front/Back Body Panel) nâng hẳn lên 0.94 để tính đủ diện tích bao phủ sơ đồ
+                if "PANEL" in combined_str or "THÂN" in combined_str:
+                    shape_factor = 0.94
+                else:
+                    shape_factor = 0.88 if "BACK" in combined_str else 0.86
+            elif any(k in combined_str for k in ["SLEEVE", "TAY"]):
+                shape_factor = 0.84
             elif any(k in combined_str for k in ["DRESS", "ĐẦM", "GOWN", "SKIRT", "VÁY", "TÙNG"]):
-                shape_factor = 0.74
+                shape_factor = 0.76
             else:
-                shape_factor = 0.68 if "BACK" in combined_str else 0.64
+                shape_factor = 0.70 if "BACK" in combined_str else 0.66
                 
             if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                 shape_factor = 0.94
+            # --------------------------------------------------------------------------------------------------
                 
             piece_area = adj_l * adj_w * shape_factor * pcs * layer_multiplier
-            if mat_class_raw == "FABRIC":
-                total_piece_area += piece_area
         else:
             piece_area = 0.0
             is_two_layers = False
@@ -1013,7 +1014,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             "is_two_layers": is_two_layers, "is_four_layers": is_four_layers, "pocket_note": pocket_note
         })
 
-    # Duyệt tính Gross Consumption cuối cùng
+    # Duyệt tính Gross Consumption lũy kế tự động theo sơ đồ độc lập
     for item in piece_calculated_data:
         r = item["row_ref"]
         piece_area = item["piece_area"]
@@ -1042,26 +1043,19 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
             gross_consumption = 0.0
             calc_chain = "❌ Bỏ qua: Thiếu kích thước rập đầu vào!"
         else:
-            if mat_class_raw == "FABRIC":
-                if total_piece_area > 0 and global_gross_fabric_consumption > 0:
-                    share_ratio = piece_area / total_piece_area
-                    gross_consumption = round(global_gross_fabric_consumption * share_ratio, 4)
+            # 🚨 ĐÃ SỬA: Cả Vải chính và Phụ liệu đều tính theo sơ đồ Layout độc lập dựa trên Khổ vải thực tế để không bị kẹt định mức thấp
+            if usable_width > 0:
+                efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
+                gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
+                
+                if mat_class_raw == "FABRIC":
                     layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
-                    calc_chain = f"Gerber Accumulation: {share_ratio*100:.1f}% sơ đồ CAD{layer_note}{pocket_note} ({global_gross_fabric_consumption:.4f} yds)"
+                    calc_chain = f"Sơ đồ Vải chính độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\"{layer_note}{pocket_note}"
                 else:
-                    gross_consumption = 0.0
-                    calc_chain = "Sơ đồ CAD chưa hoàn tất tính toán tổng."
-            elif mat_class_raw in ["FUSING", "LINING"]:
-                if usable_width > 0:
-                    gross_consumption = round(((piece_area / usable_width) / 36.0 / 0.78 * 1.04), 4)
-                    layer_note = " (Tính nhiều lớp)" if (is_two_layers or is_four_layers) else ""
-                    calc_chain = f"Sơ đồ phụ liệu độc lập{layer_note}{pocket_note}: Eff 78% / Khổ dụng {usable_width}"
-                else:
-                    gross_consumption = 0.0
-                    calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
+                    calc_chain = f"Sơ đồ phụ liệu độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\"{pocket_note}"
             else:
                 gross_consumption = 0.0
-                calc_chain = f"Phụ liệu độc lập."
+                calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
 
             processed_display_rows.append({
                 "Component Name": comp_name_raw, "Material Class": mat_class_raw, "Role/Piece Type": f"{geo_role_raw} ({piece_type_ai})",
@@ -1070,57 +1064,15 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                 "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
             })
 
-    # 🚨 ĐÃ SỬA: Đẩy thẳng danh sách kết quả vào session_state bền vững
+    # Đẩy kết quả vào session_state bền vững
     st.session_state["processed_display_rows"] = processed_display_rows
-# 🚨 ĐÃ SỬA: Lấy trực tiếp dữ liệu bền vững từ st.session_state
-display_rows_source = st.session_state.get("processed_display_rows", [])
-
-if display_rows_source:
-    df_bom = pd.DataFrame(display_rows_source)
-    
-    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0;">'
-        '📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ GERBER ACCUMULATION)'
-        '</div>', 
-        unsafe_allow_html=True
-    )
-    
-    # 1. XỬ LÝ BẢNG TỔNG HỢP ĐỊNH MỨC (SUMMARY)
-    df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
-    df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
-    df_summary["UOM"] = "YDS"
-    
-    class_mapping = {
-        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)",
-        "FUSING": "KEO/DỰNG (FUSING)",
-        "LINING": "VẢI LÓT/BAO TÚI (LINING)"
-    }
-    df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
-    
-    # Hiển thị bảng tổng hợp lên giao diện
-    st.subheader("Bảng tổng hợp định mức (BOM Summary)")
-    st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
-    
-    # 2. HIỂN THỊ BẢNG CHI TIẾT TỪNG CHI TIẾT RẬP (DETAILED CAD)
-    st.subheader("Bảng chi tiết cấu trúc rập (Bộ lọc thông minh Bao túi mổ)")
-    st.dataframe(df_bom, use_container_width=True)
-    
-    # 3. HIỂN THỊ THÔNG BÁO THÔNG SỐ ĐỘNG TỪ AI
-    bom_source = st.session_state.get("bom_data", {})
-    current_size = bom_source.get("calculated_on_size", "32")
-    current_warp = bom_source.get("warp_shrinkage_percent", 0.0)
-    current_weft = bom_source.get("weft_shrinkage_percent", 0.0)
-    current_width = bom_source.get("fabric_width_inch", 56.0)
-    
-    st.markdown(
-        f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
-        f'🤖 AI ghi nhận lệnh tính toán: Tính định mức <b>Cỡ {current_size}</b> | Khổ vải: <b>{current_width}"</b> | '
-        f'Co rút dọc: <b>{current_warp}%</b> | Co rút ngang: <b>{current_weft}%</b>.'
-        f'</p>', 
-        unsafe_allow_html=True
-    )
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-else:
-    st.warning("⚠️ Không tìm thấy dữ liệu cấu trúc BOM rập hoặc sơ đồ CAD chưa được nạp vào hệ thống.")
+            if mat_class_raw == "FABRIC":
+                # CHUYỂN ĐỔI: Tính định mức tích lũy độc lập dựa trên Khổ vải dụng (usable_width) để không bị thấp định mức
+                if usable_width > 0:
+                    # Công thức: (Diện tích chi tiết / Khổ vải) / 36.0 inch sang Yds / Hiệu suất mật độ nén sơ đồ thực tế
+                    efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
+                    gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
+                    calc_chain = f"Sơ đồ Vải chính độc lập: Eff {efficiency_factor*100:.1f}% / Khổ dụng {usable_width}\""
+                else:
+                    gross_consumption = 0.0
+                    calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
