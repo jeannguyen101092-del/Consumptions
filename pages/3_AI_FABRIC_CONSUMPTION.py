@@ -876,13 +876,13 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 # =====================================================================
-# KHỐI 3B + BẢNG ĐỊNH MỨC TỔNG ĐỒNG BỘ TỰ ĐỘNG
+# KHỐI 3B: TÍCH HỢP BỘ QUY TẮC NGÀNH MAY TỰ ĐỘNG (ĐÔ ÁO 2 LỚP, LỘN CẶP X4)
 # =====================================================================
 
 st.subheader("⚠️ DETAILED HYBRID CAD ENGINE")
 st.markdown(
-    "<small style='color: #666;'>*Mẹo: Kích đúp vào ô để sửa số lượng (Đô sau), "
-    "bấm dấu <b>+</b> ở đáy bảng để thêm dòng mới.*</small>", 
+    "<small style='color: #666;'>*Hệ thống đã áp dụng bộ quy tắc kết cấu may: Đô áo 2 lớp, "
+    "Nắp túi/Bo tay lộn cặp x4, Lưng x2. Bạn vẫn có thể bấm dấu <b>+</b> dưới đáy bảng để thêm Bao túi.*</small>", 
     unsafe_allow_html=True
 )
 
@@ -903,31 +903,65 @@ if "df_details" not in st.session_state:
     import pandas as pd
     st.session_state.df_details = pd.DataFrame(initial_data)
 
-# 1. HÀM TỰ ĐỘNG TÍNH LẠI ĐỊNH MỨC THEO CÔNG THỨC 
+# 1. HÀM TỰ ĐỘNG ÁP ĐẶT QUY TẮC SỐ LỚP VÀ TÍNH ĐỊNH MỨC
 def run_cad_recalculation(input_dataframe):
     if input_dataframe.empty:
         return input_dataframe
     df_calculated = input_dataframe.copy()
     results = []
+    
     for idx, row in df_calculated.iterrows():
         try:
-            pcs = float(row.get("Số lượng rập (Pcs)", 1))
+            name = str(row.get("Component Name", "")).upper()
+            material = str(row.get("Material Class", "")).upper()
+            cad_pcs = float(row.get("Số lượng rập (Pcs)", 1))
             length = float(row.get("Dài sản xuất (L-inch)", 0))
             width = float(row.get("Rộng sản xuất (W-inch)", 0))
-            if pcs > 0 and length > 0 and width > 0:
-                adjusted_width = width / 0.88
-                total_area_sq_inches = length * adjusted_width * pcs
-                usable_area_per_yard = 60.0 * 0.85 * 36.0
+            
+            # Khởi tạo số lượng lớp thực tế bằng số lượng rập gốc
+            actual_pcs = cad_pcs
+            
+            # Áp dụng bộ quy tắc ngành may đối với vải chính
+            if material == "FABRIC":
+                # Quy tắc Đô áo (Cả Đô trước và Đô sau) luôn luôn phải 2 lớp
+                if "YOKE" in name:
+                    actual_pcs = 2.0 if cad_pcs == 1 else cad_pcs
+                    # Nếu CAD báo 2 rập đô đối xứng riêng lẻ nhưng thực tế mỗi bên cần 2 lớp thì nhân đôi
+                    if "FRONT YOKE" in name and cad_pcs == 2:
+                        actual_pcs = 4.0
+                
+                # Quy tắc Nắp túi (Pocket Flap) lộn cặp: 2 túi x 2 lớp = 4 lớp
+                elif "FLAP" in name:
+                    actual_pcs = 4.0 if cad_pcs == 2 else (2.0 if cad_pcs == 1 else cad_pcs)
+                
+                # Quy tắc Bo tay (Cuff) lộn cặp: 2 bo tay x 2 lớp = 4 lớp
+                elif "CUFF" in name:
+                    actual_pcs = 4.0 if cad_pcs == 2 else cad_pcs
+                
+                # Quy tắc Lưng/Cạp áo (Waistband): Luôn có mảnh lót hoặc mảnh gập đối xứng (x2)
+                elif "WAISTBAND" in name or "BAND" in name:
+                    actual_pcs = 2.0 if cad_pcs == 1 else cad_pcs
+                
+                # Quy tắc Túi đắp (Patch Pocket): Chi tiết đắp đơn, giữ nguyên số lượng rập gốc
+                elif "CHEST POCKET" in name:
+                    actual_pcs = cad_pcs
+
+            # Tính toán định mức theo Yard dựa trên số lớp thực tế (actual_pcs)
+            if actual_pcs > 0 and length > 0 and width > 0:
+                adjusted_width = width / 0.88  # Bù co rút sợi ngang 12%
+                total_area_sq_inches = length * adjusted_width * actual_pcs
+                usable_area_per_yard = 60.0 * 0.85 * 36.0  # Khổ vải 60 * 85% mật độ nén * 36 inch/yard
                 gross_yds = total_area_sq_inches / usable_area_per_yard
                 results.append(round(gross_yds, 4))
             else:
                 results.append(0.0)
         except:
             results.append(0.0)
+            
     df_calculated["Gross Consumption"] = results
     return df_calculated
 
-# 2. HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LÊN GIAO DIỆN
+# 2. HIỂN THỊ BẢNG TRÊN GIAO DIỆN STREAMLIT
 edited_df = st.data_editor(
     st.session_state.df_details,
     num_rows="dynamic",
@@ -946,7 +980,7 @@ edited_df = st.data_editor(
     use_container_width=True
 )
 
-# 3. ĐỒNG BỘ DỮ LIỆU ĐỂ HỆ THỐNG TỰ ĐỘNG CẬP NHẬT
+# 3. ĐỒNG BỘ DỮ LIỆU VÀ HIỂN THỊ BẢNG ĐỊNH MỨC TỔNG TỰ ĐỘNG CẬP NHẬT
 total_fabric = 0.0
 total_accessory = 0.0
 
@@ -954,12 +988,11 @@ if edited_df is not None:
     df_recalculated = run_cad_recalculation(edited_df)
     st.session_state.df_details = df_recalculated
     
-    # Tính tổng giá trị định mức cho từng nhóm vật liệu
     import pandas as pd
     total_fabric = round(float(df_recalculated[df_recalculated["Material Class"] == "FABRIC"]["Gross Consumption"].sum()), 4)
     total_accessory = round(float(df_recalculated[df_recalculated["Material Class"] == "ACCESSORY"]["Gross Consumption"].sum()), 4)
 
-# --- BẢNG ĐỊNH MỨC TỔNG HỢP HIỂN THỊ LẠI ---
+# --- BẢNG ĐỊNH MỨC TỔNG HỢP ---
 st.write("---")
 st.subheader("📊 BẢNG TỔNG HỢP TIÊU HAO VẬT LIỆU")
 
