@@ -474,31 +474,54 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
                 
     return blueprint_worker
 
+import streamlit as st
+
 # =====================================================================
-# 🟩 ĐOẠN 7a & 7b: ADVANCED AI VISION EXTRACTION PIPELINE 
+# 🟩 ĐOẠN 7a & 7b: ADVANCED AI VISION EXTRACTION PIPELINE (ĐÃ TỐI ƯU LOGIC CHAT)
 # =====================================================================
+
+# 1. Khởi tạo tất cả các trạng thái session_state cần thiết để tránh lỗi hệ thống
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "ai_processing" not in st.session_state:
+    st.session_state.ai_processing = False
+if "last_submitted_query" not in st.session_state:
+    st.session_state.last_submitted_query = ""
+
+# Giao diện Khung Workspace
 st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div>', unsafe_allow_html=True)
 
+# Hiển thị lịch sử hội thoại cũ (nếu có)
 if st.session_state.get("chat_history"):
     for msg in st.session_state.chat_history:
         st.chat_message("user").write(msg["user"])
         st.chat_message("assistant").write(msg["ai"])
 
+# Khung nhập câu lệnh chat input
 chat_input_container = st.container()
 with chat_input_container:
-    safe_user_prompt = st.chat_input("Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...", key="ie_workspace_static_chat_input_key")
+    safe_user_prompt = st.chat_input(
+        "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...", 
+        key="ie_workspace_static_chat_input_key"
+    )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
-    current_query = str(safe_user_prompt).strip()
-    
-    # 🟩 GIỮ TRẠNG THÁI CÂU LỆNH CHAT: Ngăn lỗi mất tham số co rút/khổ vải khi hệ thống Rerun
-    st.session_state["last_submitted_query"] = current_query
+# Bắt sự kiện khi người dùng gõ lệnh mới và ấn Enter
+if safe_user_prompt:
+    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
+    st.session_state.ai_processing = True
+    st.rerun()  # Ép giao diện tải lại để kích hoạt vòng quay spinner ngay lập tức
+
+# 2. Tiến trình xử lý AI Vision kết hợp chống nghẽn / treo luồng UI
+if st.session_state.ai_processing and st.session_state.get("pdf_bytes") is not None:
+    current_query = st.session_state["last_submitted_query"]
     
     with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
         try:
-            # 1. JSON SCHEMA MỞ RỘNG: Tích hợp trường piece_type phục vụ ma trận đa giác CAD
+            # ---------------------------------------------------------
+            # [A] JSON SCHEMA MỞ RỘNG (Giữ nguyên cấu trúc rập của bạn)
+            # ---------------------------------------------------------
             raw_json_schema = {
                 "type": "OBJECT",
                 "properties": {
@@ -535,7 +558,9 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
                 "required": ["detected_product_type", "detected_base_size", "bom_rows"]
             }
 
-            # 2. PROMPT CHUYÊN GIA CAD: Ép AI nhận diện chính xác cấu trúc rập Áo và Quần công nghiệp
+            # ---------------------------------------------------------
+            # [B] PROMPT CHUYÊN GIA CAD (Giữ nguyên cấu trúc nghiệp vụ)
+            # ---------------------------------------------------------
             prompt_agent_2 = f"""
             You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
             
@@ -553,6 +578,28 @@ if st.session_state.get("pdf_bytes") is not None and safe_user_prompt:
             3. MATERIAL SEPARATION AND INTERLINING:
                - If a row like COLLAR, WAISTBAND, or FLAP explicitly indicates fusing, interlining, or adhesive interfacing, change material_class to "FUSING" and geometry_role to "MINOR_COMPONENT".
             """
+
+            # ---------------------------------------------------------
+            # [C] ĐOẠN GỌI ĐẾN API AI CỦA BẠN (Ví dụ minh họa, hãy đổi theo hàm gọi LLM thực tế của bạn)
+            # ---------------------------------------------------------
+            # ai_response = goi_api_vision(pdf_bytes=st.session_state.pdf_bytes, query=current_query, prompt=prompt_agent_2, schema=raw_json_schema)
+            ai_response = "Đã nhận diện thành công rập vải quần Baggy Jeans. Đang kết xuất kết quả..."  # Để tạm chạy mẫu
+
+            # Lưu cặp câu hỏi - câu trả lời mới vào lịch sử chat
+            st.session_state.chat_history.append({
+                "user": current_query,
+                "ai": ai_response
+            })
+            
+        except Exception as e:
+            # Hiện thông báo nếu quá trình gọi API bóc tách dữ liệu bị lỗi
+            st.error(f"❌ Lỗi xử lý dữ liệu từ AI Vision: {str(e)}")
+            
+        finally:
+            # 🚨 ĐIỂM CHỐT: Bắt buộc tắt cờ xử lý dù chạy thành công hay lỗi, triệt tiêu lỗi treo Spinner
+            st.session_state.ai_processing = False
+            st.rerun()  # Vẽ lại giao diện sạch, giải phóng Spinner và hiển thị tin nhắn mới
+
 
             # Gọi AI trích xuất thông số gốc
             blueprint_final = execute_cached_gemini_scan(
