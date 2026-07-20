@@ -589,13 +589,13 @@ import traceback
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (BẢN SỬA ĐỔI IN LỖI CHI TIẾT): AI CORE ENGINE
+# 🟩 ĐOẠN 2 (BẢN VÁ HIỂN THỊ LOG LỖI): AI CORE ENGINE
 # =====================================================================
 
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
 
-    # Quét tìm file PDF dự phòng từ tất cả các nguồn trong bộ nhớ
+    # Quét tìm nguồn file PDF dự phòng từ bộ nhớ đệm
     active_pdf = st.session_state.get("pdf_bytes")
     if active_pdf is None:
         active_pdf = (
@@ -690,12 +690,12 @@ if st.session_state.ai_processing:
                     ],
                 }
 
-                # 2. PROMPT CHUYÊN GIA CAD
+                # 2. PROMPT CHUYÊN GIA CAD PHÂN LOẠI LINH KIỆN
                 prompt_agent_2 = """
                 You are a strict Data Extraction & CAD Pattern Classification Engine. Your objective is to extract the physical specs and map them to standard industrial components.
                 """
 
-                # 3. GỌI HÀM LÕI TRÊN LUỒNG CHÍNH AN TOÀN
+                # 3. GỌI HÀM LÕI TRÊN LUỒNG CHÍNH
                 blueprint_final = execute_cached_gemini_scan(
                     active_pdf,
                     current_query,
@@ -721,16 +721,20 @@ if st.session_state.ai_processing:
                 )
 
             except Exception as e:
-                # 🚨 ĐÃ SỬA: Ép hiện đầy đủ nội dung lỗi kỹ thuật thô bằng hàm st.exception hoặc st.code để nhìn thấy lý do nghẽn
-                st.error(
-                    "🚨 Hệ thống phát hiện lỗi luồng xử lý thực tế từ API Core:"
-                )
+                # 🚨 ĐÃ SỬA: Ép dừng luồng giao diện để hiển thị khối log lỗi màu đen chi tiết lên màn hình
+                st.error("🚨 Chi tiết lỗi hệ thống từ API Core:")
                 st.exception(e)
                 st.code(traceback.format_exc(), language="python")
 
-            finally:
+                # Trả trạng thái bận về False trực tiếp tại đây để nhả ô chat nhập lệnh mới
                 st.session_state.ai_processing = False
-                st.rerun()
+                st.stop()  # 👈 BẺ GÃY LUỒNG: Chặn đứng lệnh rerun để lưu vết lỗi
+
+            finally:
+                # Khối này chỉ tự động làm mới trang khi try thành công trơn tru
+                if st.session_state.ai_processing:
+                    st.session_state.ai_processing = False
+                    st.rerun()
     else:
         st.error(
             "⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat."
