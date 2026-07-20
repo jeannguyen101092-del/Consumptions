@@ -902,7 +902,7 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
 def execute_skyline_placement(geometry_data):
     """
     Đoạn 2: Lõi thuật toán Skyline Corner xếp rập thực tế.
-    Đã sửa lỗi vọt định mức bằng cơ chế tìm điểm tựa phẳng thông minh (Gerber Style).
+    Đã sửa lỗi gộp phân đoạn lỗi (Merge segments memory leak) giúp định mức chuẩn xác.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -916,7 +916,7 @@ def execute_skyline_placement(geometry_data):
     # Sắp xếp rập ưu tiên chi tiết dài nhất xếp trước
     flat_packing_queue.sort(key=lambda x: x["l"], reverse=True)
     
-    # Khởi tạo ma trận đường chân trời Skyline: [x_khởi_đầu, chiều_rộng_đoạn, y_độ_cao]
+    # Khởi tạo ma trận đường chân trời Skyline: [x_start, width, y_level]
     skyline = [[0.0, usable_width, 0.0]]
     simulated_marker_length_inch = 0.0
     
@@ -930,52 +930,58 @@ def execute_skyline_placement(geometry_data):
             p_l, p_w = p_w, p_l
 
         best_skyline_idx = -1
+        num_segments_spanned = 1
         min_y_found = float('inf')
         
-        # Bước 1: Tìm phân đoạn đơn lẻ khớp hoàn hảo nhất
-        for i, segment in enumerate(skyline):
-            seg_x, seg_w, seg_y = segment
-            if seg_w >= p_w and seg_y < min_y_found:
-                min_y_found = seg_y
-                best_skyline_idx = i
-        
-        # Bước 2: Khắc phục lỗi vọt định mức (Nếu không tìm được đoạn đơn lẻ đủ rộng)
-        if best_skyline_idx == -1:
-            # Thuật toán mô phỏng Gerber: Quét tìm vùng liên kết có tổng chiều rộng đủ chứa p_w
-            # Sau đó lấy điểm nhô cao nhất (Max Y) của vùng đó làm điểm tựa đáy cho rập
-            for i in range(len(skyline)):
-                accumulated_w = 0.0
-                max_y_in_range = 0.0
-                for j in range(i, len(skyline)):
-                    accumulated_w += skyline[j][1]
-                    max_y_in_range = max(max_y_in_range, skyline[j][2])
-                    
-                    if accumulated_w >= p_w:
-                        if max_y_in_range < min_y_found:
-                            min_y_found = max_y_in_range
-                            best_skyline_idx = i
-                        break
+        # Duyệt qua lưới skyline để tìm vùng phẳng liên kết tối ưu nhất cho độ rộng p_w
+        for i in range(len(skyline)):
+            accumulated_w = 0.0
+            max_y_in_range = 0.0
+            segments_count = 0
+            
+            for j in range(i, len(skyline)):
+                accumulated_w += skyline[j][1]
+                max_y_in_range = max(max_y_in_range, skyline[j][2])
+                segments_count += 1
+                
                 if accumulated_w >= p_w:
+                    if max_y_in_range < min_y_found:
+                        min_y_found = max_y_in_range
+                        best_skyline_idx = i
+                        num_segments_spanned = segments_count
                     break
 
-        # Trường hợp bất khả kháng (Rập to hơn cả khổ vải hữu dụng)
+        # Trường hợp rập to hơn biên khổ vải hữu dụng (Hạ tầng an toàn)
         if best_skyline_idx == -1:
             best_skyline_idx = 0
-            min_y_found = max(segment[2] for segment in skyline)
+            num_segments_spanned = len(skyline)
+            min_y_found = max(seg[2] for seg in skyline)
 
-        seg_x, seg_w, seg_y = skyline[best_skyline_idx]
-        placed_y_top = min_y_found + p_l  # Đặt rập tựa lên đáy phẳng tối ưu
+        # Lấy tọa độ gốc của phân đoạn bắt đầu đặt rập
+        seg_x = skyline[best_skyline_idx][0]
+        placed_y_top = min_y_found + p_l  # Đặt rập tựa lên điểm phẳng cao nhất của vùng gộp
         
-        # Cập nhật cấu trúc lưới tọa độ Skyline mới
-        if abs(seg_w - p_w) < 0.001:
-            skyline[best_skyline_idx] = [seg_x, seg_w, placed_y_top]
-        else:
-            if seg_w > p_w:
-                skyline[best_skyline_idx] = [seg_x + p_w, seg_w - p_w, seg_y]
-                skyline.insert(best_skyline_idx, [seg_x, p_w, placed_y_top])
+        # Tính tổng chiều rộng của toàn bộ các phân đoạn sẽ bị chi tiết này đè lên
+        total_spanned_w = sum(skyline[j][1] for j in range(best_skyline_idx, best_skyline_idx + num_segments_spanned))
+        
+        # 🚨 ĐỘT PHÁ SỬA LỖI: Tạo danh sách phân đoạn mới thay thế hoàn toàn các phân đoạn bị lấn chiếm
+        new_segments = [[seg_x, p_w, placed_y_top]]
+        
+        # Nếu vùng gộp còn dư khoảng trống chiều rộng, tạo phân đoạn phần dư gối bên cạnh
+        if total_spanned_w > p_w:
+            new_segments.append([seg_x + p_w, total_spanned_w - p_w, min_y_found])
+            
+        # Xóa bỏ các phân đoạn cũ bị lấn chiếm và chèn cụm phân đoạn mới vào lưới Skyline
+        skyline[best_skyline_idx : best_skyline_idx + num_segments_spanned] = new_segments
+
+        # Liên tục gộp các phân đoạn liền kề nếu chúng có cùng độ cao y_level để làm sạch lưới
+        merged_skyline = []
+        for seg in skyline:
+            if merged_skyline and abs(merged_skyline[-1][2] - seg[2]) < 0.001:
+                merged_skyline[-1][1] += seg[1] # Cộng dồn chiều rộng nếu cùng độ cao phẳng
             else:
-                # Nếu lấn sang phân đoạn bên cạnh, cập nhật phân đoạn gốc
-                skyline[best_skyline_idx] = [seg_x, seg_w, placed_y_top]
+                merged_skyline.append(seg)
+        skyline = merged_skyline
 
         simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
@@ -984,7 +990,7 @@ def execute_skyline_placement(geometry_data):
     long_pieces_count = sum(1 for p in flat_packing_queue if (p["l"] / p["w"] if p["w"] > 0 else 1.0) > 4.5)
     
     long_piece_ratio = long_pieces_count / total_queue_len if total_queue_len > 0 else 0.0
-    aspect_penalty = long_piece_ratio * 0.05  # Giảm nhẹ hệ số phạt độ mảnh xuống 5%
+    aspect_penalty = long_piece_ratio * 0.05
     
     minor_ratio = geometry_data["minor_pieces_count"] / total_queue_len if total_queue_len > 0 else 0.0
     minor_density_bonus = minor_ratio * 0.04
@@ -993,7 +999,6 @@ def execute_skyline_placement(geometry_data):
     if geometry_data["has_mirror_restriction"]: design_multiplier += 0.015
     if is_one_way_nap and fabric_pattern in ["STRIPE", "PLAID"]: design_multiplier += 0.025
 
-    # Áp dụng bộ phạt hình học sơ đồ
     simulated_marker_length_inch *= design_multiplier
     if fabric_pattern == "PLAID" and plaid_repeat_inch > 0:
         remainder = simulated_marker_length_inch % plaid_repeat_inch
