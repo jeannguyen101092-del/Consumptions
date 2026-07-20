@@ -936,6 +936,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     
     st.session_state["bom_data"] = bom_source
        # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -1037,32 +1038,35 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ CHÈN LỖ TRỐNG THỰC TẾ
+                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ ÉP HẠ CHI TIẾT PHỤ CHÈN GÓC HỞ
+                    interlocking_factor = 1.0 # Mặc định
+                    
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        # 🚨 ĐÃ SỬA: Hạ hệ số đa giác của thân xuống một chút (0.76 và 0.80) vì các chi tiết phụ đã chèn khít vào các góc hở dư thừa
-                        shape_factor = 0.80 if "BACK" in combined_str else 0.76
-                    elif "BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop:
-                        shape_factor = 0.96  
+                        # 🚨 GIỮ NGUYÊN THÂN LỚN: Trả lại hệ số cao (0.84 Thân trước, 0.88 Thân sau) để giữ phom Baggy rộng rãi
+                        shape_factor = 0.88 if "BACK" in combined_str else 0.84
+                        calc_chain_type = f"Sơ đồ {mat_class_raw} Layout Thân lớn"
                     else:
-                        shape_factor = 0.74
+                        # 🚨 ÉP HẠ CHI TIẾT PHỤ: Tất cả linh kiện nhỏ (Lưng, Đô, Túi, Fly, Passan...) được giác lách chèn vào kẽ hở
+                        # Hệ số hình học mặc định cao, nhưng ép hạ 75% định mức độc lập bằng interlocking_factor = 0.25
+                        interlocking_factor = 0.25 
+                        shape_factor = 0.96 if ("BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop) else 0.78
                         
-                    if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
-                        shape_factor = 0.94
+                        if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
+                            shape_factor = 0.94
+                            
+                        calc_chain_type = "Xếp lách chèn lỗ hở sơ đồ (Ép hạ đm 75%)"
 
-                    # Phép toán diện tích sơ đồ bàn cắt
+                    # Phép toán diện tích sơ đồ bàn cắt tích hợp hệ số chèn kẽ độc quyền
                     seamed_l = adj_l + (0.44 * 2.0)
                     seamed_w = adj_w + (0.44 * 2.0)
-                    piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
+                    piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier * interlocking_factor
                     
                     if usable_width > 0:
                         efficiency_factor = actual_packing_density if actual_packing_density > 0 else 0.85
                         gross_consumption = round(((piece_area / usable_width) / 36.0 / efficiency_factor), 4)
                         layer_note = " nhân lớp" if (is_two_layers or is_four_layers) else ""
                         
-                        if is_belt_loop:
-                            calc_chain = f"Sơ đồ Layout diện tích Passan: Eff {efficiency_factor*100:.1f}%"
-                        else:
-                            calc_chain = f"Sơ đồ lồng ghép CAD (Tính bù chèn góc): Eff {efficiency_factor*100:.1f}%"
+                        calc_chain = f"{calc_chain_type}: Eff {efficiency_factor*100:.1f}% / Khổ {usable_width}\"{layer_note}"
                     else:
                         gross_consumption = 0.0
                         calc_chain = "❌ Lỗi: Khổ vải dụng bằng 0!"
