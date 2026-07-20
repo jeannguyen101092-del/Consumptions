@@ -313,17 +313,26 @@ with k_col4:
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = None
+    # 🚨 ĐÃ SỬA: Chuyển về dict trống thay vì None để tránh lỗi crash hệ thống
+    st.session_state.bom_data = {}
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
     st.session_state.pdf_text_cache = None
     
+    # 🚨 ĐÃ THÊM: Xóa sạch dữ liệu bảng chi tiết CAD và tổng hợp định mức
+    if "processed_display_rows" in st.session_state: 
+        st.session_state.processed_display_rows = []
+    if "accumulated_bom_rows" in st.session_state: 
+        st.session_state.accumulated_bom_rows = []
+        
     if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
     if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+    
+    # Ép hệ thống render lại giao diện trống sạch sẽ ngay lập tức
     st.rerun()
+
 
 
 # ------------------------------------------------------------------------------
