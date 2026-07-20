@@ -478,11 +478,13 @@ def execute_cached_gemini_scan(pdf_bytes, current_query, active_width, target_si
 
 import streamlit as st
 
+import streamlit as st
+
 # =====================================================================
-# 🟩 ĐOẠN 1 (SỬA DỨT ĐIỂM LỖI NUỐT SỰ KIỆN CHAT): CHAT WORKSPACE LAYER
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (ÉP RA NGOÀI CÙNG FILE - CHỐNG KẸT FORM)
 # =====================================================================
 
-# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống
+# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_processing" not in st.session_state:
@@ -490,24 +492,23 @@ if "ai_processing" not in st.session_state:
 if "last_submitted_query" not in st.session_state:
     st.session_state.last_submitted_query = ""
 
-# 2. Render khung tiêu đề bằng HTML (Đóng ngay khối Div tại đây, KHÔNG bọc ô chat)
-st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-
-# 3. Tạo một khung Container độc lập để chứa lịch sử chat
+# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
 chat_history_container = st.container()
 with chat_history_container:
+    st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
     if st.session_state.get("chat_history"):
         for msg in st.session_state.chat_history:
             st.chat_message("user").write(msg["user"])
             st.chat_message("assistant").write(msg["ai"])
 
-# 🚨 CHỐT CHẶN: Đưa hẳn ô chat ra rìa ngoài cùng hoàn toàn độc lập, tách biệt khỏi mã HTML Markdown
+# 🚨 QUAN TRỌNG: TUYỆT ĐỐI không cho dòng này vào trong khối "with" hay khối "form" nào cả!
+# Đặt nó ở lề trái ngoài cùng hoàn toàn độc lập, thay sang key _v4 hoàn toàn mới.
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_v3"
+    key="ie_workspace_fixed_dynamic_chat_v4"
 )
 
-# 4. Kích hoạt cờ hiệu xử lý khi người dùng nhấn gửi thành công
+# 3. Kích hoạt cờ hiệu xử lý khi người dùng gửi thành công
 if safe_user_prompt:
     st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
     st.session_state.ai_processing = True
