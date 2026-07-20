@@ -516,23 +516,20 @@ if safe_user_prompt:
 
 
 import copy
-import threading
 import streamlit as st
 
 # =====================================================================
-# 🟩 KHỐI 2 (ĐÃ SỬA LỖI MẤT BIẾN PDF KHI CHUYỂN TRANG): AI CORE ENGINE
+# 🟩 KHỐI 2 (CHẠY TRỰC TIẾP TRÊN LUỒNG CHÍNH - SỬA LỖI KẸT CACHE LUỒNG): AI ENGINE
 # =====================================================================
 
-# 🚨 ĐÃ SỬA: Chỉ kiểm tra cờ ai_processing, cho phép lọt vào luồng xử lý để phản hồi chat ngay lập tức
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
     
-    # 🔍 TỰ ĐỘNG QUÉT TÌM FILE DỰ PHÒNG: Tìm kiếm file từ tất cả các biến lưu trữ có thể có trong hệ thống
+    # Quét tìm nguồn file PDF dự phòng từ bộ nhớ đệm
     active_pdf = st.session_state.get("pdf_bytes")
     if active_pdf is None:
         active_pdf = st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
 
-    # Nếu tìm thấy một nguồn file hợp lệ, kích hoạt AI Vision trích xuất dữ liệu rập
     if active_pdf is not None:
         with st.spinner("🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."):
             try:
@@ -585,30 +582,11 @@ if st.session_state.ai_processing:
                    - If a row like COLLAR, WAISTBAND, or FLAP explicitly indicates fusing, interlining, or adhesive interfacing, change material_class to "FUSING" and geometry_role to "MINOR_COMPONENT".
                 """
 
-                # 3. THỰC THI LUỒNG GỌI API CHỐNG TREO BẰNG THREADING (Sử dụng active_pdf an toàn)
-                blueprint_container = {}
-                exception_container = {}
-
-                def worker_thread():
-                    try:
-                        res = execute_cached_gemini_scan(
-                            active_pdf, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
-                        )
-                        blueprint_container["result"] = res
-                    except Exception as thread_e:
-                        exception_container["exception"] = thread_e
-
-                t = threading.Thread(target=worker_thread)
-                t.start()
-                t.join(timeout=35.0)
-
-                if t.is_alive():
-                    raise TimeoutError("Máy chủ Gemini phản hồi quá lâu hoặc kết nối mạng bị ngắt quãng! Vui lòng thử lại câu lệnh.")
-
-                if "exception" in exception_container:
-                    raise exception_container["exception"]
-
-                blueprint_final = blueprint_container.get("result")
+                # 🚨 ĐÃ SỬA: Chạy trực tiếp trên luồng chính để không làm lỗi cơ chế Cache của Streamlit
+                blueprint_final = execute_cached_gemini_scan(
+                    active_pdf, current_query, 56.0, "32", raw_json_schema, prompt_agent_2
+                )
+                
                 st.session_state.blueprint_final = blueprint_final
                 st.session_state.last_active_blueprint = blueprint_final
                 
@@ -624,10 +602,10 @@ if st.session_state.ai_processing:
                 st.error(f"❌ Lỗi luồng AI Engine: {str(e)}")
                 
             finally:
+                # Ép giải phóng trạng thái bận và Rerun để vẽ bảng dữ liệu CAD ngay lập tức
                 st.session_state.ai_processing = False
                 st.rerun()
     else:
-        # 🛡️ BÁO LỖI CHỦ ĐỘNG LÊN MÀN HÌNH NẾU KHÔNG TÌM THẤY BẤT KỲ FILE PDF NÀO
         st.error("⚠️ **Hệ thống chưa nhận được dữ liệu file PDF!** Vui lòng quay lại trang chính (Uploader), tải lại file Techpack để đồng bộ bộ nhớ đệm (Session State), sau đó quay lại đây gõ lệnh chat.")
         st.session_state.ai_processing = False
 
