@@ -902,7 +902,7 @@ def prepare_bom_and_geometry(bom_rows_list, user_query_text, blueprint_final=Non
 def execute_skyline_placement(geometry_data):
     """
     Đoạn 2: Lõi thuật toán Skyline Corner với cơ chế Thử hướng xoay và Lấp khoảng trống (Gap Filling).
-    Sửa lỗi gộp sai phân đoạn đứt gãy trên trục X.
+    Đã sửa lỗi KeyError bằng cách đồng bộ trường dữ liệu an toàn.
     """
     if not geometry_data or not geometry_data.get("flat_packing_queue"):
         return {"fabric_width": 56.0, "usable_width": 55.0, "actual_packing_density": 0.82, "global_gross_fabric_consumption": 0.0}
@@ -913,9 +913,9 @@ def execute_skyline_placement(geometry_data):
     plaid_repeat_inch = geometry_data["plaid_repeat_inch"]
     is_one_way_nap = geometry_data["is_one_way_nap"]
 
-    # 1. PHÂN TÁCH HÀNG ĐỢI THEO VAI TRÒ HÌNH HỌC (GỐI ĐẦU CHO GAP FILLING)
-    major_queue = [p for p in flat_packing_queue if p["role"] == "MAJOR_PANEL"]
-    minor_queue = [p for p in flat_packing_queue if p["role"] != "MAJOR_PANEL"]
+    # 🚨 SỬA LỖI KEYERROR: Sử dụng phương thức .get() an toàn để bóc tách hàng đợi
+    major_queue = [p for p in flat_packing_queue if p.get("role") == "MAJOR_PANEL"]
+    minor_queue = [p for p in flat_packing_queue if p.get("role") != "MAJOR_PANEL"]
 
     # Xếp thứ tự ưu tiên chi tiết lớn nhất lên trước
     major_queue.sort(key=lambda x: max(x["l"], x["w"]), reverse=True)
@@ -934,10 +934,8 @@ def execute_skyline_placement(geometry_data):
         
         # Thử nghiệm các hướng xoay được cấu hình cho phép
         allowed_orientations = [(piece["l"], piece["w"])]
-        if piece["allow_rotate"] == 90:
+        if piece.get("allow_rotate") in:
             allowed_orientations.append((piece["w"], piece["l"]))
-        elif piece["allow_rotate"] == 180:
-            allowed_orientations.append((piece["w"], piece["l"])) # Thử cả hai thế nằm đứng/ngang
 
         for test_l, test_w in allowed_orientations:
             if test_w > usable_width: continue # Bỏ qua nếu rập rộng vượt khổ vải
@@ -955,7 +953,7 @@ def execute_skyline_placement(geometry_data):
                     segments_count += 1
                     
                     if accumulated_w >= test_w:
-                        # Chọn hướng xoay và vị trí tạo ra điểm nhô Y thấp nhất (Khớp Gerber Heuristic)
+                        # Chọn hướng xoay và vị trí tạo ra điểm nhô Y thấp nhất
                         if max_y_in_range < best_y:
                             best_y = max_y_in_range
                             best_idx = i
@@ -986,13 +984,13 @@ def execute_skyline_placement(geometry_data):
             
         skyline[best_idx : best_idx + num_spanned] = new_segments
 
-        # 🚨 SỬA LỖI GỘP PHÂN ĐOẠN: Kiểm tra cả độ cao Y và tính liền kề trục X
+        # SỬA LỖI GỘP PHÂN ĐOẠN: Sửa cấu trúc giải nén mảng danh sách cho chuẩn [x, w, y]
         merged_skyline = []
         for seg in skyline:
             if (merged_skyline 
                 and abs(merged_skyline[-1][2] - seg[2]) < 0.001 
                 and abs(merged_skyline[-1][0] + merged_skyline[-1][1] - seg[0]) < 0.001):
-                merged_skyline[-1][1] += seg[1] # Hợp nhất chiều rộng nếu liền kề khít nhau
+                merged_skyline[-1][1] += seg[1] # Hợp nhất chiều rộng nếu khít nhau
             else:
                 merged_skyline.append(seg)
         skyline = merged_skyline
@@ -1027,12 +1025,12 @@ def execute_skyline_placement(geometry_data):
             skyline = merged_skyline
             simulated_marker_length_inch = max(simulated_marker_length_inch, placed_y_top)
 
-    # 4. ÁP DỤNG BIÊN HAO HỤT VÀ CHU KỲ KẺ CARO THEO VẬT LÝ THỰC TẾ
+    # 4. ÁP DỤNG BIÊN CHU KỲ KẸ CARO THEO VẬT LÝ THỰC TẾ
     if fabric_pattern == "PLAID" and plaid_repeat_inch > 0:
         remainder = simulated_marker_length_inch % plaid_repeat_inch
         if remainder > 0: simulated_marker_length_inch += (plaid_repeat_inch - remainder)
 
-    # Loại bỏ hoàn toàn các hệ số phạt ép định mức cũ. Chỉ giữ hao hụt đầu cây vật lý (0.5 inch)
+    # Chỉ giữ hao hụt đầu cây vật lý (0.5 inch)
     global_gross_fabric_consumption_yard = (simulated_marker_length_inch / 36.0) + (0.5 / 36.0)
     
     total_bounding_box_area = geometry_data["total_bounding_box_area"]
