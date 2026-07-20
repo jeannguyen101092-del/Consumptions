@@ -935,8 +935,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
     bom_source["calculated_on_size"] = target_size
     
     st.session_state["bom_data"] = bom_source
-       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
-       # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
+    # Giải nén lại các biến số an toàn từ gốc Root đã đồng bộ ở Đoạn 1a
     usable_width = bom_source.get("fabric_width_inch", 56.0)
     fabric_pattern = bom_source.get("fabric_pattern", "SOLID")
     actual_packing_density = bom_source.get("global_packing_density", 0.85)
@@ -1038,25 +1037,29 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
                     gross_consumption = round(((adj_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
                     calc_chain = f"Dải cuộn dọc: L-inch / 36.0"
                 else:
-                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ ÉP HẠ CHI TIẾT PHỤ CHÈN GÓC HỞ
-                    interlocking_factor = 1.0 # Mặc định
+                    # 🗺️ THUẬT TOÁN SƠ ĐỒ LỒNG GHÉP VÀ PHÂN LOẠI CHÈN GÓC HỞ CHUẨN XƯỞNG
+                    interlocking_factor = 1.0 
                     
                     if any(k in combined_str for k in ["PANEL", "FRONT", "BACK", "THÂN"]):
-                        # 🚨 GIỮ NGUYÊN THÂN LỚN: Trả lại hệ số cao (0.84 Thân trước, 0.88 Thân sau) để giữ phom Baggy rộng rãi
+                        # Giữ nguyên hệ số thân lớn (Vải chính) để ra phom rộng Baggy thực tế
                         shape_factor = 0.88 if "BACK" in combined_str else 0.84
                         calc_chain_type = f"Sơ đồ {mat_class_raw} Layout Thân lớn"
                     else:
-                        # 🚨 ÉP HẠ CHI TIẾT PHỤ: Tất cả linh kiện nhỏ (Lưng, Đô, Túi, Fly, Passan...) được giác lách chèn vào kẽ hở
-                        # Hệ số hình học mặc định cao, nhưng ép hạ 75% định mức độc lập bằng interlocking_factor = 0.25
-                        interlocking_factor = 0.25 
+                        # Thiết lập hệ số hình học mặc định
                         shape_factor = 0.96 if ("BINDING" in combined_str or "VIỀN" in combined_str or is_belt_loop) else 0.78
-                        
                         if any(k in combined_str for k in ["WAISTBAND", "LƯNG", "COLLAR", "CỔ", "BO"]):
                             shape_factor = 0.94
                             
-                        calc_chain_type = "Xếp lách chèn lỗ hở sơ đồ (Ép hạ đm 75%)"
+                        # 🚨 CẢI TIẾN CỐT LÕI: Chỉ ép hạ định mức nếu chi tiết phụ đó là VẢI CHÍNH (FABRIC) được chèn kẽ
+                        if mat_class_raw == "FABRIC":
+                            interlocking_factor = 0.25 
+                            calc_chain_type = "Xếp lách chèn lỗ hở sơ đồ Vải chính (Ép hạ đm 75%)"
+                        else:
+                            # Nếu là FUSING (Keo lót) hoặc LINING (Bao túi), đi sơ đồ riêng biệt -> Tính đúng diện tích 100%
+                            interlocking_factor = 1.0
+                            calc_chain_type = f"Sơ đồ phụ liệu rời {mat_class_raw} độc lập"
 
-                    # Phép toán diện tích sơ đồ bàn cắt tích hợp hệ số chèn kẽ độc quyền
+                    # Phép toán diện tích sơ đồ bàn cắt tích hợp bộ lọc vật tư thông minh
                     seamed_l = adj_l + (0.44 * 2.0)
                     seamed_w = adj_w + (0.44 * 2.0)
                     piece_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier * interlocking_factor
@@ -1083,6 +1086,7 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
+
 
 
 
