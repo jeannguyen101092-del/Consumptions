@@ -1250,7 +1250,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: ĐỒNG BỘ 100% TỌA ĐỘ Ô THÔNG SỐ & KHÔNG BỊ MẤT DÒNG
+# 🟩 KHỐI 5a HOÀN CHỈNH: ĐỒNG BỘ 100% CO RÚT VÀ THÔNG SỐ ĐỘNG TỪ Ô CHAT ĐẦU VÀO
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1287,29 +1287,34 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     # Dòng 4: Tiêu đề khối thông số kỹ thuật sơ đồ CAD
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
     
-    # Trích xuất dữ liệu động an toàn từ bộ nhớ uploader gửi về
+    # 🚨 BỐC TÁCH BIẾN ĐỘNG TỪ Ô CHAT ĐẦU VÀO GỬI SANG 🚨
     style_code = str(bom_ctx.get("style_num", bom_ctx.get("style_code", bom_ctx.get("style_name", "N/A")))).upper()
     customer_name = str(bom_ctx.get("customer_name", bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD")))).upper()
     sample_size = str(bom_ctx.get("detected_base_size", bom_ctx.get("calculated_on_size", bom_ctx.get("base_size", "27")))).upper()
     
-    # 🚨 GÁN CỐ ĐỊNH VỊ TRÍ TỪNG Ô ĐỂ CHỐNG LỖI MẤT DÒNG KHỔ VẢI / CO RÚT VẢI VÀ THÊM MÃ HÀNG KHÁCH HÀNG 🚨
+    # Đọc trực tiếp tỷ lệ % co rút động anh nhập từ ô lệnh chat, nếu không có mới lấy số mặc định
+    warp_val = bom_ctx.get("warp_shrinkage_percent", bom_ctx.get("warp_shrinkage", 3.0))
+    weft_val = bom_ctx.get("weft_shrinkage_percent", bom_ctx.get("weft_shrinkage", 14.0))
+    width_val = bom_ctx.get("fabric_width_inch", bom_ctx.get("fabric_width", 56.0))
+    
+    # Gán cố định vị trí các ô thông số kỹ thuật theo đúng biểu mẫu gốc
     # Dòng 5: Mã hàng và Khách hàng
     ws1.cell(row=5, column=1, value="Mã hàng / Style Code:")
     ws1.cell(row=5, column=2, value=style_code)
     ws1.cell(row=5, column=3, value="Khách hàng / Đối tác:")
     ws1.cell(row=5, column=4, value=customer_name)
     
-    # Dòng 6: Size mẫu và Khổ vải
+    # Dòng 6: Size mẫu và Khổ vải động từ ô chat
     ws1.cell(row=6, column=1, value="Size may mẫu (Sample Size):")
     ws1.cell(row=6, column=2, value=sample_size)
     ws1.cell(row=6, column=3, value="Khổ vải hữu dụng (Width):")
-    ws1.cell(row=6, column=4, value=f'{bom_ctx.get("fabric_width_inch", 56.0)}"')
+    ws1.cell(row=6, column=4, value=f'{width_val}"')
     
-    # Dòng 7: Co rút dọc và Co rút ngang
+    # Dòng 7: Co rút dọc và Co rút ngang động từ ô chat
     ws1.cell(row=7, column=1, value="Co rút dọc (Warp Shrinkage):")
-    ws1.cell(row=7, column=2, value=f'{bom_ctx.get("warp_shrinkage_percent", 3.0)}%')
+    ws1.cell(row=7, column=2, value=f'{warp_val}%')
     ws1.cell(row=7, column=3, value="Co rút ngang (Weft Shrinkage):")
-    ws1.cell(row=7, column=4, value=f'{bom_ctx.get("weft_shrinkage_percent", 14.0)}%')
+    ws1.cell(row=7, column=4, value=f'{weft_val}%')
     
     # Dòng 8: Chủng loại sản phẩm và Hiệu suất sơ đồ (Density)
     ws1.cell(row=8, column=1, value="Chủng loại sản phẩm:")
@@ -1408,6 +1413,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     wb.save(output)
     output.seek(0)
     return output
+
 
 
 
