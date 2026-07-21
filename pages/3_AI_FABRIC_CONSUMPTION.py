@@ -1231,7 +1231,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL BÁO CÁO PPJ (BỔ SUNG MÃ HÀNG & KHÁCH HÀNG)
+# 🟩 KHỐI 5a HOÀN CHỈNH (VÁ TRIỆT ĐỂ LỖI ĐỨNG IM): HÀM TẠO EXCEL PPJ
 # =====================================================================
 import io  
 import pandas as pd
@@ -1241,7 +1241,7 @@ from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val, fabric_pattern_raw):
     """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
-    Đã bổ sung Mã Hàng (Style Code) và Khách Hàng (Customer) vào khối Technical Profile đầu trang.
+    Đã bổ sung Mã Hàng và Khách Hàng, dọn sạch hoàn toàn vòng lặp lỗi làm đứng im app.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1273,7 +1273,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     pattern_mapping = {"SOLID": "VẢI TRƠN (SOLID)", "STRIPE": "VẢI SỌC KẺ (STRIPE)", "PLAID": "VẢI CARO (PLAID/CHECK)", "NAP": "VẢI 1 CHIỀU / TUYẾT NHUNG (NAP)"}
     detected_pattern_text = pattern_mapping.get(fabric_pattern_raw, f"VẢI ĐẶC THÙ ({fabric_pattern_raw})")
 
-    # 🚨 ĐÃ CẬP NHẬT: Thêm Mã hàng (Style Code) và Khách hàng (Customer) vào ma trận thông số 4 dòng
+    # Ma trận nạp 5 thông số cốt lõi lên đầu file Excel
     meta_rows = [
         ["Mã hàng / Style Code:", str(bom_source_ctx.get("style_code", bom_source_ctx.get("style_num", "N/A"))).upper(), "Khách hàng / Đối tác:", str(bom_source_ctx.get("customer", bom_source_ctx.get("buyer", "N/A"))).upper()],
         ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
@@ -1287,14 +1287,29 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # Thiết lập màu sắc và đóng khung cố định trực tiếp
-        ws1.cell(row=current_r, column=1).font = bold_font; ws1.cell(row=current_r, column=1).fill = meta_label_fill; ws1.cell(row=current_r, column=1).border = thin_border
-        ws1.cell(row=current_r, column=3).font = bold_font; ws1.cell(row=current_r, column=3).fill = meta_label_fill; ws1.cell(row=current_r, column=3).border = thin_border
+        # ĐÃ SỬA KHÓA CỨNG: Loại bỏ hoàn toàn vòng lặp 'in' trống, gán trực tiếp thuộc tính theo tọa độ cột cố định
+        # Cột 1: Nhãn tiêu đề bên trái
+        ws1.cell(row=current_r, column=1).font = bold_font
+        ws1.cell(row=current_r, column=1).fill = meta_label_fill
+        ws1.cell(row=current_r, column=1).border = thin_border
         
-        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=2).fill = meta_val_fill; ws1.cell(row=current_r, column=2).border = thin_border; ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
-        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=4).fill = meta_val_fill; ws1.cell(row=current_r, column=4).border = thin_border; ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
+        # Cột 2: Giá trị tiêu đề bên trái
+        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251")
+        ws1.cell(row=current_r, column=2).fill = meta_val_fill
+        ws1.cell(row=current_r, column=2).border = thin_border
+        ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
+        
+        # Cột 3: Nhãn tiêu đề bên phải
+        ws1.cell(row=current_r, column=3).font = bold_font
+        ws1.cell(row=current_r, column=3).fill = meta_label_fill
+        ws1.cell(row=current_r, column=3).border = thin_border
+        
+        # Cột 4: Giá trị tiêu đề bên phải
+        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251")
+        ws1.cell(row=current_r, column=4).fill = meta_val_fill
+        ws1.cell(row=current_r, column=4).border = thin_border
+        ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
-    # Đẩy bảng gộp Summary xuống dòng số 12 để nhường không gian cho khung thông số mở rộng
     ws1.cell(row=11, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
     for col_idx, h_text in enumerate(summary_headers, start=1):
@@ -1330,6 +1345,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             cell = ws2.cell(row=curr_row, column=col_idx)
             cell.font = regular_font; cell.border = thin_border
             
+            # Khóa cứng logic căn lề trực tiếp bằng số, bảo vệ tuyệt đối chuỗi phân bổ
             if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8:
                 cell.alignment = Alignment(horizontal="center")
             elif col_idx == 5 or col_idx == 6:
@@ -1345,6 +1361,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & ĐỒNG BỘ NÚT BẤM EXCEL PPJ
