@@ -989,8 +989,8 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     # =====================================================================
     if product_segmented in ["JACKET", "SUIT_BLAZER"]:
         # Giữ nguyên hệ thống hao hụt của Áo Jacket (Không động tới)
-        fabric_wastage_multiplier = 1.020 * 1.010 * 1.08  
-        end_loss_inch = 1.5
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.155
+        end_loss_inch = 3.0
     else:
         # Hao hụt mặc định siêu tiết kiệm cho hàng Quần đại trà
         fabric_wastage_multiplier = 1.012 * 1.003
