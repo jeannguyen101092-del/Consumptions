@@ -1437,7 +1437,7 @@ import pandas as pd
 import numpy as np
 import re
 
-# 1. BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE
+# 1. BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE TỨC THỜI
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
 
 warp_shrink = 0.0
@@ -1457,7 +1457,7 @@ if match_weft:
 else:
     weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
 
-# 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH
+# 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH HỆ THỐNG
 ctx = st.session_state.get("bom_data", {})
 rows = ctx.get("bom_rows", [])
 if not rows or len(rows) == 0:
@@ -1479,7 +1479,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # THIẾT LẬP LUỒNG KHỔ ĐỘNG TỪ CHAT
+    # BỐC TÁCH KHỔ VẬT TƯ ĐỘNG TỪ CHAT VĂN BẢN
     fabric_width = float(ctx.get("fabric_width_inch", 56.0))
     fusing_width = 59.0
     lining_width = 57.0
@@ -1497,45 +1497,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    # TÍNH KÍCH THƯỚC SẢN XUẤT THỰC TẾ THEO CHAT
+    # KÍCH THƯỚC SẢN XUẤT CAD CHUẨN XÁC SAU KHI CỘNG CO RÚT CHAT
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r[orig_w_col]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_w_col]), 2), axis=1)
 
-    # 🔴 ĐỘT PHÁ TOÁN HỌC MÔ PHỎNG GIỐNG GERBER TÍNH NHIỀU QUẦN XẾP LỒNG (INTERLOCKING MULTI-MARKER)
-    def calculate_gerber_multi_garment_area(row):
-        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+    # 🔴 ĐỘT PHÁ TOÁN HỌC ĐỘNG 1: SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG (KHÔNG PHỤ THUỘC TÊN QUẦN ÁO)
+    def infer_geometric_shape_factor(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
-        if l_val <= 0 or w_val <= 0: return 0.0
+        if l_val <= 0 or w_val <= 0: return 0.82
         
-        # Thiết lập nền diện tích bao
-        base_box_area = (l_val + 0.88) * (w_val + 0.88)
-        
-        # Nếu phát hiện dòng hàng Quần Jeans/Pants/Trouser và cấu hình rập là thân chính lớn
-        is_pants = any(k in prod for k in ["JEANS", "PANTS", "TROUSERS", "SHORT"]) or any(k in name for k in ["trouser", "pant", "quần", "leg"])
-        
-        if is_pants and "FABRIC" in mat_class:
-            if any(k in name for k in ["front", "back", "panel", "thân"]):
-                # 🔴 CHÂN LÝ GERBER ĐA QUẦN: Khi đi sơ đồ ghép nhiều quần ngược vế đầu đuôi, độ cong vát đùi thắt đáy 
-                # giúp rập lồng khít khao vào nhau cực tốt. Diện tích chiếm dụng hình học thực tế chỉ còn đạt 51.5% đến 53% 
-                # so với một chiếc quần cô đơn ban đầu. Không gán số chết định mức, tự động phân rã lưới rập lồng!
-                interlocking_sf = 0.522 
-                return round(base_box_area * interlocking_sf, 2)
-                
-        # Phân hệ cho các phụ liệu thắt thẳng (Cạp, đỉa, đáp túi vuông vắn)
-        if "band" in name or "belt" in name or "waistband" in name: 
-            return round(base_box_area * 0.94, 2)
-            
-        # Hệ số nén tự động cho các chi tiết khác (Áo/Đầm) theo độ mảnh aspect ratio
+        # Tỷ lệ chiều dài/rộng (aspect ratio) của rập
         aspect_ratio = max(l_val, w_val) / min(l_val, w_val)
-        dynamic_sf = 0.70 + min(aspect_ratio * 0.02, 0.16)
-        return round(base_box_area * dynamic_sf, 2)
         
-    df_bom["polygon_net_area"] = df_bom.apply(calculate_gerber_multi_garment_area, axis=1)
-
-    # NỐI LUỒNG GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE MULTI-GARMENT
-    total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
+        # Mô hình hóa phi tuyến tính tự do:
+        # Rập càng thuôn dài (aspect_ratio >= 2.2 như ống quần, thân váy dài) -> độ lấp đầy hộp vuông thực chất sụt giảm mạnh
+        if aspect_ratio >= 2.2:
+            sf_computed = 0.72 - min((aspect_ratio - 2.2) * 0.11, 0.20)
+        else:
+            # Rập béo tròn, vuông vắn (như cạp, đáp, túi) -> diện tích thực tiến sát bề mặt hộp
+            sf_computed = 0.82 + min((2.2 - aspect_ratio) * 0.10, 0.12)
+            
+        return round(sf_computed, 3)
+        
+    df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * infer_geometric_shape_factor(r), 2), axis=1)
+    # TUYỂN TẬP ĐẶC TRƯNG SƠ ĐỒ ĐỂ GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE
+    total_net_area, total_bbox_area, total_piece_count = 0.0, 0.0, 0.0
+    all_expanded_pieces = []
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
     for _, row in df_fabric_only.iterrows():
@@ -1550,34 +1538,54 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         for _ in range(int(max(1, pcs))): 
             all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
 
+    # 🔴 ĐỘT PHÁ TOÁN HỌC ĐỘNG 2: SUY DIỄN MẬT ĐỘ NÉN SƠ ĐỒ (DENS) TỰ ĐỘNG TỪ BỘ THAM SỐ ĐỒ HỌA PHẲNG
     if total_net_area > 0 and all_expanded_pieces:
-        major_threshold = total_net_area * 0.08
-        minor_list = [p for p in all_expanded_pieces if p["net_area"] <= major_threshold]
-        fragmentation = len(minor_list) / total_piece_count
+        # A. Mức độ lấp đầy hình hộp tổng quát (Bbox Fill)
         bbox_fill = total_net_area / max(total_bbox_area, 0.1)
         
-        # Mật độ nén giải toán Gerber đa quần kết hợp đầu đuôi thực tế đạt hiệu suất rất cao (khoảng 82.5% - 85%)
-        dens = max(min(0.65 + (bbox_fill * 0.15) + (fragmentation * 0.05), 0.94), 0.55)
-        if any(k in prod for k in ["JEANS", "PANTS", "TROUSERS"]):
-            dens = max(dens, 0.835) # Ép dens giả lập hiệu suất sơ đồ tổ hợp đa sản phẩm
+        # B. Phân loại cấu trúc chi tiết lớn/nhỏ
+        major_threshold = total_net_area * 0.08
+        major_pieces = [p for p in all_expanded_pieces if p["net_area"] > major_threshold]
+        minor_pieces = [p for p in all_expanded_pieces if p["net_area"] <= major_threshold]
         
+        # C. Độ phân mảnh sơ đồ (Fragmentation Ratio)
+        fragmentation = len(minor_pieces) / total_piece_count if total_piece_count > 0 else 0.0
+        
+        # D. Tỷ lệ chiếm khổ vải trung bình của hệ rập lớn (Width Occupancy Ratio)
+        if major_pieces:
+            avg_major_width = sum(p["width"] for p in major_pieces) / len(major_pieces)
+            width_ratio = avg_major_width / fabric_width
+        else:
+            width_ratio = 0.30
+            
+        # PHƯƠNG TRÌNH SUY DIỄN DENS ĐỘNG TỰ DO (XÓA SẠCH MỌI KHOẢNG ÉP CHẶN CỐ ĐỊNH)
+        base_dens_model = 0.64 + (bbox_fill * 0.12) + (fragmentation * 0.06)
+        
+        # Hàm phạt dạt biên biến thiên liên tục
+        width_penalty_logistic = 0.08 / (1.0 + np.exp(-18.0 * (width_ratio - 0.32)))
+        
+        # Mật độ phân bổ tự giải toán hoàn toàn tự do
+        dens = max(min(base_dens_model - width_penalty_logistic, 0.94), 0.52)
+        
+        # Giải thuật toán phi tuyến tính tính chiều dài sơ đồ thực chất
         simulated_length = ((total_net_area / fabric_width) / dens) * (1.0 + ((1.0 - bbox_fill) * 0.04))
         wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
         
-        # Khấu hao nền trải vải công nghiệp đầu khúc (Phân bổ chia đều cho tổng lượng quần trên sơ đồ ghép)
-        dynamic_loss_factor = 1.03 + min(total_piece_count * 0.003, 0.05)
-        dynamic_marker_end_inch = 0.5 + min(simulated_length * 0.008, 1.5)
+        # 🔴 ĐỘT PHÁ TOÁN HỌC ĐỘNG 3: BIẾN HAO HỤT NỀN VÀ ĐẦU MARKER THÀNH HÀM BIẾN THIÊN ĐỘNG THEO LƯỢNG RẬP
+        dynamic_loss_factor = 1.04 + min(total_piece_count * 0.004, 0.06)
+        dynamic_marker_end_inch = 0.4 + min(simulated_length * 0.009, 1.8)
         
         total_gross_yds_after_shrink = (simulated_length / 36.0) * (dynamic_loss_factor + wastage_curve) + (dynamic_marker_end_inch / 36.0)
         
-        if fabric_pattern_raw == "NAP": total_gross_yds_after_shrink *= 1.02
+        if fabric_pattern_raw == "NAP": total_gross_yds_after_shrink *= 1.025
+        elif fabric_pattern_raw in ["PLAID", "STRIPE"]: total_gross_yds_after_shrink *= 1.075
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 1.45)))
-        dens = 0.835
+        dens = 0.80
 
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH TỰ NHIÊN CHÂN LÝ (XÓA BỎ PHÉP NHÂN CỨNG)
     if total_net_area > 0 and total_gross_yds_after_shrink > 0:
         def exact_share_allocation_final_v9(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
@@ -1594,6 +1602,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
 
     # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER DỰA TRÊN SỐ ĐO SẢN XUẤT ĐỘNG
