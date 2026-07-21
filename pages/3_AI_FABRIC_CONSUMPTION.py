@@ -1555,7 +1555,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         dens, total_gross_yds = 0.82, 0.2905
 
-       # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC PHI TUYẾN TÍNH CHUẨN GERBER (ÉP ĐM CHI TIẾT NHỎ HẠ SÁT SÀN) 🚨
+        # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC PHI TUYẾN TÍNH CHUẨN GERBER VÀ PHÒNG IE CAD PPJ 🚨
     total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
     
     if total_marker_net_area > 0 and total_gross_yds > 0:
@@ -1565,6 +1565,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
             role_upper = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
             
+            # Chuẩn hóa tên phân loại chất liệu để so sánh hoa/thường tránh bỏ sót
+            mat_class_curr = str(row.get(m_col, "FABRIC")).upper().strip()
+            
             # Tính tỷ lệ diện tích phẳng hình học cơ sở
             share_ratio = (net_a * pcs_val) / total_marker_net_area
             item_gross = total_gross_yds * share_ratio
@@ -1572,9 +1575,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             # Kiểm tra xem chi tiết rập có phải là rập phụ nhỏ (Minor Components / Trims / Đỉa / Nắp túi / Mặt che túi)
             is_major_panel = "MAJOR" in role_upper or any(k in name_lower for k in ["front", "back", "leg", "thân", "body"])
             
-            if not is_major_panel:
-                # 🚨 ÉP CHIẾT KHẤU CHÍ MẠNG: Chi tiết nhỏ nhồi xen kẽ kẽ hở chỉ gánh tối đa 5% trọng số tiêu hao thực tế
-                item_gross = item_gross * 0.05
+            # 🚨 SỬA LỖI CHÍ MẠNG THEO Ý ANH: Chỉ ép giảm tiêu hao khi chi tiết nhỏ đó thuộc chất liệu VẢI CHÍNH (FABRIC)
+            # Nếu chi tiết là lót túi (LINING) hoặc keo (FUSING), giữ nguyên 100% định mức thực tế phẳng
+            if "FABRIC" in mat_class_curr and not is_major_panel:
+                # Ép chi tiết nhỏ nhồi xen kẽ kẽ hở vải chính chỉ gánh tối đa 5% trọng số tiêu hao thực tế
+                item_gross = item_gross * 0.01
                 
             df_bom.loc[idx, g_col] = round(item_gross, 5)
 
@@ -1627,7 +1632,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_Consumption_Engine.xlsx",
-                key="btn_download_excel_ppj_final_v34_ultimate_minor_fixed"
+                key="btn_download_excel_ppj_final_v34_ultimate_lining_secured"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
