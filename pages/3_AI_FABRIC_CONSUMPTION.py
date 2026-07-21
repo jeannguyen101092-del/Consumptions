@@ -1197,9 +1197,18 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
+# =====================================================================
+# 🟩 KHỐI 5a HOÀN CHỈNH (ĐÃ NẠP THƯ VIỆN IO): HÀM TẠO EXCEL BÁO CÁO PPJ
+# =====================================================================
+import io  # 🚨 ĐÃ SỬA LỖI: Thêm lệnh import thư viện io lên đầu khối để vá sạch lỗi NameError
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a hoàn chỉnh (Đmatrix VÁ LỖI GRIDLINES): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
-    chứa đầy đủ thông số kỹ thuật động (Size, Co rút, Khổ vải, Hiệu suất).
+    """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    Đã nạp đầy đủ thư viện io chống sập màn hình đỏ.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1221,8 +1230,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     # =====================================================================
     ws1 = wb.active
     ws1.title = "BOM Summary"
-    
-    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Sử dụng cú pháp chuẩn hóa của thư viện openpyxl để hiện lưới bảng Excel sạch lỗi
     ws1.sheet_view.showGridLines = True
     
     ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
@@ -1241,7 +1248,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # Gán định dạng thủ công trực tiếp cho từng ô theo vị trí hàng/cột (Không dùng lặp mảng trống)
+        # Gán định dạng thủ công trực tiếp cho từng ô theo vị trí hàng/cột
         ws1.cell(row=current_r, column=1).font = bold_font
         ws1.cell(row=current_r, column=1).fill = meta_label_fill
         ws1.cell(row=current_r, column=1).border = thin_border
@@ -1278,10 +1285,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     # TAB 2: CHI TIẾT CẤU TRÚC RẬP CAD (DETAILED CAD PIECES)
     # =====================================================================
     ws2 = wb.create_sheet(title="Detailed CAD Pieces")
-    
-    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Áp dụng cú pháp hiện lưới chuẩn cho Sheet chi tiết rập
     ws2.sheet_view.showGridLines = True
-    
     ws2.append([]); ws2.cell(row=2, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {product_type_text.upper()}").font = section_font; ws2.append([])
     
     detail_headers = ["Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", "Dài (L-inch)", "Rộng (W-inch)", "Kiểu sơ đồ tổng", "Dự đoán Mật độ nén", "Gross Consumption", "Thuật toán mô phỏng CAD"]
@@ -1296,8 +1300,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         
         for col_idx in range(1, len(detail_headers) + 1):
             cell = ws2.cell(row=curr_row, column=col_idx)
-            cell.font = regular_font
-            cell.border = thin_border
+            cell.font = regular_font; cell.border = thin_border
             
             if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8:
                 cell.alignment = Alignment(horizontal="center")
@@ -1313,6 +1316,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI CHIA CỘT ST.COLUMNS): RENDERING UI & NÚT EXCEL PPJ
