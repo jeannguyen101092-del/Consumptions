@@ -1225,25 +1225,121 @@ if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_row
         st.session_state["processed_display_rows"] = display_rows
         st.session_state["bom_data"] = bom_source
 
-# --- PHÂN ĐOẠN VẼ GIAO DIỆN STREAMLIT (RENDERING UI) ---
+import io
+import streamlit as st
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
+    """Khối 5a: Hàm dựng cấu trúc file Excel báo cáo công nghiệp PPJ Group chứa thông số kỹ thuật động"""
+    output = io.BytesIO()
+    wb = Workbook()
+    
+    font_family = "Segoe UI"
+    header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid") # Xanh đậm PPJ
+    meta_label_fill = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid") # Xám nhạt
+    meta_val_fill = PatternFill(start_color="E8F8F5", end_color="E8F8F5", fill_type="solid") # Xanh ngọc nhạt
+    
+    title_font = Font(name=font_family, size=15, bold=True, color="0E6251")
+    section_font = Font(name=font_family, size=11, bold=True, color="000000")
+    header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
+    bold_font = Font(name=font_family, size=10, bold=True)
+    regular_font = Font(name=font_family, size=10)
+    thin_border = Border(left=Side(style='thin', color='BDC3C7'), right=Side(style='thin', color='BDC3C7'), top=Side(style='thin', color='BDC3C7'), bottom=Side(style='thin', color='BDC3C7'))
+
+    # =====================================================================
+    # TAB 1: BẢNG TỔNG HỢP VÀ THÔNG SỐ SƠ ĐỒ KỸ THUẬT (BOM SUMMARY)
+    # =====================================================================
+    ws1 = wb.active
+    ws1.title = "BOM Summary"
+    ws1.views.sheetView.showGridLines = True
+    
+    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
+    ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
+    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = section_font
+    
+    # Ma trận nạp 4 thông số cốt lõi: Size, Co rút dọc/ngang, Khổ vải, Hiệu suất sơ đồ lên đầu file Excel
+    meta_rows = [
+        ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
+        ["Co rút dọc (Warp Shrinkage):", f'{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%', "Co rút ngang (Weft Shrinkage):", f'{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%'],
+        ["Chủng loại sản phẩm:", str(product_type_text).upper(), "Hiệu suất sơ đồ (Density):", f'{packing_density_val * 100:.1f}%']
+    ]
+    
+    start_meta_row = 5
+    for r_idx, row_data in enumerate(meta_rows):
+        current_r = start_meta_row + r_idx
+        ws1.append(row_data)
+        for col_idx in: # Định dạng ô nhãn chữ
+            cell = ws1.cell(row=current_r, column=col_idx)
+            cell.font = bold_font; cell.fill = meta_label_fill; cell.border = thin_border
+        for col_idx in: # Định dạng ô giá trị thông số số động
+            cell = ws1.cell(row=current_r, column=col_idx)
+            cell.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell.fill = meta_val_fill; cell.border = thin_border; cell.alignment = Alignment(horizontal="center")
+
+    ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
+    summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
+    for col_idx, h_text in enumerate(summary_headers, start=1):
+        cell = ws1.cell(row=10, column=col_idx, value=h_text)
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = thin_border
+    
+    for _, row in df_summary_data.iterrows():
+        ws1.append([row["Phân loại vật tư"], row["Material Class"], float(row["Gross Consumption"]), row["UOM"]])
+        curr_row = ws1.max_row
+        ws1.cell(row=curr_row, column=2).alignment = Alignment(horizontal="center")
+        ws1.cell(row=curr_row, column=3).font = bold_font; ws1.cell(row=curr_row, column=3).number_format = '#,##0.0000'
+        ws1.cell(row=curr_row, column=4).alignment = Alignment(horizontal="center")
+        for col_idx in range(1, 5): ws1.cell(row=curr_row, column=col_idx).font = regular_font; ws1.cell(row=curr_row, column=col_idx).border = thin_border
+
+    # =====================================================================
+    # TAB 2: CHI TIẾT CẤU TRÚC RẬP CAD (DETAILED CAD PIECES)
+    # =====================================================================
+    ws2 = wb.create_sheet(title="Detailed CAD Pieces")
+    ws2.views.sheetView.showGridLines = True
+    ws2.append([]); ws2.cell(row=2, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {product_type_text.upper()}").font = section_font; ws2.append([])
+    
+    detail_headers = ["Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", "Dài (L-inch)", "Rộng (W-inch)", "Kiểu sơ đồ tổng", "Dự đoán Mật độ nén", "Gross Consumption", "Thuật toán mô phỏng CAD"]
+    ws2.append(detail_headers)
+    for col_idx in range(1, len(detail_headers) + 1):
+        cell = ws2.cell(row=4, column=col_idx)
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = thin_border
+    
+    for _, row in df_details_data.iterrows():
+        ws2.append([row["Component Name"], row["Material Class"], row["Role/Piece Type"], row["Số lượng rập"], float(row["Dài sản xuất (L-inch)"]), float(row["Rộng sản xuất (W-inch)"]), row["Kiểu sơ đồ tổng"], row["Dự đoán Mật độ nén"], float(row["Gross Consumption"]), row["Thuật toán mô phỏng CAD"]])
+        curr_row = ws2.max_row
+        for col_idx in range(1, len(detail_headers) + 1):
+            cell = ws2.cell(row=curr_row, column=col_idx); cell.font = regular_font; cell.border = thin_border
+            if col_idx in: cell.alignment = Alignment(horizontal="center")
+            if col_idx in: cell.alignment = Alignment(horizontal="right")
+            if col_idx == 9: cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
+                
+    for ws in [ws1, ws2]:
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            ws.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 3, 13)
+            
+    wb.save(output)
+    return output.getvalue()
+# --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
 if display_rows and skyline_res:
     df_bom = pd.DataFrame(display_rows)
     product_segmented = skyline_res["product_segmented"]
     current_packing_density = skyline_res.get("actual_packing_density", 0.85)
     
-    # Đồng bộ ép lại cột hiển thị Mật độ nén trên giao diện
+    # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
     if "Dự đoán Mật độ nén" in df_bom.columns:
         df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
 
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
-        f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0;">'
-        f'📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ {product_segmented})'
+        f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
+        f'<span>📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ {product_segmented})</span>'
         f'</div>', 
         unsafe_allow_html=True
     )
     
-    # A. Bảng tổng hợp định mức (BOM Summary)
+    # A. Trích xuất bảng tổng hợp định mức (BOM Summary) cho giao diện
     df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
     df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
     df_summary["UOM"] = "YDS"
@@ -1251,14 +1347,28 @@ if display_rows and skyline_res:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
+    col_title, col_btn = st.columns([2, 1])
+    with col_title:
+        st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    with col_btn:
+        # Gọi Khối 5a truyền toàn bộ thông số kỹ thuật động vào file Excel
+        excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, st.session_state.get('bom_data', {}), current_packing_density)
+        st.download_button(
+            label="🟢 XUẤT FILE EXCEL PPJ",
+            data=excel_data,
+            file_name=f"PPJ_BOM_Consumption_{product_segmented}_{st.session_state.get('bom_data', {}).get('style_code', 'Style')}.xlsx",
+            mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
+            key="btn_download_excel_ppj_final_stable"
+        )
+        
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
     
-    # B. Bảng chi tiết cấu trúc rập CAD
+    # B. Bảng chi tiết cấu trúc rập CAD trên giao diện
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
     st.dataframe(df_bom, use_container_width=True)
     
-    # C. Footer thông báo thông số AI động từ bộ nhớ gốc Root
+    # C. Footer thông báo thông số AI động dưới chân bảng
     bom_source_display = st.session_state.get("bom_data", {})
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
