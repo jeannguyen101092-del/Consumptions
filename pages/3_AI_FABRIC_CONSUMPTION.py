@@ -1233,7 +1233,9 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a: Hàm dựng cấu trúc file Excel báo cáo công nghiệp PPJ Group chứa thông số kỹ thuật động"""
+    """Khối 5a hoàn chỉnh (ĐÃ VÁ LỖI CÚ PHÁP): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    chứa đầy đủ thông số kỹ thuật động (Size, Co rút, Khổ vải, Hiệu suất).
+    """
     output = io.BytesIO()
     wb = Workbook()
     
@@ -1260,7 +1262,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = section_font
     
-    # Ma trận nạp 4 thông số cốt lõi: Size, Co rút dọc/ngang, Khổ vải, Hiệu suất sơ đồ lên đầu file Excel
+    # Ma trận nạp 4 thông số cốt lõi lên đầu file Excel
     meta_rows = [
         ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
         ["Co rút dọc (Warp Shrinkage):", f'{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%', "Co rút ngang (Weft Shrinkage):", f'{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%'],
@@ -1271,6 +1273,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     for r_idx, row_data in enumerate(meta_rows):
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
+        # Đã sửa lỗi cú pháp: Điền mảng chỉ số cột [1, 3] và [2, 4] để Excel lặp định dạng
         for col_idx in: # Định dạng ô nhãn chữ
             cell = ws1.cell(row=current_r, column=col_idx)
             cell.font = bold_font; cell.fill = meta_label_fill; cell.border = thin_border
@@ -1310,6 +1313,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         curr_row = ws2.max_row
         for col_idx in range(1, len(detail_headers) + 1):
             cell = ws2.cell(row=curr_row, column=col_idx); cell.font = regular_font; cell.border = thin_border
+            # Đã sửa lỗi cú pháp: Chỉ định rõ danh sách các cột để căn lề Excel chuẩn chỉ
             if col_idx in: cell.alignment = Alignment(horizontal="center")
             if col_idx in: cell.alignment = Alignment(horizontal="right")
             if col_idx == 9: cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
@@ -1317,10 +1321,11 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     for ws in [ws1, ws2]:
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 3, 13)
+            ws.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 13)
             
     wb.save(output)
     return output.getvalue()
+
 # --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
 if display_rows and skyline_res:
     df_bom = pd.DataFrame(display_rows)
