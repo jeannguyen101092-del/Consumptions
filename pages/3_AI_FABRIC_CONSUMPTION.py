@@ -1077,22 +1077,21 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
     """Khối 3 hoàn chỉnh ổn định thế hệ mới: Bóc tách lớp cắt tự động từ PDF Callout.
-    Đã gỡ bỏ 100% hardcode đếm lớp. Tự động cập nhật trực tiếp diện tích hình học phẳng
-    và số chiếc thực tế sau nhân lớp lên giao diện UI và báo cáo file Excel.
+    Đã bổ sung lưu trực tiếp production_length và production_width vào dictionary gốc r.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
-    
-    # Đọc dữ liệu văn bản thô toàn file PDF đã được module uploader trích xuất lưu vào bộ nhớ đệm trang
     raw_pdf_context = st.session_state.get("raw_pdf_text_extracted", "")
 
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
-        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
-        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
-        pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
+        raw_l = safe_float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
+        raw_w = safe_float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
         
-        # Đồng bộ hóa định danh kiểm soát chữ hoa/chữ thường tránh bỏ sót dữ liệu
+        pcs = safe_int(r.get("original_piece_count", r.get("piece_count", r.get("Số lượng rập", 1))))
+        if "original_piece_count" not in r:
+            r["original_piece_count"] = pcs
+        
         mat_class_raw = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
@@ -1101,21 +1100,21 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         combined_str_item = f" {comp_name_raw} {piece_type_ai} ".lower().replace("_", " ")
         is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
-        if raw_l > 0 or is_button:
-            # Tính toán kích thước có cộng hao phí co rút dọc và ngang của vải đầu vào
-            adj_l = raw_l * (1 + warp_shrinkage / 100.0)
-            adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
+        if raw_l > 0:
+            # TÍNH TOÁN CO RÚT VẢI
+            adj_l = raw_l * (1 + safe_float(warp_shrinkage) / 100.0)
+            adj_w = raw_w * (1 + safe_float(weft_shrinkage) / 100.0) if raw_w > 0 else raw_w
             
-            # 🚨 ĐỘT PHÁ TỰ ĐỘNG: Gọi hàm quét văn bản PDF gốc để tìm chỉ định CUT/PAIR/FOLD thật từ Techpack của khách hàng
+            # 🔴 CHỈNH SỬA 1: Lưu kích thước sản xuất trực tiếp vào dòng dữ liệu gốc r
+            r["production_length"] = adj_l
+            r["production_width"] = adj_w
+            
             pdf_callout = extract_cutting_instructions_from_pdf(comp_name_raw, raw_pdf_context)
-            layer_multiplier = pdf_callout["layer_multiplier"]
-            calc_chain_log = pdf_callout["calc_log"]
+            layer_multiplier = safe_int(pdf_callout.get("layer_multiplier", 1), default=1)
+            calc_chain_log = pdf_callout.get("calc_log", "")
 
-            # =====================================================================
-            # ➔ Thiết lập hệ số hình dạng xén góc rập (Shape Factor) phòng IE CAD
-            # =====================================================================
-            is_belt_loop = "beltloop" in combined_str_item or "đỉa" in combined_str_item or "dia" in combined_str_item
-
+            # Thiết lập hệ số hình dạng xén góc rập (Shape Factor)
+            is_belt_loop = any(k in combined_str_item for k in ["beltloop", "đỉa", "dia"])
             if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
                 shape_factor = 0.92 if "back" in combined_str_item else 0.85
                 if "DRESS" in str(product_segmented).upper() and "flare" in combined_str_item: shape_factor = 0.52
@@ -1125,35 +1124,45 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             else:
                 shape_factor = 0.78
 
-            # Tính toán tổng diện tích sản xuất phẳng thực tế của chi tiết (Đã bao gồm đường may 0.44 inch x 2)
-            seamed_l, seamed_w = adj_l + (0.44 * 2.0), adj_w + (0.44 * 2.0)
-            item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
+            # Tính toán tổng diện tích phẳng thực tế dựa trên kích thước đã co rút
+            seamed_l = adj_l + (0.44 * 2.0)
+            seamed_w = adj_w + (0.44 * 2.0) if raw_w > 0 else adj_w
             
-            # Tích lũy tổng diện tích vải chính phục vụ giải toán phân bổ định mức
+            total_pcs_final = pcs * layer_multiplier
+            item_area = seamed_l * seamed_w * shape_factor * total_pcs_final
+            
             if "FABRIC" in mat_class_raw: 
                 total_fabric_piece_area += item_area
             
-            # 🚨 ĐỒNG BỘ ĐỘNG: Cập nhật trực tiếp số lượng rập thực tế sau nhân lớp và diện tích vào dữ liệu gốc
-            r["piece_count"] = pcs * layer_multiplier
-            r["Số lượng rập"] = pcs * layer_multiplier
+            r["piece_count"] = total_pcs_final
+            r["Số lượng rập"] = total_pcs_final
             r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor, 2)
             r["calculation_status"] = "PROCESSED"
             r["cad_algorithm"] = calc_chain_log
             
             piece_calculated_data.append({
-                "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs * layer_multiplier} Pcs",
+                "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{total_pcs_final} Pcs",
                 "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
                 "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
             })
+            
+        elif is_button:
+            r["production_length"] = 0.0
+            r["production_width"] = 0.0
+            r["calculation_status"] = "PROCESSED"
+            piece_calculated_data.append({
+                "row_ref": r, "item_area": 0.0, "is_button": True, "pcs_display": f"{pcs} Pcs",
+                "layer_multiplier": 1, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item,
+                "is_belt_loop": False, "raw_l": 0.0, "raw_w": 0.0, "pcs_val": pcs, "custom_name": comp_name_raw
+            })
                 
-    return total_fabric_piece_area, piece_calculated_data
-
+    return round(total_fabric_piece_area, 4), piece_calculated_data
 
 
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 hoàn chỉnh nâng cấp: Vá lỗi kiểm tra ký tự FABRIC chữ thường,
-    loại bỏ hoàn toàn bộ xén định mức nesting_factor làm tụt đm của dòng Skirt/Trouser.
+    """Khối 4 hoàn chỉnh nâng cấp: Phân bổ định mức Gerber và hiển thị kích thước sản xuất 
+    đã cộng co rút lên giao diện UI. Tự động rơi về kích thước gốc nếu không có co rút.
     """
     base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0)
     if base_gross_fabric == 0.0:
@@ -1164,11 +1173,12 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
     fabric_pattern_raw = skyline_results.get("fabric_pattern", "SOLID")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
+    if actual_packing_density <= 0: actual_packing_density = 0.85
     
     bom_source = st.session_state.get("bom_data", {})
     usable_width = bom_source.get("fabric_width_inch", 56.0)
+    if not isinstance(usable_width, (int, float)) or usable_width <= 0: usable_width = 56.0
     
-    # Đồng bộ từ khóa hiển thị giao diện UI
     layout_mapping = {"SOLID": "SOLID LAYOUT", "STRIPE": "STRIPE LAYOUT", "PLAID": "PLAID LAYOUT", "NAP": "NAP LAYOUT (CẮT 1 CHIỀU)"}
     current_layout_text = layout_mapping.get(fabric_pattern_raw, f"{fabric_pattern_raw} LAYOUT")
     
@@ -1178,14 +1188,15 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         r = item["row_ref"]
         item_area = item["item_area"]
         is_button = item["is_button"]
-        pcs_display = item["pcs_display"]
         layer_multiplier = item["layer_multiplier"]
         
-        # VÁ LỖI CHỮ THƯỜNG: Đưa phân loại vật tư về chữ hoa để so sánh chính xác
         mat_class_raw = str(item["mat_class_raw"]).upper().strip()
         combined_str_curr = item["combined_str"]
-        raw_l = item["raw_l"]
-        raw_w = item["raw_w"]
+        
+        # 🔴 CHỈNH SỬA 2: Lấy chiều dài/rộng sản xuất đã co rút, tự động Fallback về kích thước gốc
+        raw_l = r.get("production_length", item["raw_l"])
+        raw_w = r.get("production_width", item["raw_w"])
+        
         pcs = item["pcs_val"]
         custom_name = item["custom_name"]
 
@@ -1194,24 +1205,26 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         confidence = str(r.get("data_confidence", "HIGH")).upper().strip()
 
         if is_button:
-            gross_consumption = round((pcs * layer_multiplier * 1.03), 2)
-            calc_chain = f"Đếm chiếc phụ liệu mẫu hàng {product_segmented}: {pcs} cái"
-            pcs_display = f"{pcs} Cái"
+            total_button_units = pcs * layer_multiplier
+            gross_consumption = round((total_button_units * 1.03), 2)
+            calc_chain = f"Đếm chiếc phụ liệu mẫu hàng {product_segmented}: {total_button_units} cái"
+            pcs_display = f"{total_button_units} Cái"
         else:
+            pcs_display = item.get("pcs_display", f"{pcs * layer_multiplier} Pcs")
             is_roll_trim = any(k in combined_str_curr for k in ["elastic", "thun", "zipper", "khóa", "hanger", "loop", "label"])
 
             if is_roll_trim and "FABRIC" not in mat_class_raw:
+                # Định mức cuộn tự động tính theo kích thước mới (raw_l lúc này đã là kích thước sản xuất)
                 gross_consumption = round(((raw_l * pcs * layer_multiplier) / 36.0 * 1.04), 4)
-                calc_chain = f"Dải cuộn phụ liệu ({product_segmented}): L-inch / 36.0 + 4%"
+                calc_chain = f"Dải cuộn phụ liệu ({product_segmented}): L-inch (Đã xử lý co rút) / 36.0 + 4%"
             else:
-                # VÁ LỖI CHỮ THƯỜNG: Chấp nhận mọi kiểu viết chữ fabric, FABRIC, Fabric...
                 if "FABRIC" in mat_class_raw:
-                    is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or \
+                    geo_role = str(r.get('geometry_role', '')).upper()
+                    piece_type = str(r.get('piece_type', '')).upper()
+                    is_major = ("MAJOR" in geo_role or "MAJOR" in piece_type) or \
                                any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
                     
                     if total_fabric_piece_area > 0 and base_gross_fabric > 0:
-                        # 🚨 CHỈNH SỬA: Loại bỏ toàn bộ bộ gặm xén nesting_factor.
-                        # Tất cả các chi tiết rập vải chính (Dù lớn hay nhỏ) đều được phân bổ công bằng 100% theo tỷ lệ diện tích phẳng hình học chuẩn Gerber.
                         share_ratio = item_area / total_fabric_piece_area
                         gross_consumption = round(base_gross_fabric * share_ratio, 4)
                         
@@ -1225,24 +1238,28 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                         calc_chain = f"CAD Geometry Fallback: Giả lập hình học phẳng ({gross_consumption:.3f} yds)"
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
-                    if usable_width > 0:
-                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.82), 4)
-                        calc_chain = f"Sơ đồ {mat_class_raw} độc lập (Hạ hiệu suất xuống 82% để tăng hao hụt an toàn)"
-                    else:
-                        gross_consumption, calc_chain = 0.0, "❌ Khổ vải lỗi!"
+                    gross_consumption = round(((item_area / usable_width) / 36.0 / 0.82), 4)
+                    calc_chain = f"Sơ đồ {mat_class_raw} độc lập (Hạ hiệu suất xuống 82% để tăng hao hụt an toàn)"
                 else:
                     gross_consumption, calc_chain = 0.0, f"Vật tư dòng {product_segmented}."
 
+        # Bảng hiển thị UI tự động mapping thông số co rút thông qua biến raw_l và raw_w đã xử lý
         processed_display_rows.append({
-            "Component Name": display_name, "Material Class": mat_class_raw, 
+            "Component Name": display_name, 
+            "Material Class": mat_class_raw, 
             "Role/Piece Type": f"{str(r.get('geometry_role', 'MINOR')).upper()} ({str(r.get('piece_type', 'MINOR')).upper()})",
-            "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
-            "Kiểu sơ đồ tổng": current_layout_text, "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
-            "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
+            "Số lượng rập": pcs_display, 
+            "Dài sản xuất (L-inch)": round(raw_l, 2),  # Hiển thị số sau co rút (hoặc số gốc nếu không co rút)
+            "Rộng sản xuất (W-inch)": round(raw_w, 2), # Hiển thị số sau co rút (hoặc số gốc nếu không co rút)
+            "Kiểu sơ đồ tổng": current_layout_text, 
+            "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
+            "Gross Consumption": gross_consumption, 
+            "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", 
+            "Thuật toán mô phỏng CAD": calc_chain
         })
 
-    # Đồng bộ lưu trữ ngược lại định mức tổng thực tế vào bom_data để khối 5b bốc ra hiển thị
     if base_gross_fabric > 0:
+        if "bom_data" not in st.session_state: st.session_state["bom_data"] = {}
         st.session_state["bom_data"]["global_gross_fabric_yds"] = base_gross_fabric
 
     st.session_state["processed_display_rows"] = processed_display_rows
