@@ -1448,7 +1448,7 @@ if not rows:
 if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     
-    # 🔴 BIỆN PHÁP CHẶN ĐỨNG LỖI VALUERROR: Loại bỏ hoàn toàn các cột trùng tên vật lý nếu có trong dữ liệu thô
+    # Loại bỏ hoàn toàn các cột trùng tên vật lý nếu có trong dữ liệu thô đầu vào
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
     prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
@@ -1466,15 +1466,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # TÍNH TOÁN KÍCH THƯỚC SẢN XUẤT SAU CO RÚT TẠI CHỐT
+    # 🔴 ĐỘT PHÁ 1: TÍNH TOÁN KÍCH THƯỚC SẢN XUẤT SAU CO RÚT TẠI CHỖ
     warp_shrink = float(st.session_state.get("warp_shrinkage", st.session_state.get("co_rut_doc", 0.0)))
     weft_shrink = float(st.session_state.get("weft_shrinkage", st.session_state.get("co_rut_ngang", 0.0)))
     
     df_bom["Dài sản xuất (L-inch)"] = (df_bom[orig_l_col] * (1 + warp_shrink / 100.0)).round(2)
     df_bom["Rộng sản xuất (W-inch)"] = (df_bom[orig_w_col] * (1 + weft_shrink / 100.0)).round(2)
     
-    # TÍNH TOÁN DIỆN TÍCH GERBER PHẲNG KHÔNG SỢ SỐ 0
-    def force_calculate_gerber_area_v3(row):
+    # 🔴 ĐỘT PHÁ 2: ÉP BUỘC TÍNH TOÁN DIỆN TÍCH PHẲNG GERBER CHO DÒNG DRESS
+    def force_calculate_gerber_area_v4(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0: return 0.0
@@ -1483,7 +1483,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sf = 0.88 if "back" in name else (0.52 if "flare" in name else 0.84)
         return round(seamed_l * seamed_w * sf, 2)
         
-    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v3, axis=1)
+    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v4, axis=1)
 
     # ĐỒNG BỘ ĐỊNH MỨC CHÂN LÝ TỔNG (1.1582 YDS)
     total_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.1582))
@@ -1495,16 +1495,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     total_fabric_marker_area = (df_fabric_only["polygon_net_area"] * df_fabric_only["pcs_numeric"]).sum()
 
-    # Tạo sẵn một tên cột định mức tạm riêng để tránh đè cột cũ
     df_bom["allocated_gross"] = 0.0
     if total_fabric_marker_area > 0:
-        def exact_share_allocation_v3(row):
+        def exact_share_allocation_v4(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
             if "FABRIC" in mat_class:
                 item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
                 return round(total_gross_yds * (item_area_total / total_fabric_marker_area), 4)
             return 0.0
-        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v3, axis=1)
+        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v4, axis=1)
 
     # Dựng bảng Summary
     df_sum = df_bom.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
@@ -1518,25 +1517,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_sum["UOM"] = "YDS"
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # 🔴 CHUẨN HÓA LÀM SẠCH ĐỂ TRÁNH LỖI DUPLICATE COLUMN NAMES HOÀN TOÀN:
-    # Chủ động xóa bỏ toàn bộ các cột chữ tiếng Anh/Việt trùng tên trước khi mapping quy tắc đổi tên mới
-    columns_to_drop = ["Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)"]
+    # 🔴 VÁ LỖI KEYERROR TRIỆT TIÊU: Trích xuất giữ lại bản sao dữ liệu các cột cần hiển thị trước khi chạy vòng xóa cột trùng
+    saved_pcs_series = df_bom[pcs_col].copy()
+    saved_orig_l_series = df_bom[orig_l_col].copy()
+    saved_orig_w_series = df_bom[orig_w_col].copy()
+    saved_allocated_gross = df_bom["allocated_gross"].copy()
+
+    columns_to_drop = ["Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", "allocated_gross", "pcs_numeric"]
     df_bom_display = df_bom.copy()
     for col in columns_to_drop:
         if col in df_bom_display.columns:
             df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Gán cột vừa tính sạch sẽ vào các biến cột chuẩn UI
-    df_bom_display["Gross Consumption"] = df_bom_display["allocated_gross"]
-    if "allocated_gross" in df_bom_display.columns:
-        df_bom_display = df_bom_display.drop(columns=["allocated_gross"])
-        
-    df_bom_display["Số lượng rập"] = df_bom_display[pcs_col]
-    df_bom_display["Dài gốc Techpack (inch)"] = df_bom_display[orig_l_col]
-    df_bom_display["Rộng gốc Techpack (inch)"] = df_bom_display[orig_w_col]
-    
-    if "pcs_numeric" in df_bom_display.columns:
-        df_bom_display = df_bom_display.drop(columns=["pcs_numeric"])
+    # Gán an toàn tuyệt đối các series đã lưu vết độc lập vào DataFrame hiển thị UI phẳng
+    df_bom_display["Gross Consumption"] = saved_allocated_gross
+    df_bom_display["Số lượng rập"] = saved_pcs_series
+    df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
+    df_bom_display["Rộng gốc Techpack (inch)"] = saved_orig_w_series
 
     rename_rules = {
         "component_name": "Component Name", 
@@ -1545,9 +1542,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "polygon_net_area": "polygon_net_area"
     }
     df_bom_display = df_bom_display.rename(columns=rename_rules)
-    df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy() # Khóa chặn bảo vệ tầng cuối
+    df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
-    # Sắp xếp cấu trúc cột
+    # Sắp xếp cấu trúc cột trực quan
     ordered_cols = [
         "Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", 
         "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
@@ -1557,7 +1554,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất giao diện UI phẳng không bao giờ crash lỗi
+    # Kết xuất giao diện UI phẳng chuẩn xác không bao giờ crash lỗi
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
@@ -1567,7 +1564,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             st.download_button(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-                key="btn_download_excel_ppj_final_v42"
+                key="btn_download_excel_ppj_final_v43"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
