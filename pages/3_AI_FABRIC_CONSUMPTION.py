@@ -1161,17 +1161,45 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_display_rows
 
 # =====================================================================
-# 🟩 KHỐI 5 NÂNG CẤP: RENDERING BẢNG BIỂU ĐỒNG BỘ THỜI GIAN THỰC (ĐÃ SỬA LỖI SẬP MÀN HÌNH)
+# 🟩 KHỐI ĐIỀU PHỐI VÀ RENDERING UI ĐỒNG BỘ CHUYÊN DỤNG (XỬ LÝ TRIỆT ĐỂ LỖI ẨN BẢNG)
 # =====================================================================
-# Kiểm tra xem biến display_rows đã được khởi tạo thành công từ toán tử tính toán trước đó chưa
-if 'display_rows' in locals() and display_rows:
+# Khởi tạo các biến mặc định ở phạm vi ngoài cùng (Global/Local Scope) để tránh lỗi NameError hoặc mất biến
+skyline_res = None
+display_rows = None
+
+# Kiểm tra nguồn dữ liệu Techpack đã nạp vào hệ thống thành công chưa
+if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
+    bom_source, user_query_text = initialize_and_sync_parameters()
+
+    if bom_source:
+        bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
+        warp_shrink = bom_source.get("warp_shrinkage_percent", 0.0)
+        weft_shrink = bom_source.get("weft_shrinkage_percent", 0.0)
+        
+        # 1. Kích hoạt chuỗi Engine hình học sơ đồ (Khối 2b ổn định)
+        skyline_res = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
+        
+        # 2. Đồng bộ con số Yards thực tế từ khối 2b vào bộ nhớ BOM gốc
+        bom_source["global_gross_fabric_consumption"] = skyline_res["global_gross_fabric_yds"]
+        
+        # 3. Bóc tách lớp cắt và diện tích mảnh rập (Khối 3)
+        total_area, piece_data = process_pieces_layer_and_areas(bom_rows_list, skyline_res["product_segmented"], warp_shrink, weft_shrink)
+        
+        # 4. Phân bổ định mức chi tiết (Khối 4 chuẩn hóa hạ hiệu suất keo lót)
+        display_rows = allocate_gerber_share_consumption(piece_data, total_area, skyline_res)
+        
+        # Đồng bộ lưu trữ ngược lại vào session_state bền vững
+        st.session_state["processed_display_rows"] = display_rows
+        st.session_state["bom_data"] = bom_source
+
+# --- PHÂN ĐOẠN VẼ GIAO DIỆN STREAMLIT (RENDERING) ---
+# Kiểm tra sự tồn tại của dữ liệu hiển thị sau khi đã tính toán khép kín
+if display_rows and skyline_res:
     df_bom = pd.DataFrame(display_rows)
     product_segmented = skyline_res["product_segmented"]
-    
-    # Trích xuất trực tiếp mật độ nén thực tế sau hiệu chỉnh từ bộ Engine Khối 2b
     current_packing_density = skyline_res.get("actual_packing_density", 0.85)
     
-    # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
+    # Đồng bộ ép lại cột hiển thị Mật độ nén trên giao diện
     if "Dự đoán Mật độ nén" in df_bom.columns:
         df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
 
@@ -1183,7 +1211,7 @@ if 'display_rows' in locals() and display_rows:
         unsafe_allow_html=True
     )
     
-    # 1. Bảng tổng hợp định mức (BOM Summary)
+    # A. Bảng tổng hợp định mức (BOM Summary)
     df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
     df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
     df_summary["UOM"] = "YDS"
@@ -1199,20 +1227,21 @@ if 'display_rows' in locals() and display_rows:
     st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
     
-    # 2. Bảng chi tiết rập CAD
+    # B. Bảng chi tiết cấu trúc rập CAD
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
     st.dataframe(df_bom, use_container_width=True)
     
-    # 3. Footer thông báo thông số AI
+    # C. Footer thông báo thông số AI động từ bộ nhớ gốc Root
+    bom_source_display = st.session_state.get("bom_data", {})
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
         f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
-        f'Size may mẫu: <b>{bom_source.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source.get("fabric_width_inch", 56.0)}"</b> | '
-        f'Co rút dọc: <b>{warp_shrink}%</b> | Co rút ngang: <b>{weft_shrink}%</b>.'
+        f'Size may mẫu: <b>{bom_source_display.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source_display.get("fabric_width_inch", 56.0)}"</b> | '
+        f'Co rút dọc: <b>{bom_source_display.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút ngang: <b>{bom_source_display.get("weft_shrinkage_percent", 0.0)}%</b>.'
         f'</p>', 
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
 else:
-    # Nếu bấm Clear Memory hoặc chưa nạp file, hệ thống lọt vào đây hiển thị dòng thông báo an toàn, không sập app
+    # Đoạn thông báo an toàn xuất hiện khi hệ thống trống file đầu vào
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
