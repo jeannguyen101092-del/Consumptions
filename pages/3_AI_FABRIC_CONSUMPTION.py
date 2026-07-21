@@ -1376,7 +1376,7 @@ st.write("Số lượng rập trong session_state:", len(st.session_state.get("p
 st.write("Thông tin mã hàng bom_data:", st.session_state.get("bom_data", {}))
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (ĐÃ VÁ ĐÚNG CẤU TRÚC ĐỆM)
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (FIXED COLUMNS)
 # =====================================================================
 import streamlit as st, pandas as pd
 
@@ -1434,7 +1434,8 @@ if ctx and df_bom is not None and not df_bom.empty:
         unsafe_allow_html=True
     )
     
-    col1, col2 = st.columns()
+    # --- ĐOẠN ĐÃ SỬA CHIA TỈ LỆ CỘT CHỐNG LỖI TYP_ERROR ---
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
