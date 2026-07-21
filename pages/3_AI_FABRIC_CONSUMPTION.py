@@ -1250,8 +1250,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI)
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI UI)
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1262,11 +1261,12 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     output = io.BytesIO()
     wb = Workbook()
     
-    # Định dạng font Segoe UI chuẩn văn phòng PPJ
-    font = Font(name="Segoe UI", size=10)
-    bold = Font(name="Segoe UI", size=10, bold=True)
-    title_font = Font(name="Segoe UI", size=14, bold=True, color="0E6251")
-    header_font = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+    # Định dạng font Segoe UI chuẩn văn phòng PPJ Group
+    font_family = "Segoe UI"
+    font = Font(name=font_family, size=10)
+    bold = Font(name=font_family, size=10, bold=True)
+    title_font = Font(name=font_family, size=14, bold=True, color="0E6251")
+    header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
     
     # Cấu hình màu sắc thương hiệu (Xanh đậm PPJ & Xám nhạt thông số)
     header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
@@ -1284,7 +1284,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.sheet_view.showGridLines = True
     
     # Tiêu đề khối
-    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name="Segoe UI", size=8, italic=True, color="7F8C8D")
+    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     
     # Bốc tách động mã hàng và khách hàng từ bộ nhớ truyền sang
@@ -1292,7 +1292,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     customer_name = str(bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD"))).upper()
     
     # Nạp dòng thông số kỹ thuật (Technical Profile) bắt từ dòng số 4
-    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name="Segoe UI", size=11, bold=True)
+    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
     
     meta_info = [
         ["Mã hàng / Style Code:", style_code, "Khách hàng / Đối tác:", customer_name],
@@ -1306,8 +1306,8 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         for col_idx in range(1, 5):
             cell = ws1.cell(row=curr_row, column=col_idx)
             cell.border = thin_border
-            # 🚨 ĐÃ SỬA LỖI: Điền danh sách cột 1 và 3 cố định để in đậm nhãn tiêu đề thông số
-            if col_idx in:
+            # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP TRIỆT ĐỂ: Thay thế bộ kiểm tra rỗng bằng so sánh số trực tiếp
+            if col_idx == 1 or col_idx == 3:
                 cell.font = bold
                 cell.fill = meta_fill
             else:
@@ -1339,8 +1339,8 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             c = ws1.cell(row=curr_row, column=col_idx)
             c.font = font
             c.border = thin_border
-            # 🚨 ĐÃ SỬA LỖI: Điền danh sách cột 2 và 4 cố định để căn giữa mã vật tư và UOM
-            if col_idx in: 
+            # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP TRIỆT ĐỂ: Căn giữa cho cột mã vật tư (cột 2) và đơn vị (cột 4)
+            if col_idx == 2 or col_idx == 4: 
                 c.alignment = Alignment(horizontal="center")
 
     # =====================================================================
@@ -1350,7 +1350,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws2.sheet_view.showGridLines = True
     
     # Tiêu đề bảng chi tiết rập
-    ws2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name="Segoe UI", size=11, bold=True)
+    ws2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=font_family, size=11, bold=True)
     ws2.append([]) # Dòng trống phân tách
     
     # Khai báo tiêu đề cột bảng chi tiết rập CAD
@@ -1410,6 +1410,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     wb.save(output)
     output.seek(0)
     return output
+
 
 import streamlit as st, pandas as pd
 import numpy as np
