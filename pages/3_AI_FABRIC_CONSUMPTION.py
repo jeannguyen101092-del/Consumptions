@@ -1250,9 +1250,8 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (FIXED)
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI)
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1288,11 +1287,11 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name="Segoe UI", size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     
-    # 🚨 BỐC TÁCH ĐỘNG MÃ HÀNG VÀ KHÁCH HÀNG TỪ BỘ NHỚ TRUYỀN SANG
+    # Bốc tách động mã hàng và khách hàng từ bộ nhớ truyền sang
     style_code = str(bom_ctx.get("style_code", bom_ctx.get("style_num", "N/A"))).upper()
     customer_name = str(bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD"))).upper()
     
-    # Nạp dòng thông số kỹ thuật (Technical Profile) bắt đầu từ dòng số 4
+    # Nạp dòng thông số kỹ thuật (Technical Profile) bắt từ dòng số 4
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name="Segoe UI", size=11, bold=True)
     
     meta_info = [
@@ -1307,7 +1306,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         for col_idx in range(1, 5):
             cell = ws1.cell(row=curr_row, column=col_idx)
             cell.border = thin_border
-            # Đắp màu xám và in đậm cho cột số 1 và số 3 (Cột nhãn tiêu đề)
+            # 🚨 ĐÃ SỬA LỖI: Điền danh sách cột 1 và 3 cố định để in đậm nhãn tiêu đề thông số
             if col_idx in:
                 cell.font = bold
                 cell.fill = meta_fill
@@ -1340,7 +1339,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             c = ws1.cell(row=curr_row, column=col_idx)
             c.font = font
             c.border = thin_border
-            # Căn giữa cho cột mã vật liệu và đơn vị tính (Cột 2 và 4)
+            # 🚨 ĐÃ SỬA LỖI: Điền danh sách cột 2 và 4 cố định để căn giữa mã vật tư và UOM
             if col_idx in: 
                 c.alignment = Alignment(horizontal="center")
 
@@ -1411,7 +1410,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     wb.save(output)
     output.seek(0)
     return output
-
 
 import streamlit as st, pandas as pd
 import numpy as np
