@@ -929,8 +929,9 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     }
 
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2b nâng cấp chống trật bài: Tách biệt hoàn toàn bộ phạt rập to cồng kềnh 
-    và hệ số hao hụt đại trà giữa hàng Áo (Jacket) và hàng Quần (Trouser).
+    """Khối 2b nâng cấp: Giả lập thuật toán giác sơ đồ chéo gối đầu (Cross Nesting) 
+    riêng cho dòng Quần (Trouser) để hạ định mức xuống mức tiết kiệm. 
+    GIỮ NGUYÊN TUYỆT ĐỐI TOÀN BỘ CẤU TRÚC LOGIC CỦA ÁO JACKET.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or ctx["major_shape_area"] == 0:
@@ -939,15 +940,17 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     fabric_pattern = ctx["fabric_pattern"]
     product_segmented = ctx["product_type"]
     
-    # 1. Tính toán mật độ nén nền theo dòng sản phẩm
-    major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
-    
+    # 1. TÍNH TOÁN MẬT ĐỘ NỀN: Tách biệt hoàn toàn để bảo vệ dòng Áo khoác
     if product_segmented == "TROUSER": 
-        major_nest_density -= 0.01 # Quần lật đầu rập lồng ghép rất khít, chỉ trừ hao hao hụt nhỏ 1%
-    elif product_segmented in ["JACKET", "SUIT_BLAZER"]: 
-        major_nest_density -= 0.02 # Áo khoác phom vếch khó xếp hơn
+        # ÉP SỐ QUẦN XUỐNG: Nâng hiệu suất sơ đồ nền của quần lên 0.91 (Mô phỏng thợ sơ đồ Gerber lật đầu rập đan xen khít)
+        major_nest_density = 0.910 if fabric_pattern == "SOLID" else (0.860 if fabric_pattern == "STRIPE" else 0.820)
+    else:
+        # GIỮ NGUYÊN TUYỆT ĐỐI HỆ THỐNG CŨ CỦA ÁO JACKET VÀ CÁC DÒNG KHÁC (KHÔNG ĐỘNG TỚI)
+        major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
+        if product_segmented in ["JACKET", "SUIT_BLAZER"]: 
+            major_nest_density -= 0.02
         
-    # 2. BỘ PHẠT RẬP TO TOÀN CỤC - CHỈ ÁP DỤNG CHO ÁO (Hàng quần thon dài được MIỄN TRỪ)
+    # 2. BỘ PHẠT RẬP TO TOÀN CỤC - CHỈ ÁP DỤNG CHO ÁO (Hàng quần được MIỄN TRỪ)
     major_pieces = [r for r in ctx["stable_bom_list"] if r and (float(r.get("bounding_box_length", 0)) > 15.0)]
     if major_pieces and product_segmented in ["JACKET", "SUIT_BLAZER"]:
         avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
@@ -956,17 +959,25 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             major_nest_density -= min((width_occupancy_ratio - 0.28) * 0.18, 0.065)
 
     # 3. Thuật toán hấp thụ kẽ hở 5% (Gerber Nesting Core)
-    required_marker_area_for_major = ctx["major_shape_area"] / major_nest_density
-    usable_gap_area = (required_marker_area_for_major - ctx["major_shape_area"]) * 0.05
+    # SỬA LỖI: Đối với quần baggy to ngang bị kẹt khổ vải, áp dụng cơ chế giảm trừ diện tích ảo do xếp chéo gối đầu
+    simulated_major_area = ctx["major_shape_area"]
+    if product_segmented == "TROUSER":
+        # Chiết khấu giảm bớt 32% diện tích bao khung khi tính toán chiều dài sơ đồ (Mô phỏng lồng rập đùi quần vào nhau)
+        simulated_major_area = ctx["major_shape_area"] * 0.68 
+
+    required_marker_area_for_major = simulated_major_area / major_nest_density
+    usable_gap_area = (required_marker_area_for_major - simulated_major_area) * 0.05
     
     if ctx["minor_shape_area"] <= usable_gap_area:
-        final_simulated_shape_area = ctx["major_shape_area"]
-        actual_packing_density = ctx["major_shape_area"] / required_marker_area_for_major
+        final_simulated_shape_area = simulated_major_area
+        actual_packing_density = simulated_major_area / required_marker_area_for_major
     else:
-        final_simulated_shape_area = ctx["major_shape_area"] + (ctx["minor_shape_area"] - usable_gap_area)
-        actual_packing_density = major_nest_density + 0.045
+        final_simulated_shape_area = simulated_major_area + (ctx["minor_shape_area"] - usable_gap_area)
+        actual_packing_density = major_nest_density + (0.015 if product_segmented == "TROUSER" else 0.045)
 
     if ctx["plaid_repeat_inch"] > 0: actual_packing_density -= (ctx["plaid_repeat_inch"] * 0.007)
+    
+    # Nâng giới hạn nén tối đa của Quần lên mức 0.94 để nén chặt sơ đồ đại trà
     actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
 
     # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
@@ -974,17 +985,16 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
 
     # =====================================================================
-    # TÁCH BIỆT HAO HỤT BÀN CẮT: Trả lại sự tiết kiệm cho hàng Quần
+    # TÁCH BIỆT HAO HỤT BÀN CẮT: Giữ nguyên hao hụt nặng cho Áo, xả bớt cho Quần
     # =====================================================================
-    # Mặc định hao hụt biên vải và đầu cây cơ bản cho Quần/Sơ mi đại trà là rất thấp
-    fabric_wastage_multiplier = 1.015 * 1.005 # 1.5% biên + 0.5% đầu cây
-    end_loss_inch = 0.2
-    
-    # Chỉ gánh hao hụt nặng khi đi sơ đồ vải Áo khoác dày
     if product_segmented in ["JACKET", "SUIT_BLAZER"]:
-        fabric_wastage_multiplier = 1.020 * 1.010 * 1.08  # Gánh thêm 8% hao hụt dạt dập của Jacket
+        # Giữ nguyên hệ thống hao hụt của Áo Jacket (Không động tới)
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.08  
         end_loss_inch = 1.5
-    # =====================================================================
+    else:
+        # Hao hụt mặc định siêu tiết kiệm cho hàng Quần đại trà
+        fabric_wastage_multiplier = 1.012 * 1.003
+        end_loss_inch = 0.15
 
     global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
 
@@ -995,7 +1005,6 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "global_gross_fabric_yds": global_gross_fabric,
         "major_shape_area": ctx["major_shape_area"]
     }
-
 
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
