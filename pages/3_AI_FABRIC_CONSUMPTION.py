@@ -831,7 +831,9 @@ def initialize_and_sync_parameters():
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a: Nhận diện dòng hàng, co rút và tách mảng rập chính/phụ"""
+    """Khối 2a nâng cấp: Bộ quét AI nhận diện dòng hàng thông minh từ dữ liệu rập BOM 
+    và phân loại chi tiết rập thành 2 nhóm CHÍNH - PHỤ.
+    """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
     warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
@@ -839,7 +841,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     
     query_lower = str(user_query_text).lower() if user_query_text else ""
     
-    # 1. Nhận diện hoa văn vải và dòng sản phẩm
+    # 1. Nhận diện hoa văn vải (Solid, Stripe, Plaid, Nap)
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
     if "sọc" in query_lower or "stripe" in query_lower: fabric_pattern = "STRIPE"
     if "caro" in query_lower or "plaid" in query_lower: 
@@ -848,15 +850,34 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
     if any(k in query_lower for k in ["tuyết", "nap", "one way", "một chiều", "nhung"]): fabric_pattern, is_one_way_nap = "NAP", True
 
-    product_type = "CASUAL_TOP"
-    if any(k in query_lower for k in ["sơ mi", "shirt"]): product_type = "SHIRT"
-    elif any(k in query_lower for k in ["thun", "t-shirt", "polo", "knit"]): product_type = "KNIT_TEE"
-    elif any(k in query_lower for k in ["quần", "pant", "trouser", "jeans"]): product_type = "TROUSER"
-    elif any(k in query_lower for k in ["jacket", "khoác", "bomber"]): product_type = "JACKET"
-    elif any(k in query_lower for k in ["vét", "vest", "blazer", "suit"]): product_type = "SUIT_BLAZER"
-    elif any(k in query_lower for k in ["váy", "đầm", "dress", "skirt"]): product_type = "DRESS_SKIRT"
+    # =====================================================================
+    # NÂNG CẤP BỘ NHẬN DIỆN DÒNG SẢN PHẨM TOÀN CỤC CHUYÊN DỤNG (AI SEGMENTATION)
+    # =====================================================================
+    # Gom tất cả tên linh kiện từ file rập để làm vùng quét dữ liệu cho AI
+    bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in bom_rows_list if r]).strip()
+    full_detect_zone = f"{query_lower} {bom_components_text}"
 
-    # 2. Vòng lặp tách mảng rập
+    product_type = "CASUAL_TOP" # Dòng hàng mặc định ban đầu
+    
+    # Quét từ khóa thông minh từ rập:
+    # A. Nhận diện Quần (Nếu có cạp waistband, che khóa fly, đỉa loop, hoặc ống leg, thân quần trouser/pant)
+    if any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop", "đỉa"]):
+        product_type = "TROUSER"
+    # B. Nhận diện Áo khoác / Jacket / Vét / Blazer (Nếu có măng sét cuff, ve áo lapel, mũ hood, lót túi mổ...)
+    elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit", "cuff", "măngsét", "flap", "nắptúi"]):
+        product_type = "JACKET"
+    # C. Nhận diện Áo sơ mi (Nếu rập chứa đô áo yoke, cổ sơ mi collar)
+    elif any(k in full_detect_zone for k in ["sơ mi", "shirt", "so mi", "yoke", "đô", "collar"]):
+        product_type = "SHIRT"
+    # D. Nhận diện Áo thun (T-shirt, Polo, dệt kim knit)
+    elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
+        product_type = "KNIT_TEE"
+    # E. Nhận diện Váy đầm (Tùng váy xòe flare, váy liền dress, chân váy skirt)
+    elif any(k in full_detect_zone for k in ["váy", "đầm", "dress", "skirt", "flare", "tùng"]):
+        product_type = "DRESS_SKIRT"
+    # =====================================================================
+
+    # 2. Vòng lặp tính toán diện tích hình học rập và tách mảng CHÍNH/PHỤ
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
     
@@ -869,25 +890,42 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         raw_w = float(r.get("bounding_box_width", 0))
         pcs = int(r.get("piece_count", 1))
         comp_name = str(r.get("component_name", "UNNAMED")).upper().strip()
+        piece_type_raw = str(r.get("piece_type", "")).upper().strip()
         
-        # Tính toán co rút dệt nhuộm và đường may
-        adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
-        adj_w = (raw_w + 0.88) * (1 + weft_shrinkage / 100.0)
+        # Đồng bộ chuỗi quét chữ thường liền mạch của riêng chi tiết hiện tại
+        curr_item_lower = f"{comp_name} {piece_type_raw}".lower()
         
-        # Gán sơ bộ shape factor nền (Mặc định chi tiết lớn = 0.75, nhỏ = 0.85)
-        is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or (raw_l > 15.0 and raw_w > 8.0)
+        # Bù trừ đường may tiêu chuẩn biên công nghiệp (0.44 inch mỗi bên cạnh) và tỷ lệ co rút
+        adj_l = (raw_l + (0.44 * 2.0)) * (1 + warp_shrinkage / 100.0)
+        adj_w = (raw_w + (0.44 * 2.0)) * (1 + weft_shrinkage / 100.0)
+        
+        # ĐỊNH NGHĨA RẬP CHÍNH (MAJOR): Tất cả các chi tiết lớn chịu trách nhiệm gánh khung sơ đồ nền
+        # Thân trước (front), Thân sau (back), Tay áo (sleeve), Thân lớn (body), Ống quần/Mảnh dọc lớn (panel)
+        is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or \
+                           (raw_l > 15.0 and raw_w > 8.0) or \
+                           any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
+        
+        # Áp nhanh Shape Factor mô phỏng diện tích đa giác thực tế
         sf = 0.75 if is_actual_major else 0.85
+        if product_type == "TROUSER" and is_actual_major: sf = 0.63 # Quần dính đáy cong sâu hao kẽ hở lớn
+        elif product_type == "DRESS_SKIRT" and "flare" in curr_item_lower: sf = 0.52 # Tùng váy xòe tròn hao hụt rất cao
+        
         shape_area_single = (adj_l * adj_w) * sf
         
         if is_actual_major:
             major_shape_area += (shape_area_single * pcs)
-            if pcs >= 2: constraint_penalty += 0.020
-            if is_one_way_nap: constraint_penalty += 0.035
+            if pcs >= 2: constraint_penalty += 0.020 # Phạt hiệu suất nếu ép buộc đối xứng cặp trái phải
+            if is_one_way_nap: constraint_penalty += 0.035 # Phạt hiệu suất nếu vải tuyết một chiều cắt ngược đầu
         else:
+            # Đây là chi tiết nhỏ (nắp túi, đỉa, cơi, nẹp...) -> Chờ đưa vào hàng đợi điền kẽ hở
             minor_shape_area += (shape_area_single * pcs)
 
-        if fabric_pattern in ["STRIPE", "PLAID"] and any(k in comp_name for k in ["CF", "CB", "POCKET", "COLLAR"]): total_matching_score += (2 * pcs)
-        if any(k in comp_name for k in ["BIAS", "THIÊN", "XÉO"]): bias_shape_area_weight += (shape_area_single * pcs)
+        # Trọng số khớp sọc canh sợi đối với vải Caro/Sọc kẻ
+        if fabric_pattern in ["STRIPE", "PLAID"] and any(k in curr_item_lower for k in ["cf", "cb", "pocket", "collar"]): 
+            total_matching_score += (3 * pcs)
+        # Nhận diện vải cắt xéo (Bias Cut) tạo độ rủ
+        if any(k in curr_item_lower for k in ["bias", "thiên", "xéo"]): 
+            bias_shape_area_weight += (shape_area_single * pcs)
 
     return {
         "product_type": product_type, "fabric_pattern": fabric_pattern, "plaid_repeat_inch": plaid_repeat_inch,
@@ -895,6 +933,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
         "constraint_penalty": constraint_penalty, "bom_rows_list": bom_rows_list
     }
+
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     """Khối 2b: Phạt hiệu suất theo kích thước rập to và giả lập chiều dài sơ đồ tổng"""
     # Gọi Khối 2a để giải nén dữ liệu phân loại ban đầu
