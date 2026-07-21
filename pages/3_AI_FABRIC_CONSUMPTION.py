@@ -1198,9 +1198,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH (ĐÃ NẠP THƯ VIỆN IO): HÀM TẠO EXCEL BÁO CÁO PPJ
+# 🟩 KHỐI 5a HOÀN CHỈNH (ĐÃ VÁ LỖI TRÙNG CỘT EXCEL): HÀM TẠO EXCEL BÁO CÁO PPJ
 # =====================================================================
-import io  # 🚨 ĐÃ SỬA LỖI: Thêm lệnh import thư viện io lên đầu khối để vá sạch lỗi NameError
+import io  
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1208,7 +1208,7 @@ from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
     """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
-    Đã nạp đầy đủ thư viện io chống sập màn hình đỏ.
+    Đã sửa lỗi cấu trúc đo độ rộng cột tự động cho openpyxl.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1248,24 +1248,11 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # Gán định dạng thủ công trực tiếp cho từng ô theo vị trí hàng/cột
-        ws1.cell(row=current_r, column=1).font = bold_font
-        ws1.cell(row=current_r, column=1).fill = meta_label_fill
-        ws1.cell(row=current_r, column=1).border = thin_border
+        ws1.cell(row=current_r, column=1).font = bold_font; ws1.cell(row=current_r, column=1).fill = meta_label_fill; ws1.cell(row=current_r, column=1).border = thin_border
+        ws1.cell(row=current_r, column=3).font = bold_font; ws1.cell(row=current_r, column=3).fill = meta_label_fill; ws1.cell(row=current_r, column=3).border = thin_border
         
-        ws1.cell(row=current_r, column=3).font = bold_font
-        ws1.cell(row=current_r, column=3).fill = meta_label_fill
-        ws1.cell(row=current_r, column=3).border = thin_border
-        
-        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251")
-        ws1.cell(row=current_r, column=2).fill = meta_val_fill
-        ws1.cell(row=current_r, column=2).border = thin_border
-        ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
-        
-        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251")
-        ws1.cell(row=current_r, column=4).fill = meta_val_fill
-        ws1.cell(row=current_r, column=4).border = thin_border
-        ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=2).fill = meta_val_fill; ws1.cell(row=current_r, column=2).border = thin_border; ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=4).fill = meta_val_fill; ws1.cell(row=current_r, column=4).border = thin_border; ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
     ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
@@ -1309,14 +1296,15 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
+    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Sử dụng enumerate trích xuất chỉ số cột số nguyên (integer) sạch bóng 100% lỗi tuple object
     for ws in [ws1, ws2]:
-        for col in ws.columns:
-            max_len = max(len(str(cell.value or '')) for cell in col)
-            ws.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 13)
+        for c_num, col_cells in enumerate(ws.columns, start=1):
+            max_len = max(len(str(cell.value or '')) for cell in col_cells)
+            col_letter = get_column_letter(c_num)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 13)
             
     wb.save(output)
     return output.getvalue()
-
 
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI CHIA CỘT ST.COLUMNS): RENDERING UI & NÚT EXCEL PPJ
