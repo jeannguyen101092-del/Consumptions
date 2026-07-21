@@ -1341,13 +1341,22 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
-# --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
-if display_rows and skyline_res:
-    df_bom = pd.DataFrame(display_rows)
-    product_segmented = skyline_res["product_segmented"]
-    current_packing_density = skyline_res.get("actual_packing_density", 0.85)
-    current_fabric_pattern = skyline_res.get("fabric_pattern", "SOLID")
+# =====================================================================
+# 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI AN TOÀN BIẾN KHÔNG LO SẬP APP): RENDERING UI & NÚT EXCEL PPJ
+# =====================================================================
+# Sử dụng trực tiếp dữ liệu hiển thị từ bộ nhớ phiên bền vững để không bao giờ bị lỗi NameError
+display_rows_source = st.session_state.get("processed_display_rows", [])
+bom_source_ctx = st.session_state.get("bom_data", {})
+
+if display_rows_source and bom_source_ctx:
+    df_bom = pd.DataFrame(display_rows_source)
     
+    # Lấy thông số an toàn bằng cách check locals() hoặc bốc ngược từ bộ nhớ Context gốc
+    product_segmented = skyline_res["product_segmented"] if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("product_segmented", "JACKET")
+    current_packing_density = skyline_res.get("actual_packing_density", 0.85) if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("global_packing_density", 0.85)
+    current_fabric_pattern = skyline_res.get("fabric_pattern", "SOLID") if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("fabric_pattern", "SOLID")
+    
+    # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
     if "Dự đoán Mật độ nén" in df_bom.columns:
         df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
 
@@ -1359,6 +1368,7 @@ if display_rows and skyline_res:
         unsafe_allow_html=True
     )
     
+    # A. Trích xuất bảng tổng hợp định mức (BOM Summary) cho giao diện
     df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
     df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
     df_summary["UOM"] = "YDS"
@@ -1366,32 +1376,37 @@ if display_rows and skyline_res:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    col_title, col_btn = st.columns([3, 1])
+    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
+    col_title, col_btn = st.columns()
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
-        # ĐỒNG BỘ CHÍNH XÁC: Truyền thêm biến current_fabric_pattern sang Khối 5a để xuất báo cáo
+        # Gọi Khối 5a truyền đầy đủ thông số kỹ thuật động và nhãn vân vải động sang file Excel báo cáo
         excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, bom_source_ctx, current_packing_density, current_fabric_pattern)
         st.download_button(
             label="🟢 XUẤT FILE EXCEL PPJ",
             data=excel_data,
             file_name=f"PPJ_BOM_Consumption_{product_segmented}_{bom_source_ctx.get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable_v6"
+            key="btn_download_excel_ppj_final_stable_v6_fixed"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
+    
+    # B. Bảng chi tiết cấu trúc rập CAD trên giao diện
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
     st.dataframe(df_bom, use_container_width=True)
     
+    # C. Footer thông báo thông số AI động dưới chân bảng
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
         f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
         f'Size may mẫu: <b>{bom_source_ctx.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source_ctx.get("fabric_width_inch", 56.0)}"</b> | '
-        f'Co rút dọc: <b>{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút nang: <b>{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%</b>.'
+        f'Co rút dọc: <b>{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút ngang: <b>{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%</b>.'
         f'</p>', 
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # Đoạn thông báo xuất hiện khi hệ thống trống file dữ liệu hoặc bấm Clear Memory, triệt tiêu hoàn toàn lỗi màn hình đỏ
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
