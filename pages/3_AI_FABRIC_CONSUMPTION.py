@@ -832,7 +832,7 @@ def initialize_and_sync_parameters():
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
     """Khối 2a nâng cấp toàn diện: Khóa cứng thứ tự danh sách linh kiện rập.
-    Tích hợp và phân hệ dòng hàng JUMPSUIT (Áo liền quần) lên độ ưu tiên số 1.
+    Đẩy độ ưu tiên dòng DRESS_SKIRT (Váy đầm) lên trên dòng Quần để tránh lỗi lách chữ Denim.
     GIỮ NGUYÊN HOÀN TOÀN cấu trúc tính toán cũ của dòng Quần (Trouser) và Áo Jacket.
     """
     bom_source = st.session_state.get("bom_data", {})
@@ -866,15 +866,19 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
 
     product_type = "CASUAL_TOP" # Dòng hàng mặc định ban đầu
     
-    # ➔ ĐÃ HIỆU CHỈNH ĐỘ ƯU TIÊN: Đẩy dòng JUMPSUIT (Áo liền quần) lên ƯU TIÊN SỐ 1
+    # ➔ ƯU TIÊN SỐ 1: Khóa dòng hàng Áo liền quần (Jumpsuit)
     if any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "bodysuit", "romper", "dungaree"]):
         product_type = "JUMPSUIT"
         
-    # ➔ ƯU TIÊN SỐ 2: Nhận diện Áo khoác / Jacket (GIỮ NGUYÊN TUYỆT ĐỐI HỆ THỐNG CŨ)
+    # ➔ ƯU TIÊN SỐ 2: Nhận diện Áo khoác / Jacket / Vét / Blazer
     elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit", "cuff", "măngsét", "flap", "nắptúi"]):
         product_type = "JACKET"
         
-    # ➔ ƯU TIÊN SỐ 3: Nhận diện dòng Quần (Trouser / Jeans) (GIỮ NGUYÊN TUYỆT ĐỐI HỆ THỐNG CŨ)
+    # ➔ ƯU TIÊN SỐ 3 MỚI: Nhận diện Váy đầm / Chân váy (Đẩy lên trên Quần để bắt gọn từ khóa Denim Skirt)
+    elif any(k in full_detect_zone for k in ["váy", "đầm", "dress", "skirt", "flare", "tùng", "chân váy"]):
+        product_type = "DRESS_SKIRT"
+        
+    # ➔ ƯU TIÊN SỐ 4: Nhận diện dòng Quần (Trouser / Jeans)
     elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop", "đỉa"]):
         product_type = "TROUSER"
         
@@ -883,8 +887,6 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         product_type = "SHIRT"
     elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
         product_type = "KNIT_TEE"
-    elif any(k in full_detect_zone for k in ["váy", "đầm", "dress", "skirt", "flare", "tùng"]):
-        product_type = "DRESS_SKIRT"
 
     # 3. Vòng lặp tính toán diện tích hình học rập và tách mảng CHÍNH/PHỤ
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
@@ -914,13 +916,13 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         # Áp khung Shape Factor mô phỏng diện tích đa giác thực tế
         sf = 0.75 if is_actual_major else 0.85
         
-        # ĐỊNH TUYẾN HỆ SỐ HÌNH HỌC ĐỘNG THEO CHỦNG LOẠI HÀNG:
+        # Định tuyến hệ số đa giác thực tế theo dòng hàng
         if product_type == "JUMPSUIT" and is_actual_major:
-            sf = 0.65 # Đồ liền quần rập cực dài uốn lượn sâu ở eo/đáy, hao hụt kẽ hở biên lớn
+            sf = 0.65 
         elif product_type == "TROUSER" and is_actual_major: 
-            sf = 0.76 # Giữ nguyên hệ số cũ đã căn chỉnh của dòng Quần
+            sf = 0.76 
         elif product_type == "DRESS_SKIRT" and "flare" in curr_item_lower: 
-            sf = 0.52
+            sf = 0.52 # Tùng váy xòe bo cong lượn sóng tạo vải vụn kẽ hở lớn
             
         shape_area_single = (adj_l * adj_w) * sf
         
@@ -944,9 +946,11 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     }
 
 
+
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2b nâng cấp: Giả lập thuật toán nén sơ đồ và tính Yards vải tổng.
-    Đã tích hợp phân hệ JUMPSUIT riêng biệt. GIỮ NGUYÊN TUYỆT ĐỐI CẤU TRÚC ÁO JACKET VÀ QUẦN.
+    """Khối 2b hoàn chỉnh: Giả lập thuật toán nén sơ đồ và tính Yards vải tổng.
+    Đã tích hợp phân hệ DRESS_SKIRT (Váy đầm) riêng biệt độc lập.
+    GIỮ NGUYÊN TUYỆT ĐỐI CẤU TRÚC ÁO JACKET, QUẦN VÀ JUMPSUIT CŨ.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or ctx["major_shape_area"] == 0:
@@ -955,19 +959,21 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     fabric_pattern = ctx["fabric_pattern"]
     product_segmented = ctx["product_type"]
     
-    # 1. TÍNH TOÁN MẬT ĐỘ NỀN CƠ SỞ: Rẽ nhánh độc lập cho từng dòng hàng
+    # 1. TÍNH TOÁN MẠT ĐỘ NỀN CƠ SỞ THEO TỪNG DÒNG HÀNG BIỆT LẬP
     if product_segmented == "TROUSER": 
         major_nest_density = 0.910 if fabric_pattern == "SOLID" else (0.860 if fabric_pattern == "STRIPE" else 0.820)
     elif product_segmented == "JUMPSUIT":
-        # Sơ đồ áo liền quần rập rất dài, khó lồng ghép khít hơn quần đơn, đặt hiệu suất nền 81%
         major_nest_density = 0.810 if fabric_pattern == "SOLID" else (0.760 if fabric_pattern == "STRIPE" else 0.720)
+    elif product_segmented == "DRESS_SKIRT":
+        # Váy đầm/Chân váy có tùng bo cong xéo vải, hiệu suất nền thực tế chỉ đạt quanh mức 76.5% do hao hụt kẽ hở lớn
+        major_nest_density = 0.765 if fabric_pattern == "SOLID" else (0.720 if fabric_pattern == "STRIPE" else 0.680)
     else:
-        # Giữ nguyên mật độ nền cũ của Áo Jacket và các dòng hàng khác
+        # Giữ nguyên mật độ nền cơ bản của Áo Jacket và các dòng hàng khác
         major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
         if product_segmented in ["JACKET", "SUIT_BLAZER"]: 
             major_nest_density -= 0.02
         
-    # 2. BỘ PHẠT RẬP TO TOÀN CỤC - CHỈ ÁP DỤNG CHO ÁO (Jumpsuit và Quần được MIỄN TRỪ)
+    # 2. BỘ PHẠT RẬP TO TOÀN CỤC - CHỈ ÁP DỤNG CHO ÁO JACKET (Váy, Quần và Jumpsuit được MIỄN TRỪ)
     major_pieces = [r for r in ctx["stable_bom_list"] if r and (float(r.get("bounding_box_length", 0)) > 15.0)]
     if major_pieces and product_segmented in ["JACKET", "SUIT_BLAZER"]:
         avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
@@ -998,18 +1004,19 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
 
     # =====================================================================
-    # TÁCH BIỆT HAO HỤT BÀN CẮT THEO TỪNG CHỦNG LOẠI HÀNG
+    # TÁCH BIỆT HAO HỤT BÀN CẮT THEO TỪNG CHỦNG LOẠI HÀNG BIỆT LẬP
     # =====================================================================
     if product_segmented in ["JACKET", "SUIT_BLAZER"]:
-        # Giữ nguyên hệ thống hao hụt mục tiêu đạt đúng 2.6 YDS của Áo Jacket
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.155  
         end_loss_inch = 3.0
     elif product_segmented == "JUMPSUIT":
-        # Áo liền quần dập khúc đầu cây nhiều, đặt hao hụt sản xuất 6% và cộng bù 2.0 inch đầu tấm sơ đồ
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.06
         end_loss_inch = 2.0
+    elif product_segmented == "DRESS_SKIRT":
+        # Chân váy/Váy đầm: Nhân 4% hao hụt an toàn sản xuất và cộng bù 1.8 inch đầu sơ đồ bàn cắt
+        fabric_wastage_multiplier = 1.015 * 1.005 * 1.04
+        end_loss_inch = 1.8
     else:
-        # Giữ nguyên hao hụt siêu tiết kiệm cho hàng Quần đại trà
         fabric_wastage_multiplier = 1.012 * 1.003
         end_loss_inch = 0.15
     # =====================================================================
@@ -1023,6 +1030,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "global_gross_fabric_yds": global_gross_fabric,
         "major_shape_area": ctx["major_shape_area"]
     }
+
 
 
 
