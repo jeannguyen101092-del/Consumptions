@@ -1437,17 +1437,35 @@ import pandas as pd
 import numpy as np
 import re
 
-# 1. ĐỌC DỮ LIỆU ĐẦU VÀO VÀ LOẠI BỎ CỘT TRÙNG LẶP NGAY TỪ GỐC
+# 1. BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE
+chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
+
+warp_shrink = 0.0
+weft_shrink = 0.0
+
+match_warp = re.search(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text)
+if match_warp:
+    warp_shrink = float(match_warp.group(2))
+    st.session_state["warp_shrinkage"] = warp_shrink
+else:
+    warp_shrink = float(st.session_state.get("warp_shrinkage", 0.0))
+    
+match_weft = re.search(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text)
+if match_weft:
+    weft_shrink = float(match_weft.group(2))
+    st.session_state["weft_shrinkage"] = weft_shrink
+else:
+    weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
+
+# 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH
 ctx = st.session_state.get("bom_data", {})
 rows = ctx.get("bom_rows", [])
-
-if not rows:
+if not rows or len(rows) == 0:
     rows = st.session_state.get("processed_display_rows", [])
 
 if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     
-    # Khóa chặn bảo vệ: Loại bỏ hoàn toàn các cột trùng tên vật lý
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
     prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
@@ -1456,75 +1474,50 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
     pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
     
-    # Xác định cột chiều dài/rộng gốc Techpack
     orig_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
     orig_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
     
-    # Chuyển kiểu số an toàn cho các cột kích thước thô ban đầu
     df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # ĐỒNG BỘ KHÓA CHÍNH: Đọc trực tiếp từ bộ nhớ lệnh gõ của ô chat đầu vào
-    chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
-    
-    # Thiết lập giá trị co rút mặc định ban đầu nếu không tìm thấy từ khóa trong chat
-    warp_shrink = float(st.session_state.get("warp_shrinkage", 0.0))
-    weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
-    
-    # 🔴 THIẾT LẬP LUỒNG KHỔ ĐỘNG TOÀN DIỆN (VẢI ĐỘNG | KEO ĐỘNG | LÓT ĐỘNG) TỪ ĐOẠN CHAT
+    # THIẾT LẬP LUỒNG KHỔ ĐỘNG TOÀN DIỆN TỪ CHAT VỪA BÓC
     fabric_width = float(ctx.get("fabric_width_inch", 56.0))
     fusing_width = 59.0
     lining_width = 57.0
     
-    # A. Bốc khổ Vải chính từ chat
-    match_fab_width = re.search(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
-    if match_fab_width:
-        fabric_width = float(match_fab_width.group(1))
+    match_width = re.search(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
+    if match_width:
+        fabric_width = float(match_width.group(1))
         ctx["fabric_width_inch"] = fabric_width
         st.session_state["bom_data"] = ctx
     if fabric_width <= 0: fabric_width = 56.0
         
-    # B. Bốc khổ Keo/Dựng từ chat
     match_fus_width = re.search(r'(?:khổ\s*keo|keo\s*khổ|dựng\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
-    if match_fus_width:
-        fusing_width = float(match_fus_width.group(1))
+    if match_fus_width: fusing_width = float(match_fus_width.group(1))
     
-    # C. Bốc khổ Vải lót từ chat
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
-    if match_lin_width:
-        lining_width = float(match_lin_width.group(1))
-
-    # Tự động trích xuất co rút dọc/ngang của VẢI CHÍNH từ ô chat
-    match_warp = re.search(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text)
-    if match_warp:
-        warp_shrink = float(match_warp.group(2))
-        st.session_state["warp_shrinkage"] = warp_shrink
+    if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    match_weft = re.search(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text)
-    if match_weft:
-        weft_shrink = float(match_weft.group(2))
-        st.session_state["weft_shrinkage"] = weft_shrink
-        
-    # TÁCH BIỆT LOGIC CO RÚT: Chi tiết nào hệ FABRIC mới cộng co rút chat, hệ KEO DỰNG (FUSING) giữ nguyên 0% số gốc
+    # TÍNH TOÁN KÍCH THƯỚC SẢN XUẤT CAD CHUẨN XÁC KHÔNG LÀM TRÒN SỚM
     def calculate_production_length(row):
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         orig_l = float(row[orig_l_col])
         if "FABRIC" in mat_class:
-            return round(orig_l * (1 + warp_shrink / 100.0), 2)
+            return round(orig_l * (1 + warp_shrink / 100.0), 3)
         return round(orig_l, 2)
 
     def calculate_production_width(row):
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         orig_w = float(row[orig_w_col])
         if "FABRIC" in mat_class:
-            return round(orig_w * (1 + weft_shrink / 100.0), 2)
+            return round(orig_w * (1 + weft_shrink / 100.0), 3)
         return round(orig_w, 2)
 
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calculate_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_production_width, axis=1)
 
-    # 📊 NỐI LIỀN ENGINE GIẢI TOÁN DIỆN TÍCH PHẲNG VÀ PHÂN BỔ ĐỘNG
+    # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER DỰA TRÊN SỐ ĐO SẢN XUẤT ĐỘNG
     def force_calculate_gerber_area_v7(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
@@ -1536,6 +1529,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v7, axis=1)
 
+    # NỐI LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE CHI TIẾT
     total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
@@ -1546,8 +1540,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         net_a = float(row["polygon_net_area"])
         
         name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        if any(k in name_lower for k in ["front", "back", "thân trước", "thân sau"]) and w_inch >= 20.0 and net_a > 0:
-            net_a = net_a / 2.0
+        
+        # 🔴 KHÓA SỬA LUỒNG X2 THÂN QUẦN: Chỉ chia đôi diện tích rập mở phẳng đối xứng đối với hệ ÁO / ĐẦM
+        # Nếu dòng hàng phát hiện là QUẦN (PANTS, SKIRT, TROUSERS), giữ nguyên vẹn diện tích rập tách rời, tuyệt đối không chia đôi sai lệch!
+        is_skirt_or_pants = any(k in prod for k in ["PANTS", "SKIRT", "TROUSERS", "SHORT"])
+        if not is_skirt_or_pants:
+            if any(k in name_lower for k in ["front", "back", "thân trước", "thân sau"]) and w_inch >= 20.0 and net_a > 0:
+                net_a = net_a / 2.0
             
         total_net_area += net_a * pcs
         total_bbox_area += (l_inch * w_inch) * pcs if (l_inch * w_inch) > 0 else net_a * pcs
@@ -1581,7 +1580,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if fabric_pattern_raw == "NAP": total_gross_yds_after_shrink += (4.0 * 0.35 * (1.0 - small_ratio)) / 36.0
         elif fabric_pattern_raw in ["PLAID", "STRIPE"]: total_gross_yds_after_shrink *= (1.0 + min((4.0 * 1.35) / simulated_length, 0.35))
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 2.2539)))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 0.8046)))
         dens = 0.82
 
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
@@ -1589,6 +1588,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_gross_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
     df_bom["allocated_gross"] = pd.to_numeric(df_bom[raw_gross_col], errors='coerce').fillna(0.0)
 
+    # BĂM NHỎ ĐỊNH MỨC CHI TIẾT THEO DIỆN TÍCH PHẲNG SẠCH
     if total_net_area > 0 and total_gross_yds_after_shrink > 0:
         def exact_share_allocation_final_v8(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
@@ -1603,14 +1603,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 item_net_area = float(row.get("polygon_net_area", 0.0))
                 item_pcs = float(row.get("pcs_numeric", 1.0))
                 return round(((item_net_area / lining_width) / 36.0 / 0.80) * item_pcs, 4) if item_net_area > 0 else 0.0
-            else:
-                return 0.0
+            else: return 0.0
         df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v8, axis=1)
 
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
-    # =====================================================================
+
        # =====================================================================
         # =====================================================================
        # =====================================================================
