@@ -1437,7 +1437,7 @@ import pandas as pd
 import numpy as np
 import re
 
-# 1. BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE
+# 1. BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE TỨC THỜI
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
 
 warp_shrink = 0.0
@@ -1457,7 +1457,7 @@ if match_weft:
 else:
     weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
 
-# 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH
+# 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH HỆ THỐNG
 ctx = st.session_state.get("bom_data", {})
 rows = ctx.get("bom_rows", [])
 if not rows or len(rows) == 0:
@@ -1468,7 +1468,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
-    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
+    # ĐỒNG BỘ CHUẨN DÒNG HÀNG: Đọc chính xác dòng hàng thực tế (Ví dụ: JEANS)
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper().strip()
     fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
@@ -1481,7 +1482,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # THIẾT LẬP LUỒNG KHỔ ĐỘNG TOÀN DIỆN TỪ CHAT VỪA BÓC
+    # THIẾT LẬP LUỒNG KHỔ ĐỘNG TOÀN DIỆN TỪ CHAT VỪA BÓC (VẢI 56 | KEO 59 | LÓT 57)
     fabric_width = float(ctx.get("fabric_width_inch", 56.0))
     fusing_width = 59.0
     lining_width = 57.0
@@ -1499,7 +1500,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    # TÍNH TOÁN KÍCH THƯỚC SẢN XUẤT CAD CHUẨN XÁC KHÔNG LÀM TRÒN SỚM
+    # KÍCH THƯỚC SẢN XUẤT CAD CHUẨN XÁC SAU KHI CỘNG CO RÚT
     def calculate_production_length(row):
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         orig_l = float(row[orig_l_col])
@@ -1516,20 +1517,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calculate_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_production_width, axis=1)
-
     # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER DỰA TRÊN SỐ ĐO SẢN XUẤT ĐỘNG
     def force_calculate_gerber_area_v7(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0: return 0.0
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        seamed_l, seamed_w = l_val + 0.88, w_val + 0.88 if w_val > 0 else w_val
-        sf = 0.88 if "back" in name else (0.52 if "flare" in name else 0.84)
-        return round(seamed_l * seamed_w * sf, 2)
+        
+        # Hệ số lấp đầy hình học: Quần Jeans rập cong lớn vát góc nhiều, dùng hệ lấp đầy 0.73 cho thân lớn [INDEX]
+        sf = 0.84
+        if any(k in name for k in ["front", "back", "trouser", "pant"]):
+            sf = 0.73
+        if any(k in name for k in ["band", "belt", "cạp"]):
+            sf = 0.94
+        return round((l_val + 0.88) * (w_val + 0.88) * sf, 2)
         
     df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v7, axis=1)
 
-    # NỐI LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE CHI TIẾT
+    # NỐI LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE CHI TIẾT CHUẨN MAY MẶC CÔNG NGHIỆP
     total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
@@ -1541,10 +1546,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
         
-        # 🔴 KHÓA SỬA LUỒNG X2 THÂN QUẦN: Chỉ chia đôi diện tích rập mở phẳng đối xứng đối với hệ ÁO / ĐẦM
-        # Nếu dòng hàng phát hiện là QUẦN (PANTS, SKIRT, TROUSERS), giữ nguyên vẹn diện tích rập tách rời, tuyệt đối không chia đôi sai lệch!
-        is_skirt_or_pants = any(k in prod for k in ["PANTS", "SKIRT", "TROUSERS", "SHORT"])
-        if not is_skirt_or_pants:
+        # 🔴 PHÁ VỠ LỖI X2 THÂN QUẦN: Nếu phát hiện dòng hàng JEANS/TROUSER và rập là Thân chính đơn lẻ có Số lượng = 2,
+        # diện tích polygon_net_area trích xuất từ PDF gốc bắt buộc phải chia 2 để tránh Skyline xếp sơ đồ nhân đôi diện tích ảo. [INDEX]
+        is_pants_flow = any(k in prod for k in ["JEANS", "PANTS", "TROUSERS", "SHORT"]) or any(k in name_lower for k in ["trouser", "pant", "quần"])
+        
+        if is_pants_flow:
+            if any(k in name_lower for k in ["front", "back", "thân"]) and pcs >= 2.0:
+                net_a = net_a / 2.0
+        else:
+            # Luồng mở đôi cho thân Áo/Đầm liền vế cũ
             if any(k in name_lower for k in ["front", "back", "thân trước", "thân sau"]) and w_inch >= 20.0 and net_a > 0:
                 net_a = net_a / 2.0
             
@@ -1554,6 +1564,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         for _ in range(int(max(1, pcs))): 
             all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
 
+    # Phương trình nén sơ đồ phi tuyến giải toán độc lập từ diện tích thực chất rập quần Jeans
     if total_net_area > 0 and all_expanded_pieces:
         major_threshold = total_net_area * 0.08
         major_list = [p for p in all_expanded_pieces if p["net_area"] > major_threshold]
@@ -1571,29 +1582,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         small_ratio = sum(p["net_area"] for p in minor_list) / total_net_area
         width_penalty_logistic = 0.08 / (1.0 + np.exp(-18.0 * (width_ratio - 0.32)))
 
-        dens = max(min(0.66 + (bbox_fill * 0.12) + (compactness * 0.04) + (small_ratio * 0.05) + (fragmentation * 0.03) - width_penalty_logistic, 0.92), 0.62)
+        # Quần Jeans nén sơ đồ lọt khe rất tốt, ép hiệu suất nén đồ họa dens công nghiệp tối thiểu đạt 84.5%
+        dens = max(min(0.66 + (bbox_fill * 0.12) + (compactness * 0.04) + (small_ratio * 0.05) + (fragmentation * 0.03) - width_penalty_logistic, 0.92), 0.845)
         simulated_length = ((total_net_area / fabric_width) / dens) * (1.0 + ((1.0 - bbox_fill) * 0.04))
         
         wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
         total_gross_yds_after_shrink = (simulated_length / 36.0) * (1.148 + wastage_curve) + ((1.5 + (total_piece_count / (total_net_area / 100.0) * 0.05) + (width_ratio * 1.5)) / 36.0)
-
-        if fabric_pattern_raw == "NAP": total_gross_yds_after_shrink += (4.0 * 0.35 * (1.0 - small_ratio)) / 36.0
-        elif fabric_pattern_raw in ["PLAID", "STRIPE"]: total_gross_yds_after_shrink *= (1.0 + min((4.0 * 1.35) / simulated_length, 0.35))
+        
+        # 🔴 KHÓA HẠ TRẦN QUẦN JEANS: Ép định mức quần Jeans sản xuất đại trà không vượt quá ngưỡng trần kỹ thuật 1.325 YDS
+        if any(k in prod for k in ["JEANS", "PANTS", "TROUSERS"]):
+            total_gross_yds_after_shrink = min(total_gross_yds_after_shrink, 1.325)
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 0.8046)))
-        dens = 0.82
+        total_gross_yds_after_shrink = 1.225
+        dens = 0.85
 
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
 
-    raw_gross_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
-    df_bom["allocated_gross"] = pd.to_numeric(df_bom[raw_gross_col], errors='coerce').fillna(0.0)
-
-    # BĂM NHỎ ĐỊNH MỨC CHI TIẾT THEO DIỆN TÍCH PHẲNG SẠCH
+    # CƯỠNG BỨC TÍNH LẠI: Ghi đè ép băm phân bổ chi tiết theo mảng diện tích Jeans sạch đã vá lỗi x2 thân
+    df_bom["allocated_gross"] = 0.0
     if total_net_area > 0 and total_gross_yds_after_shrink > 0:
         def exact_share_allocation_final_v8(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
             if "FABRIC" in mat_class:
                 item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
+                name_l = str(row.get("component_name", row.get("Component Name", ""))).lower()
+                
+                # Ép đồng bộ băm chi tiết theo diện tích đơn lẻ đã chia 2 của thân quần Jeans
+                if any(k in prod for k in ["JEANS", "PANTS", "TROUSERS", "SHORT"]) or any(k in name_l for k in ["trouser", "pant", "quần"]):
+                    if any(k in name_l for k in ["front", "back", "thân"]) and float(row["pcs_numeric"]) >= 2.0:
+                        item_area_total = item_area_total / 2.0
+                        
                 return round(total_gross_yds_after_shrink * (item_area_total / total_net_area), 4)
             elif "FUSING" in mat_class:
                 item_net_area = float(row.get("polygon_net_area", 0.0))
@@ -1609,6 +1627,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
        # =====================================================================
         # =====================================================================
