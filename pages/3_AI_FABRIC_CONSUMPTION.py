@@ -1612,12 +1612,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
     # =====================================================================
        # =====================================================================
+        # =====================================================================
     # 🟩 KHỐI 5b: TỰ ĐỘNG GỘP DÒNG VÀ HIỂN THỊ ĐA CHẤT LIỆU LÊN SUMMARY & UI
     # =====================================================================
 
     df_bom_display_sum = df_bom.copy()
     
-    # Khóa bẫy lỗi an toàn ô nhớ: Đảm bảo các biến định mức tổng từ Khối 5a luôn tồn tại, không sợ NameError
+    # Khóa bẫy lỗi an toàn ô nhớ: Đảm bảo các biến định mức tổng từ Khối 5a luôn tồn tại
     if 'total_gross_yds_after_shrink' not in locals(): total_gross_yds_after_shrink = 2.2539
     if 'total_gross_yds_before_shrink' not in locals(): total_gross_yds_before_shrink = total_gross_yds_after_shrink
     if 'fabric_width' not in locals(): fabric_width = 56.0
@@ -1643,7 +1644,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
     }
     
-    # Khởi tạo duy nhất một mảng tóm tắt summary_rows_final xuyên suốt
+    # Khởi tạo duy nhất một mảng tóm tắt summary_rows_final xuyên suốt chuẩn ERP
     summary_rows_final = []
     
     # 1. Chèn các dòng cấu hình co rút và khổ vải bóc từ chat vào đầu bảng Summary hiển thị UI
@@ -1654,7 +1655,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # Khởi tạo trước df_sum_for_excel phòng trường hợp rỗng dữ liệu
+    # Dựng bảng Summary thô sạch, gỡ bỏ hardcode số 2.2539 để ép đồng bộ truyền vào hàm Excel
     df_sum_for_excel = df_sum_all_materials.copy()
 
     # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi có thật trong BOM
@@ -1665,9 +1666,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if "FABRIC" in m_class:
             summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
+            # ÉP ĐỒNG BỘ ĐỊNH MỨC VẢI ĐỘNG SANG LUỒNG EXCEL
             df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
         else:
             summary_rows_final.append({"Phân loại vật tư": display_label, "Gross Consumption": round(consumption_val, 4), "UOM": "YDS"})
+            # ÉP ĐỒNG BỘ ĐỊNH MỨC PHỤ LIỆU KEO/LÓT SANG LUỒNG EXCEL
+            df_sum_for_excel.loc[idx, "Gross Consumption"] = consumption_val
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
 
@@ -1675,11 +1679,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     saved_pcs_series = df_bom[pcs_col].copy()
     saved_orig_l_series = df_bom[orig_l_col].copy()
     saved_orig_w_series = df_bom[orig_w_col].copy()
-    
-    if "allocated_gross" in df_bom.columns:
-        saved_allocated_gross = df_bom["allocated_gross"].copy()
-    else:
-        saved_allocated_gross = pd.Series([0.0]*len(df_bom))
+    saved_allocated_gross = df_bom["allocated_gross"].copy()
 
     columns_to_drop = [
         "Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", 
@@ -1697,7 +1697,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom_display["Khổ vải sản xuất (inch)"] = round(fabric_width, 1)
 
-    # Gán lại dữ liệu sạch hiển thị bảng chi tiết CAD phẳng
+    # Gán lại dữ liệu sạch hiển thị bảng chi tiết CAD phẳng lên UI màn hình
     df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Số lượng rập"] = saved_pcs_series
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
@@ -1706,7 +1706,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
-    # Sắp xếp lại thứ tự hiển thị cột khoa học lên UI phẳng
+    # Sắp xếp cấu trúc cột
     ordered_cols = [
         "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Số lượng rập", 
         "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
@@ -1716,19 +1716,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất Layout giao diện UI Streamlit
+    # Kết xuất Layout giao diện UI Streamlit và Nút Xuất Excel đồng bộ
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
+            # ÉP GHI ĐÈ THAM SỐ CO RÚT CHÂN LÝ VÀO CONTEXT TRƯỚC KHI ĐẨY SANG HÀM EXCEL [INDEX]
+            ctx["warp_shrinkage"] = warp_shrink
+            ctx["weft_shrinkage"] = weft_shrink
+            ctx["global_gross_fabric_yds"] = total_gross_yds_after_shrink
+
+            # Gọi hàm xuất Excel với bảng dữ liệu sum đã được đồng hóa động 100% [INDEX]
             excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
             
-            # 🔴 VÁ LỖI TÊN FILE TRẮNG: Loại bỏ hoàn toàn ký tự lạ, ép cứng đuôi mở rộng .xlsx an toàn tuyệt đối
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             if not style_name_clean or style_name_clean.lower() == "none":
                 style_name_clean = "Style"
-                
             final_excel_filename = f"PPJ_BOM_{prod}_{style_name_clean}.xlsx"
             
             st.download_button(
@@ -1736,7 +1740,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
                 file_name=final_excel_filename,
-                key="btn_download_excel_ppj_final_v50"
+                key="btn_download_excel_ppj_final_v52"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
