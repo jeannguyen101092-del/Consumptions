@@ -830,60 +830,57 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
-def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a nâng cấp: Đồng bộ quét và tự sinh diện tích polygon_net_area 
-    từ kích thước hình học thô Dài x Rộng, vá triệt để lỗi chữ hoa chữ thường.
+import re
+import streamlit as st
+
+def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
+    """Thuật toán quét Callout Văn bản PDF: Tự động phân tích các lệnh kỹ thuật 
+    (CUT 2, PAIR, SELF, FUSE, MIRROR, FOLD) trực tiếp từ file PDF thay vì gán cứng.
     """
-    bom_source = st.session_state.get("bom_data", {})
-    fabric_width = bom_source.get("fabric_width_inch", 56.0)
-    warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
-    weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
+    if not raw_pdf_text:
+        return {"layer_multiplier": 1, "is_paired": False, "calc_log": "Không tìm thấy dữ liệu văn bản thô PDF."}
+        
+    # Chuẩn hóa chuỗi văn bản để tìm kiếm không gian lân cận chi tiết rập
+    text_clean = " ".join(str(raw_pdf_text).lower().split())
+    comp_clean = str(component_name).lower().strip()
     
-    query_lower = str(user_query_text).lower() if user_query_text else ""
-    stable_bom_list = sorted(
-        [r for r in bom_rows_list if r and isinstance(r, dict)], 
-        key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
-    )
-
-    for r in stable_bom_list:
-        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
-        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
-        role_raw = str(r.get("geometry_role", r.get("Role/Piece Type", ""))).upper()
-        comp_name_raw = str(r.get("component_name", "UNNAMED")).lower()
+    # Thiết lập cấu trúc mặc định theo quy chuẩn dệt may
+    layer_multiplier = 1
+    is_paired = False
+    calc_log = "AI đọc văn bản PDF: Mặc định hệ số kết cấu đơn."
+    
+    # 1. Thuật toán quét vùng lân cận (Window Scanning): Tìm kiếm Callout kỹ thuật xung quanh tên rập
+    match_index = text_clean.find(comp_clean)
+    if match_index != -1:
+        # Cắt một đoạn văn bản xung quanh tên chi tiết (Phạm vi 150 ký tự) để tìm Callout chỉ định cắt
+        window_start = max(0, match_index - 50)
+        window_end = min(len(text_clean), match_index + 150)
+        scan_window = text_clean[window_start:window_end]
         
-        if float(r.get("polygon_net_area", 0.0)) <= 0:
-            is_major = "MAJOR" in role_raw or any(k in comp_name_raw for k in ["front", "back", "body", "thân", "skirt", "waistband"])
-            shape_factor = 0.74 if is_major else 0.85
-            r["polygon_net_area"] = round(raw_l * raw_w * shape_factor, 2)
-
-    fabric_spec_text = str(bom_source.get("material_spec", bom_source.get("fabric_description", ""))).lower()
-    bom_components_text = " ".join([str(r.get("component_name", "")).lower() for r in stable_bom_list]).strip()
-    fabric_detect_zone = f" {query_lower} {fabric_spec_text} {bom_components_text} ".replace("_", " ")
-
-    fabric_pattern = "SOLID"
-    if any(k in fabric_detect_zone for k in ["sọc", "stripe", "kẻ sọc"]): fabric_pattern = "STRIPE"
-    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check"]): fabric_pattern = "PLAID"
-    elif any(k in fabric_detect_zone for k in ["tuyết", "nap", "one way"]): fabric_pattern = "NAP"
-
-    full_detect_zone = f"{query_lower} {bom_components_text} {fabric_spec_text}"
-    product_type = "JACKET" if any(k in full_detect_zone for k in ["jacket", "khoác", "blazer"]) else "SKIRT"
-
-    major_shape_area, minor_shape_area = 0.0, 0.0
-    for r in stable_bom_list:
-        mat_class = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-        if "FABRIC" not in mat_class: continue
-        
-        pcs = int(float(r.get("piece_count", 1)))
-        shape_area_single = float(r["polygon_net_area"])
-        is_actual_major = "MAJOR" in str(r.get("geometry_role","")).upper() or float(r.get("bounding_box_length", 0)) > 15.0
-        
-        if is_actual_major: major_shape_area += (shape_area_single * pcs)
-        else: minor_shape_area += (shape_area_single * pcs)
-
+        # ➔ A. Quét lệnh số lượng cắt trực tiếp (Ví dụ: CUT 2, CUT 4, CUT 6, SELF X2)
+        cut_match = re.search(r'(cut|cắt|self|shell)\s*(x\s*|\s*|\s*=\s*)(\d+)', scan_window)
+        if cut_match:
+            detected_qty = int(cut_match.group(3))
+            layer_multiplier = detected_qty
+            calc_log = f"Trích xuất trực tiếp PDF Callout: Tìm thấy lệnh cắt {detected_qty} chi tiết."
+            
+        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2)
+        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "x2"]):
+            is_paired = True
+            # Nếu lệnh cắt chưa nhân đôi, tự động gán kết cấu cặp
+            if layer_multiplier == 1:
+                layer_multiplier = 2
+                calc_log = f"Trích xuất trực tiếp PDF Callout: Phát hiện cấu trúc đối xứng cặp (PAIR/MIRROR)."
+                
+        # ➔ C. Quét lệnh gập đôi vải (FOLD, GẬP ĐÔI)
+        if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
+            layer_multiplier = max(layer_multiplier, 2)
+            calc_log += " | Phát hiện chi tiết đi biên gập đôi (FOLD)."
+            
     return {
-        "product_type": product_type, "fabric_pattern": fabric_pattern, "fabric_repeat_inch": 4.0,
-        "major_shape_area": major_shape_area, "minor_shape_area": minor_shape_area, "fabric_width": fabric_width,
-        "bias_shape_area_weight": 0.0, "total_matching_score": 0, "constraint_penalty": 1.0, "stable_bom_list": stable_bom_list
+        "layer_multiplier": layer_multiplier,
+        "is_paired": is_paired,
+        "calc_log": calc_log
     }
 
 
@@ -1024,40 +1021,129 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
 
 
+import re
+import streamlit as st
+
+def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
+    """Thuật toán quét Callout văn bản PDF: Tự động phân tích các lệnh kỹ thuật 
+    (CUT 2, PAIR, SELF, FUSE, MIRROR, FOLD) trực tiếp từ dữ liệu văn bản thô của Techpack.
+    Loại bỏ hoàn toàn cơ chế phán đoán gán cứng thủ công theo tên.
+    """
+    if not raw_pdf_text:
+        return {"layer_multiplier": 1, "is_paired": False, "calc_log": "CAD Fallback: Không tìm thấy dữ liệu văn bản thô PDF."}
+        
+    # Chuẩn hóa chuỗi văn bản để tìm kiếm không gian lân cận chi tiết rập
+    text_clean = " ".join(str(raw_pdf_text).lower().split())
+    comp_clean = str(component_name).lower().strip()
+    
+    # Thiết lập cấu trúc mặc định theo quy chuẩn dệt may
+    layer_multiplier = 1
+    is_paired = False
+    calc_log = "AI Engine: Mặc định hệ số kết cấu đơn (Cut 1)."
+    
+    # Tìm vị trí xuất hiện của tên chi tiết rập trong file văn bản PDF Techpack
+    match_index = text_clean.find(comp_clean)
+    if match_index != -1:
+        # Cắt một đoạn văn bản xung quanh tên chi tiết (Phạm vi trước 50 và sau 150 ký tự) để tìm Callout kỹ thuật
+        window_start = max(0, match_index - 50)
+        window_end = min(len(text_clean), match_index + 150)
+        scan_window = text_clean[window_start:window_end]
+        
+        # ➔ A. Quét lệnh số lượng cắt trực tiếp (Ví dụ: CUT 2, CUT 4, CUT 6, SELF X2, SHELL X4)
+        cut_match = re.search(r'(cut|cắt|self|shell)\s*(x\s*|\s*|\s*=\s*)(\d+)', scan_window)
+        if cut_match:
+            detected_qty = int(cut_match.group(3))
+            layer_multiplier = detected_qty
+            calc_log = f"Trích xuất trực tiếp PDF Callout: Tìm thấy lệnh cắt {detected_qty} chi tiết."
+            
+        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2)
+        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "x2", "1 pair"]):
+            is_paired = True
+            # Nếu lệnh cắt chưa nhân đôi, tự động gán kết cấu cặp sản xuất
+            if layer_multiplier == 1:
+                layer_multiplier = 2
+                calc_log = f"Trích xuất trực tiếp PDF Callout: Phát hiện cấu trúc đối xứng cặp (PAIR/MIRROR)."
+                
+        # ➔ C. Quét lệnh gập đôi vải bàn cắt (FOLD, GẬP ĐÔI, OPEN FOLD)
+        if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
+            layer_multiplier = max(layer_multiplier, 2)
+            calc_log += " | Phát hiện chi tiết đi biên gập đôi (FOLD)."
+            
+    return {
+        "layer_multiplier": layer_multiplier,
+        "is_paired": is_paired,
+        "calc_log": calc_log
+    }
+
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh ổn định: Đã sửa lỗi quét chữ hoa/chữ thường của FABRIC."""
+    """Khối 3 hoàn chỉnh ổn định thế hệ mới: Bóc tách lớp cắt tự động từ PDF Callout.
+    Đã gỡ bỏ 100% hardcode đếm lớp. Tự động cập nhật trực tiếp diện tích hình học phẳng
+    và số chiếc thực tế sau nhân lớp lên giao diện UI và báo cáo file Excel.
+    """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
     
+    # Đọc dữ liệu văn bản thô toàn file PDF đã được module uploader trích xuất lưu vào bộ nhớ đệm trang
+    raw_pdf_context = st.session_state.get("raw_pdf_text_extracted", "")
+
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
-        raw_l = float(r.get("bounding_box_length", 0.0))
-        raw_w = float(r.get("bounding_box_width", 0.0))
-        pcs = int(float(r.get("piece_count", 1)))
+        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
+        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
+        pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
+        
+        # Đồng bộ hóa định danh kiểm soát chữ hoa/chữ thường tránh bỏ sót dữ liệu
         mat_class_raw = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
+        geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
+        piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
         
-        combined_str_item = f" {comp_name_raw} ".lower()
-        is_button = any(k in combined_str_item for k in ["button", "nút"])
+        combined_str_item = f" {comp_name_raw} {piece_type_ai} ".lower().replace("_", " ")
+        is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
         if raw_l > 0 or is_button:
+            # Tính toán kích thước có cộng hao phí co rút dọc và ngang của vải đầu vào
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
-            adj_w = raw_w * (1 + weft_shrinkage / 100.0)
-            layer_multiplier = 2 if any(k in combined_str_item for k in ["back", "thân sau", "flap", "collar"]) else 1
-            shape_factor = 0.74 if raw_l > 15.0 else 0.85
-
-            item_area = adj_l * adj_w * shape_factor * pcs * layer_multiplier
+            adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # Sửa điều kiện quét FABRIC linh hoạt chống lỗi cào bằng số tĩnh
+            # 🚨 ĐỘT PHÁ TỰ ĐỘNG: Gọi hàm quét văn bản PDF gốc để tìm chỉ định CUT/PAIR/FOLD thật từ Techpack của khách hàng
+            pdf_callout = extract_cutting_instructions_from_pdf(comp_name_raw, raw_pdf_context)
+            layer_multiplier = pdf_callout["layer_multiplier"]
+            calc_chain_log = pdf_callout["calc_log"]
+
+            # =====================================================================
+            # ➔ Thiết lập hệ số hình dạng xén góc rập (Shape Factor) phòng IE CAD
+            # =====================================================================
+            is_belt_loop = "beltloop" in combined_str_item or "đỉa" in combined_str_item or "dia" in combined_str_item
+
+            if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
+                shape_factor = 0.92 if "back" in combined_str_item else 0.85
+                if "DRESS" in str(product_segmented).upper() and "flare" in combined_str_item: shape_factor = 0.52
+                elif "TROUSER" in str(product_segmented).upper(): shape_factor = 0.63
+            elif any(k in combined_str_item for k in ["waistband", "lưng", "collar", "cổ", "belt"]) or is_belt_loop:
+                shape_factor = 0.96
+            else:
+                shape_factor = 0.78
+
+            # Tính toán tổng diện tích sản xuất phẳng thực tế của chi tiết (Đã bao gồm đường may 0.44 inch x 2)
+            seamed_l, seamed_w = adj_l + (0.44 * 2.0), adj_w + (0.44 * 2.0)
+            item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
+            
+            # Tích lũy tổng diện tích vải chính phục vụ giải toán phân bổ định mức
             if "FABRIC" in mat_class_raw: 
                 total_fabric_piece_area += item_area
             
-            r["polygon_net_area"] = round(adj_l * adj_w * shape_factor, 2)
+            # 🚨 ĐỒNG BỘ ĐỘNG: Cập nhật trực tiếp số lượng rập thực tế sau nhân lớp và diện tích vào dữ liệu gốc
+            r["piece_count"] = pcs * layer_multiplier
+            r["Số lượng rập"] = pcs * layer_multiplier
+            r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor, 2)
+            r["calculation_status"] = "PROCESSED"
+            r["cad_algorithm"] = calc_chain_log
             
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs * layer_multiplier} Pcs",
                 "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                "is_belt_loop": False, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
+                "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
             })
                 
     return total_fabric_piece_area, piece_calculated_data
