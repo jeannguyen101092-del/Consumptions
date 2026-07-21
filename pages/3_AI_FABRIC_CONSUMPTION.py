@@ -1230,9 +1230,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_display_rows
 
 
-# =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH AN TOÀN TUYỆT ĐỐI: HÀM TẠO EXCEL BÁO CÁO PPJ
-# =====================================================================
 import io  
 import pandas as pd
 from openpyxl import Workbook
@@ -1241,7 +1238,7 @@ from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val, fabric_pattern_raw):
     """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group.
-    Đã bổ sung Mã Hàng, Khách Hàng, dọn sạch hoàn toàn vòng lặp lỗi gây đứng im/treo ứng dụng.
+    Đã bổ sung Mã Hàng, Khách Hàng và nhãn Tính chất vải đặc thù động lên đầu trang Excel.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1273,7 +1270,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     pattern_mapping = {"SOLID": "VẢI TRƠN (SOLID)", "STRIPE": "VẢI SỌC KẺ (STRIPE)", "PLAID": "VẢI CARO (PLAID/CHECK)", "NAP": "VẢI 1 CHIỀU / TUYẾT NHUNG (NAP)"}
     detected_pattern_text = pattern_mapping.get(fabric_pattern_raw, f"VẢI ĐẶC THÙ ({fabric_pattern_raw})")
 
-    # Ma trận nạp 5 dòng thông số cốt lõi lên đầu file Excel
+    # Ma trận nạp 5 dòng thông số cốt lõi lên đầu file Excel báo cáo
     meta_rows = [
         ["Mã hàng / Style Code:", str(bom_source_ctx.get("style_code", bom_source_ctx.get("style_num", "N/A"))).upper(), "Khách hàng / Đối tác:", str(bom_source_ctx.get("customer", bom_source_ctx.get("buyer", "N/A"))).upper()],
         ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
@@ -1287,7 +1284,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # KHÓA CỨNG TOÀN DIỆN: Gán trực tiếp theo chỉ số cột cố định văn bản thuần túy, loại bỏ hoàn toàn các vòng lặp dính lỗi
+        # Khóa cứng tọa độ cột cố định văn bản thuần túy, loại bỏ hoàn toàn các vòng lặp dính lỗi chat filter
         # Cột 1: Định dạng nhãn chữ bên trái
         ws1.cell(row=current_r, column=1).font = bold_font
         ws1.cell(row=current_r, column=1).fill = meta_label_fill
@@ -1362,7 +1359,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
-    # Tự động co giãn giãn vừa chữ cho cột Excel sạch lỗi Tuple object
+    # Co giãn tự động kích thước chiều rộng cột Excel không dính lỗi Tupe Object
     for ws in [ws1, ws2]:
         for c_num, col_cells in enumerate(ws.columns, start=1):
             max_len = max(len(str(cell.value or '')) for cell in col_cells)
@@ -1372,13 +1369,13 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     wb.save(output)
     return output.getvalue()
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH ĐỒNG BỘ BỀN VỮNG (BẢO VỆ GHIM CỨNG BẢNG 100%)
+# 🟩 KHỐI 5b HOÀN CHỈNH BỀN VỮNG (GHIM CHẶT BẢNG HIỂN THỊ 100%)
 # =====================================================================
-# Ép hệ thống đọc dữ liệu hiển thị từ bộ nhớ phiên st.session_state để không bao giờ bị mất bảng khi Rerun
+# Ép hệ thống đọc dữ liệu hiển thị từ bộ nhớ phiên st.session_state để bảo vệ bảng không bị biến mất khi Rerun
 final_ui_rows = st.session_state.get("processed_display_rows", [])
 final_bom_ctx = st.session_state.get("bom_data", {})
 
-# Kiểm tra nếu biến cục bộ có sẵn thì dùng, nếu không thì lấy từ bộ nhớ đệm an toàn dự phòng
+# Nếu biến cục bộ thời gian thực tồn tại sẵn trong lượt quét đầu thì ưu tiên bốc để xả kẹt hiển thị ngay
 if not final_ui_rows and 'display_rows' in locals() and display_rows:
     final_ui_rows = display_rows
 if not final_bom_ctx and 'bom_source' in locals() and bom_source:
@@ -1387,12 +1384,12 @@ if not final_bom_ctx and 'bom_source' in locals() and bom_source:
 if final_ui_rows and final_bom_ctx:
     df_bom = pd.DataFrame(final_ui_rows)
     
-    # 🚨 ĐỒNG BỘ BIẾN KHÉP KÍN: Khởi tạo giá trị an toàn chống mọi lỗi NameError
+    # Khởi tạo giá trị mặc định an toàn tuyệt đối phạm vi biến toàn cục chống mọi lỗi NameError chữ đỏ
     product_segmented = final_bom_ctx.get("product_segmented", "JACKET")
     current_packing_density = final_bom_ctx.get("global_packing_density", 0.85)
     current_fabric_pattern = final_bom_ctx.get("fabric_pattern", "SOLID")
     
-    # Nếu có biến engine skyline_res vừa tính xong ở trên thì cập nhật thông số chính xác thời gian thực
+    # Nếu có biến engine skyline_res vừa quét xong ở trên thì cập nhật thông số chính xác thời gian thực
     if 'skyline_res' in locals() and isinstance(skyline_res, dict) and skyline_res:
         if "product_segmented" in skyline_res: product_segmented = skyline_res["product_segmented"]
         if "actual_packing_density" in skyline_res: current_packing_density = skyline_res["actual_packing_density"]
@@ -1418,7 +1415,7 @@ if final_ui_rows and final_bom_ctx:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
+    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ (Đã sửa lỗi chia 2 cột chuẩn xác)
     col_title, col_btn = st.columns([3, 1])
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
@@ -1430,7 +1427,7 @@ if final_ui_rows and final_bom_ctx:
             data=excel_data,
             file_name=f"PPJ_BOM_Consumption_{product_segmented}_{final_bom_ctx.get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable_v12_fixed"
+            key="btn_download_excel_ppj_final_stable_v13_fixed"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
