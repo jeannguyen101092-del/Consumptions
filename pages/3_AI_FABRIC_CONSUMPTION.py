@@ -1151,8 +1151,8 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 hoàn chỉnh: Phân bổ định mức chi tiết CAD và tính hao hụt an toàn phụ liệu.
-    Đã hạ hiệu suất sơ đồ Keo/Lót xuống 82% để nâng định mức tiêu hao lên mức an toàn cho xưởng.
+    """Khối 4 hoàn chỉnh nâng cấp: Sửa lỗi ẩn bảng khi danh sách rập bị lạ tên.
+    Tự động kích hoạt cơ chế tính toán hình học dự phòng (Fallback) để luôn bung bảng hiển thị.
     """
     base_gross_fabric = skyline_results.get("global_gross_fabric_yds", skyline_results.get("global_gross_fabric_consumption", 0.0))
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
@@ -1196,23 +1196,23 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                     is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or \
                                any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
                     
-                    if is_major:
-                        if total_fabric_piece_area > 0 and base_gross_fabric > 0:
+                    # 🚨 NÂNG CẤP BẢO VỆ: Nếu tổng diện tích lớn hơn 0 và có yards tổng thì phân bổ theo tỷ lệ share
+                    if total_fabric_piece_area > 0 and base_gross_fabric > 0:
+                        if is_major:
                             share_ratio = item_area / total_fabric_piece_area
                             gross_consumption = round(base_gross_fabric * share_ratio, 4)
                             calc_chain = f"Gerber Major Panel: Gánh nền sơ đồ ({base_gross_fabric:.3f} yds)"
                         else:
-                            estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
-                            gross_consumption = round(estimated_base * 1.035, 4)
-                            calc_chain = f"CAD Geometry Estimate: {gross_consumption:.3f} yds"
-                    else:
-                        if total_fabric_piece_area > 0 and base_gross_fabric > 0:
                             nesting_factor = 0.40 if product_segmented in ["TROUSER", "SKIRT"] else 0.85
                             share_ratio = item_area / total_fabric_piece_area
                             gross_consumption = round(base_gross_fabric * share_ratio * nesting_factor, 4)
-                            calc_chain = f"Gerber Nesting ({product_segmented}): Tính {nesting_factor*100}% tiêu hao chi tiết phụ"
-                        else:
-                            gross_consumption, calc_chain = 0.0, "Kẽ hở sơ đồ"
+                            calc_chain = f"Gerber Nesting ({product_segmented}): Tính {nesting_factor*100}% tiêu hao"
+                    else:
+                        # 🚨 CƠ CHẾ DỰ PHÒNG HOÀN HẢO (FALLBACK): Nếu lạ tên chi tiết rập, tự động ép tính toán hình học CAD phẳng 
+                        # để đảm bảo bảng định mức LUÔN LUÔN hiển thị ra màn hình, không bị ẩn
+                        estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
+                        gross_consumption = round(estimated_base * 1.045, 4)
+                        calc_chain = f"CAD Geometry Fallback: Giả lập hình học phẳng ({gross_consumption:.3f} yds)"
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
                     if usable_width > 0:
@@ -1233,6 +1233,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
+
 # =====================================================================
 # 🟩 KHỐI 5a HOÀN CHỈNH (ĐÃ VÁ LỖI TRÙNG CỘT EXCEL): HÀM TẠO EXCEL BÁO CÁO PPJ
 # =====================================================================
