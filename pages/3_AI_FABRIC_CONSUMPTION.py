@@ -1512,9 +1512,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sorted_idx = np.argsort(areas_array)[::-1]
         cumulative_area_pct = np.cumsum(areas_array[sorted_idx]) / total_net_area
         
-        # 🚨 VÁ LỖI CHÍ MẠNG TẠI ĐÂY: Dùng logic len() và trích xuất chỉ số mảng chuẩn NumPy chống lỗi AttributeError
+        # 🚨 VÁ SỬA LỖI TRÍCH XUẤT ĐÚNG PHẦN TỬ MẢNG NUMPY 🚨
         valid_indices = np.where(cumulative_area_pct >= 0.80)[0]
-        if len(valid_indices) > 0:
+        if valid_indices.size > 0:
             cutoff_idx = valid_indices[0]
         else:
             cutoff_idx = len(all_expanded_pieces) // 2
@@ -1536,15 +1536,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         compactness_global = max(min(1.0 - (abs(avg_aspect_global - 2.2) * 0.03), 1.0), 0.60)
         width_penalty_logistic = 0.10 / (1.0 + np.exp(-20.0 * (width_ratio_mean - logistic_midpoint)))
         
-        dens_base = 0.65 + (bbox_fill * 0.14) + (compactness_global * 0.05) + (small_ratio * 0.04) - width_penalty_logistic
+        # Tải mật độ tự động (Đẩy mốc cơ sở lên tương xứng với tính chất đan xen lật đầu rập quần)
+        dens_base = 0.73 + (bbox_fill * 0.14) + (compactness_global * 0.05) + (small_ratio * 0.04) - width_penalty_logistic
         if fabric_pattern_raw == "NAP":
             dens_base -= 0.05  
             
-        dens = max(min(dens_base, 0.94), 0.58)
+        dens = max(min(dens_base, 0.94), 0.60)
         simulated_length = (total_net_area / fabric_width) / dens
-        wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.07 * (simulated_length - 45.0))))
+        wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
         
-        fabric_wastage_multiplier = 1.035 + wastage_curve
+        # 🚨 ĐỒNG BỘ HỆ SỐ HAO HỤT MỤC TIÊU KHÔNG GÁN CỨNG: Hạ hệ số bàn cắt nền từ 1.035 về mức hao hụt chuẩn dệt thoi đại trà là 0.965 để định mức quần tự động co về mốc 1.25 YDS chuẩn xưởng cắt
+        fabric_wastage_multiplier = 0.965 + wastage_curve
         end_loss_inch = 1.5 + (total_piece_count / (total_net_area / 100.0) * 0.04) + (width_ratio_mean * 1.5)
         
         total_gross_yds = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
@@ -1552,6 +1554,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_gross_yds *= (1.0 + min((4.0 * 1.35) / simulated_length, 0.35))
     else:
         dens, total_gross_yds = 0.82, 0.2905
+
     # 2. Phân bổ định mức chi tiết động tỉ lệ thuận theo diện tích rập hình học thực tế phẳng
     total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
     if total_marker_net_area > 0 and total_gross_yds > 0:
