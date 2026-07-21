@@ -1101,7 +1101,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
                     if usable_width > 0:
-                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.82), 4)
+                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.95), 4)
                         calc_chain = f"Sơ đồ dựng/lót ({product_segmented}) độc lập"
                     else:
                         gross_consumption, calc_chain = 0.0, "❌ Khổ vải lỗi!"
