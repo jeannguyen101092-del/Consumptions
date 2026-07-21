@@ -830,10 +830,12 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
+import streamlit as st
+import re
+
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a hoàn chỉnh (KẾT NỐI BẢNG THÔNG SỐ POMS): Tự động đồng bộ quét từ khóa 
-    từ cả danh sách rập CAD, ô chat, thông tin Meta VÀ toàn bộ bảng thông số kích thước (POMs) của Techpack.
-    Giúp AI luôn nhận diện chuẩn xác 100% không bao giờ trượt dòng hàng.
+    """Khối 2a hoàn chỉnh: Đã vá lỗi đồng bộ chữ hoa chữ thường của cột Material Class,
+    đồng thời ghi đè trực tiếp diện tích tính toán thực tế vào từng linh kiện rập.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -848,7 +850,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     )
 
     # =====================================================================
-    # 1. ĐỒNG BỘ BỘ QUÉT AI CHẤT LIỆU TỰ ĐỘNG (CHAT INPUT + TECHPACK SPEC)
+    # 1. ĐỒNG BỘ BỘ QUÉT AI CHẤT LIỆU TỰ ĐỘNG
     # =====================================================================
     fabric_spec_text = str(bom_source.get("material_spec", bom_source.get("fabric_description", ""))).lower()
     bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in stable_bom_list]).strip()
@@ -865,45 +867,35 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         fabric_pattern, is_one_way_nap = "NAP", True
 
     # =====================================================================
-    # 2. KHAI THÔNG LUỒNG QUÉT AI TOÀN DIỆN (HỢP NHẤT RẬP VÀ BẢNG THÔNG SỐ POMS)
+    # 2. KHAI THÔNG LUỒNG QUÉT AI TOÀN DIỆN
     # =====================================================================
     techpack_meta_text = f"{str(bom_source.get('style_code', ''))} {str(bom_source.get('style_name', ''))} {str(bom_source.get('garment_type', ''))}".lower()
     
-    # 🚨 ĐÃ NÂNG CẤP CHÍ MẠNG: Vét toàn bộ chuỗi ký tự text trích xuất từ bảng thông số POMs/Specs kích thước của file PDF gốc
     poms_spec_text = ""
     if isinstance(bom_source, dict):
-        # Gom dữ liệu từ mọi trường thông tin đặc thù có thể chứa chữ của bảng thông số
         poms_spec_text = " ".join([
             str(bom_source.get("poms_data", "")), 
             str(bom_source.get("techpack_specs", "")),
             str(bom_source.get("spec_comments", "")),
-            str(st.session_state.get("raw_pdf_text_extracted", "")) # Đọc text thô toàn file PDF
+            str(st.session_state.get("raw_pdf_text_extracted", ""))
         ]).lower()
         
-    # Hợp nhất tối cao tạo thành vùng quét không thể sai lệch cho AI
     full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text} {poms_spec_text}"
 
-    # Đo chiều dài rập thực tế làm bộ gỡ lỗi dự phòng hình học
     max_piece_length = 0.0
     for r in stable_bom_list:
-        if str(r.get("material_class", "FABRIC")).upper().strip() == "FABRIC":
+        mat_class_name = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+        if "FABRIC" in mat_class_name:
             max_piece_length = max(max_piece_length, float(r.get("bounding_box_length", 0.0)))
 
     product_type = "CASUAL_TOP" 
     
-    # ➔ ƯU TIÊN SỐ 1: Quét từ khóa Chân váy (Dù nằm ở bảng rập hay bảng thông số kích thước POMs đều ăn trúng)
     if any(k in full_detect_zone for k in ["skirt", "chân váy", "chan vay"]):
         product_type = "SKIRT"
-        
-    # ➔ ƯU TIÊN SỐ 2: Áo liền quần (Jumpsuit)
     elif any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "romper"]):
         product_type = "JUMPSUIT"
-        
-    # Cơ chế cứu bài hình học dự phòng: Rập cực ngắn dưới 20 inch và không ghi chữ áo rõ rệt
     elif max_piece_length <= 20.0 and max_piece_length > 0 and not any(k in full_detect_zone for k in ["jacket", "khoác", "bomber"]):
         product_type = "SKIRT"
-        
-    # ➔ ƯU TIÊN SỐ 4: Áo khoác / Jacket / Vét / Blazer
     elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit"]):
         product_type = "JACKET"
     elif any(k in full_detect_zone for k in ["đầm", "dress", "váy liền"]):
@@ -916,18 +908,19 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         product_type = "KNIT_TEE"
 
     # =====================================================================
-    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC
+    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC (ĐÃ VÁ LỖI)
     # =====================================================================
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
     
     for r in stable_bom_list:
-        mat_class = str(r.get("material_class", "FABRIC")).upper().strip()
-        if mat_class != "FABRIC": continue
+        # VÁ LỖI CHỮ THƯỜNG: Chấp nhận mọi kiểu viết hoa viết thường của material_class
+        mat_class = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+        if "FABRIC" not in mat_class: continue
         
-        raw_l = float(r.get("bounding_box_length", 0))
-        raw_w = float(r.get("bounding_box_width", 0))
-        pcs = int(r.get("piece_count", 1))
+        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
+        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
+        pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
         comp_name = str(r.get("component_name", "UNNAMED")).upper().strip()
         piece_type_raw = str(r.get("piece_type", "")).upper().strip()
         
@@ -952,6 +945,9 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
             
         shape_area_single = (adj_l * adj_w) * sf
         
+        # 🚨 LỆNH VÁ CHÍ MẠNG: Ghi đè diện tích tịnh động vừa tính toán vào rập để đẩy sang các khối sau hiển thị bảng
+        r["polygon_net_area"] = round(shape_area_single, 2)
+        
         if is_actual_major:
             major_shape_area += (shape_area_single * pcs)
             if pcs >= 2: constraint_penalty += 0.020
@@ -970,6 +966,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
+
 
 import numpy as np
 
