@@ -1471,7 +1471,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # 🔴 ĐỒNG BỘ KHÓA CHÍNH: Đọc trực tiếp từ bộ nhớ đệm kẹt chat của Khối 1
+    # 🔴 ĐỒNG BỘ KHÓA CHÍNH TỪ ĐOẠN CHAT VĂN BẢN ĐẦU VÀO
     chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
     
     # Thiết lập giá trị mặc định ban đầu nếu không tìm thấy từ khóa
@@ -1505,16 +1505,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_final_v5, axis=1)
 
-    # ĐỊNH MỨC NGUỒN CHÂN LÝ TỪ SKYLINE (Đã chạy trên kích thước có co rút)
-    total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.1582))
-    if total_gross_yds_after_shrink <= 0: total_gross_yds_after_shrink = 1.1582
+    # 🔴 ĐỊNH MỨC NGUỒN CHÂN LÝ TỪ SKYLINE (Lúc này giải toán tự động dựa trên diện tích rập thô ban đầu)
+    total_gross_yds_before_shrink = float(ctx.get("global_gross_fabric_yds", 1.1582))
+    if total_gross_yds_before_shrink <= 0: 
+        total_gross_yds_before_shrink = 1.1582
+        
     dens = float(ctx.get("actual_packing_density", 0.82))
-    if dens <= 0: dens = 0.82
+    if dens <= 0: 
+        dens = 0.82
 
-    # SUY NGƯỢC LOGIC ĐỊNH MỨC TRƯỚC CO RÚT ĐỂ HIỂN THỊ BÁO CÁO MINH BẠCH
-    total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
+    # 🔴 SỬA LOGIC THUẬT TOÁN: Định mức sản xuất cuối cùng bắt buộc phải nhân THUẬN thêm % co rút vải (Không chia ngược)
+    total_gross_yds_after_shrink = total_gross_yds_before_shrink * (1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)
 
-    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH PHẲNG GERBER THỰC TẾ
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH PHẲNG GERBER THỰC TẾ (Ăn khít theo định mức sản xuất cuối cùng)
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     total_fabric_marker_area = (df_fabric_only["polygon_net_area"] * df_fabric_only["pcs_numeric"]).sum()
 
@@ -1528,12 +1531,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             return 0.0
         df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v5, axis=1)
 
-    # THIẾT KẾ BẢNG SUMMARY TỰ ĐỘNG PHÂN TÍCH THEO CHAT ĐẦU VÀO
+    # THIẾT KẾ BẢNG SUMMARY CHUẨN ĐỊNH MỨC THU MUA
     summary_data = [
         {"Chỉ tiêu hiển thị": "Tỷ lệ co rút dọc (Warp Shrinkage)", "Giá trị định mức": f"{warp_shrink:+.1f}%", "Đơn vị tính": "% từ Chat"},
         {"Chỉ tiêu hiển thị": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Giá trị định mức": f"{weft_shrink:+.1f}%", "Đơn vị tính": "% từ Chat"},
-        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức gốc trước co rút Techpack)", "Giá trị định mức": f"{total_gross_yds_before_shrink:.4f}", "Đơn vị tính": "YDS"},
-        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức sản xuất ĐÃ BAO GỒM CO RÚT)", "Giá trị định mức": f"{total_gross_yds_after_shrink:.4f}", "Đơn vị tính": "YDS (Chân lý)"}
+        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức gốc trước co rút Techpack - SUM)", "Giá trị định mức": f"{total_gross_yds_before_shrink:.4f}", "Đơn vị tính": "YDS"},
+        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức sản xuất thực tế ĐÃ NHÂN CO RÚT)", "Giá trị định mức": f"{total_gross_yds_after_shrink:.4f}", "Đơn vị tính": "YDS (Mua vải)"}
     ]
     df_sum_clean = pd.DataFrame(summary_data)
     
@@ -1590,7 +1593,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
-    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang bốc từ chat
+    # Hiển thị bảng tổng hợp minh bạch thông số co rút bốc từ chat
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
@@ -1601,7 +1604,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập: {fabric_width} inch | "
         f"Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | "
         f"Mật độ nén hình học sơ đồ CAD: {dens*100:.1f}% | "
-        f"Tổng định mức giải toán tự động: {total_gross_yds_after_shrink:.4f} YDS"
+        f"Tổng định mức giải toán tự động (Mua vải): {total_gross_yds_after_shrink:.4f} YDS"
     )
 else:
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
