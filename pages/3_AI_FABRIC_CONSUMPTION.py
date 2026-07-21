@@ -1417,7 +1417,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     return output
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & PHÁ BỎ HOÀN TOÀN SỐ CỐ ĐỊNH PHÒNG IE
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & PHÁ BỎ HOÀN TOÀN SỐ CỐ ĐỊNH PHÒNG IE (ĐÃ FIX SẠCH LỖI)
 # =====================================================================
 import streamlit as st, pandas as pd
 
@@ -1455,7 +1455,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[w_col] = pd.to_numeric(df_bom[w_col], errors='coerce').fillna(0.0)
     df_bom[g_col] = pd.to_numeric(df_bom[g_col], errors='coerce').fillna(0.0)
     
-    # 🚨 ĐÃ XÓA BỎ BỘ GHIM CỨNG SỐ 0.2905 LỖI VÀ CHUYỂN SANG ĐỒNG BỘ TÍNH TỔNG THỰC TẾ 🚨
     # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt (BOM Summary) cộng dồn trực tiếp tiêu hao từng mảnh rập
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
@@ -1496,7 +1495,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         unsafe_allow_html=True
     )
     
-    col1, col2 = st.columns()
+    # 🚨 ĐÃ SỬA LỖI TẠI ĐÂY: Điền mảng tỷ lệ chia cột chuẩn [3, 1] để loại bỏ lỗi TypeError sập trang
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
@@ -1508,7 +1508,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v24"
+                key="btn_download_excel_ppj_final_v25"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
