@@ -1501,18 +1501,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r[orig_w_col]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_w_col]), 2), axis=1)
 
-    # 🔴 ĐỘT PHÁ TOÁN HỌC 1: BIẾN SHAPE FACTOR THÀNH HÀM ĐỘNG THEO TỶ LỆ DÀI/RỘNG RẬP THỰC TẾ
-    # Không gán chết sf cố định cho từng loại chi tiết. sf tự suy ra từ độ thuôn mảnh của miếng rập.
-    def calculate_dynamic_shape_factor(row):
+    # 🔴 TOÁN HỌC ĐỘNG CHUẨN XÁC: Tách biệt Shape Factor dựa trên độ mảnh và đặc thù rập quần Jeans
+    def calculate_dynamic_shape_factor_v2(row):
+        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+        
+        # Nếu là các chi tiết phụ liệu thẳng vuông cạnh (như cạp waistband, dây belt)
+        if "band" in name or "belt" in name or "waistband" in name: 
+            return 0.94
+        
+        # Nếu là Thân trước hoặc Thân sau quần Jeans (Rập rỗng đáy, độ lấp đầy thực tế chỉ quanh mức 62% - 65%)
+        if "front" in name or "back" in name or "panel" in name or "leg" in name:
+            if "FABRIC" in mat_class:
+                return 0.635  # Hệ số dạt khoảng trống lọt khe thực chất của quần Jeans công nghiệp
+            
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.82
+        
         aspect_ratio = max(l_val, w_val) / min(l_val, w_val)
-        # Rập càng thuôn dài (như ống quần aspect > 2.5), diện tích thực chất chiếm hình hộp càng cao -> sf tăng tự nhiên
-        dynamic_sf = 0.72 + min(aspect_ratio * 0.03, 0.18)
+        dynamic_sf = 0.70 + min(aspect_ratio * 0.02, 0.16)
         return round(dynamic_sf, 3)
         
-    df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * calculate_dynamic_shape_factor(r), 2), axis=1)
+    # Tính toán polygon_net_area sạch, phản ánh đúng diện tích tinh của rập cong
+    df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * calculate_dynamic_shape_factor_v2(r), 2), axis=1)
 
     # NỐI LUỒNG GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE TỰ NHIÊN
     total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
@@ -1536,17 +1548,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         fragmentation = len(minor_list) / total_piece_count
         bbox_fill = total_net_area / max(total_bbox_area, 0.1)
         
-        # 🔴 XÓA BỎ HOÀN TOÀN KHOẢNG ÉP CHẶN DENS (72.8% - 74.2%)
-        # Mật độ nén giải toán hoàn toàn tự do theo phân bổ logistic của hình học rập đầu vào
-        dens = max(min(0.62 + (bbox_fill * 0.15) + (fragmentation * 0.05), 0.94), 0.55)
+        # Mật độ nén giải toán phi tuyến tính tự do
+        dens = max(min(0.60 + (bbox_fill * 0.15) + (fragmentation * 0.05), 0.94), 0.55)
         
         simulated_length = ((total_net_area / fabric_width) / dens) * (1.0 + ((1.0 - bbox_fill) * 0.04))
         wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
         
-        # 🔴 ĐỘT PHÁ TOÁN HỌC 2: BIẾN HAO HỤT NỀN VÀ ĐẦU MARKER THÀNH HÀM BIẾN THIÊN
-        # Không dùng hằng số 1.148 hay 1.65 inch cố định.
-        dynamic_loss_factor = 1.05 + min(total_piece_count * 0.005, 0.08) # Nhiều chi tiết thì hao hụt tăng dầm
-        dynamic_marker_end_inch = 0.5 + min(simulated_length * 0.01, 2.0)    # Sơ đồ càng dài thì đầu marker cộng càng dôi
+        dynamic_loss_factor = 1.05 + min(total_piece_count * 0.005, 0.08)
+        dynamic_marker_end_inch = 0.5 + min(simulated_length * 0.01, 2.0)
         
         total_gross_yds_after_shrink = (simulated_length / 36.0) * (dynamic_loss_factor + wastage_curve) + (dynamic_marker_end_inch / 36.0)
         
@@ -1558,9 +1567,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH RẬP THỰC TẾ
-    raw_gross_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
-    
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT
     if total_net_area > 0 and total_gross_yds_after_shrink > 0:
         def exact_share_allocation_final_v9(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
@@ -1577,6 +1584,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
     # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER DỰA TRÊN SỐ ĐO SẢN XUẤT ĐỘNG
         # =====================================================================
