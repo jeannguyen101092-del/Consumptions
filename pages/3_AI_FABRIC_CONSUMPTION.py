@@ -1250,7 +1250,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI UI)
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI TUPLE)
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1306,7 +1306,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         for col_idx in range(1, 5):
             cell = ws1.cell(row=curr_row, column=col_idx)
             cell.border = thin_border
-            # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP TRIỆT ĐỂ: Thay thế bộ kiểm tra rỗng bằng so sánh số trực tiếp
             if col_idx == 1 or col_idx == 3:
                 cell.font = bold
                 cell.fill = meta_fill
@@ -1339,7 +1338,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             c = ws1.cell(row=curr_row, column=col_idx)
             c.font = font
             c.border = thin_border
-            # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP TRIỆT ĐỂ: Căn giữa cho cột mã vật tư (cột 2) và đơn vị (cột 4)
             if col_idx == 2 or col_idx == 4: 
                 c.alignment = Alignment(horizontal="center")
 
@@ -1390,26 +1388,26 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             c.border = thin_border
 
     # =====================================================================
-    # 🛠️ THUẬT TOÁN ĐÓNG KHUNG LƯỚI & TỰ ĐỘNG CĂN RỘNG CỘT TỐI ƯU KHUNG
+    # 🛠️ THUẬT TOÁN ĐÓNG KHUNG LƯỚI & TỰ ĐỘNG CĂN RỘNG CỘT (FIXED TUPLE LỖI)
     # =====================================================================
     for ws in [ws1, ws2]:
-        for col in ws.columns:
+        # Sửa logic dùng enumerate lấy số thứ tự cột để tính tên chữ cái chuẩn openpyxl mới
+        for col_idx, col in enumerate(ws.columns, start=1):
             max_len = 0
             for cell in col:
-                # Ép đóng khung viền lưới mảnh cho tất cả các ô hợp lệ trên sheet dữ liệu
                 if cell.value is not None:
                     if not cell.border or cell.border == Border():
                         cell.border = thin_border
-                    # Tính toán chuỗi độ dài để tự động co dãn cột tránh lỗi vỡ dòng hiển thị
                     cell_len = len(str(cell.value))
                     if cell_len > max_len: 
                         max_len = cell_len
-            col_letter = get_column_letter(col.column)
+            col_letter = get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
     wb.save(output)
     output.seek(0)
     return output
+
 
 
 import streamlit as st, pandas as pd
