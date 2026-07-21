@@ -920,25 +920,33 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2b nâng cấp ổn định: Giả lập chiều dài sơ đồ tổng dựa trên danh sách rập đã khóa thứ tự."""
+    """Khối 2b nâng cấp chống trật bài: Tách biệt hoàn toàn bộ phạt rập to cồng kềnh 
+    và hệ số hao hụt đại trà giữa hàng Áo (Jacket) và hàng Quần (Trouser).
+    """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or ctx["major_shape_area"] == 0:
         return {"product_segmented": "CASUAL_TOP", "fabric_pattern": "SOLID", "actual_packing_density": 0.82, "global_gross_fabric_yds": 0.0, "major_shape_area": 0.0}
 
     fabric_pattern = ctx["fabric_pattern"]
+    product_segmented = ctx["product_type"]
+    
+    # 1. Tính toán mật độ nén nền theo dòng sản phẩm
     major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
     
-    if ctx["product_type"] == "TROUSER": major_nest_density -= 0.03
-    elif ctx["product_type"] in ["JACKET", "SUIT_BLAZER"]: major_nest_density -= 0.02
+    if product_segmented == "TROUSER": 
+        major_nest_density -= 0.01 # Quần lật đầu rập lồng ghép rất khít, chỉ trừ hao hao hụt nhỏ 1%
+    elif product_segmented in ["JACKET", "SUIT_BLAZER"]: 
+        major_nest_density -= 0.02 # Áo khoác phom vếch khó xếp hơn
         
-    # 🚨 SỬA LỖI NHẢY SỐ: Quét dựa trên mảng stable_bom_list đã được sắp xếp cố định ở Khối 2a
+    # 2. BỘ PHẠT RẬP TO TOÀN CỤC - CHỈ ÁP DỤNG CHO ÁO (Hàng quần thon dài được MIỄN TRỪ)
     major_pieces = [r for r in ctx["stable_bom_list"] if r and (float(r.get("bounding_box_length", 0)) > 15.0)]
-    if major_pieces:
+    if major_pieces and product_segmented in ["JACKET", "SUIT_BLAZER"]:
         avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
         width_occupancy_ratio = avg_major_width / ctx["fabric_width"]
         if width_occupancy_ratio > 0.28:
             major_nest_density -= min((width_occupancy_ratio - 0.28) * 0.18, 0.065)
 
+    # 3. Thuật toán hấp thụ kẽ hở 5% (Gerber Nesting Core)
     required_marker_area_for_major = ctx["major_shape_area"] / major_nest_density
     usable_gap_area = (required_marker_area_for_major - ctx["major_shape_area"]) * 0.05
     
@@ -952,21 +960,30 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     if ctx["plaid_repeat_inch"] > 0: actual_packing_density -= (ctx["plaid_repeat_inch"] * 0.007)
     actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
 
+    # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
     simulated_length = ((final_simulated_shape_area / ctx["fabric_width"]) / actual_packing_density) * (1.0 + ((ctx["bias_shape_area_weight"] / final_simulated_shape_area) * 0.15))
     simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
 
-    # Áp dụng hao hụt đại trà của hàng Jacket/Quần
-    fabric_wastage_multiplier = 1.020 * 1.010 
-    end_loss_inch = 0.3
-    if ctx["product_type"] in ["JACKET", "SUIT_BLAZER"]:
-        fabric_wastage_multiplier *= 1.08  
+    # =====================================================================
+    # TÁCH BIỆT HAO HỤT BÀN CẮT: Trả lại sự tiết kiệm cho hàng Quần
+    # =====================================================================
+    # Mặc định hao hụt biên vải và đầu cây cơ bản cho Quần/Sơ mi đại trà là rất thấp
+    fabric_wastage_multiplier = 1.015 * 1.005 # 1.5% biên + 0.5% đầu cây
+    end_loss_inch = 0.2
+    
+    # Chỉ gánh hao hụt nặng khi đi sơ đồ vải Áo khoác dày
+    if product_segmented in ["JACKET", "SUIT_BLAZER"]:
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.08  # Gánh thêm 8% hao hụt dạt dập của Jacket
         end_loss_inch = 1.5
+    # =====================================================================
 
     global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
 
     return {
-        "product_segmented": ctx["product_type"], "fabric_pattern": fabric_pattern,
-        "actual_packing_density": actual_packing_density, "global_gross_fabric_yds": global_gross_fabric,
+        "product_segmented": product_segmented, 
+        "fabric_pattern": fabric_pattern,
+        "actual_packing_density": actual_packing_density, 
+        "global_gross_fabric_yds": global_gross_fabric,
         "major_shape_area": ctx["major_shape_area"]
     }
 
