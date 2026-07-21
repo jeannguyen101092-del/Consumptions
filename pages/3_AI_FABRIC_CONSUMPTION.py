@@ -1250,7 +1250,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & ĐỒNG BỘ 100% CẤU TRÚC DÒNG
+# 🟩 KHỐI 5a HOÀN CHỈNH: ĐỒNG BỘ 100% TỌA ĐỘ Ô THÔNG SỐ & KHÔNG BỊ MẤT DÒNG
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1261,18 +1261,15 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     output = io.BytesIO()
     wb = Workbook()
     
-    # Định dạng font Segoe UI chuẩn văn phòng PPJ Group
     font_family = "Segoe UI"
     font = Font(name=font_family, size=10)
     bold = Font(name=font_family, size=10, bold=True)
     title_font = Font(name=font_family, size=14, bold=True, color="0E6251")
     header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
     
-    # Cấu hình màu sắc thương hiệu (Xanh đậm PPJ & Xám nhạt thông số)
-    header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
-    meta_fill = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
+    header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid") # Xanh đậm PPJ
+    meta_fill = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid") # Xám nhạt nhãn
     
-    # Cấu hình đường viền lưới mảnh (Borders) cho toàn bộ file
     thin_side = Side(style='thin', color='BDC3C7')
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
     
@@ -1283,68 +1280,84 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.title = "BOM Summary"
     ws1.sheet_view.showGridLines = True
     
-    # 1. Thiết lập Header đầu trang
+    # Dòng 1 & Dòng 2: Tiêu đề hệ thống PPJ
     ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     
-    # 2. Đọc dữ liệu động từ Techpack bốc tách đa tầng
+    # Dòng 4: Tiêu đề khối thông số kỹ thuật sơ đồ CAD
+    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
+    
+    # Trích xuất dữ liệu động an toàn từ bộ nhớ uploader gửi về
     style_code = str(bom_ctx.get("style_num", bom_ctx.get("style_code", bom_ctx.get("style_name", "N/A")))).upper()
     customer_name = str(bom_ctx.get("customer_name", bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD")))).upper()
     sample_size = str(bom_ctx.get("detected_base_size", bom_ctx.get("calculated_on_size", bom_ctx.get("base_size", "27")))).upper()
     
-    # 3. Nạp dòng thông số kỹ thuật (Technical Profile) bắt từ dòng số 4
-    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
+    # 🚨 GÁN CỐ ĐỊNH VỊ TRÍ TỪNG Ô ĐỂ CHỐNG LỖI MẤT DÒNG KHỔ VẢI / CO RÚT VẢI VÀ THÊM MÃ HÀNG KHÁCH HÀNG 🚨
+    # Dòng 5: Mã hàng và Khách hàng
+    ws1.cell(row=5, column=1, value="Mã hàng / Style Code:")
+    ws1.cell(row=5, column=2, value=style_code)
+    ws1.cell(row=5, column=3, value="Khách hàng / Đối tác:")
+    ws1.cell(row=5, column=4, value=customer_name)
     
-    # Ma trận nạp dòng chứa thông tin Mã hàng và Khách hàng động
-    meta_info = [
-        ["Mã hàng / Style Code:", style_code, "Khách hàng / Đối tác:", customer_name],
-        ["Size may mẫu (Sample Size):", sample_size, "Khổ vải hữu dụng (Width):", f'{bom_ctx.get("fabric_width_inch", 56.0)}"'],
-        ["Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%']
-    ]
+    # Dòng 6: Size mẫu và Khổ vải
+    ws1.cell(row=6, column=1, value="Size may mẫu (Sample Size):")
+    ws1.cell(row=6, column=2, value=sample_size)
+    ws1.cell(row=6, column=3, value="Khổ vải hữu dụng (Width):")
+    ws1.cell(row=6, column=4, value=f'{bom_ctx.get("fabric_width_inch", 56.0)}"')
     
-    for r_data in meta_info:
-        ws1.append(r_data)
-        curr_row = ws1.max_row
-        # Đóng khung viền lưới mảnh và tô nền nhạt cho các ô tiêu đề
-        for col_idx in range(1, 5):
-            cell = ws1.cell(row=curr_row, column=col_idx)
+    # Dòng 7: Co rút dọc và Co rút ngang
+    ws1.cell(row=7, column=1, value="Co rút dọc (Warp Shrinkage):")
+    ws1.cell(row=7, column=2, value=f'{bom_ctx.get("warp_shrinkage_percent", 3.0)}%')
+    ws1.cell(row=7, column=3, value="Co rút ngang (Weft Shrinkage):")
+    ws1.cell(row=7, column=4, value=f'{bom_ctx.get("weft_shrinkage_percent", 14.0)}%')
+    
+    # Dòng 8: Chủng loại sản phẩm và Hiệu suất sơ đồ (Density)
+    ws1.cell(row=8, column=1, value="Chủng loại sản phẩm:")
+    ws1.cell(row=8, column=2, value=str(product_type).upper())
+    ws1.cell(row=8, column=3, value="Hiệu suất sơ đồ (Density):")
+    ws1.cell(row=8, column=4, value=f'{density * 100:.1f}%')
+    
+    # Định dạng font, viền đóng khung mảnh và màu nền cho khối thông số (Dòng 5 đến Dòng 8)
+    for r in range(5, 9):
+        for c in range(1, 5):
+            cell = ws1.cell(row=r, column=c)
             cell.border = thin_border
-            if col_idx == 1 or col_idx == 3:
+            if c == 1 or c == 3:
                 cell.font = bold
                 cell.fill = meta_fill
+                cell.alignment = Alignment(horizontal="left", vertical="center")
             else:
                 cell.font = font
-                cell.alignment = Alignment(horizontal="center")
+                cell.alignment = Alignment(horizontal="center", vertical="center")
                 
-    ws1.append([]) # Dòng trống số 8 phân tách
+    # Dòng 10: Tiêu đề khối BOM Summary
+    ws1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=font_family, size=11, bold=True)
     
-    # 4. Định dạng tiêu đề cột cho Tab 1 (BOM Summary) đẩy xuống dòng số 9 và 10
-    ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=font_family, size=11, bold=True)
-    
-    ws1.append(["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"])
-    for col in range(1, 5):
-        cell = ws1.cell(row=ws1.max_row, column=col)
+    # Dòng 11: Tiêu đề cột của bảng BOM Summary
+    summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
+    for col_idx, h_text in enumerate(summary_headers, start=1):
+        cell = ws1.cell(row=11, column=col_idx, value=h_text)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
         
-    # Duyệt ghi dữ liệu bảng tổng hợp vật tư
+    # Ghi dữ liệu bảng tổng hợp vật tư bắt đầu từ dòng 12 xuống dưới
+    current_write_row = 12
     for _, row in df_summary.iterrows():
-        ws1.append([
-            row.get("Phân loại vật tư", "VẬT TƯ"), 
-            row.get("Material Class", "FABRIC"),
-            float(row.get("Gross Consumption", 0.0)), 
-            row.get("UOM", "YDS")
-        ])
-        curr_row = ws1.max_row
-        ws1.cell(curr_row, 3).number_format = '#,##0.0000'
+        ws1.cell(row=current_write_row, column=1, value=row.get("Phân loại vật tư", "VẬT TƯ"))
+        ws1.cell(row=current_write_row, column=2, value=row.get("Material Class", "FABRIC"))
+        ws1.cell(row=current_write_row, column=3, value=float(row.get("Gross Consumption", 0.0)))
+        ws1.cell(row=current_write_row, column=4, value=row.get("UOM", "YDS"))
+        
+        ws1.cell(row=current_write_row, column=3).number_format = '#,##0.0000'
         for col_idx in range(1, 5):
-            c = ws1.cell(row=curr_row, column=col_idx)
+            c = ws1.cell(row=current_write_row, column=col_idx)
             c.font = font
             c.border = thin_border
             if col_idx == 2 or col_idx == 4: 
-                c.alignment = Alignment(horizontal="center")
+                c.alignment = Alignment(horizontal="center", vertical="center")
+        current_write_row += 1
 
     # =====================================================================
     # TAB 2: CHI TIẾT CẤU TRÚC RẬP CAD (DETAILED CAD PIECES)
@@ -1352,58 +1365,43 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws2 = wb.create_sheet(title="Detailed CAD Pieces")
     ws2.sheet_view.showGridLines = True
     
-    # Tiêu đề bảng chi tiết rập
     ws2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=font_family, size=11, bold=True)
-    ws2.append([]) # Dòng trống phân tách
     
-    # Khai báo tiêu đề cột bảng chi tiết rập CAD
     headers = ["Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", "Dài (L-inch)", "Rộng (W-inch)", "polygon_net_area", "Gross Consumption"]
-    ws2.append(headers)
-    for col in range(1, len(headers) + 1):
-        cell = ws2.cell(row=3, column=col)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = thin_border
+    for col_idx, h_text in enumerate(headers, start=1):
+        cell = ws2.cell(row=3, column=col_idx, value=h_text)
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = thin_border
 
-    # Duyệt và đẩy dữ liệu danh mục rập chi tiết xuống sheet 2
+    current_detail_row = 4
     for _, row in df_details.iterrows():
-        ws2.append([
-            row.get("Component Name", row.get("component_name", "UNNAMED")),
-            row.get("Material Class", row.get("material_class", "FABRIC")),
-            row.get("Role/Piece Type", row.get("geometry_role", "MINOR")),
-            row.get("Số lượng rập", row.get("piece_count", "1")),
-            float(row.get("Dài (L-inch)", row.get("bounding_box_length", 0.0))),
-            float(row.get("Rộng (W-inch)", row.get("bounding_box_width", 0.0))),
-            float(row.get("polygon_net_area", 0.0)),
-            float(row.get("Gross Consumption", row.get("gross_consumption", 0.0)))
-        ])
+        ws2.cell(row=current_detail_row, column=1, value=row.get("Component Name", row.get("component_name", "UNNAMED")))
+        ws2.cell(row=current_detail_row, column=2, value=row.get("Material Class", row.get("material_class", "FABRIC")))
+        ws2.cell(row=current_detail_row, column=3, value=row.get("Role/Piece Type", row.get("geometry_role", "MINOR")))
+        ws2.cell(row=current_detail_row, column=4, value=row.get("Số lượng rập", row.get("piece_count", "1")))
+        ws2.cell(row=current_detail_row, column=5, value=float(row.get("Dài (L-inch)", row.get("bounding_box_length", 0.0))))
+        ws2.cell(row=current_detail_row, column=6, value=float(row.get("Rộng (W-inch)", row.get("bounding_box_width", 0.0))))
+        ws2.cell(row=current_detail_row, column=7, value=float(row.get("polygon_net_area", 0.0)))
+        ws2.cell(row=current_detail_row, column=8, value=float(row.get("Gross Consumption", row.get("gross_consumption", 0.0))))
         
-        curr_row = ws2.max_row
-        ws2.cell(curr_row, 4).alignment = Alignment(horizontal="center")
-        ws2.cell(curr_row, 5).number_format = '#,##0.00'
-        ws2.cell(curr_row, 6).number_format = '#,##0.00'
-        ws2.cell(curr_row, 7).number_format = '#,##0.00'
-        ws2.cell(curr_row, 8).number_format = '#,##0.0000'
+        ws2.cell(row=current_detail_row, column=4).alignment = Alignment(horizontal="center", vertical="center")
+        ws2.cell(row=current_detail_row, column=5).number_format = '#,##0.00'
+        ws2.cell(row=current_detail_row, column=6).number_format = '#,##0.00'
+        ws2.cell(row=current_detail_row, column=7).number_format = '#,##0.00'
+        ws2.cell(row=current_detail_row, column=8).number_format = '#,##0.0000'
         
         for col_idx in range(1, len(headers) + 1):
-            c = ws2.cell(row=curr_row, column=col_idx)
-            c.font = font
-            c.border = thin_border
+            c = ws2.cell(row=current_detail_row, column=col_idx)
+            c.font = font; c.border = thin_border
+        current_detail_row += 1
 
-    # =====================================================================
-    # 🛠️ THUẬT TOÁN ĐÓNG KHUNG LƯỚI & TỰ ĐỘNG CĂN RỘNG CỘT TỐI ƯU KHUNG
-    # =====================================================================
+    # TỰ ĐỘNG CĂN RỘNG CỘT (AUTO-FIT) CHO CẢ 2 SHEET CHỐNG VỠ DÒNG
     for ws in [ws1, ws2]:
         for col_idx, col in enumerate(ws.columns, start=1):
             max_len = 0
             for cell in col:
                 if cell.value is not None:
-                    if not cell.border or cell.border == Border():
-                        cell.border = thin_border
                     cell_len = len(str(cell.value))
-                    if cell_len > max_len: 
-                        max_len = cell_len
+                    if cell_len > max_len: max_len = cell_len
             col_letter = get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
