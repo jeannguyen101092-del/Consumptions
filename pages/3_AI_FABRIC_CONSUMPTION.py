@@ -1462,14 +1462,76 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
 
 
 
-    # Giải toán mật độ nén sơ đồ bằng Python thuần siêu ổn định ổn định
+  # =====================================================================
+# 🟩 KHỐI 5b HOÀN CHỈNH: TOÁN LỘN RẬP HAI BÊN ĐỐI XỨNG & ĐỒNG BỘ UI (SẠCH LỖI)
+# =====================================================================
+import streamlit as st, pandas as pd
+import numpy as np
+import re
+
+# 1. Bốc tách chính xác dữ liệu từ bộ xử lý trung gian Khối 4 (processed_display_rows)
+rows = st.session_state.get("processed_display_rows", [])
+
+if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
+    df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
+    
+    ctx = st.session_state.get("bom_data", {})
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
+    fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
+    fabric_width = float(ctx.get("fabric_width_inch", 56.0))
+    
+    m_col, g_col, area_col, pcs_col = "Material Class", "gross_consumption", "polygon_net_area", "Số lượng rập"
+    
+    df_bom["Dài sản xuất (L-inch)"] = pd.to_numeric(df_bom.get("Dài sản xuất (L-inch)", df_bom.get("Dài (L-inch)", 0.0)), errors='coerce').fillna(0.0)
+    df_bom["Rộng sản xuất (W-inch)"] = pd.to_numeric(df_bom.get("Rộng sản xuất (W-inch)", df_bom.get("Rộng (W-inch)", 0.0)), errors='coerce').fillna(0.0)
+    
+    # --------------------------------=====================================
+    # PHẦN A: ÉP MA TRẬN NHÂN LỚP MAY LỘN HAI BÊN CƠ THỂ
+    # --------------------------------=====================================
+    for idx, row in df_bom.iterrows():
+        l_val = float(row["Dài sản xuất (L-inch)"])
+        w_val = float(row["Rộng sản xuất (W-inch)"])
+        name_lower = str(row.get("Component Name", row.get("component_name", ""))).lower()
+        
+        pcs_str = str(row.get(pcs_col, "1"))
+        try: 
+            orig_pcs = float(re.search(r'\d+', pcs_str).group())
+        except: 
+            orig_pcs = 1.0
+            
+        layer_multiplier = 1
+        
+        # Ép quy tắc lộn kết cấu chuẩn nhà máy: Cổ áo x2; nắp túi x4, cúp tay x4 cho 2 bên trái/phải hoàn chỉnh
+        if any(k in name_lower for k in ["collar", "cổ", "yoke", "đô", "sash", "belt", "đai", "facing", "nẹp", "tà", "placket"]):
+            layer_multiplier = 2
+        elif any(k in name_lower for k in ["flap", "nắp", "cuff", "măng", "mangset", "cúp", "cuptay"]):
+            layer_multiplier = 4
+        elif ("back" in name_lower or "thân sau" in name_lower) and orig_pcs == 1.0:
+            layer_multiplier = 2
+
+        final_pcs_production = int(orig_pcs * layer_multiplier)
+        df_bom.loc[idx, pcs_col] = f"{final_pcs_production} Pcs"
+            
+        aspect_ratio = max(l_val, w_val) / max(min(l_val, w_val), 0.1) if l_val > 0 and w_val > 0 else 1.5
+        compactness = max(min(1.0 - (abs(aspect_ratio - 2.5) * 0.04), 0.94), 0.60)
+        edge_loss = 0.04 if any(k in name_lower for k in ["pocket", "flap", "cuff", "collar"]) else 0.09
+        
+        seamed_l = l_val + (0.44 * 2.0) if l_val > 0 else 0
+        seamed_w = w_val + (0.44 * 2.0) if w_val > 0 else 0
+        df_bom.loc[idx, area_col] = round(seamed_l * seamed_w * (compactness - edge_loss) * final_pcs_production, 2)
+
+    # --------------------------------=====================================
+    # PHẦN B: GIẢI TOÁN SƠ ĐỒ VÀ MẬT ĐỘ NÈN BẰNG PYTHON THUẦN (KHỬ LỖI NUMPY)
+    # --------------------------------=====================================
     total_net_area, total_bbox_area, total_piece_count = 0.0, 0.0, 0.0
     df_fabric = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
     for _, row in df_fabric.iterrows():
         pcs_str = str(row.get(pcs_col, "1 Pcs"))
-        try: pcs_extracted = float(re.search(r'\d+', pcs_str).group())
-        except: pcs_extracted = 1.0
+        try: 
+            pcs_extracted = float(re.search(r'\d+', pcs_str).group())
+        except: 
+            pcs_extracted = 1.0
         total_net_area += float(row[area_col])
         total_bbox_area += (float(row["Dài sản xuất (L-inch)"]) * float(row["Rộng sản xuất (W-inch)"])) * pcs_extracted
         total_piece_count += pcs_extracted
@@ -1479,17 +1541,18 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         dens = max(min(0.68 + (bbox_fill * 0.14), 0.92), 0.62)
         simulated_length = (total_net_area / fabric_width) / dens
         
-        # Hao hụt dạt biên đầu khúc công nghiệp
         wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
-        total_gross_yds = (simulated_length / 36.0) * (0.965 + wastage_curve) + (2.5 / 36.0)
+        total_gross_yds = (simulated_length / 36.0) * (1.148 + wastage_curve) + (2.5 / 36.0)
         
-        if fabric_pattern_raw in ["PLAID", "STRIPE"]: total_gross_yds *= 1.15
+        if fabric_pattern_raw in ["PLAID", "STRIPE"]: 
+            total_gross_yds *= 1.15
     else:
         dens, total_gross_yds = 0.82, 1.8343
 
-       # =====================================================================
-    # 2. 🚨 PHÂN BỔ ĐỊNH MỨC CHI TIẾT SẠCH LỖI VÀ TÁCH BIỆT BÀN CẮT KEO/LÓT 🚨
-    # =====================================================================
+    # --------------------------------=====================================
+    # PHẦN C: PHÂN BỔ TIÊU HAO ĐỘNG CHI TIẾT & TÁCH BÀN CẮT KEO/LÓT ĐỘC LẬP
+    # --------------------------------=====================================
+    df_bom[g_col] = 0.0
     df_main_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     total_fabric_net_area_only = df_main_fabric_only[area_col].sum()
     
@@ -1499,13 +1562,11 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         role_upper = str(row.get("Role/Piece Type", "")).upper()
         mat_class_curr = str(row.get(m_col, "FABRIC")).upper().strip()
         
-        # PHÂN HỆ 1: BÀN CẮT VẢI CHÍNH (MAIN FABRIC)
         if "FABRIC" in mat_class_curr:
             if total_fabric_net_area_only > 0 and total_gross_yds > 0:
                 share_ratio = net_a / total_fabric_net_area_only
                 item_gross = total_gross_yds * share_ratio
                 
-                # Ép chi tiết phụ vải chính nhồi kẽ hở (đỉa loop, nhãn), bảo vệ nguyên vẹn chi tiết kết cấu Áo khoác
                 is_major_panel = "MAJOR" in role_upper or any(k in name_lower for k in ["front", "back", "leg", "thân", "body", "sleeve", "tay"])
                 is_exempt = any(k in name_lower for k in ["collar", "cổ", "cuff", "măng", "mangset", "belt", "đai", "sash", "flap", "nắp", "pocket", "túi"])
                 
@@ -1514,20 +1575,16 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
                 df_bom.loc[idx, g_col] = round(item_gross, 5)
             else:
                 df_bom.loc[idx, g_col] = 0.0
-                
-        # PHÂN HỆ 2: BÀN CẮT ĐỘC LẬP CHO KEO DỰNG (FUSING) VÀ VẢI LÓT (LINING)
         elif any(k in mat_class_curr for k in ["FUSING", "LINING", "KEO", "LÓT"]):
-            if fabric_width > 0 and net_a > 0:
-                independent_gross = (net_a / fabric_width / 36.0 / 0.75) * 1.05
-                df_bom.loc[idx, g_col] = round(independent_gross, 5)
-            else:
-                df_bom.loc[idx, g_col] = 0.0
+            # Giải sơ đồ phẳng riêng biệt độc lập cho Keo dựng và Vải lót
+            independent_gross = (net_a / fabric_width / 36.0 / 0.75) * 1.05 if fabric_width > 0 else 0.0
+            df_bom.loc[idx, g_col] = round(independent_gross, 5)
         else:
             df_bom.loc[idx, g_col] = 0.0
 
-    # =====================================================================
-    # D. KẾT XUẤT HỆ THỐNG GIAO DIỆN UI STREAMLIT & BẢNG TỔNG HỢP SUMMARY
-    # =====================================================================
+    # --------------------------------=====================================
+    # PHẦN D: RENDER BẢNG SUMMARY VÀ BẢNG CHI TIẾT LÊN WEB UI STREAMLIT
+    # --------------------------------=====================================
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
@@ -1558,6 +1615,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         unsafe_allow_html=True
     )
     
+    # Chia cột tiêu đề và nút xanh xuất Excel đúng mảng tham số 2 cột an toàn
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
@@ -1568,7 +1626,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_Consumption_Engine.xlsx",
-                key="btn_download_excel_ppj_final_v36_secured_perfect_sync"
+                key="btn_download_excel_ppj_final_v36_secured_perfect_sync_final"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
