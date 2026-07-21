@@ -1076,8 +1076,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
     }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh ổn định thế hệ mới: Bóc tách lớp cắt tự động từ PDF Callout.
-    Đã bổ sung lưu trực tiếp production_length và production_width vào dictionary gốc r.
+    """Khối 3 hoàn chỉnh ổn định thế mới: Bóc tách lớp cắt tự động từ PDF Callout.
+    ĐÃ SỬA LỖI GỐC: Ép ghi đè kích thước ĐÃ CỘNG CO RÚT vào tất cả các cấu trúc dữ liệu chuyển giao.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
@@ -1101,11 +1101,11 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
         if raw_l > 0:
-            # TÍNH TOÁN CO RÚT VẢI
+            # 🔴 ĐOẠN TÍNH CO RÚT QUAN TRỌNG:
             adj_l = raw_l * (1 + safe_float(warp_shrinkage) / 100.0)
             adj_w = raw_w * (1 + safe_float(weft_shrinkage) / 100.0) if raw_w > 0 else raw_w
             
-            # 🔴 CHỈNH SỬA 1: Lưu kích thước sản xuất trực tiếp vào dòng dữ liệu gốc r
+            # Ép lưu vết trực tiếp vào dictionary dữ liệu gốc r để Khối 5 bốc ra hiển thị
             r["production_length"] = adj_l
             r["production_width"] = adj_w
             
@@ -1124,9 +1124,9 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             else:
                 shape_factor = 0.78
 
-            # Tính toán tổng diện tích phẳng thực tế dựa trên kích thước đã co rút
-            seamed_l = adj_l + (0.44 * 2.0)
-            seamed_w = adj_w + (0.44 * 2.0) if raw_w > 0 else adj_w
+            # Tính toán diện tích thực tế dựa trên kích thước ĐÃ CỘNG CO RÚT
+            seamed_l = adj_l + 0.88
+            seamed_w = adj_w + 0.88 if raw_w > 0 else adj_w
             
             total_pcs_final = pcs * layer_multiplier
             item_area = seamed_l * seamed_w * shape_factor * total_pcs_final
@@ -1140,10 +1140,14 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             r["calculation_status"] = "PROCESSED"
             r["cad_algorithm"] = calc_chain_log
             
+            # 🔴 ĐỒNG BỘ SANG MẢNG TRUNG GIAN KHỐI 5: Thay raw_l bằng adj_l, raw_w bằng adj_w
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{total_pcs_final} Pcs",
                 "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
+                "is_belt_loop": is_belt_loop, 
+                "raw_l": adj_l,  # Đưa kích thước đã co rút làm kích thước hiển thị chính
+                "raw_w": adj_w,  # Đưa kích thước đã co rút làm kích thước hiển thị chính
+                "pcs_val": pcs, "custom_name": comp_name_raw
             })
             
         elif is_button:
@@ -1155,7 +1159,9 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
                 "layer_multiplier": 1, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item,
                 "is_belt_loop": False, "raw_l": 0.0, "raw_w": 0.0, "pcs_val": pcs, "custom_name": comp_name_raw
             })
-                
+    
+    # Lưu mảng đã đồng bộ co rút ngược vào session_state phòng khi re-run Streamlit
+    st.session_state["piece_calculated_data"] = piece_calculated_data
     return round(total_fabric_piece_area, 4), piece_calculated_data
 
 
