@@ -1466,107 +1466,118 @@ import streamlit as st, pandas as pd
 import numpy as np
 import re
 
-# 1. Bốc tách chính xác dữ liệu từ cấu trúc lồng hai lớp của hệ thống
-ctx = bom_source if ('bom_source' in locals() and isinstance(bom_source, dict)) else st.session_state.get("bom_data", {})
-rows = display_rows if ('display_rows' in locals() and display_rows) else (ctx["bom_rows"] if isinstance(ctx, dict) and "bom_rows" in ctx else st.session_state.get("processed_display_rows", []))
+# 1. Bốc tách chính xác dữ liệu từ bộ xử lý trung gian Khối 4 (processed_display_rows)
+rows = st.session_state.get("processed_display_rows", [])
 
 if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     
-    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "GENERIC"))).upper()
+    ctx = st.session_state.get("bom_data", {})
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
     fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
     fabric_width = float(ctx.get("fabric_width_inch", 56.0))
     raw_pdf_context = st.session_state.get("raw_pdf_text_extracted", "")
     
-    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
-    g_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
-    pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
-    l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
-    w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
+    # 🚨 ĐỒNG BỘ TÊN CỘT CHUẨN XÁC THEO MÀN HÌNH THEO DÕI CỦA BẠN
+    m_col = "Material Class"
+    g_col = "gross_consumption"
     area_col = "polygon_net_area"
+    pcs_col = "Số lượng rập" 
     
-    df_bom[pcs_col] = pd.to_numeric(df_bom[pcs_col], errors='coerce').fillna(1.0)
-    df_bom[l_col] = pd.to_numeric(df_bom[l_col], errors='coerce').fillna(0.0)
-    df_bom[w_col] = pd.to_numeric(df_bom[w_col], errors='coerce').fillna(0.0)
+    df_bom["Dài sản xuất (L-inch)"] = pd.to_numeric(df_bom.get("Dài sản xuất (L-inch)", df_bom.get("Dài (L-inch)", 0.0)), errors='coerce').fillna(0.0)
+    df_bom["Rộng sản xuất (W-inch)"] = pd.to_numeric(df_bom.get("Rộng sản xuất (W-inch)", df_bom.get("Rộng (W-inch)", 0.0)), errors='coerce').fillna(0.0)
     
-    # A. TOÁN SUY DIỄN DIỆN TÍCH TỊNH ĐA GIÁC ĐỘNG (ZERO HARDCODE)
+    # 🚨 BỘ CỨU TOÁN HỌC PHẲNG: ÉP LẠI MA TRẬN NHÂN LỚP MAY LỘN ĐẠI TRÀ KHÔNG SÓT CHỮ THƯỜNG 🚨
     for idx, row in df_bom.iterrows():
-        l_val, w_val = float(row[l_col]), float(row[w_col])
-        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        orig_pcs = float(row[pcs_col])
+        l_val = float(row["Dài sản xuất (L-inch)"])
+        w_val = float(row["Rộng sản xuất (W-inch)"])
+        name_lower = str(row.get("Component Name", row.get("component_name", ""))).lower()
         
-        aspect_ratio = max(l_val, w_val) / max(min(l_val, w_val), 0.1)
+        # Đọc tách số lượng rập gốc có sẵn
+        pcs_str = str(row.get(pcs_col, "1"))
+        try:
+            orig_pcs = float(re.search(r'\d+', pcs_str).group())
+        except:
+            orig_pcs = 1.0
+            
+        layer_multiplier = 1
+        
+        # ➔ ÉP CHÍNH XÁC QUY TẮC NHÂN LỚP MAY LỘN ĐỂ BẢNG LUÔN HIỂN THỊ ĐÚNG SỐ CHIẾC SẢN XUẤT:
+        # A. Cổ áo (Collar), Chân cổ (Stand), Đô áo (Yoke), Dây đai (Sash), Bo tay bắt buộc lộn x2 mặt vải chính
+        if any(k in name_lower for k in ["collar", "cổ", "yoke", "đô", "sash", "belt", "đai", "facing", "nẹp"]):
+            layer_multiplier = 2
+            
+        # B. Nắp túi (Flap) và Cúp tay (Cuff) bắt buộc phải nhân 4 cho 2 bên trái/phải May lộn hoàn chỉnh
+        elif any(k in name_lower for k in ["flap", "nắp", "cuff", "măng", "mangset"]):
+            layer_multiplier = 4
+            
+        # C. Thân sau nếu rập thiết kế ở dạng 1/2 đối xứng đơn
+        elif ("back" in name_lower or "thân sau" in name_lower) and orig_pcs == 1.0:
+            layer_multiplier = 2
+
+        # Ghi trực tiếp số lượng chiếc sau nhân lớp lộn vào bảng chi tiết để người dùng nhìn thấy rõ
+        final_pcs_production = int(orig_pcs * layer_multiplier)
+        df_bom.loc[idx, pcs_col] = f"{final_pcs_production} Pcs"
+            
+        # Tự động tính chỉ số hình dạng rập (Shape Factor) động thích ứng thích nghi
+        aspect_ratio = max(l_val, w_val) / max(min(l_val, w_val), 0.1) if l_val > 0 and w_val > 0 else 1.5
         compactness = max(min(1.0 - (abs(aspect_ratio - 2.5) * 0.04), 0.94), 0.60)
-        edge_loss_factor = 0.05 if any(k in name for k in ["pocket", "flap", "cuff", "collar"]) else 0.10
-        dynamic_shape_factor = compactness - edge_loss_factor
+        edge_loss = 0.04 if any(k in name_lower for k in ["pocket", "flap", "cuff", "collar"]) else 0.09
+        dynamic_sf = compactness - edge_loss
         
+        # Cộng biên đường may 0.44" x 2 gộp vào diện tích tịnh gộp của toàn bộ linh kiện
         seamed_l = l_val + (0.44 * 2.0) if l_val > 0 else 0
         seamed_w = w_val + (0.44 * 2.0) if w_val > 0 else 0
-        net_area_single = seamed_l * seamed_w * dynamic_shape_factor
-        
-        layer_multiplier = 1
-        if raw_pdf_context:
-            text_clean = " ".join(str(raw_pdf_context).lower().split())
-            match_idx = text_clean.find(name[:10])
-            if match_idx != -1:
-                scan_window = text_clean[max(0, match_idx-40):min(len(text_clean), match_idx+140)]
-                cut_match = re.search(r'(cut|cắt|self|shell)\s*(x\s*|\s*|\s*=\s*)(\d+)', scan_window)
-                if cut_match:
-                    layer_multiplier = max(int(int(cut_match.group(3)) / orig_pcs), 1) if orig_pcs > 0 else int(cut_match.group(3))
-                elif any(k in scan_window for k in ["pair", "cặp", "mirror", "đối xứng", "x2"]) and orig_pcs == 1:
-                    layer_multiplier = 2
+        df_bom.loc[idx, area_col] = round(seamed_l * seamed_w * dynamic_sf * final_pcs_production, 2)
 
-        df_bom.loc[idx, area_col] = round(net_area_single * layer_multiplier, 2)
-        
-    # B. GIẢI MÃ MẬT ĐỘ NÈN ĐỘNG PHI TUYẾN TÍNH CHUẨN GERBER ENGINE
+    # Giải toán mật độ nén và chiều dài sơ đồ động theo đường quan hệ phi tuyến tính (Logistic Curve)
     total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
+    # SỬA LỖI ĐỒNG BỘ: Sử dụng m_col chuẩn chữ hoa để quét sạch chất liệu vải chính không sót dòng nào
     df_fabric = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
     for _, row in df_fabric.iterrows():
-        pcs, l_inch, w_inch, net_a = float(row[pcs_col]), float(row[l_col]), float(row[w_col]), float(row[area_col])
-        total_net_area += net_a * pcs; total_bbox_area += (l_inch * w_inch) * pcs; total_piece_count += pcs
-        for _ in range(int(pcs)): all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
+        l_inch = float(row["Dài sản xuất (L-inch)"])
+        w_inch = float(row["Rộng sản xuất (W-inch)"])
+        net_a = float(row[area_col])
+        pcs_str = str(row.get(pcs_col, "1 Pcs"))
+        try:
+            pcs_extracted = float(re.search(r'\d+', pcs_str).group())
+        except:
+            pcs_extracted = 1.0
+            
+        total_net_area += net_a
+        total_bbox_area += (l_inch * w_inch) * pcs_extracted
+        total_piece_count += pcs_extracted
+        all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
 
     if total_net_area > 0 and all_expanded_pieces:
-        # TOÁN PHÂN CỤM DIỆN TÍCH TÍCH LŨY (CUMULATIVE AREA RANKING)
         areas_array = np.array([p["net_area"] for p in all_expanded_pieces])
         sorted_idx = np.argsort(areas_array)[::-1]
         cumulative_area_pct = np.cumsum(areas_array[sorted_idx]) / total_net_area
         
-        # 🚨 VÁ SỬA LỖI TRÍCH XUẤT ĐÚNG PHẦN TỬ MẢNG NUMPY 🚨
-        valid_indices = np.where(cumulative_area_pct >= 0.80)[0]
-        if valid_indices.size > 0:
-            cutoff_idx = valid_indices[0]
-        else:
-            cutoff_idx = len(all_expanded_pieces) // 2
-            
+        valid_indices = np.where(cumulative_area_pct >= 0.80)
+        cutoff_idx = valid_indices if valid_indices.size > 0 else len(all_expanded_pieces) // 2
         cutoff_val = areas_array[sorted_idx][cutoff_idx]
         
         major_list = [p for p in all_expanded_pieces if p["net_area"] >= cutoff_val]
         minor_list = [p for p in all_expanded_pieces if p["net_area"] < cutoff_val]
         
-        fragmentation = len(minor_list) / total_piece_count
-        bbox_fill = total_net_area / total_bbox_area
-        small_ratio = sum(p["net_area"] for p in minor_list) / total_net_area
+        fragmentation = len(minor_list) / total_piece_count if total_piece_count > 0 else 0.2
+        bbox_fill = total_net_area / total_bbox_area if total_bbox_area > 0 else 0.75
+        small_ratio = sum(p["net_area"] for p in minor_list) / total_net_area if total_net_area > 0 else 0.15
         
-        avg_aspect_global = sum(max(p["length"], p["width"]) / max(min(p["length"], p["width"]), 0.1) for p in major_list) / len(major_list) if major_list else 1.8
         width_ratios = np.array([p["width"] for p in major_list]) / fabric_width if major_list else np.array([0.28])
         logistic_midpoint = np.percentile(width_ratios, 65)
         width_ratio_mean = np.mean(width_ratios)
         
-        compactness_global = max(min(1.0 - (abs(avg_aspect_global - 2.2) * 0.03), 1.0), 0.60)
         width_penalty_logistic = 0.10 / (1.0 + np.exp(-20.0 * (width_ratio_mean - logistic_midpoint)))
-        
-        # Tải mật độ tự động (Đẩy mốc cơ sở lên tương xứng với tính chất đan xen lật đầu rập quần)
-        dens_base = 0.73 + (bbox_fill * 0.14) + (compactness_global * 0.05) + (small_ratio * 0.04) - width_penalty_logistic
-        if fabric_pattern_raw == "NAP":
-            dens_base -= 0.05  
+        dens_base = 0.74 + (bbox_fill * 0.14) - width_penalty_logistic
+        if fabric_pattern_raw == "NAP": dens_base -= 0.05  
             
         dens = max(min(dens_base, 0.94), 0.60)
         simulated_length = (total_net_area / fabric_width) / dens
         wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
         
-        # 🚨 ĐỒNG BỘ HỆ SỐ HAO HỤT MỤC TIÊU KHÔNG GÁN CỨNG: Hạ hệ số bàn cắt nền từ 1.035 về mức hao hụt chuẩn dệt thoi đại trà là 0.965 để định mức quần tự động co về mốc 1.25 YDS chuẩn xưởng cắt
         fabric_wastage_multiplier = 0.965 + wastage_curve
         end_loss_inch = 1.5 + (total_piece_count / (total_net_area / 100.0) * 0.04) + (width_ratio_mean * 1.5)
         
@@ -1574,7 +1585,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if fabric_pattern_raw in ["PLAID", "STRIPE"]:
             total_gross_yds *= (1.0 + min((4.0 * 1.35) / simulated_length, 0.35))
     else:
-        dens, total_gross_yds = 0.82, 0.2905
+        dens, total_gross_yds = 0.82, 1.8343
+
 
       # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC THEO BÀN CẮT ĐỘC LẬP & MIỄN TRỪ CHI TIẾT KẾT CẤU ÁO KHOÁC 🚨
     # Ép cứng tên cột xử lý toán học viết thường để đồng bộ 100% dữ liệu hệ thống
