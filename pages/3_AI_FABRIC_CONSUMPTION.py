@@ -1197,15 +1197,8 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
-import io
-import streamlit as st
-import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a hoàn chỉnh (BẢO VỆ 100% CHỐNG LỖI CÚ PHÁP): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    """Khối 5a hoàn chỉnh (Đmatrix VÁ LỖI GRIDLINES): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
     chứa đầy đủ thông số kỹ thuật động (Size, Co rút, Khổ vải, Hiệu suất).
     """
     output = io.BytesIO()
@@ -1228,7 +1221,9 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     # =====================================================================
     ws1 = wb.active
     ws1.title = "BOM Summary"
-    ws1.views.sheetView.showGridLines = True
+    
+    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Sử dụng cú pháp chuẩn hóa của thư viện openpyxl để hiện lưới bảng Excel sạch lỗi
+    ws1.sheet_view.showGridLines = True
     
     ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
@@ -1246,20 +1241,24 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # ĐÃ KHÓA CỨNG: Gán thủ công trực tiếp theo text chỉ số cột, loại bỏ hoàn toàn vòng lặp để chống sập app
-        # Cột 1 và Cột 3: Định dạng ô nhãn chữ xám
-        cell_c1 = ws1.cell(row=current_r, column=1)
-        cell_c1.font = bold_font; cell_c1.fill = meta_label_fill; cell_c1.border = thin_border
+        # Gán định dạng thủ công trực tiếp cho từng ô theo vị trí hàng/cột (Không dùng lặp mảng trống)
+        ws1.cell(row=current_r, column=1).font = bold_font
+        ws1.cell(row=current_r, column=1).fill = meta_label_fill
+        ws1.cell(row=current_r, column=1).border = thin_border
         
-        cell_c3 = ws1.cell(row=current_r, column=3)
-        cell_c3.font = bold_font; cell_c3.fill = meta_label_fill; cell_c3.border = thin_border
+        ws1.cell(row=current_r, column=3).font = bold_font
+        ws1.cell(row=current_r, column=3).fill = meta_label_fill
+        ws1.cell(row=current_r, column=3).border = thin_border
         
-        # Cột 2 và Cột 4: Định dạng ô giá trị thông số số động xanh ngọc
-        cell_c2 = ws1.cell(row=current_r, column=2)
-        cell_c2.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell_c2.fill = meta_val_fill; cell_c2.border = thin_border; cell_c2.alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251")
+        ws1.cell(row=current_r, column=2).fill = meta_val_fill
+        ws1.cell(row=current_r, column=2).border = thin_border
+        ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
         
-        cell_c4 = ws1.cell(row=current_r, column=4)
-        cell_c4.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell_c4.fill = meta_val_fill; cell_c4.border = thin_border; cell_c4.alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251")
+        ws1.cell(row=current_r, column=4).fill = meta_val_fill
+        ws1.cell(row=current_r, column=4).border = thin_border
+        ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
     ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
@@ -1279,7 +1278,10 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     # TAB 2: CHI TIẾT CẤU TRÚC RẬP CAD (DETAILED CAD PIECES)
     # =====================================================================
     ws2 = wb.create_sheet(title="Detailed CAD Pieces")
-    ws2.views.sheetView.showGridLines = True
+    
+    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Áp dụng cú pháp hiện lưới chuẩn cho Sheet chi tiết rập
+    ws2.sheet_view.showGridLines = True
+    
     ws2.append([]); ws2.cell(row=2, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {product_type_text.upper()}").font = section_font; ws2.append([])
     
     detail_headers = ["Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", "Dài (L-inch)", "Rộng (W-inch)", "Kiểu sơ đồ tổng", "Dự đoán Mật độ nén", "Gross Consumption", "Thuật toán mô phỏng CAD"]
@@ -1291,15 +1293,17 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     for _, row in df_details_data.iterrows():
         ws2.append([row["Component Name"], row["Material Class"], row["Role/Piece Type"], row["Số lượng rập"], float(row["Dài sản xuất (L-inch)"]), float(row["Rộng sản xuất (W-inch)"]), row["Kiểu sơ đồ tổng"], row["Dự đoán Mật độ nén"], float(row["Gross Consumption"]), row["Thuật toán mô phỏng CAD"]])
         curr_row = ws2.max_row
+        
         for col_idx in range(1, len(detail_headers) + 1):
-            cell = ws2.cell(row=curr_row, column=col_idx); cell.font = regular_font; cell.border = thin_border
+            cell = ws2.cell(row=curr_row, column=col_idx)
+            cell.font = regular_font
+            cell.border = thin_border
             
-            # ĐÃ KHÓA CỨNG: So sánh logic văn bản trực tiếp bằng rẽ nhánh đơn, gỡ bỏ hoàn toàn mảng số gây crash cú pháp
-            if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8: 
+            if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8:
                 cell.alignment = Alignment(horizontal="center")
-            elif col_idx == 5 or col_idx == 6: 
+            elif col_idx == 5 or col_idx == 6:
                 cell.alignment = Alignment(horizontal="right")
-            elif col_idx == 9: 
+            elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
     for ws in [ws1, ws2]:
@@ -1309,6 +1313,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI CHIA CỘT ST.COLUMNS): RENDERING UI & NÚT EXCEL PPJ
 # =====================================================================
