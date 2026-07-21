@@ -1309,11 +1309,21 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
-# --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
-if display_rows and skyline_res:
-    df_bom = pd.DataFrame(display_rows)
-    product_segmented = skyline_res["product_segmented"]
-    current_packing_density = skyline_res.get("actual_packing_density", 0.85)
+# =====================================================================
+# 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI NAMEERROR): RENDERING UI & NÚT EXCEL PPJ
+# =====================================================================
+# Sử dụng trực tiếp dữ liệu hiển thị từ bộ nhớ phiên để không bị mất bảng và tránh lỗi chưa định nghĩa biến
+display_rows_source = st.session_state.get("processed_display_rows", [])
+bom_source_ctx = st.session_state.get("bom_data", {})
+
+if display_rows_source and bom_source_ctx:
+    df_bom = pd.DataFrame(display_rows_source)
+    
+    # Lấy thông số từ kết quả engine (nếu có biến cục bộ) hoặc đọc từ session_state gốc
+    product_segmented = skyline_res["product_segmented"] if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("product_segmented", "SKIRT")
+    
+    # Lấy mật độ nén thực tế sau hiệu chỉnh
+    current_packing_density = skyline_res.get("actual_packing_density", 0.85) if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("global_packing_density", 0.85)
     
     # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
     if "Dự đoán Mật độ nén" in df_bom.columns:
@@ -1340,14 +1350,14 @@ if display_rows and skyline_res:
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
-        # Gọi Khối 5a truyền toàn bộ thông số kỹ thuật động vào file Excel
-        excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, st.session_state.get('bom_data', {}), current_packing_density)
+        # Gọi Khối 5a truyền toàn bộ thông số kỹ thuật động vào file Excel báo cáo PPJ Group
+        excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, bom_source_ctx, current_packing_density)
         st.download_button(
             label="🟢 XUẤT FILE EXCEL PPJ",
             data=excel_data,
-            file_name=f"PPJ_BOM_Consumption_{product_segmented}_{st.session_state.get('bom_data', {}).get('style_code', 'Style')}.xlsx",
+            file_name=f"PPJ_BOM_Consumption_{product_segmented}_{bom_source_ctx.get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable_v3"
+            key="btn_download_excel_ppj_final_stable_v4"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
@@ -1357,15 +1367,15 @@ if display_rows and skyline_res:
     st.dataframe(df_bom, use_container_width=True)
     
     # C. Footer thông báo thông số AI động dưới chân bảng
-    bom_source_display = st.session_state.get("bom_data", {})
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
         f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
-        f'Size may mẫu: <b>{bom_source_display.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source_display.get("fabric_width_inch", 56.0)}"</b> | '
-        f'Co rút dọc: <b>{bom_source_display.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút ngang: <b>{bom_source_display.get("weft_shrinkage_percent", 0.0)}%</b>.'
+        f'Size may mẫu: <b>{bom_source_ctx.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source_ctx.get("fabric_width_inch", 56.0)}"</b> | '
+        f'Co rút dọc: <b>{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút ngang: <b>{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%</b>.'
         f'</p>', 
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # Đoạn thông báo xuất hiện khi hệ thống trống file dữ liệu hoặc bấm Clear Memory
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
