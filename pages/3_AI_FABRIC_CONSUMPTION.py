@@ -1000,8 +1000,8 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.115  
         end_loss_inch = 3.0
     elif product_segmented == "JUMPSUIT":
-        fabric_wastage_multiplier = 1.020 * 1.010 * 1.115
-        end_loss_inch = 3.0
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.06
+        end_loss_inch = 2.0
     elif product_segmented == "SKIRT":
         fabric_wastage_multiplier = 1.015 * 1.005 * 1.38
         end_loss_inch = 2.5
@@ -1045,6 +1045,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "global_gross_fabric_yds": global_gross_fabric,
         "major_shape_area": simulated_major_area  
     }
+
 
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
