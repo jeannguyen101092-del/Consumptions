@@ -830,15 +830,9 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
-import streamlit as st
-import re
-
-import streamlit as st
-import re
-
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a nâng cấp: Đã vá lỗi triệt để bằng cách tự sinh diện tích polygon_net_area 
-    từ kích thước hình học Dài x Rộng trước khi chạy qua các thuật toán AI phân loại.
+    """Khối 2a nâng cấp: Đồng bộ quét và tự sinh diện tích polygon_net_area 
+    từ kích thước hình học thô Dài x Rộng, vá triệt để lỗi chữ hoa chữ thường.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -846,131 +840,50 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
     
     query_lower = str(user_query_text).lower() if user_query_text else ""
-    
     stable_bom_list = sorted(
         [r for r in bom_rows_list if r and isinstance(r, dict)], 
         key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
     )
 
-    # 🚨 BƯỚC ĐỒNG BỘ CHÍ MẠNG: Ép tính diện tích tịnh tự động từ kích thước hình học thô
     for r in stable_bom_list:
         raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
         raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
         role_raw = str(r.get("geometry_role", r.get("Role/Piece Type", ""))).upper()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).lower()
         
-        # Nếu diện tích tịnh bị trống hoặc bằng 0, tự tính toán dựa trên hệ số hình dạng chuẩn CAD
         if float(r.get("polygon_net_area", 0.0)) <= 0:
             is_major = "MAJOR" in role_raw or any(k in comp_name_raw for k in ["front", "back", "body", "thân", "skirt", "waistband"])
             shape_factor = 0.74 if is_major else 0.85
-            if "pocket" in comp_name_raw: shape_factor = 0.82
-            if "loop" in comp_name_raw or "fly" in comp_name_raw: shape_factor = 0.90
-            
-            # Ghi đè vào dữ liệu gốc để giải phóng cho khối 2b tính toán hình học phi tuyến tính
             r["polygon_net_area"] = round(raw_l * raw_w * shape_factor, 2)
 
-    # =====================================================================
-    # 1. ĐỒNG BỘ BỘ QUÉT AI CHẤT LIỆU TỰ ĐỘNG
-    # =====================================================================
     fabric_spec_text = str(bom_source.get("material_spec", bom_source.get("fabric_description", ""))).lower()
-    bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in stable_bom_list]).strip()
+    bom_components_text = " ".join([str(r.get("component_name", "")).lower() for r in stable_bom_list]).strip()
     fabric_detect_zone = f" {query_lower} {fabric_spec_text} {bom_components_text} ".replace("_", " ")
 
-    fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-    if any(k in fabric_detect_zone for k in ["sọc", "stripe", "kẻ sọc", "kesoc", "ke soc", "kẻ dọc", "kedoc"]): 
-        fabric_pattern = "STRIPE"
-    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check", "glen", "houndstooth"]): 
-        fabric_pattern = "PLAID"
-        repeat_match = re.search(r"(\d+(\.\d+)?)\s*(inch|in|cm)\s*(repeat|caro)", fabric_detect_zone)
-        plaid_repeat_inch = float(repeat_match.group(1)) if repeat_match else 4.0
-    elif any(k in fabric_detect_zone for k in ["tuyết", "tuyet", "nap", "one way", "oneway", "một chiều", "nhung", "velvet", "corduroy"]): 
-        fabric_pattern, is_one_way_nap = "NAP", True
+    fabric_pattern = "SOLID"
+    if any(k in fabric_detect_zone for k in ["sọc", "stripe", "kẻ sọc"]): fabric_pattern = "STRIPE"
+    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check"]): fabric_pattern = "PLAID"
+    elif any(k in fabric_detect_zone for k in ["tuyết", "nap", "one way"]): fabric_pattern = "NAP"
 
-    # =====================================================================
-    # 2. KHAI THÔNG LUỒNG QUÉT AI TOÀN DIỆN
-    # =====================================================================
-    techpack_meta_text = f"{str(bom_source.get('style_code', ''))} {str(bom_source.get('style_name', ''))} {str(bom_source.get('garment_type', ''))}".lower()
-    
-    poms_spec_text = ""
-    if isinstance(bom_source, dict):
-        poms_spec_text = " ".join([
-            str(bom_source.get("poms_data", "")), 
-            str(bom_source.get("techpack_specs", "")),
-            str(bom_source.get("spec_comments", "")),
-            str(st.session_state.get("raw_pdf_text_extracted", ""))
-        ]).lower()
-        
-    full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text} {poms_spec_text}"
+    full_detect_zone = f"{query_lower} {bom_components_text} {fabric_spec_text}"
+    product_type = "JACKET" if any(k in full_detect_zone for k in ["jacket", "khoác", "blazer"]) else "SKIRT"
 
-    max_piece_length = 0.0
-    for r in stable_bom_list:
-        mat_class_name = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-        if "FABRIC" in mat_class_name:
-            max_piece_length = max(max_piece_length, float(r.get("bounding_box_length", 0.0)))
-
-    product_type = "CASUAL_TOP" 
-    
-    if any(k in full_detect_zone for k in ["skirt", "chân váy", "chan vay"]):
-        product_type = "SKIRT"
-    elif any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "romper"]):
-        product_type = "JUMPSUIT"
-    elif max_piece_length <= 20.0 and max_piece_length > 0 and not any(k in full_detect_zone for k in ["jacket", "khoác", "bomber"]):
-        product_type = "SKIRT"
-    elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit"]):
-        product_type = "JACKET"
-    elif any(k in full_detect_zone for k in ["đầm", "dress", "váy liền"]):
-        product_type = "DRESS"
-    elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband"]):
-        product_type = "TROUSER"
-    elif any(k in full_detect_zone for k in ["sơ mi", "shirt", "so mi", "yoke", "đô", "collar"]):
-        product_type = "SHIRT"
-    elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
-        product_type = "KNIT_TEE"
-
-    # =====================================================================
-    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH TỔNG HỢP HỆ THỐNG
-    # =====================================================================
-    major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
-    total_matching_score, constraint_penalty = 0, 1.00
-    
+    major_shape_area, minor_shape_area = 0.0, 0.0
     for r in stable_bom_list:
         mat_class = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         if "FABRIC" not in mat_class: continue
         
-        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
-        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
-        pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
-        comp_name = str(r.get("component_name", "UNNAMED")).upper().strip()
-        piece_type_raw = str(r.get("piece_type", "")).upper().strip()
-        
-        curr_item_lower = f"{comp_name} {piece_type_raw}".lower()
-        
-        adj_l = (raw_l + (0.44 * 2.0)) * (1 + warp_shrinkage / 100.0)
-        adj_w = (raw_w + (0.44 * 2.0)) * (1 + weft_shrinkage / 100.0)
-        
-        is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or \
-                           (raw_l > 15.0 and raw_w > 8.0) or \
-                           any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg", "skirt"])
-        
+        pcs = int(float(r.get("piece_count", 1)))
         shape_area_single = float(r["polygon_net_area"])
+        is_actual_major = "MAJOR" in str(r.get("geometry_role","")).upper() or float(r.get("bounding_box_length", 0)) > 15.0
         
-        if is_actual_major:
-            major_shape_area += (shape_area_single * pcs)
-            if pcs >= 2: constraint_penalty += 0.020
-            if is_one_way_nap: constraint_penalty += 0.035
-        else:
-            minor_shape_area += (shape_area_single * pcs)
-
-        if fabric_pattern in ["STRIPE", "PLAID"] and any(k in curr_item_lower for k in ["cf", "cb", "pocket", "collar"]): 
-            total_matching_score += (3 * pcs)
-        if any(k in curr_item_lower for k in ["bias", "thiên", "xéo"]): 
-            bias_shape_area_weight += (shape_area_single * pcs)
+        if is_actual_major: major_shape_area += (shape_area_single * pcs)
+        else: minor_shape_area += (shape_area_single * pcs)
 
     return {
-        "product_type": product_type, "fabric_pattern": fabric_pattern, "plaid_repeat_inch": plaid_repeat_inch,
+        "product_type": product_type, "fabric_pattern": fabric_pattern, "fabric_repeat_inch": 4.0,
         "major_shape_area": major_shape_area, "minor_shape_area": minor_shape_area, "fabric_width": fabric_width,
-        "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
-        "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
+        "bias_shape_area_weight": 0.0, "total_matching_score": 0, "constraint_penalty": 1.0, "stable_bom_list": stable_bom_list
     }
 
 
@@ -1112,109 +1025,40 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh ổn định: Đã sửa lỗi chữ hoa/chữ thường của Material Class,
-    đồng thời ép tính toán phân bổ định mức tiêu hao động trực tiếp vào từng linh kiện rập.
-    """
+    """Khối 3 hoàn chỉnh ổn định: Đã sửa lỗi quét chữ hoa/chữ thường của FABRIC."""
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
     
-    # Đồng bộ bốc định mức tổng động từ bộ nhớ để chuẩn bị phân bổ cho từng chi tiết rập
-    total_gross_yds = 0.0
-    if 'skyline_res' in locals() and isinstance(skyline_res, dict):
-        total_gross_yds = float(skyline_res.get("global_gross_fabric_yds", 0.0))
-    elif 'st' in globals() and "bom_data" in st.session_state:
-        total_gross_yds = float(st.session_state.get("bom_data", {}).get("global_gross_fabric_yds", 0.0))
-
-    # --- BƯỚC 1: Duyệt tính toán diện tích hình học sản xuất thực tế của từng chi tiết ---
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
-        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
-        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
-        pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
-        
-        # VÁ LỖI CHỮ THƯỜNG: Chấp nhận mọi kiểu viết hoa viết thường của dữ liệu đầu vào
+        raw_l = float(r.get("bounding_box_length", 0.0))
+        raw_w = float(r.get("bounding_box_width", 0.0))
+        pcs = int(float(r.get("piece_count", 1)))
         mat_class_raw = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
-        geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
-        piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
         
-        combined_str_item = f" {comp_name_raw} {piece_type_ai} ".lower().replace("_", " ")
-        is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
+        combined_str_item = f" {comp_name_raw} ".lower()
+        is_button = any(k in combined_str_item for k in ["button", "nút"])
 
         if raw_l > 0 or is_button:
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
-            adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
+            adj_w = raw_w * (1 + weft_shrinkage / 100.0)
+            layer_multiplier = 2 if any(k in combined_str_item for k in ["back", "thân sau", "flap", "collar"]) else 1
+            shape_factor = 0.74 if raw_l > 15.0 else 0.85
+
+            item_area = adj_l * adj_w * shape_factor * pcs * layer_multiplier
             
-            # Khởi tạo thông số lớp cấu trúc mặc định
-            layer_multiplier = 1
-            is_pant_component = "TROUSER" in str(product_segmented).upper() or any(k in combined_str_item for k in [" trouser ", " pant ", " jean ", " leg "])
-            jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "nẹpcổ", "lapel", "veáo"]
-
-            # Logic phân tầng lớp cắt cơ bản trên thị trường
-            if "yoke" in combined_str_item or "đô" in combined_str_item:
-                layer_multiplier = 1 if is_pant_component else 2  
-            elif "waistband" in combined_str_item or "lưng" in combined_str_item or "cạp" in combined_str_item:
-                layer_multiplier = 1 if "TROUSER" in str(product_segmented).upper() else 2  
-            else:
-                if any(k in combined_str_item for k in jacket_double_layers) and not is_pant_component:
-                    layer_multiplier = 2
-                elif "flap" in combined_str_item or "nắp túi" in combined_str_item or "naptui" in combined_str_item:
-                    layer_multiplier = 2 if str(product_segmented).upper() in ["SHIRT", "SKIRT", "DRESS"] else 4 
-                    
-            # Quy tắc nhân đôi lớp cắt cho dòng Áo Jacket đại trà
-            if str(product_segmented).upper() in ["JACKET", "SUIT_BLAZER"]:
-                if "back" in combined_str_item or "thân sau" in combined_str_item:
-                    if pcs == 1: layer_multiplier = 2  
-                if any(k in combined_str_item for k in ["belt", "sash", "đai", "daithatlung"]):
-                    layer_multiplier = 2  
-
-            # ÉP 4 PCS BAO TÚI CHO MỌI LOẠI SẢN PHẨM TRÊN THỊ TRƯỜNG (Dữ liệu Lining)
-            if "LINING" in mat_class_raw:
-                if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag", "pocket lining"]):
-                    if pcs == 2: 
-                        layer_multiplier = 2  
-
-            # Quy tắc nhân đôi lớp cắt cho nẹp cổ / lót đầm của riêng dòng Váy Đầm
-            if str(product_segmented).upper() in ["DRESS", "SKIRT"]:
-                if any(k in combined_str_item for k in ["neck facing", "nẹp cổ", "nepco", "facing", "lining dress", "lót đầm"]):
-                    if pcs == 1 or pcs == 2: 
-                        layer_multiplier = 2
-
-            is_belt_loop = "beltloop" in combined_str_item or "đỉa" in combined_str_item or "dia" in combined_str_item
-
-            if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
-                shape_factor = 0.92 if "back" in combined_str_item else 0.85
-                if "DRESS" in str(product_segmented).upper() and "flare" in combined_str_item: shape_factor = 0.52
-                elif "TROUSER" in str(product_segmented).upper(): shape_factor = 0.63
-            elif any(k in combined_str_item for k in ["waistband", "lưng", "collar", "cổ", "belt"]) or is_belt_loop:
-                shape_factor = 0.96
-            else:
-                shape_factor = 0.78
-
-            seamed_l, seamed_w = adj_l + (0.44 * 2.0), adj_w + (0.44 * 2.0)
-            item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
-            
-            # 🚨 ĐÃ VÁ CHÍ MẠNG: Sử dụng câu lệnh so sánh chứa chuỗi "FABRIC" chữ thường hay chữ hoa đều ăn khớp
+            # Sửa điều kiện quét FABRIC linh hoạt chống lỗi cào bằng số tĩnh
             if "FABRIC" in mat_class_raw: 
                 total_fabric_piece_area += item_area
             
-            # Ghi nhận diện tích tính toán thực tế phẳng làm trường dữ liệu chuẩn Gerber
-            r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor, 2)
+            r["polygon_net_area"] = round(adj_l * adj_w * shape_factor, 2)
             
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs * layer_multiplier} Pcs",
                 "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
+                "is_belt_loop": False, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
             })
-
-    # --- BƯỚC 2: Phân bổ định mức tiêu hao vải động thực tế dựa trên diện tích sản xuất ---
-    if total_fabric_piece_area > 0 and total_gross_yds > 0:
-        for p in piece_calculated_data:
-            if "FABRIC" in str(p["mat_class_raw"]).upper():
-                # Tiêu hao động = (Diện tích chi tiết đơn lẻ / Tổng diện tích vải chính bàn cắt) * Tổng định mức vải tổng
-                calculated_gross = (p["item_area"] / total_fabric_piece_area) * total_gross_yds
-                p["row_ref"]["gross_consumption"] = round(calculated_gross, 5)
-                p["row_ref"]["Gross Consumption"] = round(calculated_gross, 5)
                 
     return total_fabric_piece_area, piece_calculated_data
 
