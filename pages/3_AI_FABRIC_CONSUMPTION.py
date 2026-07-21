@@ -937,7 +937,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         
         # Gerber Nesting: Chi tiết nhỏ lọt hoàn toàn vào khoảng trống có sẵn
         # Chúng ta giả định 70% diện tích kẽ hở có thể tận dụng để nhét rập nhỏ (vì vướng hình học)
-        usable_gap_area = available_gap_area * 0
+        usable_gap_area = available_gap_area * 0.1
         
         if minor_shape_area <= usable_gap_area:
             # Nếu lượng rập phụ ít hơn kẽ hở, chiều dài sơ đồ KHÔNG TĂNG LÊN
@@ -1094,7 +1094,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                         if total_fabric_piece_area > 0:
                             # Nếu có vải tổng thì lấy tỉ lệ % nhỏ, nếu không có thì tính theo hao phí diện tích biên
                             ref_fabric = base_gross_fabric if base_gross_fabric > 0 else ((total_fabric_piece_area / usable_width) / 36.0 / actual_packing_density)
-                            gross_consumption = round(ref_fabric * (item_area / total_fabric_piece_area) * 10, 4)
+                            gross_consumption = round(ref_fabric * (item_area / total_fabric_piece_area) * 0.9, 4)
                             calc_chain = f"Gerber Nesting: Đã lồng vào kẽ hở rập chính"
                         else:
                             gross_consumption, calc_chain = 0.0, "Kẽ hở sơ đồ"
