@@ -1394,8 +1394,7 @@ if ctx and df_bom is not None and not df_bom.empty:
     dens = float(ctx.get("global_packing_density", 0.85))
     pat = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
-    # 🚨 ĐOẠN ĐỒNG BỘ ĐỊNH MỨC: Lấy giá trị tổng động từ hàm tính toán của bạn
-    # Nếu hệ thống có kết quả tính toán tổng (skyline_res hoặc biến định mức tổng)
+    # Lấy giá trị tổng động từ hàm tính toán của bạn (Khối 2b) để phá lỗi lặp số 0.0415
     total_gross_yds = float(ctx.get("global_gross_fabric_yds", 0.0))
     if 'skyline_res' in locals() and isinstance(skyline_res, dict):
         total_gross_yds = float(skyline_res.get("global_gross_fabric_yds", total_gross_yds))
@@ -1409,18 +1408,16 @@ if ctx and df_bom is not None and not df_bom.empty:
     df_bom[g_col] = pd.to_numeric(df_bom[g_col], errors='coerce').fillna(0.0)
     df_bom[pcs_col] = pd.to_numeric(df_bom[pcs_col], errors='coerce').fillna(1.0)
     
-    # 🚨 SỬA LỖI NHẢY ĐỀU: Phân bổ định mức dựa theo tỷ lệ diện tích hoặc số lượng rập thực tế
-    # Nếu định mức tổng tính toán lớn hơn giá trị mặc định của file, cập nhật lại cột để tính Sum chính xác
+    # Phân bổ định mức dựa theo tỷ lệ số lượng rập thực tế
     if total_gross_yds > 0:
         total_pieces = df_bom[pcs_col].sum() if df_bom[pcs_col].sum() > 0 else len(df_bom)
-        # Phân bổ tạm thời theo tỷ lệ rập hoặc gán định mức tổng thực tế vào bảng tóm tắt
         df_bom[g_col] = (total_gross_yds / total_pieces) * df_bom[pcs_col]
 
     # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
-    # Đảm bảo nếu là dòng hàng Skirt/Jacket đã sửa, bảng tóm tắt sẽ hiện chuẩn con số định mức tổng
+    # Đảm bảo bảng tóm tắt hiển thị chuẩn con số định mức tổng thực tế
     if total_gross_yds > 0 and len(df_sum) == 1:
         df_sum.loc[0, "Gross Consumption"] = total_gross_yds
         
@@ -1431,7 +1428,7 @@ if ctx and df_bom is not None and not df_bom.empty:
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Chuẩn hóa lại các cột hiển thị trên Streamlit UI cho đẹp mắt người dùng
+    # Chuẩn hóa lại các cột hiển thị trên Streamlit UI
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1450,7 +1447,8 @@ if ctx and df_bom is not None and not df_bom.empty:
         unsafe_allow_html=True
     )
     
-    col1, col2 = st.columns()
+    # 🚨 ĐÃ SỬA LỖI TẠI ĐÂY: Thêm mảng tỷ lệ [3, 1] để sửa dứt điểm lỗi TypeError sập app
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
@@ -1462,7 +1460,7 @@ if ctx and df_bom is not None and not df_bom.empty:
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v17"
+                key="btn_download_excel_ppj_final_v19"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
@@ -1478,4 +1476,5 @@ if ctx and df_bom is not None and not df_bom.empty:
     st.caption(f"🤖 AI Dòng hàng: {prod} | Base Size: {ctx.get('detected_base_size', 'N/A')} | Định mức tổng động: {total_gross_yds:.4f} YDS")
     st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # Trả về giao diện trống chuẩn chỉ khi chưa nạp file dữ liệu Techpack đầu vào
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
