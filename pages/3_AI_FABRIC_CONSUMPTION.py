@@ -1555,8 +1555,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         dens, total_gross_yds = 0.82, 0.2905
 
-        # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt vật tư tổng hợp (BOM Summary)
-    df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
+      # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC THEO BÀN CẮT ĐỘC LẬP & MIỄN TRỪ CHI TIẾT KẾT CẤU ÁO KHOÁC 🚨
+    # Ép cứng tên cột xử lý toán học viết thường để đồng bộ 100% dữ liệu hệ thống
+    target_g_col = "gross_consumption"
+    df_bom[target_g_col] = 0.0
+    
+    df_main_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
+    total_fabric_net_area_only = (df_main_fabric_only[area_col] * df_main_fabric_only[pcs_col]).sum()
+    
+    for idx, row in df_bom.iterrows():
+        net_a = float(row[area_col])
+        pcs_val = float(row[pcs_col])
+        name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        role_upper = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
+        mat_class_curr = str(row.get(m_col, row.get("Material Class", "FABRIC"))).upper().strip()
+        
+        # --------------------------------=====================================
+        # PHÂN HỆ 1: GIẢI SƠ ĐỒ BÀN CẮT VẢI CHÍNH (MAIN FABRIC)
+        # --------------------------------=====================================
+        if "FABRIC" in mat_class_curr:
+            if total_fabric_net_area_only > 0 and total_gross_yds > 0:
+                share_ratio = (net_a * pcs_val) / total_fabric_net_area_only
+                item_gross = total_gross_yds * share_ratio
+                
+                # Xác định các chi tiết rập lớn làm nền tảng
+                is_major_panel = "MAJOR" in role_upper or any(k in name_lower for k in ["front", "back", "leg", "thân", "body", "sleeve", "tay"])
+                
+                # BẢO VỆ CHI TIẾT KẾT CẤU: Cổ, Măng-sét, Dây đai, Nắp túi, Đáp túi được giữ nguyên 100% định mức
+                jacket_structure_pieces = ["collar", "cổ", "cuff", "măng sét", "mangset", "sash", "belt", "đai", "flap", "nắp", "pocket", "túi"]
+                is_exempt_from_penalty = any(k in name_lower for k in jacket_structure_pieces)
+                
+                # Chỉ những chi tiết siêu nhỏ vụn vặt (như đỉa quần, nhãn mác) mới bị hạ trọng số xuống 5%
+                if not is_major_panel and not is_exempt_from_penalty:
+                    item_gross = item_gross * 0.05
+                    
+                df_bom.loc[idx, target_g_col] = round(item_gross, 5)
+            else:
+                df_bom.loc[idx, target_g_col] = 0.0
+                
+        # --------------------------------=====================================
+        # PHÂN HỆ 2: GIẢI SƠ ĐỒ ĐỘC LẬP CHO KEO DỰNG (FUSING) VÀ VẢI LÓT (LINING)
+        # --------------------------------=====================================
+        elif any(k in mat_class_curr for k in ["FUSING", "LINING", "KEO", "LÓT"]):
+            if fabric_width > 0 and net_a > 0:
+                independent_gross = ((net_a * pcs_val) / fabric_width / 36.0 / 0.75) * 1.05
+                df_bom.loc[idx, target_g_col] = round(independent_gross, 5)
+            else:
+                df_bom.loc[idx, target_g_col] = 0.0
+        else:
+            df_bom.loc[idx, target_g_col] = 0.0
+
+    # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt vật tư tổng hợp (BOM Summary)
+    df_sum = df_bom.groupby([m_col], as_index=False).agg({target_g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
     main_fabric_total = 0.0
@@ -1574,7 +1624,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Chuẩn hóa đặt lại tên cột hiển thị UI giao diện Streamlit
+    # Đổi tên cột hiển thị UI giao diện Streamlit từ chữ thường sang chữ hoa đẹp mắt
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1607,7 +1657,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_Consumption_Engine.xlsx",
-                key="btn_download_excel_ppj_final_v35_exempted"
+                key="btn_download_excel_ppj_final_v35_ultimate_perfect"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
@@ -1616,5 +1666,5 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu")
     st.dataframe(df_bom_display, use_container_width=True)
     
-    st.caption(f"🤖 AI Nesting Engine | Mật độ nén hình học tự thích ứng: {dens*100:.1f}% | Tổng định mức vải chính giải toán tự động: {main_fabric_total:.4f} YDS")
+    st.caption(f"🤖 AI Nesting Engine | Mật độ nén hình học tự thích ứng: {dens*100:.1f}% | Tổng định mức vải chính giải toán tự động: {total_gross_yds:.4f} YDS")
     st.markdown('</div>', unsafe_allow_html=True)
