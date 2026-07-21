@@ -1417,7 +1417,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     return output
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & PHÂN BỔ ĐỊNH MỨC THEO DIỆN TÍCH (SẠCH LỖI)
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & PHÁ BỎ HOÀN TOÀN SỐ CỐ ĐỊNH PHÒNG IE
 # =====================================================================
 import streamlit as st, pandas as pd
 
@@ -1437,16 +1437,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     
     # Trích xuất thông số kỹ thuật tổng và định mức tổng thực tế tính từ khối 2b
-    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "SKIRT"))).upper()
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
     dens = float(ctx.get("global_packing_density", 0.785))
     pat = str(ctx.get("fabric_pattern", "SOLID")).upper()
-    
-    # Lấy giá trị tổng động từ hàm toán học hình học (Khối 2b) để phá lỗi lặp số
-    total_gross_yds = float(ctx.get("global_gross_fabric_yds", 0.0))
-    if 'skyline_res' in locals() and isinstance(skyline_res, dict):
-        total_gross_yds = float(skyline_res.get("global_gross_fabric_yds", total_gross_yds))
-    if total_gross_yds <= 0:
-        total_gross_yds = 0.2905
     
     # Đồng bộ hóa tên cột chữ hoa/chữ thường trong bảng dữ liệu
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
@@ -1460,44 +1453,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = pd.to_numeric(df_bom[pcs_col], errors='coerce').fillna(1.0)
     df_bom[l_col] = pd.to_numeric(df_bom[l_col], errors='coerce').fillna(0.0)
     df_bom[w_col] = pd.to_numeric(df_bom[w_col], errors='coerce').fillna(0.0)
+    df_bom[g_col] = pd.to_numeric(df_bom[g_col], errors='coerce').fillna(0.0)
     
-    # Tự động tính toán diện tích tịnh động dựa trên Dài x Rộng x Hệ số hình dạng
-    def calculate_row_area(row):
-        l_val = float(row[l_col])
-        w_val = float(row[w_col])
-        role = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
-        name = str(row.get("component_name", row.get("piece_type", ""))).lower()
-        
-        is_major = "MAJOR" in role or any(k in name for k in ["front", "back", "body", "thân", "skirt", "waistband"])
-        sf = 0.74 if is_major else 0.85
-        if "pocket" in name: sf = 0.82
-        if "loop" in name or "fly" in name: sf = 0.90
-        
-        return round(l_val * w_val * sf, 2)
-        
-    df_bom[area_col] = df_bom.apply(calculate_row_area, axis=1)
-    
-    # Phân bổ định mức vải động theo tỷ lệ diện tích hình học thực tế
-    total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
-    if total_marker_net_area > 0 and total_gross_yds > 0:
-        df_bom[g_col] = ((df_bom[area_col] * df_bom[pcs_col]) / total_marker_net_area) * total_gross_yds
-        df_bom[g_col] = df_bom[g_col].round(5)
-
-    # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt (BOM Summary)
+    # 🚨 ĐÃ XÓA BỎ BỘ GHIM CỨNG SỐ 0.2905 LỖI VÀ CHUYỂN SANG ĐỒNG BỘ TÍNH TỔNG THỰC TẾ 🚨
+    # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt (BOM Summary) cộng dồn trực tiếp tiêu hao từng mảnh rập
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
+    # Tính tổng lượng vải tiêu hao thực tế của vải chính từ bảng chi tiết để cập nhật chân trang
+    main_fabric_total = 0.0
     for idx, r_sum in df_sum.iterrows():
         if str(r_sum["Material Class"]).upper() in ["FABRIC", "VẢI CHÍNH"]:
-            df_sum.loc[idx, "Gross Consumption"] = total_gross_yds
+            main_fabric_total = float(r_sum["Gross Consumption"])
             
-    # 🛠️ ĐÃ SỬA LỖI CHÍ MẠNG TẠI ĐÂY: Sử dụng .round(4) chuẩn cấu trúc hàm Pandas
     df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
     df_sum["UOM"] = "YDS"
     
+    # Ánh xạ tên gọi danh mục tiếng Việt gửi báo cáo hệ thống PPJ Group
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
+    # Chuẩn hóa lại các cột hiển thị trên Streamlit UI cho đẹp mắt người dùng
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1511,6 +1487,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
+    # 2. Xây dựng cấu trúc layout và nút bấm Tải file Excel báo cáo
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
         f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
@@ -1519,28 +1496,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         unsafe_allow_html=True
     )
     
-    # 🛠️ ĐÃ SỬA LỖI TẠI ĐÂY: Thêm tỷ lệ layout [3, 1] hợp lệ để chia cột tiêu đề và nút bấm xuất Excel
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns()
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
+            # Gọi khối 5a xuất luồng nhị phân Excel truyền tải qua nút download
             excel_file = export_excel_ppj_format(df_sum, df_bom_display, prod, ctx, dens, pat)
             st.download_button(
                 label="🟢 XUẤT EXCEL PPJ", 
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v23"
+                key="btn_download_excel_ppj_final_v24"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
+    # Hiển thị bảng tổng hợp định mức vật tư lên màn hình UI
     st.dataframe(df_sum[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
+    
+    # Hiển thị chi tiết danh mục cấu trúc rập CAD máy mẫu lên màn hình UI
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom_display, use_container_width=True)
     
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Base Size: {ctx.get('detected_base_size', 'N/A')} | Định mức phân bổ động chuẩn Gerber")
+    # Ghi nhận chân trang thông số thuật toán đồng bộ hệ thống CAD PPJ
+    st.caption(f"🤖 AI Dòng hàng: {prod} | Base Size: {ctx.get('detected_base_size', 'N/A')} | Tổng định mức vải cộng dồn thực tế: {main_fabric_total:.4f} YDS")
     st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # Trả về giao diện trống chuẩn chỉ khi chưa nạp file dữ liệu Techpack đầu vào
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
