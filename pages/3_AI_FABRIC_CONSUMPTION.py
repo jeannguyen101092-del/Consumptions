@@ -1034,13 +1034,16 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
     return total_fabric_piece_area, piece_calculated_data
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 sửa lỗi: Phân bổ chuẩn xác định mức rập chính (Thân, Tay) và rập phụ lồng sơ đồ"""
-    base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0) # Sửa key nhận diện vải tổng
+    """Khối 4 chuẩn hóa: Lấy trực tiếp biến từ kết quả Skyline Engine để tránh lỗi bằng 0"""
+    # SỬA LỖI: Kiểm tra cả 2 key phòng hờ lệch cấu trúc dữ liệu giữa các khối
+    base_gross_fabric = skyline_results.get("global_gross_fabric_yds", skyline_results.get("global_gross_fabric_consumption", 0.0))
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
     fabric_pattern = skyline_results.get("fabric_pattern", "SOLID")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
     major_shape_area = skyline_results.get("major_shape_area", 0.0)
-    usable_width = st.session_state.get("bom_data", {}).get("fabric_width_inch", 56.0)
+    
+    bom_source = st.session_state.get("bom_data", {})
+    usable_width = bom_source.get("fabric_width_inch", 56.0)
     
     processed_display_rows = []
 
@@ -1073,26 +1076,28 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                 calc_chain = f"Dải cuộn phụ liệu ({product_segmented}): L-inch / 36.0 + 4%"
             else:
                 if mat_class_raw == "FABRIC":
-                    # Đã sửa: Quét từ khóa trực diện để ép buộc Thân trước/sau/Tay luôn là Rập Chính gánh định mức
-                    geo_role = f"{str(r.get('geometry_role', ''))} {str(r.get('piece_type', ''))}".upper()
-                    is_major = ("MAJOR" in geo_role) or any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay"])
+                    # Nhận diện rập chính gánh định mức nền
+                    is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel"])
                     
                     if is_major:
                         if total_fabric_piece_area > 0 and base_gross_fabric > 0:
-                            # Phân bổ định mức dựa theo tỷ lệ đóng góp diện tích thực tế của chi tiết lớn
                             share_ratio = item_area / total_fabric_piece_area
                             gross_consumption = round(base_gross_fabric * share_ratio, 4)
-                            calc_chain = f"Gerber Major Panel: Chịu tải nền sơ đồ ({base_gross_fabric:.3f} yds)"
+                            calc_chain = f"Gerber Major Panel: Gánh nền sơ đồ ({base_gross_fabric:.3f} yds)"
                         else:
-                            gross_consumption, calc_chain = 0.0, "Đang tính toán..."
+                            # HÀM PHÒNG HỜ: Nếu engine lỗi trả về 0, tự động áp thuật toán ước lượng hình học nền để không bao giờ bị hiển thị 0
+                            estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
+                            gross_consumption = round(estimated_base * 1.035, 4)
+                            calc_chain = f"CAD Geometry Estimate: {gross_consumption:.3f} yds"
                     else:
-                        # RẬP PHỤ CHÈN KẼ HỞ: Định mức thực tế cực thấp (Đã khấu trừ hao phí theo yêu cầu của bạn)
-                        if total_fabric_piece_area > 0 and base_gross_fabric > 0:
-                            nominal_share = item_area / total_fabric_piece_area
-                            gross_consumption = round(base_gross_fabric * nominal_share * 0.15, 4)
+                        # Rập phụ xen kẽ kẽ hở
+                        if total_fabric_piece_area > 0:
+                            # Nếu có vải tổng thì lấy tỉ lệ % nhỏ, nếu không có thì tính theo hao phí diện tích biên
+                            ref_fabric = base_gross_fabric if base_gross_fabric > 0 else ((total_fabric_piece_area / usable_width) / 36.0 / actual_packing_density)
+                            gross_consumption = round(ref_fabric * (item_area / total_fabric_piece_area) * 0.12, 4)
                             calc_chain = f"Gerber Nesting: Đã lồng vào kẽ hở rập chính"
                         else:
-                            gross_consumption, calc_chain = 0.0, "Chuyển tiếp kẽ hở."
+                            gross_consumption, calc_chain = 0.0, "Kẽ hở sơ đồ"
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
                     if usable_width > 0:
@@ -1113,8 +1118,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
-
-
 # --- HÀM ĐIỀU PHỐI CHẠY TOÀN BỘ CHU TRÌNH HỆ THỐNG ---
 bom_source, user_query_text = initialize_and_sync_parameters()
 
@@ -1123,17 +1126,14 @@ if bom_source:
     warp_shrink = bom_source.get("warp_shrinkage_percent", 0.0)
     weft_shrink = bom_source.get("weft_shrinkage_percent", 0.0)
     
-    # Bấm nút kích hoạt chuỗi Engine hình học
+    # 1. Kích hoạt chuỗi Engine hình học sơ đồ
     skyline_res = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
     
-    # Đồng bộ ngược định mức tổng vào cấu trúc kết quả
-    bom_source["global_gross_fabric_consumption"] = skyline_res["global_gross_fabric_yds"]
-    
-    # Bóc tách lớp cắt và diện tích mảnh rập
+    # 2. Bóc tách lớp cắt và tổng diện tích rập
     total_area, piece_data = process_pieces_layer_and_areas(bom_rows_list, skyline_res["product_segmented"], warp_shrink, weft_shrink)
     
-    # Phân bổ định mức chi tiết
-    display_rows = allocate_gerber_share_consumption(piece_data, total_area, bom_source)
+    # 3. SỬA LỖI: Truyền trực tiếp kết quả dictionary 'skyline_res' vào Khối 4 để lấy đúng biến global_gross_fabric_yds
+    display_rows = allocate_gerber_share_consumption(piece_data, total_area, skyline_res)
     
     # --- RENDERING BẢNG BIỂU LÊN GIAO DIỆN STREAMLIT ---
     if display_rows:
