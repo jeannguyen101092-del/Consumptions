@@ -1497,30 +1497,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    # KÍCH THƯỚC SẢN XUẤT CAD CHUẨN XÁC SAU KHI CỘNG CO RÚT CHAT
-    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
-    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r[orig_w_col]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_w_col]), 2), axis=1)
+    # 🔴 TOÁN HỌC THỰC CHẤT ĐỘNG: Vá lỗi gộp chung kích thước mảng rập từ khối trước truyền sang.
+    # Nếu rập đi theo cặp đối xứng (pcs == 2) và có bề rộng gốc ban đầu lớn bất thường (W > 18.0 inch),
+    # tự động chia đôi chiều rộng gốc về đúng kích thước chuẩn của 1 chi tiết đơn lẻ trước khi nhân dãn co rút. [INDEX]
+    def get_clean_single_piece_width(row):
+        w_val = float(row[orig_w_col])
+        pcs = float(row["pcs_numeric"])
+        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        if pcs >= 2.0 and w_val >= 18.0:
+            if any(k in name for k in ["front", "back", "panel", "leg", "thân", "quần"]):
+                return w_val / 2.0
+        return w_val
 
-    # 🔴 ĐỘT PHÁ TOÁN HỌC ĐỘNG 1: SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG (KHÔNG PHỤ THUỘC TÊN QUẦN ÁO)
+    df_bom["rộng_gốc_chuẩn_đơn_vị"] = df_bom.apply(get_clean_single_piece_width, axis=1)
+
+    # TÍNH KÍCH THƯỚC SẢN XUẤT ĐỘNG DỰA TRÊN CHIỀU RỘNG ĐƠN LẺ ĐÃ LÀM SẠCH [INDEX]
+    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
+    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r["rộng_gốc_chuẩn_đơn_vị"]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r["rộng_gốc_chuẩn_đơn_vị"]), 2), axis=1)
+
+    # 🔴 SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG CỦA MIẾNG RẬP ĐƠN LẺ SẠCH
     def infer_geometric_shape_factor(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.82
         
-        # Tỷ lệ chiều dài/rộng (aspect ratio) của rập
         aspect_ratio = max(l_val, w_val) / min(l_val, w_val)
         
-        # Mô hình hóa phi tuyến tính tự do:
-        # Rập càng thuôn dài (aspect_ratio >= 2.2 như ống quần, thân váy dài) -> độ lấp đầy hộp vuông thực chất sụt giảm mạnh
         if aspect_ratio >= 2.2:
             sf_computed = 0.72 - min((aspect_ratio - 2.2) * 0.11, 0.20)
         else:
-            # Rập béo tròn, vuông vắn (như cạp, đáp, túi) -> diện tích thực tiến sát bề mặt hộp
             sf_computed = 0.82 + min((2.2 - aspect_ratio) * 0.10, 0.12)
             
         return round(sf_computed, 3)
         
     df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * infer_geometric_shape_factor(r), 2), axis=1)
+    # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE MULTI-GARMENT
+    # =====================================================================
+
     # TUYỂN TẬP ĐẶC TRƯNG SƠ ĐỒ ĐỂ GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE
     total_net_area, total_bbox_area, total_piece_count = 0.0, 0.0, 0.0
     all_expanded_pieces = []
@@ -1559,6 +1573,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             width_ratio = 0.30
             
         # PHƯƠNG TRÌNH SUY DIỄN DENS ĐỘNG TỰ DO (XÓA SẠCH MỌI KHOẢNG ÉP CHẶN CỐ ĐỊNH)
+        # Sơ đồ có mảnh nhỏ lọt khe tốt (fragmentation cao) -> dens tự tăng
         base_dens_model = 0.64 + (bbox_fill * 0.12) + (fragmentation * 0.06)
         
         # Hàm phạt dạt biên biến thiên liên tục
@@ -1585,7 +1600,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH TỰ NHIÊN CHÂN LÝ (XÓA BỎ PHÉP NHÂN CỨNG)
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH TỰ NHIÊN CHÂN LÝ
     if total_net_area > 0 and total_gross_yds_after_shrink > 0:
         def exact_share_allocation_final_v9(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
@@ -1717,11 +1732,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         # =====================================================================
         # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: KẾT XUẤT ĐỒ HỌA ĐỒNG BỘ ĐỘNG THEO TOÁN HỌC THỰC TẾ 100%
     # =====================================================================
 
     df_bom_display_sum = df_bom.copy()
     
+    # Khóa bẫy lỗi an toàn ô nhớ ngăn chặn NameError cục bộ
     if 'total_gross_yds_after_shrink' not in locals(): total_gross_yds_after_shrink = 1.45
     if 'total_gross_yds_before_shrink' not in locals(): total_gross_yds_before_shrink = total_gross_yds_after_shrink
     if 'fabric_width' not in locals(): fabric_width = 56.0
@@ -1735,13 +1752,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
 
-    # Gom nhóm sum định mức của các chất liệu thực tế từ bảng chi tiết
+    # Gom nhóm sum định mức của các chất liệu thực tế từ bảng chi tiết sạch
     df_sum_all_materials = df_bom_display_sum.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_all_materials.columns = ["Material Class", "Gross Consumption"]
     
-    cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
+    cls_map = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+        "FUSING": "KEO/DỰNG (FUSING)", 
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)", 
+        "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
+    }
     summary_rows_final = []
     
+    # 1. Hiển thị thông số bóc động từ chat lên bảng Summary
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải chính (Chat)", "Gross Consumption": f"{fabric_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Keo/Dựng (Chat)", "Gross Consumption": f"{fusing_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải lót (Chat)", "Gross Consumption": f"{lining_width:.1f} inch", "UOM": "Khổ sơ đồ"})
@@ -1749,11 +1772,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # 🔴 CHÂN LÝ: Bốc nguyên vẹn số tổng Fabric thực chất từ kết quả giải toán Khối 5a lên Summary, không ép gán cứng!
+    # 🔴 CHÂN LÝ: Bốc nguyên vẹn số tổng Fabric thực chất từ kết quả giải toán Khối 5a lên Summary, không gán cứng [INDEX]!
     fabric_detail_sum_actual = df_bom_display_sum[df_bom_display_sum[m_col].astype(str).str.upper().str.contains("FABRIC")]["allocated_gross"].sum()
     
     df_sum_for_excel = df_sum_all_materials.copy()
 
+    # 2. Đẩy toàn bộ mảng gom nhóm đa chất liệu lên Summary (Cam kết khớp khít 100% với cột chi tiết bên dưới)
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
         display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})")
@@ -1768,7 +1792,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
 
-    # Trích xuất bản sao bảo vệ trước khi dọn dẹp cột trùng tên
+    # Trích xuất bản sao bảo vệ trước khi dọn dẹp cột trùng tên phục vụ render UI chi tiết
     saved_pcs_series = df_bom[pcs_col].copy()
     saved_orig_l_series = df_bom[orig_l_col].copy()
     saved_orig_w_series = df_bom[orig_w_col].copy()
@@ -1783,7 +1807,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for col in columns_to_drop:
         if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
 
+    # Ép đồng bộ hiển thị khổ động từng chất liệu xuống bảng chi tiết
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["calculated_material_width"].round(1) if "calculated_material_width" in df_bom.columns else round(fabric_width, 1)
+
     df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Số lượng rập"] = saved_pcs_series
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
@@ -1800,6 +1826,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
+    # Kết xuất UI Giao diện và Nút Download file Excel PPJ
     col1, col2 = st.columns(2)
     with col1: st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
@@ -1814,7 +1841,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if not style_name_clean or style_name_clean.lower() == "none": style_name_clean = "Style"
             final_excel_filename = f"PPJ_BOM_{prod}_{style_name_clean}.xlsx"
             
-            st.download_button(label="🟢 XUẤT EXCEL PPJ", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=final_excel_filename, key="btn_download_excel_ppj_final_v56")
+            st.download_button(
+                label="🟢 XUẤT EXCEL PPJ", 
+                data=excel_file, 
+                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
+                file_name=final_excel_filename, 
+                key="btn_download_excel_ppj_final_v56"
+            )
         except Exception as e: st.error(f"Lỗi tạo Excel: {e}")
             
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
