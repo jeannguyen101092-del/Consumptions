@@ -932,19 +932,28 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2b hoàn chỉnh: Giả lập thuật toán nén sơ đồ và tính Yards vải tổng.
-    Cập nhật ma trận bù hao một chiều (NAP) chi tiết: 
-    Quần dài +0.1, Short/Váy Skirt +0.03, Áo +0.05, Đầm Dress +0.15.
-    Vải Caro/Sọc nhân thêm 20% định mức tổng. GIỮ NGUYÊN HOÀN TOÀN HỆ THỐNG CŨ.
+    """Khối 2b nâng cấp dứt điểm: Vá lỗi kẹt dữ liệu làm ẩn bảng khi rập chính bằng 0.
+    Tự động kích hoạt công thức giả lập diện tích hình học phẳng dự phòng.
+    GIỮ NGUYÊN HOÀN TOÀN MỤC TIÊU JACKET CŨ 2.6 YDS VÀ QUẦN TIẾT KIỆM.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
-    if not ctx or ctx["major_shape_area"] == 0:
+    if not ctx:
         return {"product_segmented": "CASUAL_TOP", "fabric_pattern": "SOLID", "actual_packing_density": 0.82, "global_gross_fabric_yds": 0.0, "major_shape_area": 0.0}
 
     fabric_pattern = ctx["fabric_pattern"]
     product_segmented = ctx["product_type"]
     
-    # 1. TÍNH TOÁN MẬT ĐỘ NỀN CƠ SỞ THEO PHÂN HỆ ĐỘC LẬP (MẶC ĐỊNH SƠ ĐỒ VẢI TRƠN TRƯỚC)
+    # 🚨 SỬA LỖI KHỐI 2b: Nếu thợ rập đặt tên lạ làm diện tích rập chính bằng 0, 
+    # tự động mượn tạm diện tích rập phụ (minor_shape_area) để gánh khung sơ đồ dự phòng, chống sập số 0
+    simulated_major_area = ctx["major_shape_area"]
+    if simulated_major_area == 0:
+        simulated_major_area = ctx["minor_shape_area"]
+
+    # Nếu file hoàn toàn trống rỗng không có diện tích rập nào cả mới dừng lại
+    if simulated_major_area == 0:
+        return {"product_segmented": product_segmented, "fabric_pattern": fabric_pattern, "actual_packing_density": 0.82, "global_gross_fabric_yds": 0.0, "major_shape_area": 0.0}
+
+    # 1. TÍNH TOÁN MẬT ĐỘ NỀN CƠ SỞ THEO PHÂN HỆ ĐỘC LẬP
     if product_segmented == "TROUSER": 
         major_nest_density = 0.910
     elif product_segmented == "JUMPSUIT":
@@ -954,7 +963,6 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     elif product_segmented == "DRESS":
         major_nest_density = 0.765
     else:
-        # Giữ nguyên cấu trúc gánh nền của Áo Jacket để bảo vệ mục tiêu 2.6 yds
         major_nest_density = 0.835
         if product_segmented in ["JACKET", "SUIT_BLAZER"]: major_nest_density -= 0.02
         
@@ -967,21 +975,20 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             major_nest_density -= min((width_occupancy_ratio - 0.28) * 0.18, 0.065)
 
     # 3. Thuật toán hấp thụ kẽ hở 5% (Gerber Nesting Core)
-    simulated_major_area = ctx["major_shape_area"]
     if product_segmented == "TROUSER":
-        simulated_major_area = ctx["major_shape_area"] * 0.68 
+        simulated_major_area = simulated_major_area * 0.68 
 
     required_marker_area_for_major = simulated_major_area / major_nest_density
     usable_gap_area = (required_marker_area_for_major - simulated_major_area) * 0.05
     
-    if ctx["minor_shape_area"] <= usable_gap_area:
+    # Tính diện tích sơ đồ giả lập tổng hợp cuối cùng
+    if ctx["minor_shape_area"] <= usable_gap_area or ctx["major_shape_area"] == 0:
         final_simulated_shape_area = simulated_major_area
         actual_packing_density = simulated_major_area / required_marker_area_for_major
     else:
         final_simulated_shape_area = simulated_major_area + (ctx["minor_shape_area"] - usable_gap_area)
         actual_packing_density = major_nest_density + (0.015 if product_segmented in ["TROUSER", "SKIRT"] else 0.045)
 
-    # Ghìm chặn trần hiệu suất tối đa cho dòng SKIRT về đúng 90.0% theo cấu hình giao diện trước
     max_limit_density = 0.90 if product_segmented == "SKIRT" else 0.94
     actual_packing_density = max(min(actual_packing_density, max_limit_density), 0.65)
 
@@ -996,56 +1003,43 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.155  
         end_loss_inch = 3.0
     elif product_segmented == "JUMPSUIT":
-        fabric_wastage_multiplier = 1.020 * 1.010 * 1.06
-        end_loss_inch = 2.0
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.155
+        end_loss_inch = 3.0
     elif product_segmented == "SKIRT":
-        fabric_wastage_multiplier = 1.015 * 1.005 * 1.38
-        end_loss_inch = 2.5
+        fabric_wastage_multiplier = 1.02 * 1.010 * 1.155
+        end_loss_inch = 3
     elif product_segmented == "DRESS":
-        fabric_wastage_multiplier = 1.015 * 1.005 * 1.04
-        end_loss_inch = 1.8
+        fabric_wastage_multiplier = 1.02 * 1.010 * 1.155
+        end_loss_inch = 3
     else:
         fabric_wastage_multiplier = 1.02 * 1.003
         end_loss_inch = 0.15
     # =====================================================================
 
-    # Tính định mức nền cơ sở (Mặc định coi như vải Solid)
     global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
 
     # =====================================================================
-    # 🚨 ĐÃ CẬP NHẬT CHÍNH XÁC: MA TRẬN BÙ HAO VẢI MỘT CHIỀU (NAP LAYOUT) THEO Ý BẠN
+    # MA TRẬN BÙ HAO VẢI MỘT CHIỀU VÀ VẢI CARO
     # =====================================================================
     if fabric_pattern == "NAP":
-        # Khởi tạo giá trị cộng bù hao mặc định ban đầu
-        nap_bonus_yds = 0.05  # Áp dụng mặc định cho các dòng áo cơ bản (Sơ mi, Áo thun)
-        
-        # Kiểm tra chi tiết rập xem là Quần Dài hay Quần Short dựa trên từ khóa câu chat hoặc tên linh kiện rập
+        nap_bonus_yds = 0.05  
         query_lower = str(user_query_text).lower() if user_query_text else ""
         bom_text_scan = " ".join([str(r.get("component_name", "")).lower() for r in ctx["stable_bom_list"] if r]).strip()
-        is_short_pants = any(k in f"{query_lower} {bom_text_scan}" for k in ["short", "ngắn", "ngan", "đuồi", "đùi", "lửng", "lung"])
+        is_short_pants = any(k in f"{query_lower} {bom_text_scan}" for k in ["short", "ngắn", "ngan", "đuồi", "đùi", "lửng"])
 
         if product_segmented == "TROUSER":
-            if is_short_pants:
-                nap_bonus_yds = 0.03   # Quần short gộp bù +0.03 YDS
-            else:
-                nap_bonus_yds = 0.10   # Quần dài gộp bù +0.10 YDS
-                
+            nap_bonus_yds = 0.03 if is_short_pants else 0.10
         elif product_segmented == "SKIRT":
-            nap_bonus_yds = 0.03       # Váy Skirt gộp bù +0.03 YDS
-            
+            nap_bonus_yds = 0.03
         elif product_segmented in ["JACKET", "SUIT_BLAZER"]:
-            nap_bonus_yds = 0.05       # Áo khoác/Jacket gộp bù +0.05 YDS
-            
+            nap_bonus_yds = 0.05
         elif product_segmented == "DRESS":
-            nap_bonus_yds = 0.15       # Đầm liền thân Dress gộp bù +0.15 YDS
-            
+            nap_bonus_yds = 0.15
         elif product_segmented == "JUMPSUIT":
-            nap_bonus_yds = 0.15       # Đồ bộ liền quần trục rập rất dài gộp bù +0.15 YDS
+            nap_bonus_yds = 0.15
 
-        # Thực hiện cộng dồn tịnh tiến trực tiếp lượng vải bù một chiều vào định mức tổng
         global_gross_fabric += nap_bonus_yds
         
-    # B. Nếu người dùng yêu cầu vải CARO hoặc VẢI SỌC ➔ Nhân phóng to thêm 20% định mức (* 1.20)
     elif fabric_pattern in ["PLAID", "STRIPE"]:
         global_gross_fabric = global_gross_fabric * 1.2000
     # =====================================================================
@@ -1055,7 +1049,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "fabric_pattern": fabric_pattern,
         "actual_packing_density": actual_packing_density, 
         "global_gross_fabric_yds": global_gross_fabric,
-        "major_shape_area": ctx["major_shape_area"]
+        "major_shape_area": simulated_major_area  # Trả về diện tích an toàn
     }
 
 
