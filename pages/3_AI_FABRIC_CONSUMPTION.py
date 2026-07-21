@@ -1412,7 +1412,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     return output
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & ÉP TÍNH DIỆN TÍCH ĐỘNG PHÂN BỔ ĐM (FIXED)
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & PHÂN BỔ ĐỊNH MỨC THEO DIỆN TÍCH (SẠCH LỖI)
 # =====================================================================
 import streamlit as st, pandas as pd
 
@@ -1486,7 +1486,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if str(r_sum["Material Class"]).upper() in ["FABRIC", "VẢI CHÍNH"]:
             df_sum.loc[idx, "Gross Consumption"] = total_gross_yds
             
-    df_sum["Gross Consumption"] = df_sum["round"](4)
+    # 🛠️ ĐÃ SỬA LỖI CHÍ MẠNG TẠI ĐÂY: Sử dụng .round(4) chuẩn cấu trúc hàm Pandas
+    df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
     df_sum["UOM"] = "YDS"
     
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
@@ -1513,7 +1514,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         unsafe_allow_html=True
     )
     
-    # 🚨 ĐÃ SỬA: Điền tham số tỷ lệ chia cột hợp lệ [3, 1] chống vỡ layout
+    # 🛠️ ĐÃ SỬA LỖI TẠI ĐÂY: Thêm tỷ lệ layout [3, 1] hợp lệ để chia cột tiêu đề và nút bấm xuất Excel
     col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
@@ -1525,7 +1526,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v22"
+                key="btn_download_excel_ppj_final_v23"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
