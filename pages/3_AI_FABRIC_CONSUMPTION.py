@@ -1250,7 +1250,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & BỐC MÃ HÀNG ĐỘNG (SẠCH LỖI TUPLE)
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ ĐÓNG KHUNG & ĐỒNG BỘ 100% CẤU TRÚC DÒNG
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1283,20 +1283,23 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.title = "BOM Summary"
     ws1.sheet_view.showGridLines = True
     
-    # Tiêu đề khối
+    # 1. Thiết lập Header đầu trang
     ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     
-    # Bốc tách động mã hàng và khách hàng từ bộ nhớ truyền sang
-    style_code = str(bom_ctx.get("style_code", bom_ctx.get("style_num", "N/A"))).upper()
-    customer_name = str(bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD"))).upper()
+    # 2. Đọc dữ liệu động từ Techpack bốc tách đa tầng
+    style_code = str(bom_ctx.get("style_num", bom_ctx.get("style_code", bom_ctx.get("style_name", "N/A")))).upper()
+    customer_name = str(bom_ctx.get("customer_name", bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD")))).upper()
+    sample_size = str(bom_ctx.get("detected_base_size", bom_ctx.get("calculated_on_size", bom_ctx.get("base_size", "27")))).upper()
     
-    # Nạp dòng thông số kỹ thuật (Technical Profile) bắt từ dòng số 4
+    # 3. Nạp dòng thông số kỹ thuật (Technical Profile) bắt từ dòng số 4
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
     
+    # Ma trận nạp dòng chứa thông tin Mã hàng và Khách hàng động
     meta_info = [
         ["Mã hàng / Style Code:", style_code, "Khách hàng / Đối tác:", customer_name],
-        ["Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ / Density:", f'{density * 100:.1f}%']
+        ["Size may mẫu (Sample Size):", sample_size, "Khổ vải hữu dụng (Width):", f'{bom_ctx.get("fabric_width_inch", 56.0)}"'],
+        ["Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%']
     ]
     
     for r_data in meta_info:
@@ -1313,10 +1316,12 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
                 cell.font = font
                 cell.alignment = Alignment(horizontal="center")
                 
-    ws1.append([]) # Dòng trống phân tách
+    ws1.append([]) # Dòng trống số 8 phân tách
     
-    # Định dạng tiêu đề cột cho Tab 1 (BOM Summary)
-    ws1.append(["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross)", "Đơn Vị Tính (UOM)"])
+    # 4. Định dạng tiêu đề cột cho Tab 1 (BOM Summary) đẩy xuống dòng số 9 và 10
+    ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=font_family, size=11, bold=True)
+    
+    ws1.append(["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"])
     for col in range(1, 5):
         cell = ws1.cell(row=ws1.max_row, column=col)
         cell.font = header_font
@@ -1375,7 +1380,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         ])
         
         curr_row = ws2.max_row
-        # Cập nhật viền lưới mảnh và định dạng hiển thị cho các ô số liệu tính toán ở Tab 2
         ws2.cell(curr_row, 4).alignment = Alignment(horizontal="center")
         ws2.cell(curr_row, 5).number_format = '#,##0.00'
         ws2.cell(curr_row, 6).number_format = '#,##0.00'
@@ -1388,10 +1392,9 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             c.border = thin_border
 
     # =====================================================================
-    # 🛠️ THUẬT TOÁN ĐÓNG KHUNG LƯỚI & TỰ ĐỘNG CĂN RỘNG CỘT (FIXED TUPLE LỖI)
+    # 🛠️ THUẬT TOÁN ĐÓNG KHUNG LƯỚI & TỰ ĐỘNG CĂN RỘNG CỘT TỐI ƯU KHUNG
     # =====================================================================
     for ws in [ws1, ws2]:
-        # Sửa logic dùng enumerate lấy số thứ tự cột để tính tên chữ cái chuẩn openpyxl mới
         for col_idx, col in enumerate(ws.columns, start=1):
             max_len = 0
             for cell in col:
@@ -1407,6 +1410,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     wb.save(output)
     output.seek(0)
     return output
+
 
 
 
