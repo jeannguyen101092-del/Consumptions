@@ -1376,25 +1376,33 @@ st.write("Số lượng rập trong session_state:", len(st.session_state.get("p
 st.write("Thông tin mã hàng bom_data:", st.session_state.get("bom_data", {}))
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (TỐI GIẢN CHUẨN)
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (ĐÃ VÁ ĐÚNG CẤU TRÚC ĐỆM)
 # =====================================================================
 import streamlit as st, pandas as pd
 
-# 1. Bốc tách dữ liệu khép kín từ bộ nhớ an toàn (Hỗ trợ cả List và DataFrame)
-rows = display_rows if ('display_rows' in locals() and display_rows is not None) else st.session_state.get("processed_display_rows", [])
+# 1. Bốc tách chính xác dữ liệu từ cấu trúc lồng hai lớp của hệ thống
 ctx = bom_source if ('bom_source' in locals() and isinstance(bom_source, dict)) else st.session_state.get("bom_data", {})
+
+# Khai phá dữ liệu dòng rập thực tế từ ô phụ "bom_rows" dựa theo kết quả Debug
+if 'display_rows' in locals() and display_rows:
+    rows = display_rows
+elif isinstance(ctx, dict) and "bom_rows" in ctx:
+    rows = ctx["bom_rows"]
+else:
+    rows = st.session_state.get("processed_display_rows", [])
+
 df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows
 
 # Kiểm tra dữ liệu thực tế tồn tại trước khi tiến hành vẽ giao diện bảng định mức
 if ctx and df_bom is not None and not df_bom.empty:
     # Trích xuất thông số kỹ thuật chung của dòng sản phẩm chống lỗi NameError
-    prod = str(ctx.get("product_segmented", "JACKET")).upper()
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
     dens = float(ctx.get("global_packing_density", 0.85))
     pat = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
-    # Tự động đồng bộ hóa tên cột để xử lý hàm gộp nhóm dữ liệu (Groupby)
-    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "Material Class")
-    g_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "Gross Consumption")
+    # Tự động đồng bộ hóa tên cột chữ hoa/chữ thường để xử lý hàm gộp nhóm dữ liệu (Groupby)
+    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
+    g_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
     
     # Ép kiểu dữ liệu dạng số để tính tổng định mức chính xác
     df_bom[g_col] = pd.to_numeric(df_bom[g_col], errors='coerce').fillna(0.0)
@@ -1407,6 +1415,16 @@ if ctx and df_bom is not None and not df_bom.empty:
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
+    # Chuẩn hóa lại các cột hiển thị trên Streamlit UI cho đẹp mắt người dùng
+    df_bom_display = df_bom.copy()
+    rename_rules = {
+        "component_name": "Component Name", "material_class": "Material Class", 
+        "geometry_role": "Role/Piece Type", "piece_count": "Số lượng rập",
+        "bounding_box_length": "Dài (L-inch)", "bounding_box_width": "Rộng (W-inch)",
+        "gross_consumption": "Gross Consumption"
+    }
+    df_bom_display = df_bom_display.rename(columns=rename_rules)
+    
     # 2. Xây dựng cấu trúc layout và nút bấm Tải file Excel báo cáo
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
@@ -1416,19 +1434,19 @@ if ctx and df_bom is not None and not df_bom.empty:
         unsafe_allow_html=True
     )
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns()
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
             # Gọi khối 5a xuất luồng nhị phân Excel truyền tải qua nút download
-            excel_file = export_excel_ppj_format(df_sum, df_bom, prod, ctx, dens, pat)
+            excel_file = export_excel_ppj_format(df_sum, df_bom_display, prod, ctx, dens, pat)
             st.download_button(
                 label="🟢 XUẤT EXCEL PPJ", 
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v15"
+                key="btn_download_excel_ppj_final_v16"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
@@ -1438,10 +1456,10 @@ if ctx and df_bom is not None and not df_bom.empty:
     
     # Hiển thị chi tiết danh mục cấu trúc rập CAD máy mẫu lên màn hình UI
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
-    st.dataframe(df_bom, use_container_width=True)
+    st.dataframe(df_bom_display, use_container_width=True)
     
     # Ghi nhận chân trang thông số thuật toán đồng bộ hệ thống CAD PPJ
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Mật độ: {dens*100:.1f}% | Khổ vải: {ctx.get('fabric_width_inch', 56.0)}\" | Co rút dọc: {ctx.get('warp_shrinkage_percent', 0.0)}%")
+    st.caption(f"🤖 AI Dòng hàng: {prod} | Base Size: {ctx.get('detected_base_size', 'N/A')} | Khổ vải định danh hệ thống")
     st.markdown('</div>', unsafe_allow_html=True)
 else:
     # Trả về giao diện trống chuẩn chỉ khi chưa nạp file dữ liệu Techpack đầu vào
