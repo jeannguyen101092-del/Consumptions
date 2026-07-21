@@ -1369,6 +1369,12 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     wb.save(output)
     output.seek(0)
     return output
+    # Dán đoạn này ngay phía trên Khối 5b để kiểm tra bộ nhớ đệm
+st.subheader("🔍 KẾT QUẢ KIỂM TRA BỘ NHỚ ĐỆM (DEBUG)")
+st.write("Trạng thái display_rows trong locals():", 'display_rows' in locals())
+st.write("Số lượng rập trong session_state:", len(st.session_state.get("processed_display_rows", [])))
+st.write("Thông tin mã hàng bom_data:", st.session_state.get("bom_data", {}))
+
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (TỐI GIẢN CHUẨN)
 # =====================================================================
