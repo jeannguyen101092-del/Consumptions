@@ -1471,15 +1471,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # 🔴 ĐỘT PHÁ THÔNG MINH: TỰ ĐỘNG BỐC TÁCH % CO RÚT TỰ ĐỘNG TỪ ĐOẠN CHAT VĂN BẢN ĐẦU VÀO
-    # Đọc chuỗi văn bản người dùng gõ ở ô chat (Ví dụ: "co rút dọc 3 ngang 14...")
-    chat_input_text = str(st.session_state.get("chat_input", st.session_state.get("user_command", ""))).lower()
+    # 🔴 ĐỒNG BỘ KHÓA CHÍNH: Đọc trực tiếp từ bộ nhớ đệm kẹt chat của Khối 1
+    chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
     
     # Thiết lập giá trị mặc định ban đầu nếu không tìm thấy từ khóa
     warp_shrink = float(st.session_state.get("warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
     
-    # Thuật toán quét Regex thông minh trích xuất số đi sau từ khóa "dọc" và "ngang"
+    # Thuật toán quét Regex trích xuất số đi sau từ khóa "dọc" và "ngang"
     match_warp = re.search(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text)
     if match_warp:
         warp_shrink = float(match_warp.group(2))
@@ -1566,7 +1565,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
-    # Tái sắp xếp thứ tự hiển thị để người dùng dễ kiểm duyệt rập sản xuất và rập Techpack gốc
+    # Tái sắp xếp thứ tự hiển thị
     ordered_cols = [
         "Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", 
         "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
@@ -1591,13 +1590,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
-    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang
+    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang bốc từ chat
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom_display, use_container_width=True)
     
-    # 🔴 ĐÃ HOÀN THIỆN: Thêm minh bạch Khổ vải và Tỷ lệ co rút dọc/ngang trực tiếp vào dòng trạng thái AI dưới chân bảng
+    # Thêm minh bạch Khổ vải và Tỷ lệ co rút dọc/ngang trực tiếp vào dòng trạng thái AI dưới chân bảng
     st.caption(
         f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập: {fabric_width} inch | "
         f"Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | "
