@@ -1448,7 +1448,7 @@ if not rows:
 if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     
-    # Loại bỏ hoàn toàn các cột trùng tên vật lý nếu có trong dữ liệu thô đầu vào
+    # Loại bỏ hoàn toàn các cột trùng tên vật lý
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
     prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper()
@@ -1457,24 +1457,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
     pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
     
-    # Xác định cột chiều dài/rộng gốc Techpack
     orig_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
     orig_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
     
-    # Chuyển kiểu số an toàn
     df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # 🔴 ĐỘT PHÁ 1: TÍNH TOÁN KÍCH THƯỚC SẢN XUẤT SAU CO RÚT TẠI CHỖ
-    warp_shrink = float(st.session_state.get("warp_shrinkage", st.session_state.get("co_rut_doc", 0.0)))
-    weft_shrink = float(st.session_state.get("weft_shrinkage", st.session_state.get("co_rut_ngang", 0.0)))
+    # Trích xuất tỷ lệ co rút từ UI Streamlit
+    warp_shrink = float(st.session_state.get("warp_shrinkage", 0.0))
+    weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
     
+    # Kích thước sản xuất CAD thực tế (Đã cộng co rút để Skyline tính toán)
     df_bom["Dài sản xuất (L-inch)"] = (df_bom[orig_l_col] * (1 + warp_shrink / 100.0)).round(2)
     df_bom["Rộng sản xuất (W-inch)"] = (df_bom[orig_w_col] * (1 + weft_shrink / 100.0)).round(2)
     
-    # 🔴 ĐỘT PHÁ 2: ÉP BUỘC TÍNH TOÁN DIỆN TÍCH PHẲNG GERBER CHO DÒNG DRESS
-    def force_calculate_gerber_area_v4(row):
+    # Diện tích phẳng Gerber chuẩn
+    def force_calculate_gerber_area_v5(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0: return 0.0
@@ -1483,41 +1482,49 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sf = 0.88 if "back" in name else (0.52 if "flare" in name else 0.84)
         return round(seamed_l * seamed_w * sf, 2)
         
-    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v4, axis=1)
+    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v5, axis=1)
 
-    # ĐỒNG BỘ ĐỊNH MỨC CHÂN LÝ TỔNG (1.1582 YDS)
-    total_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.1582))
-    if total_gross_yds <= 0: total_gross_yds = 1.1582
+    # 🔴 ĐỊNH MỨC NGUỒN CHÂN LÝ TỪ SKYLINE (Đã chạy trên kích thước có co rút)
+    total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.1582))
+    if total_gross_yds_after_shrink <= 0: total_gross_yds_after_shrink = 1.1582
     dens = float(ctx.get("actual_packing_density", 0.82))
     if dens <= 0: dens = 0.82
 
-    # BỘ PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO DIỆN TÍCH PHẲNG
+    # 🔴 SUY NGƯỢC LOGIC ĐỊNH MỨC TRƯỚC CO RÚT (Phục vụ hiển thị minh bạch báo cáo)
+    total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
+
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH PHẲNG
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     total_fabric_marker_area = (df_fabric_only["polygon_net_area"] * df_fabric_only["pcs_numeric"]).sum()
 
     df_bom["allocated_gross"] = 0.0
     if total_fabric_marker_area > 0:
-        def exact_share_allocation_v4(row):
+        def exact_share_allocation_v5(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
             if "FABRIC" in mat_class:
                 item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
-                return round(total_gross_yds * (item_area_total / total_fabric_marker_area), 4)
+                # Phân bổ định mức chi tiết ăn theo con số Chân lý đã co rút
+                return round(total_gross_yds_after_shrink * (item_area_total / total_fabric_marker_area), 4)
             return 0.0
-        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v4, axis=1)
+        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v5, axis=1)
 
-    # Dựng bảng Summary
-    df_sum = df_bom.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
-    df_sum.columns = ["Material Class", "Gross Consumption"]
+    # 🔴 THIẾT KẾ BẢNG SUMMARY MINH BẠCH THEO ĐỀ XUẤT CHUYÊN GIA
+    summary_data = [
+        {"Chỉ tiêu hiển thị": "Tỷ lệ co rút dọc (Warp Shrinkage)", "Giá trị định mức": f"{warp_shrink:+.1f}%", "Đơn vị tính": "%"},
+        {"Chỉ tiêu hiển thị": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Giá trị định mức": f"{weft_shrink:+.1f}%", "Đơn vị tính": "%"},
+        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức gốc trước co rút)", "Giá trị định mức": f"{total_gross_yds_before_shrink:.4f}", "Đơn vị tính": "YDS"},
+        {"Chỉ tiêu hiển thị": "VẢI CHÍNH (Định mức sản xuất ĐÃ CO RÚT)", "Giá trị định mức": f"{total_gross_yds_after_shrink:.4f}", "Đơn vị tính": "YDS (Chân lý)"}
+    ]
+    df_sum_clean = pd.DataFrame(summary_data)
     
-    for idx, r_sum in df_sum.iterrows():
+    # Dựng bảng Summary thô để cấp cho hàm xuất Excel
+    df_sum_for_excel = df_bom.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
+    df_sum_for_excel.columns = ["Material Class", "Gross Consumption"]
+    for idx, r_sum in df_sum_for_excel.iterrows():
         if str(r_sum["Material Class"]).upper() in ["FABRIC", "VẢI CHÍNH"]:
-            df_sum.loc[idx, "Gross Consumption"] = total_gross_yds
-            
-    df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
-    df_sum["UOM"] = "YDS"
-    df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
-    
-    # 🔴 VÁ LỖI KEYERROR TRIỆT TIÊU: Trích xuất giữ lại bản sao dữ liệu các cột cần hiển thị trước khi chạy vòng xóa cột trùng
+            df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
+
+    # Trích xuất bản sao bảo vệ trước khi xóa cột kỹ thuật
     saved_pcs_series = df_bom[pcs_col].copy()
     saved_orig_l_series = df_bom[orig_l_col].copy()
     saved_orig_w_series = df_bom[orig_w_col].copy()
@@ -1529,22 +1536,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if col in df_bom_display.columns:
             df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Gán an toàn tuyệt đối các series đã lưu vết độc lập vào DataFrame hiển thị UI phẳng
+    # Gán lại dữ liệu sạch hiển thị bảng chi tiết CAD
     df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Số lượng rập"] = saved_pcs_series
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
     df_bom_display["Rộng gốc Techpack (inch)"] = saved_orig_w_series
 
-    rename_rules = {
-        "component_name": "Component Name", 
-        "material_class": "Material Class", 
-        "geometry_role": "Role/Piece Type", 
-        "polygon_net_area": "polygon_net_area"
-    }
-    df_bom_display = df_bom_display.rename(columns=rename_rules)
+    df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
-    # Sắp xếp cấu trúc cột trực quan
     ordered_cols = [
         "Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", 
         "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
@@ -1554,25 +1554,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất giao diện UI phẳng chuẩn xác không bao giờ crash lỗi
+    # Kết xuất Layout giao diện UI Streamlit
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
-            excel_file = export_excel_ppj_format(df_sum, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
+            excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
             st.download_button(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-                key="btn_download_excel_ppj_final_v43"
+                key="btn_download_excel_ppj_final_v44"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
-    st.dataframe(df_sum[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
+    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang và định mức trước/sau
+    st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
+    
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom_display, use_container_width=True)
     
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Mật độ nén hình học: {dens*100:.1f}% | Tổng định mức giải toán tự động: {total_gross_yds:.4f} YDS")
+    st.caption(f"🤖 AI Dòng hàng: {prod} | Mật độ nén hình học sơ đồ CAD: {dens*100:.1f}% | Tổng định mức giải toán tự động: {total_gross_yds_after_shrink:.4f} YDS")
 else:
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
