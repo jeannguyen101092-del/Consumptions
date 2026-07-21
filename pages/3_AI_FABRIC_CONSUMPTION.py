@@ -923,51 +923,43 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             if any(k in comp_name for k in ["BIAS", "THIÊN", "XÉO"]): 
                 bias_shape_area_weight += (shape_area_single * pcs)
 
-    # 4. THUẬT TOÁN ĐIỀN KẼ HỞ (GAP ABSORPTION CORES)
+      # 4. THUẬT TOÁN ĐIỀN KẼ HỞ (GAP ABSORPTION CORES)
     if major_shape_area > 0:
-        # CẬP NHẬT: Nâng mật độ nén cơ sở cho rập chính lên cao hơn
+        # Mật độ nén cơ sở mặc định ban đầu cho vải Solid
         major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
-        if product_type == "TROUSER": major_nest_density -= 0.03 # Quần có kết cấu rập uốn lượn kẽ hở lớn hơn chút
         
+        if product_type == "TROUSER": 
+            major_nest_density -= 0.03  # Quần uốn lượn kẽ hở lớn
+        elif product_type in ["JACKET", "SUIT_BLAZER"]:
+            major_nest_density -= 0.02  # Áo khoác nền cơ bản khó xếp hơn sơ mi
+            
+        # =====================================================================
+        # TRỪ HIỆU SUẤT ĐỘNG KHI THÂN ÁO/QUẦN QUÁ TO (MAJOR PIECE SCALE PENALTY)
+        # =====================================================================
+        # Tìm các chi tiết lớn chịu trách nhiệm gánh khung sơ đồ
+        major_pieces = [r for r in bom_rows_list if r and (str(r.get("geometry_role", "")).upper() == "MAJOR_PANEL" or float(r.get("bounding_box_length", 0)) > 15.0)]
+        
+        if major_pieces:
+            # Tính chiều rộng (W) trung bình của các mảnh rập lớn
+            avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
+            
+            # Nếu chiều rộng trung bình của thân áo chiếm trên 28% khổ vải (rập rất béo/to bề ngang)
+            width_occupancy_ratio = avg_major_width / usable_width
+            if width_occupancy_ratio > 0.28:
+                # Phạt hiệu suất tăng dần: Rập càng to bề ngang, hiệu suất sơ đồ càng bị kéo tụt
+                scale_penalty = (width_occupancy_ratio - 0.28) * 0.18
+                major_nest_density -= min(scale_penalty, 0.065) # Phạt tối đa 6.5% hiệu suất
+        # =====================================================================
+
         # Tính tổng diện tích của sơ đồ cần thiết để chứa riêng rập chính
         required_marker_area_for_major = major_shape_area / major_nest_density
         
-        # Tính tổng diện tích kẽ hở trống có sẵn trên sơ đồ rập chính (Vải vụn kẽ hở sơ đồ)
+        # Tính tổng diện tích kẽ hở trống có sẵn trên sơ đồ rập chính
         available_gap_area = required_marker_area_for_major - major_shape_area
         
-        # Lưu trữ hệ số 0.05 điều chỉnh của bạn: Hạn chế tối đa việc nhét rập nhỏ (chỉ cho nhét 5% kẽ trống)
+        # Chỉ cho nhét 5% kẽ trống theo cấu hình của bạn
         usable_gap_area = available_gap_area * 0.05
-        
-        if minor_shape_area <= usable_gap_area:
-            # Nếu lượng rập phụ ít hơn kẽ hở, chiều dài sơ đồ KHÔNG TĂNG LÊN
-            final_simulated_shape_area = major_shape_area
-            actual_packing_density = major_shape_area / required_marker_area_for_major
-        else:
-            # Nếu rập phụ vượt quá 5% kẽ hở, phần dư thừa bắt buộc phải kéo dài sơ đồ ra
-            excess_minor_area = minor_shape_area - usable_gap_area
-            final_simulated_shape_area = major_shape_area + excess_minor_area
-            actual_packing_density = major_nest_density + 0.045 # Tăng mật độ nén tổng vì sơ đồ nhiều chi tiết đan xen hơn
 
-        if plaid_repeat_inch > 0: actual_packing_density -= (plaid_repeat_inch * 0.007)
-        
-        # CẬP NHẬT: Nâng hiệu suất sơ đồ tối đa (Chặn trên) từ 0.92 lên mức cực cao 0.94 theo ý bạn
-        actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
-
-        # Tính toán chiều dài sơ đồ giả lập cuối cùng (inch) - SỬA LỖI ĐOẠN CODE CỤT
-        simulated_length = ((final_simulated_shape_area / usable_width) / actual_packing_density) * (1.0 + ((bias_shape_area_weight / final_simulated_shape_area) * 0.15))
-        simulated_length *= (1.0 + (total_matching_score * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * constraint_penalty_multiplier
-
-        global_gross_fabric = (simulated_length / 36.0) * 1.020 * 1.010 + (0.3 / 36.0)
-    else:
-        global_gross_fabric, actual_packing_density = 0.0, 0.82
-
-    return {
-        "product_segmented": product_type, 
-        "fabric_pattern": fabric_pattern,
-        "actual_packing_density": actual_packing_density, 
-        "global_gross_fabric_yds": global_gross_fabric,
-        "major_shape_area": major_shape_area
-    }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
     """Khối 3 sửa lỗi: Nhận diện chính xác mọi cấu trúc chi tiết thân áo/quần từ file rập"""
