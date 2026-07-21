@@ -999,17 +999,17 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.155  
         end_loss_inch = 3.0
     elif product_segmented == "JUMPSUIT":
-        fabric_wastage_multiplier = 1.020 * 1.010 * 1.06
-        end_loss_inch = 2.0
+        fabric_wastage_multiplier = 1.020 * 1.010 * 1.155
+        end_loss_inch = 3.0
     elif product_segmented == "SKIRT":
         # Điều chỉnh tăng nhẹ hao hụt bàn cắt lên 3.5% để đẩy đm chân váy lên tầm an toàn
-        fabric_wastage_multiplier = 1.015 * 1.005 * 1.035
-        end_loss_inch = 1.0
+        fabric_wastage_multiplier = 1.02 * 1.010 * 1.155
+        end_loss_inch = 3.0
     elif product_segmented == "DRESS":
-        fabric_wastage_multiplier = 1.015 * 1.005 * 1.04
-        end_loss_inch = 1.8
+        fabric_wastage_multiplier = 1.02 * 1.010 * 1.155
+        end_loss_inch = 3
     else:
-        fabric_wastage_multiplier = 1.012 * 1.003
+        fabric_wastage_multiplier = 1.02 * 1.003
         end_loss_inch = 0.15
     # =====================================================================
 
