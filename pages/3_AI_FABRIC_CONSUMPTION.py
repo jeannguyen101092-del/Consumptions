@@ -830,135 +830,118 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
-def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2 nâng cấp: Mô phỏng thuật toán chèn chi tiết nhỏ vào kẽ hở rập chính của Gerber"""
+def classify_pieces_and_products(bom_rows_list, user_query_text):
+    """Khối 2a: Nhận diện dòng hàng, co rút và tách mảng rập chính/phụ"""
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
     warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
     weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
     
     query_lower = str(user_query_text).lower() if user_query_text else ""
-    usable_width = fabric_width
-
-    # 1. Nhận diện hoa văn vải
+    
+    # 1. Nhận diện hoa văn vải và dòng sản phẩm
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-    if any(k in query_lower for k in ["sọc", "stripe"]): fabric_pattern = "STRIPE"
-    if any(k in query_lower for k in ["caro", "plaid"]): 
+    if "sọc" in query_lower or "stripe" in query_lower: fabric_pattern = "STRIPE"
+    if "caro" in query_lower or "plaid" in query_lower: 
         fabric_pattern = "PLAID"
         repeat_match = re.search(r"(caro|sọc|repeat)\s*(\d+(\.\d+)?)", query_lower)
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
     if any(k in query_lower for k in ["tuyết", "nap", "one way", "một chiều", "nhung"]): fabric_pattern, is_one_way_nap = "NAP", True
 
-    # 2. Nhận diện dòng sản phẩm
     product_type = "CASUAL_TOP"
-    if any(k in query_lower for k in ["sơ mi", "shirt", "so mi"]): product_type = "SHIRT"
+    if any(k in query_lower for k in ["sơ mi", "shirt"]): product_type = "SHIRT"
     elif any(k in query_lower for k in ["thun", "t-shirt", "polo", "knit"]): product_type = "KNIT_TEE"
-    elif any(k in query_lower for k in ["quần", "pant", "trouser", "jeans", "short"]): product_type = "TROUSER"
-    elif any(k in query_lower for k in ["jacket", "khoác", "bomber", "windbreaker"]): product_type = "JACKET"
+    elif any(k in query_lower for k in ["quần", "pant", "trouser", "jeans"]): product_type = "TROUSER"
+    elif any(k in query_lower for k in ["jacket", "khoác", "bomber"]): product_type = "JACKET"
     elif any(k in query_lower for k in ["vét", "vest", "blazer", "suit"]): product_type = "SUIT_BLAZER"
     elif any(k in query_lower for k in ["váy", "đầm", "dress", "skirt"]): product_type = "DRESS_SKIRT"
 
-    # Ma trận Shape Factor chuẩn cho RẬP CHÍNH
-    piece_metadata_registry = {
-        "SHIRT_BODY_FRONT": {"shape_factor": 0.76, "allow_rotate": 180, "mirror_required": True, "matching_weight": 3, "is_major": True},
-        "SHIRT_BODY_BACK": {"shape_factor": 0.79, "allow_rotate": 180, "mirror_required": False, "matching_weight": 2, "is_major": True},
-        "KNIT_FRONT": {"shape_factor": 0.74, "allow_rotate": 0, "mirror_required": True, "matching_weight": 1, "is_major": True},
-        "TROUSER_FRONT": {"shape_factor": 0.62, "allow_rotate": 0, "mirror_required": True, "matching_weight": 3, "is_major": True}, 
-        "TROUSER_BACK": {"shape_factor": 0.65, "allow_rotate": 0, "mirror_required": True, "matching_weight": 3, "is_major": True}, 
-        "JACKET_FRONT": {"shape_factor": 0.70, "allow_rotate": 180, "mirror_required": True, "matching_weight": 3, "is_major": True},
-        "SUIT_FRONT": {"shape_factor": 0.66, "allow_rotate": 0, "mirror_required": True, "matching_weight": 4, "is_major": True},
-        "DRESS_SKIRT_FLARE": {"shape_factor": 0.52, "allow_rotate": 180, "mirror_required": True, "matching_weight": 3, "is_major": True},
-        "MAJOR_PANEL": {"shape_factor": 0.72, "allow_rotate": 180, "mirror_required": True, "matching_weight": 0, "is_major": True},
-        "MINOR_COMPONENT": {"shape_factor": 0.85, "allow_rotate": 180, "mirror_required": False, "matching_weight": 0, "is_major": False}
-    }
-
-    # 3. Phân tách rập vào 2 mảng: CHÍNH (Major) và PHỤ (Minor)
-    major_bounding_area = 0.0   # Diện tích bao khung của rập chính
-    major_shape_area = 0.0      # Diện tích thực tế của rập chính
-    minor_shape_area = 0.0      # Diện tích thực tế của rập phụ cần điền kẽ hở
+    # 2. Vòng lặp tách mảng rập
+    major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
+    total_matching_score, constraint_penalty = 0, 1.00
     
-    bias_shape_area_weight = 0.0
-    total_matching_score = 0
-    constraint_penalty_multiplier = 1.00
-
     for r in bom_rows_list:
         if not r or not isinstance(r, dict): continue
-        comp_name = str(r.get("component_name", "UNNAMED")).upper().strip()
         mat_class = str(r.get("material_class", "FABRIC")).upper().strip()
-        geo_role = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
-        piece_type_ai = str(r.get("piece_type", geo_role)).upper().strip()
+        if mat_class != "FABRIC": continue
+        
+        raw_l = float(r.get("bounding_box_length", 0))
+        raw_w = float(r.get("bounding_box_width", 0))
+        pcs = int(r.get("piece_count", 1))
+        comp_name = str(r.get("component_name", "UNNAMED")).upper().strip()
+        
+        # Tính toán co rút dệt nhuộm và đường may
+        adj_l = (raw_l + 0.88) * (1 + warp_shrinkage / 100.0)
+        adj_w = (raw_w + 0.88) * (1 + weft_shrinkage / 100.0)
+        
+        # Gán sơ bộ shape factor nền (Mặc định chi tiết lớn = 0.75, nhỏ = 0.85)
+        is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or (raw_l > 15.0 and raw_w > 8.0)
+        sf = 0.75 if is_actual_major else 0.85
+        shape_area_single = (adj_l * adj_w) * sf
+        
+        if is_actual_major:
+            major_shape_area += (shape_area_single * pcs)
+            if pcs >= 2: constraint_penalty += 0.020
+            if is_one_way_nap: constraint_penalty += 0.035
+        else:
+            minor_shape_area += (shape_area_single * pcs)
 
-        raw_l, raw_w, pcs = r.get("bounding_box_length"), r.get("bounding_box_width"), r.get("piece_count")
-        if raw_l is None or raw_w is None or pcs is None: continue
-        raw_l, raw_w, pcs = float(raw_l), float(raw_w), int(pcs)
-        
-        if mat_class == "FABRIC":
-            # Bù trừ đường may và co rút
-            seamed_l, seamed_w = raw_l + (0.44 * 2.0), raw_w + (0.44 * 2.0)
-            adj_l = seamed_l * (1 + warp_shrinkage / 100.0)
-            adj_w = seamed_w * (1 + weft_shrinkage / 100.0)
-            
-            prefix = {"SHIRT":"SHIRT_", "KNIT_TEE":"KNIT_", "TROUSER":"TROUSER_", "JACKET":"JACKET_", "SUIT_BLAZER":"SUIT_", "DRESS_SKIRT":"DRESS_"}.get(product_type, "")
-            meta = piece_metadata_registry.get(f"{prefix}{piece_type_ai}", piece_metadata_registry.get(piece_type_ai, piece_metadata_registry["MINOR_COMPONENT"]))
-            
-            box_area_single = adj_l * adj_w
-            shape_area_single = box_area_single * meta["shape_factor"]
-            
-            # ÉP BUỘC CHÈN LỢI VẢI: Đánh giá chi tiết phụ dựa trên kích thước thực tế
-            is_actual_major = meta.get("is_major", False) or (geo_role == "MAJOR_PANEL") or (raw_l > 15.0 and raw_w > 8.0)
-            
-            if is_actual_major:
-                major_bounding_area += (box_area_single * pcs)
-                major_shape_area += (shape_area_single * pcs)
-                
-                # Chỉ phạt sơ đồ dựa trên ràng buộc của các chi tiết lớn
-                if meta["mirror_required"] and pcs >= 2: constraint_penalty_multiplier += 0.020
-                if meta["allow_rotate"] == 0 or is_one_way_nap: constraint_penalty_multiplier += 0.035
-            else:
-                # Đây là chi tiết nhỏ (nắp túi, đỉa, cơi, nẹp...) -> Ném vào hàng đợi để chèn khoảng trống
-                minor_shape_area += (shape_area_single * pcs)
+        if fabric_pattern in ["STRIPE", "PLAID"] and any(k in comp_name for k in ["CF", "CB", "POCKET", "COLLAR"]): total_matching_score += (2 * pcs)
+        if any(k in comp_name for k in ["BIAS", "THIÊN", "XÉO"]): bias_shape_area_weight += (shape_area_single * pcs)
 
-            if fabric_pattern in ["STRIPE", "PLAID"] and any(k in comp_name for k in ["CF", "CB", "POCKET", "COLLAR"]): 
-                total_matching_score += (meta.get("matching_weight", 0) * pcs)
-            if any(k in comp_name for k in ["BIAS", "THIÊN", "XÉO"]): 
-                bias_shape_area_weight += (shape_area_single * pcs)
+    return {
+        "product_type": product_type, "fabric_pattern": fabric_pattern, "plaid_repeat_inch": plaid_repeat_inch,
+        "major_shape_area": major_shape_area, "minor_shape_area": minor_shape_area, "fabric_width": fabric_width,
+        "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
+        "constraint_penalty": constraint_penalty, "bom_rows_list": bom_rows_list
+    }
+def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
+    """Khối 2b: Phạt hiệu suất theo kích thước rập to và giả lập chiều dài sơ đồ tổng"""
+    # Gọi Khối 2a để giải nén dữ liệu phân loại ban đầu
+    ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
+    if not ctx or ctx["major_shape_area"] == 0:
+        return {"product_segmented": "CASUAL_TOP", "fabric_pattern": "SOLID", "actual_packing_density": 0.82, "global_gross_fabric_yds": 0.0, "major_shape_area": 0.0}
 
-      # 4. THUẬT TOÁN ĐIỀN KẼ HỞ (GAP ABSORPTION CORES)
-    if major_shape_area > 0:
-        # Mật độ nén cơ sở mặc định ban đầu cho vải Solid
-        major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
+    # 1. Tính toán mật độ nén nền theo dòng sản phẩm
+    fabric_pattern = ctx["fabric_pattern"]
+    major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
+    
+    if ctx["product_type"] == "TROUSER": major_nest_density -= 0.03
+    elif ctx["product_type"] in ["JACKET", "SUIT_BLAZER"]: major_nest_density -= 0.02
         
-        if product_type == "TROUSER": 
-            major_nest_density -= 0.03  # Quần uốn lượn kẽ hở lớn
-        elif product_type in ["JACKET", "SUIT_BLAZER"]:
-            major_nest_density -= 0.02  # Áo khoác nền cơ bản khó xếp hơn sơ mi
-            
-        # =====================================================================
-        # TRỪ HIỆU SUẤT ĐỘNG KHI THÂN ÁO/QUẦN QUÁ TO (MAJOR PIECE SCALE PENALTY)
-        # =====================================================================
-        # Tìm các chi tiết lớn chịu trách nhiệm gánh khung sơ đồ
-        major_pieces = [r for r in bom_rows_list if r and (str(r.get("geometry_role", "")).upper() == "MAJOR_PANEL" or float(r.get("bounding_box_length", 0)) > 15.0)]
-        
-        if major_pieces:
-            # Tính chiều rộng (W) trung bình của các mảnh rập lớn
-            avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
-            
-            # Nếu chiều rộng trung bình của thân áo chiếm trên 28% khổ vải (rập rất béo/to bề ngang)
-            width_occupancy_ratio = avg_major_width / usable_width
-            if width_occupancy_ratio > 0.28:
-                # Phạt hiệu suất tăng dần: Rập càng to bề ngang, hiệu suất sơ đồ càng bị kéo tụt
-                scale_penalty = (width_occupancy_ratio - 0.28) * 0.18
-                major_nest_density -= min(scale_penalty, 0.065) # Phạt tối đa 6.5% hiệu suất
-        # =====================================================================
+    # 2. THUẬT TOÁN PHẠT ĐỘNG KHI THÂN ÁO/QUẦN QUÁ TO (MAJOR PIECE SCALE PENALTY)
+    major_pieces = [r for r in ctx["bom_rows_list"] if r and (float(r.get("bounding_box_length", 0)) > 15.0)]
+    if major_pieces:
+        avg_major_width = sum(float(p.get("bounding_box_width", 0)) for p in major_pieces) / len(major_pieces)
+        width_occupancy_ratio = avg_major_width / ctx["fabric_width"]
+        if width_occupancy_ratio > 0.28:
+            major_nest_density -= min((width_occupancy_ratio - 0.28) * 0.18, 0.065) # Phạt tối đa 6.5% hiệu suất
 
-        # Tính tổng diện tích của sơ đồ cần thiết để chứa riêng rập chính
-        required_marker_area_for_major = major_shape_area / major_nest_density
-        
-        # Tính tổng diện tích kẽ hở trống có sẵn trên sơ đồ rập chính
-        available_gap_area = required_marker_area_for_major - major_shape_area
-        
-        # Chỉ cho nhét 5% kẽ trống theo cấu hình của bạn
-        usable_gap_area = available_gap_area * 0.05
+    # 3. Thuật toán hấp thụ kẽ hở 5% (Gerber Nesting Core)
+    required_marker_area_for_major = ctx["major_shape_area"] / major_nest_density
+    usable_gap_area = (required_marker_area_for_major - ctx["major_shape_area"]) * 0.05
+    
+    if ctx["minor_shape_area"] <= usable_gap_area:
+        final_simulated_shape_area = ctx["major_shape_area"]
+        actual_packing_density = ctx["major_shape_area"] / required_marker_area_for_major
+    else:
+        final_simulated_shape_area = ctx["major_shape_area"] + (ctx["minor_shape_area"] - usable_gap_area)
+        actual_packing_density = major_nest_density + 0.045
+
+    if ctx["plaid_repeat_inch"] > 0: actual_packing_density -= (ctx["plaid_repeat_inch"] * 0.007)
+    actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
+
+    # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
+    simulated_length = ((final_simulated_shape_area / ctx["fabric_width"]) / actual_packing_density) * (1.0 + ((ctx["bias_shape_area_weight"] / final_simulated_shape_area) * 0.15))
+    simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
+
+    global_gross_fabric = (simulated_length / 36.0) * 1.020 * 1.010 + (0.3 / 36.0)
+
+    return {
+        "product_segmented": ctx["product_type"], "fabric_pattern": fabric_pattern,
+        "actual_packing_density": actual_packing_density, "global_gross_fabric_yds": global_gross_fabric,
+        "major_shape_area": ctx["major_shape_area"]
+    }
 
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
