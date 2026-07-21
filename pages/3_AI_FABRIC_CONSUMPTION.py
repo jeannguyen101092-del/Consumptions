@@ -1497,25 +1497,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    # 🔴 TOÁN HỌC THỰC CHẤT ĐỘNG: Vá lỗi gộp chung kích thước mảng rập từ khối trước truyền sang.
-    # Nếu rập đi theo cặp đối xứng (pcs == 2) và có bề rộng gốc ban đầu lớn bất thường (W > 18.0 inch),
-    # tự động chia đôi chiều rộng gốc về đúng kích thước chuẩn của 1 chi tiết đơn lẻ trước khi nhân dãn co rút. [INDEX]
-    def get_clean_single_piece_width(row):
-        w_val = float(row[orig_w_col])
+    # 🔴 TOÁN HỌC CHÂN LÝ: Bẫy lỗi nửa vòng gộp. Nếu rập có pcs == 2 và bề rộng gốc Techpack lớn (W >= 18.0) [INDEX],
+    # hệ thống tự động nhận biết đây là số đo gộp nửa vòng, thực hiện nhân dãn co rút ngang TRƯỚC [INDEX], 
+    # rồi chia đôi cho 2 để ra chính xác kích thước sản xuất thực tế của 1 vế thân đơn lẻ đi sơ đồ [INDEX]!
+    def calculate_precise_production_width(row):
+        w_orig = float(row[orig_w_col])
         pcs = float(row["pcs_numeric"])
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        if pcs >= 2.0 and w_val >= 18.0:
+        
+        # Áp dụng co rút ngang từ chat lên kích thước gốc trước
+        w_expanded = w_orig * (1 + weft_shrink / 100.0)
+        
+        # Kiểm tra điều kiện bẫy thông số nửa vòng chập đôi của hệ thân quần
+        if pcs >= 2.0 and w_orig >= 18.0:
             if any(k in name for k in ["front", "back", "panel", "leg", "thân", "quần"]):
-                return w_val / 2.0
-        return w_val
+                # Chia đôi để lấy kích thước sản xuất thực chất của MỘT THÂN ĐƠN LẺ trên sơ đồ [INDEX]
+                return round(w_expanded / 2.0, 3)
+                
+        return round(w_expanded, 3)
 
-    df_bom["rộng_gốc_chuẩn_đơn_vị"] = df_bom.apply(get_clean_single_piece_width, axis=1)
-
-    # TÍNH KÍCH THƯỚC SẢN XUẤT ĐỘNG DỰA TRÊN CHIỀU RỘNG ĐƠN LẺ ĐÃ LÀM SẠCH [INDEX]
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
-    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r["rộng_gốc_chuẩn_đơn_vị"]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r["rộng_gốc_chuẩn_đơn_vị"]), 2), axis=1)
+    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_precise_production_width, axis=1)
 
-    # 🔴 SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG CỦA MIẾNG RẬP ĐƠN LẺ SẠCH
+    # SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG CỦA MIẾNG RẬP SẠCH GỐC
     def infer_geometric_shape_factor(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
@@ -1531,6 +1535,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return round(sf_computed, 3)
         
     df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * infer_geometric_shape_factor(r), 2), axis=1)
+
     # =====================================================================
     # 🟩 KHỐI 5a (PHẦN 2): GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE MULTI-GARMENT
     # =====================================================================
