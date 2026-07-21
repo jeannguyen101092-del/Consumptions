@@ -1555,54 +1555,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         dens, total_gross_yds = 0.82, 0.2905
 
-       # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC THEO BÀN CẮT ĐỘC LẬP CHO CẢ KEO VÀ LÓT ĐÃ SỬA CHỮ THƯỜNG 🚨
-    # Tính tổng diện tích vải chính riêng biệt để làm mẫu số phân bổ vải chính chính xác
-    df_main_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
-    total_fabric_net_area_only = (df_main_fabric_only[area_col] * df_main_fabric_only[pcs_col]).sum()
-    
-    for idx, row in df_bom.iterrows():
-        net_a = float(row[area_col])
-        pcs_val = float(row[pcs_col])
-        name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        role_upper = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
-        
-        # 🚨 ĐỒNG BỘ CHỮ HOA: Chuyển toàn bộ phân loại vật tư về chữ hoa để chống sót chữ thường lining/fusing
-        mat_class_curr = str(row.get(m_col, row.get("Material Class", "FABRIC"))).upper().strip()
-        
-        # --------------------------------=====================================
-        # PHÂN HỆ 1: GIẢI SƠ ĐỒ BÀN CẮT VẢI CHÍNH (MAIN FABRIC)
-        # --------------------------------=====================================
-        if "FABRIC" in mat_class_curr:
-            if total_fabric_net_area_only > 0 and total_gross_yds > 0:
-                share_ratio = (net_a * pcs_val) / total_fabric_net_area_only
-                item_gross = total_gross_yds * share_ratio
-                
-                # Ép giảm tiêu hao chi tiết nhỏ vải chính nhồi vào kẽ hở thừa dồn đm cho thân to
-                is_major_panel = "MAJOR" in role_upper or any(k in name_lower for k in ["front", "back", "leg", "thân", "body"])
-                if not is_major_panel:
-                    item_gross = item_gross * 0.05
-                    
-                df_bom.loc[idx, g_col] = round(item_gross, 5)
-            else:
-                df_bom.loc[idx, g_col] = 0.0
-                
-        # --------------------------------=====================================
-        # PHÂN HỆ 2: GIẢI SƠ ĐỒ ĐỘC LẬP CHO KEO DỰNG (FUSING) VÀ VẢI LÓT BAO TÚI (LINING) - ĐÃ VÁ LỖI
-        # --------------------------------=====================================
-        elif any(k in mat_class_curr for k in ["FUSING", "LINING", "KEO", "LÓT"]):
-            if fabric_width > 0 and net_a > 0:
-                # Công thức phẳng IE độc lập cho Keo/Lót: Định mức = (Diện tích gộp / Khổ vải) / 36 inch / Hiệu suất bàn phụ (75%) * Bù hao dạt biên (5%)
-                # Giúp bao túi vải lót (lining) tự giải phóng khỏi định mức vải chính, nhảy số thực tế tầm 0.11 - 0.15 YDS
-                independent_gross = ((net_a * pcs_val) / fabric_width / 36.0 / 0.75) * 1.05
-                df_bom.loc[idx, g_col] = round(independent_gross, 5)
-            else:
-                df_bom.loc[idx, g_col] = 0.0
-                
-        # PHÂN HỆ 3: PHỤ LIỆU CUỘN DÀI (TAPE / TRIMS)
-        else:
-            df_bom.loc[idx, g_col] = round(float(row.get(g_col, 0.0)), 5)
-
-    # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt vật tư tổng hợp (BOM Summary)
+        # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt vật tư tổng hợp (BOM Summary)
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
@@ -1613,7 +1566,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_sum.loc[idx, "Gross Consumption"] = total_gross_yds
             main_fabric_total = total_gross_yds
         else:
-            # Ghi nhận giá trị tổng cộng dồn thực tế từ các bàn cắt độc lập Keo/Lót lên bảng Summary
             df_sum.loc[idx, "Gross Consumption"] = round(float(r_sum["Gross Consumption"]), 4)
             
     df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
@@ -1622,7 +1574,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Chuẩn hóa đặt lại tên cột hiển thị UI giao diện Streamlit cho chuyên nghiệp
+    # Chuẩn hóa đặt lại tên cột hiển thị UI giao diện Streamlit
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1636,7 +1588,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kích hoạt kết xuất khối Layout đồ họa trang web
+    # Kết xuất đồ họa cấu trúc giao diện
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
         f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
@@ -1655,7 +1607,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_Consumption_Engine.xlsx",
-                key="btn_download_excel_ppj_final_v35_independent_lining_fixed"
+                key="btn_download_excel_ppj_final_v35_exempted"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
