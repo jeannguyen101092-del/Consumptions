@@ -1412,7 +1412,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     return output
 
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & ÉP TÍNH DIỆN TÍCH ĐỘNG PHÂN BỔ ĐM
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & ÉP TÍNH DIỆN TÍCH ĐỘNG PHÂN BỔ ĐM (FIXED)
 # =====================================================================
 import streamlit as st, pandas as pd
 
@@ -1441,11 +1441,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'skyline_res' in locals() and isinstance(skyline_res, dict):
         total_gross_yds = float(skyline_res.get("global_gross_fabric_yds", total_gross_yds))
     if total_gross_yds <= 0:
-        # Fallback phòng hờ lấy định mức tổng hiển thị trên bảng summary trong hình của bạn
         total_gross_yds = 0.2905
     
-    # Đồng bộ hóa tên cột chữ hoa/chữ thường trong bảng dữ liệu của bạn
-    m_col = next((c for c in ["Material Class", "material_class", "material_class"] if c in df_bom.columns), "material_class")
+    # Đồng bộ hóa tên cột chữ hoa/chữ thường trong bảng dữ liệu
+    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
     g_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
     pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
     l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
@@ -1457,28 +1456,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[l_col] = pd.to_numeric(df_bom[l_col], errors='coerce').fillna(0.0)
     df_bom[w_col] = pd.to_numeric(df_bom[w_col], errors='coerce').fillna(0.0)
     
-    # 🚨 BƯỚC ĐỘT PHÁ CHÍ MẠNG: Tự động tính toán diện tích tịnh động dựa trên Dài x Rộng x Hệ số hình dạng
+    # Tự động tính toán diện tích tịnh động dựa trên Dài x Rộng x Hệ số hình dạng
     def calculate_row_area(row):
         l_val = float(row[l_col])
         w_val = float(row[w_col])
         role = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
         name = str(row.get("component_name", row.get("piece_type", ""))).lower()
         
-        # Xác định chi tiết lớn (Major) hay nhỏ (Minor) để áp hệ số diện tích phẳng
         is_major = "MAJOR" in role or any(k in name for k in ["front", "back", "body", "thân", "skirt", "waistband"])
-        sf = 0.74 if is_major else 0.85  # Hệ số rập xén góc chuẩn dòng hàng Skirt
+        sf = 0.74 if is_major else 0.85
         if "pocket" in name: sf = 0.82
         if "loop" in name or "fly" in name: sf = 0.90
         
         return round(l_val * w_val * sf, 2)
         
-    # Bơm giá trị diện tích thực tế vào cột diện tích thay vì để bằng 0
     df_bom[area_col] = df_bom.apply(calculate_row_area, axis=1)
     
-    # 🚨 PHÁ LỖI NHẢY ĐỀU 0.0415: Phân bổ định mức vải động theo tỷ lệ diện tích hình học thực tế
+    # Phân bổ định mức vải động theo tỷ lệ diện tích hình học thực tế
     total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
     if total_marker_net_area > 0 and total_gross_yds > 0:
-        # Chi tiết to (như THÂN VÁY FRONT/BACK 16x27 inch) gánh đm to, chi tiết nhỏ (Nút, đỉa quần) gánh đm siêu nhỏ
         df_bom[g_col] = ((df_bom[area_col] * df_bom[pcs_col]) / total_marker_net_area) * total_gross_yds
         df_bom[g_col] = df_bom[g_col].round(5)
 
@@ -1486,19 +1482,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
-    # Ghim con số tổng định mức vải chính chuẩn xác
     for idx, r_sum in df_sum.iterrows():
         if str(r_sum["Material Class"]).upper() in ["FABRIC", "VẢI CHÍNH"]:
             df_sum.loc[idx, "Gross Consumption"] = total_gross_yds
             
-    df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
+    df_sum["Gross Consumption"] = df_sum["round"](4)
     df_sum["UOM"] = "YDS"
     
-    # Ánh xạ tên gọi danh mục tiếng Việt
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Chuẩn hóa tên cột hiển thị lên giao diện UI cho chuyên nghiệp
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1508,12 +1501,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     }
     df_bom_display = df_bom_display.rename(columns=rename_rules)
     
-    # Đẩy cột diện tích và tiêu hao lên vị trí trung tâm để dễ quan sát
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Số lượng rập", "Dài (L-inch)", "Rộng (W-inch)", "polygon_net_area", "Gross Consumption"]
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # 2. Xây dựng cấu trúc layout giao diện và nút bấm Xuất Excel PPJ
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
         f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
@@ -1522,7 +1513,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         unsafe_allow_html=True
     )
     
-    col1, col2 = st.columns()
+    # 🚨 ĐÃ SỬA: Điền tham số tỷ lệ chia cột hợp lệ [3, 1] chống vỡ layout
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
@@ -1533,13 +1525,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
-                key="btn_download_excel_ppj_final_v21"
+                key="btn_download_excel_ppj_final_v22"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
     st.dataframe(df_sum[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
-    
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom_display, use_container_width=True)
     
