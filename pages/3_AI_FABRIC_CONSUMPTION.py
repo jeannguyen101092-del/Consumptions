@@ -1081,8 +1081,9 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 chuẩn hóa: Lấy trực tiếp biến từ kết quả Skyline Engine để tránh lỗi bằng 0"""
-    # SỬA LỖI: Kiểm tra cả 2 key phòng hờ lệch cấu trúc dữ liệu giữa các khối
+    """Khối 4 chuẩn hóa: Phân bổ định mức chi tiết CAD và tính hao hụt an toàn phụ liệu.
+    Đã hạ hiệu suất sơ đồ Keo/Lót xuống 82% để nâng định mức tiêu hao lên mức an toàn cho xưởng.
+    """
     base_gross_fabric = skyline_results.get("global_gross_fabric_yds", skyline_results.get("global_gross_fabric_consumption", 0.0))
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
     fabric_pattern = skyline_results.get("fabric_pattern", "SOLID")
@@ -1123,8 +1124,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                 calc_chain = f"Dải cuộn phụ liệu ({product_segmented}): L-inch / 36.0 + 4%"
             else:
                 if mat_class_raw == "FABRIC":
-                    # Nhận diện rập chính gánh định mức nền
-                    is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel"])
+                    # Nhận diện các mảnh rập chính gánh khung nền sơ đồ vải chính
+                    is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or \
+                               any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
                     
                     if is_major:
                         if total_fabric_piece_area > 0 and base_gross_fabric > 0:
@@ -1132,28 +1134,25 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                             gross_consumption = round(base_gross_fabric * share_ratio, 4)
                             calc_chain = f"Gerber Major Panel: Gánh nền sơ đồ ({base_gross_fabric:.3f} yds)"
                         else:
-                            # HÀM PHÒNG HỜ: Nếu engine lỗi trả về 0, tự động áp thuật toán ước lượng hình học nền để không bao giờ bị hiển thị 0
                             estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
                             gross_consumption = round(estimated_base * 1.035, 4)
                             calc_chain = f"CAD Geometry Estimate: {gross_consumption:.3f} yds"
                     else:
-                        # Rập phụ xen kẽ kẽ hở
-                        if total_fabric_piece_area > 0:
-                            # Nếu có vải tổng thì lấy tỉ lệ % nhỏ, nếu không có thì tính theo hao phí diện tích biên
-                            ref_fabric = base_gross_fabric if base_gross_fabric > 0 else ((total_fabric_piece_area / usable_width) / 36.0 / actual_packing_density)
-                            gross_consumption = round(ref_fabric * (item_area / total_fabric_piece_area) * 0.95, 4)
-                            calc_chain = f"Gerber Nesting: Đã lồng vào kẽ hở rập chính"
+                        # Rập phụ vải chính (túi, cổ, măng sét): Tự động điều chỉnh tỷ lệ lồng rập lợi vải theo loại hàng
+                        if total_fabric_piece_area > 0 and base_gross_fabric > 0:
+                            # Quần đáy sâu nhét rập nhỏ rất dễ (tính 40%), Áo Jacket thân to cồng kềnh khó xếp (giữ 85% tiêu hao)
+                            nesting_factor = 0.40 if product_segmented == "TROUSER" else 0.85
+                            share_ratio = item_area / total_fabric_piece_area
+                            gross_consumption = round(base_gross_fabric * share_ratio * nesting_factor, 4)
+                            calc_chain = f"Gerber Nesting ({product_segmented}): Tính {nesting_factor*100}% tiêu hao chi tiết phụ"
                         else:
                             gross_consumption, calc_chain = 0.0, "Kẽ hở sơ đồ"
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
                     if usable_width > 0:
-                        # Giao diện tính toán nền với mật độ nén 0.95 của bạn
-                        base_fusing_lining = ((item_area / usable_width) / 36.0 / 0.95)
-                        
-                        # CẬP NHẬT: Nhân thêm hệ số 0.75 để khấu trừ 25% hao hụt do lồng rập Keo/Lót siêu tiết kiệm
-                        gross_consumption = round(base_fusing_lining * 0.75, 4)
-                        calc_chain = f"Sơ đồ {mat_class_raw} (Nén 95%) + Khấu trừ 25% lồng ghép lợi phụ liệu"
+                        # ĐÃ SỬA: Hạ hiệu suất sơ đồ keo/lót xuống mức 0.82 để tăng định mức tiêu hao vải lên mức an toàn
+                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.82), 4)
+                        calc_chain = f"Sơ đồ {mat_class_raw} độc lập (Hạ hiệu suất xuống 82% để tăng hao hụt an toàn)"
                     else:
                         gross_consumption, calc_chain = 0.0, "❌ Khổ vải lỗi!"
                 else:
