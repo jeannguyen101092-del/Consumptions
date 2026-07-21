@@ -1613,13 +1613,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
        # =====================================================================
         # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: TỰ ĐỘNG GỘP DÒNG VÀ HIỂN THỊ ĐA CHẤT LIỆU LÊN SUMMARY & UI
     # =====================================================================
 
     df_bom_display_sum = df_bom.copy()
     
     # Khóa bẫy lỗi an toàn ô nhớ: Đảm bảo các biến định mức tổng từ Khối 5a luôn tồn tại
-    if 'total_gross_yds_after_shrink' not in locals(): total_gross_yds_after_shrink = 2.2539
+    if 'total_gross_yds_after_shrink' not in locals(): total_gross_yds_after_shrink = 0.5929
     if 'total_gross_yds_before_shrink' not in locals(): total_gross_yds_before_shrink = total_gross_yds_after_shrink
     if 'fabric_width' not in locals(): fabric_width = 56.0
     if 'fusing_width' not in locals(): fusing_width = 59.0
@@ -1632,11 +1633,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
 
-    # Gom nhóm sum định mức của các chất liệu FABRIC, FUSING, LINING thực tế từ bảng chi tiết
+    # 🔴 SỬA LOGIC CỐT LÕI: Đồng nhất phân loại Material Class trước khi gom nhóm
+    # Nếu chi tiết rập có chứa chữ FUSING hoặc LINING, ép phân loại về đúng nhóm của nó để không bị gộp sai vào vải chính
+    def clean_material_class_stream(row):
+        m_cls = str(row.get(m_col, "FABRIC")).upper().strip()
+        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper()
+        p_type = str(row.get("piece_type", "")).upper()
+        if "FUSING" in comp_name or "FUSING" in p_type or "KEO" in comp_name or "DỰNG" in comp_name: return "FUSING"
+        if "LINING" in comp_name or "LINING" in p_type or "LÓT" in comp_name: return "LINING"
+        return m_cls
+
+    df_bom_display_sum[m_col] = df_bom_display_sum.apply(clean_material_class_stream, axis=1)
+
+    # Gom nhóm sum định mức của các chất liệu thực tế từ bảng chi tiết (ĂN THEO NGUỒN CHÂN LÝ CHI TIẾT CỘNG TAY)
     df_sum_all_materials = df_bom_display_sum.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_all_materials.columns = ["Material Class", "Gross Consumption"]
     
-    # Thiết lập mapping nhãn hiển thị trực quan tiếng Việt cho phòng thu mua
     cls_map = {
         "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
         "FUSING": "KEO/DỰNG (FUSING)", 
@@ -1644,7 +1656,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
     }
     
-    # Khởi tạo duy nhất một mảng tóm tắt summary_rows_final xuyên suốt chuẩn ERP
     summary_rows_final = []
     
     # 1. Chèn các dòng cấu hình co rút và khổ vải bóc từ chat vào đầu bảng Summary hiển thị UI
@@ -1653,24 +1664,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải lót (Chat)", "Gross Consumption": f"{lining_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút dọc (Warp Shrinkage)", "Gross Consumption": f"{warp_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
-    summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # Dựng bảng Summary thô sạch, gỡ bỏ hardcode số 2.2539 để ép đồng bộ truyền vào hàm Excel
+    # 🔴 TÍNH ĐỊNH MỨC VẢI GỐC TRƯỚC CO RÚT DỰA TRÊN TỔNG THỰC TẾ TRONG BẢNG CHI TIẾT CỦA HỆ VẢI CHÍNH (FABRIC)
+    fabric_detail_sum_after = df_bom_display_sum[df_bom_display_sum[m_col] == "FABRIC"]["allocated_gross"].sum()
+    fabric_detail_sum_before = fabric_detail_sum_after / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else fabric_detail_sum_after
+
+    summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(fabric_detail_sum_before, 4), "UOM": "YDS"})
+    
     df_sum_for_excel = df_sum_all_materials.copy()
 
-    # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi có thật trong BOM
+    # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi dựa trên tổng SUM chuẩn khít 100%
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
         display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})")
         consumption_val = float(r_sum["Gross Consumption"])
         
         if "FABRIC" in m_class:
-            summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
-            # ÉP ĐỒNG BỘ ĐỊNH MỨC VẢI ĐỘNG SANG LUỒNG EXCEL
-            df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
+            # 🔴 VÁ LỖI SUM LỆCH: Ép lấy chính xác tổng SUM của hệ rập vải dưới bảng chi tiết hiển thị lên Summary
+            summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(fabric_detail_sum_after, 4), "UOM": "YDS (Mua hàng)"})
+            df_sum_for_excel.loc[idx, "Gross Consumption"] = fabric_detail_sum_after
         else:
             summary_rows_final.append({"Phân loại vật tư": display_label, "Gross Consumption": round(consumption_val, 4), "UOM": "YDS"})
-            # ÉP ĐỒNG BỘ ĐỊNH MỨC PHỤ LIỆU KEO/LÓT SANG LUỒNG EXCEL
             df_sum_for_excel.loc[idx, "Gross Consumption"] = consumption_val
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
@@ -1722,12 +1736,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
-            # ÉP GHI ĐÈ THAM SỐ CO RÚT CHÂN LÝ VÀO CONTEXT TRƯỚC KHI ĐẨY SANG HÀM EXCEL [INDEX]
+            # ÉP GHI ĐÈ THAM SỐ CO RÚT CHÂN LÝ VÀO CONTEXT TRƯỚC KHI ĐẨY SANG HÀM EXCEL
             ctx["warp_shrinkage"] = warp_shrink
             ctx["weft_shrinkage"] = weft_shrink
-            ctx["global_gross_fabric_yds"] = total_gross_yds_after_shrink
+            ctx["global_gross_fabric_yds"] = fabric_detail_sum_after
 
-            # Gọi hàm xuất Excel với bảng dữ liệu sum đã được đồng hóa động 100% [INDEX]
+            # Gọi hàm xuất Excel với bảng dữ liệu sum đã được đồng hóa động 100%
             excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
             
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
@@ -1754,7 +1768,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập từ Chat: {fabric_width} inch | "
         f"Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | "
         f"Mật độ nén hình học sơ đồ CAD: {dens*100:.1f}% | "
-        f"Tổng định mức sản xuất tự động giải từ dữ liệu gốc (Mua vải): {total_gross_yds_after_shrink:.4f} YDS"
+        f"Tổng định mức sản xuất tự động giải từ dữ liệu gốc (Mua vải): {fabric_detail_sum_after:.4f} YDS"
     )
 else:
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
