@@ -833,9 +833,12 @@ def initialize_and_sync_parameters():
 import streamlit as st
 import re
 
+import streamlit as st
+import re
+
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a hoàn chỉnh: Đã vá lỗi đồng bộ chữ hoa chữ thường của cột Material Class,
-    đồng thời ghi đè trực tiếp diện tích tính toán thực tế vào từng linh kiện rập.
+    """Khối 2a nâng cấp: Đã vá lỗi triệt để bằng cách tự sinh diện tích polygon_net_area 
+    từ kích thước hình học Dài x Rộng trước khi chạy qua các thuật toán AI phân loại.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -848,6 +851,23 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         [r for r in bom_rows_list if r and isinstance(r, dict)], 
         key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
     )
+
+    # 🚨 BƯỚC ĐỒNG BỘ CHÍ MẠNG: Ép tính diện tích tịnh tự động từ kích thước hình học thô
+    for r in stable_bom_list:
+        raw_l = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
+        raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
+        role_raw = str(r.get("geometry_role", r.get("Role/Piece Type", ""))).upper()
+        comp_name_raw = str(r.get("component_name", "UNNAMED")).lower()
+        
+        # Nếu diện tích tịnh bị trống hoặc bằng 0, tự tính toán dựa trên hệ số hình dạng chuẩn CAD
+        if float(r.get("polygon_net_area", 0.0)) <= 0:
+            is_major = "MAJOR" in role_raw or any(k in comp_name_raw for k in ["front", "back", "body", "thân", "skirt", "waistband"])
+            shape_factor = 0.74 if is_major else 0.85
+            if "pocket" in comp_name_raw: shape_factor = 0.82
+            if "loop" in comp_name_raw or "fly" in comp_name_raw: shape_factor = 0.90
+            
+            # Ghi đè vào dữ liệu gốc để giải phóng cho khối 2b tính toán hình học phi tuyến tính
+            r["polygon_net_area"] = round(raw_l * raw_w * shape_factor, 2)
 
     # =====================================================================
     # 1. ĐỒNG BỘ BỘ QUÉT AI CHẤT LIỆU TỰ ĐỘNG
@@ -908,13 +928,12 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         product_type = "KNIT_TEE"
 
     # =====================================================================
-    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC (ĐÃ VÁ LỖI)
+    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH TỔNG HỢP HỆ THỐNG
     # =====================================================================
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
     
     for r in stable_bom_list:
-        # VÁ LỖI CHỮ THƯỜNG: Chấp nhận mọi kiểu viết hoa viết thường của material_class
         mat_class = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         if "FABRIC" not in mat_class: continue
         
@@ -933,20 +952,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
                            (raw_l > 15.0 and raw_w > 8.0) or \
                            any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg", "skirt"])
         
-        sf = 0.75 if is_actual_major else 0.85
-        
-        if product_type == "JUMPSUIT" and is_actual_major: sf = 0.65 
-        elif product_type == "TROUSER" and is_actual_major: sf = 0.76 
-        elif product_type == "DRESS" and is_actual_major: sf = 0.68 
-        elif product_type == "SKIRT" and is_actual_major: sf = 0.74 
-        
-        if any(k in curr_item_lower for k in ["flare", "xòe", "tùng"]):
-            sf = 0.52
-            
-        shape_area_single = (adj_l * adj_w) * sf
-        
-        # 🚨 LỆNH VÁ CHÍ MẠNG: Ghi đè diện tích tịnh động vừa tính toán vào rập để đẩy sang các khối sau hiển thị bảng
-        r["polygon_net_area"] = round(shape_area_single, 2)
+        shape_area_single = float(r["polygon_net_area"])
         
         if is_actual_major:
             major_shape_area += (shape_area_single * pcs)
