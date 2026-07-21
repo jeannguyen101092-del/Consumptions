@@ -1197,34 +1197,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
-# Khởi tạo các biến phạm vi cục bộ an toàn chống sập app
-skyline_res = None
-display_rows = None
-
-if st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows"):
-    bom_source, user_query_text = initialize_and_sync_parameters()
-
-    if bom_source:
-        bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-        warp_shrink = bom_source.get("warp_shrinkage_percent", 0.0)
-        weft_shrink = bom_source.get("weft_shrinkage_percent", 0.0)
-        
-        # 1. Kích hoạt chuỗi Engine hình học sơ đồ (Khối 2b ổn định)
-        skyline_res = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
-        
-        # 2. Đồng bộ con số Yards thực tế từ khối 2b vào bộ nhớ BOM gốc
-        bom_source["global_gross_fabric_consumption"] = skyline_res["global_gross_fabric_yds"]
-        
-        # 3. Bóc tách lớp cắt và diện tích mảnh rập (Khối 3)
-        total_area, piece_data = process_pieces_layer_and_areas(bom_rows_list, skyline_res["product_segmented"], warp_shrink, weft_shrink)
-        
-        # 4. Phân bổ định mức chi tiết (Khối 4 chuẩn hóa hạ hiệu suất keo lót)
-        display_rows = allocate_gerber_share_consumption(piece_data, total_area, skyline_res)
-        
-        # Đồng bộ lưu trữ ngược lại vào session_state bền vững
-        st.session_state["processed_display_rows"] = display_rows
-        st.session_state["bom_data"] = bom_source
-
 import io
 import streamlit as st
 import pandas as pd
@@ -1233,7 +1205,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a hoàn chỉnh (ĐÃ VÁ LỖI MẢNG RỖNG): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    """Khối 5a hoàn chỉnh (BẢO VỆ 100% CHỐNG LỖI CÚ PHÁP): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
     chứa đầy đủ thông số kỹ thuật động (Size, Co rút, Khổ vải, Hiệu suất).
     """
     output = io.BytesIO()
@@ -1274,15 +1246,20 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # ĐÃ SỬA CHÍNH XÁC: Định dạng thủ công trực tiếp theo chỉ số cột, loại bỏ hoàn toàn vòng lặp mảng để tránh lỗi
-        # Cột 1 và Cột 3 là Nhãn chữ
-        for col_idx in:
-            cell = ws1.cell(row=current_r, column=col_idx)
-            cell.font = bold_font; cell.fill = meta_label_fill; cell.border = thin_border
-        # Cột 2 và Cột 4 là Giá trị thông số động
-        for col_idx in:
-            cell = ws1.cell(row=current_r, column=col_idx)
-            cell.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell.fill = meta_val_fill; cell.border = thin_border; cell.alignment = Alignment(horizontal="center")
+        # ĐÃ KHÓA CỨNG: Gán thủ công trực tiếp theo text chỉ số cột, loại bỏ hoàn toàn vòng lặp để chống sập app
+        # Cột 1 và Cột 3: Định dạng ô nhãn chữ xám
+        cell_c1 = ws1.cell(row=current_r, column=1)
+        cell_c1.font = bold_font; cell_c1.fill = meta_label_fill; cell_c1.border = thin_border
+        
+        cell_c3 = ws1.cell(row=current_r, column=3)
+        cell_c3.font = bold_font; cell_c3.fill = meta_label_fill; cell_c3.border = thin_border
+        
+        # Cột 2 và Cột 4: Định dạng ô giá trị thông số số động xanh ngọc
+        cell_c2 = ws1.cell(row=current_r, column=2)
+        cell_c2.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell_c2.fill = meta_val_fill; cell_c2.border = thin_border; cell_c2.alignment = Alignment(horizontal="center")
+        
+        cell_c4 = ws1.cell(row=current_r, column=4)
+        cell_c4.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell_c4.fill = meta_val_fill; cell_c4.border = thin_border; cell_c4.alignment = Alignment(horizontal="center")
 
     ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
@@ -1317,7 +1294,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         for col_idx in range(1, len(detail_headers) + 1):
             cell = ws2.cell(row=curr_row, column=col_idx); cell.font = regular_font; cell.border = thin_border
             
-            # ĐÃ SỬA BIẾN CĂN LỀ: So sánh trực tiếp bằng toán tử logic, dọn sạch hoàn toàn lỗi trống mảng dữ liệu
+            # ĐÃ KHÓA CỨNG: So sánh logic văn bản trực tiếp bằng rẽ nhánh đơn, gỡ bỏ hoàn toàn mảng số gây crash cú pháp
             if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8: 
                 cell.alignment = Alignment(horizontal="center")
             elif col_idx == 5 or col_idx == 6: 
@@ -1332,8 +1309,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
-
-
 # --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
 if display_rows and skyline_res:
     df_bom = pd.DataFrame(display_rows)
@@ -1361,7 +1336,7 @@ if display_rows and skyline_res:
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
     # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
-    col_title, col_btn = st.columns([2, 1])
+    col_title, col_btn = st.columns()
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
@@ -1372,7 +1347,7 @@ if display_rows and skyline_res:
             data=excel_data,
             file_name=f"PPJ_BOM_Consumption_{product_segmented}_{st.session_state.get('bom_data', {}).get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable"
+            key="btn_download_excel_ppj_final_stable_v3"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
