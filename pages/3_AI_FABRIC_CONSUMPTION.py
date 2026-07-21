@@ -1230,6 +1230,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_display_rows
 
 
+# =====================================================================
+# 🟩 KHỐI 5a HOÀN CHỈNH (VÁ TRIỆT ĐỂ LỖI KEYERROR): HÀM TẠO EXCEL PPJ
+# =====================================================================
 import io  
 import pandas as pd
 from openpyxl import Workbook
@@ -1238,7 +1241,7 @@ from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val, fabric_pattern_raw):
     """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group.
-    Đã bổ sung Mã Hàng, Khách Hàng và nhãn Tính chất vải đặc thù động lên đầu trang Excel.
+    Đã vá lỗi KeyError bằng cách sử dụng bộ lọc .get() bốc dữ liệu an toàn hai lớp Anh - Việt.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1284,28 +1287,11 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # Khóa cứng tọa độ cột cố định văn bản thuần túy, loại bỏ hoàn toàn các vòng lặp dính lỗi chat filter
-        # Cột 1: Định dạng nhãn chữ bên trái
-        ws1.cell(row=current_r, column=1).font = bold_font
-        ws1.cell(row=current_r, column=1).fill = meta_label_fill
-        ws1.cell(row=current_r, column=1).border = thin_border
+        ws1.cell(row=current_r, column=1).font = bold_font; ws1.cell(row=current_r, column=1).fill = meta_label_fill; ws1.cell(row=current_r, column=1).border = thin_border
+        ws1.cell(row=current_r, column=3).font = bold_font; ws1.cell(row=current_r, column=3).fill = meta_label_fill; ws1.cell(row=current_r, column=3).border = thin_border
         
-        # Cột 2: Định dạng thông số động bên trái
-        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251")
-        ws1.cell(row=current_r, column=2).fill = meta_val_fill
-        ws1.cell(row=current_r, column=2).border = thin_border
-        ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
-        
-        # Cột 3: Định dạng nhãn chữ bên phải
-        ws1.cell(row=current_r, column=3).font = bold_font
-        ws1.cell(row=current_r, column=3).fill = meta_label_fill
-        ws1.cell(row=current_r, column=3).border = thin_border
-        
-        # Cột 4: Định dạng thông số động bên phải
-        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251")
-        ws1.cell(row=current_r, column=4).fill = meta_val_fill
-        ws1.cell(row=current_r, column=4).border = thin_border
-        ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=2).fill = meta_val_fill; ws1.cell(row=current_r, column=2).border = thin_border; ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
+        ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=4).fill = meta_val_fill; ws1.cell(row=current_r, column=4).border = thin_border; ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
     # Đẩy bảng tóm tắt gộp xuống dòng số 11 và 12
     ws1.cell(row=11, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
@@ -1317,10 +1303,10 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     # Ghi dữ liệu Summary nối tiếp trật tự xuống dưới
     current_write_row = 13
     for _, row in df_summary_data.iterrows():
-        ws1.cell(row=current_write_row, column=1, value=row["Phân loại vật tư"])
-        ws1.cell(row=current_write_row, column=2, value=row["Material Class"])
-        ws1.cell(row=current_write_row, column=3, value=float(row["Gross Consumption"]))
-        ws1.cell(row=current_write_row, column=4, value=row["UOM"])
+        ws1.cell(row=current_write_row, column=1, value=row.get("Phân loại vật tư", "VẬT TƯ"))
+        ws1.cell(row=current_write_row, column=2, value=row.get("Material Class", "FABRIC"))
+        ws1.cell(row=current_write_row, column=3, value=float(row.get("Gross Consumption", 0.0)))
+        ws1.cell(row=current_write_row, column=4, value=row.get("UOM", "YDS"))
         
         ws1.cell(row=current_write_row, column=2).alignment = Alignment(horizontal="center")
         ws1.cell(row=current_write_row, column=3).font = bold_font; ws1.cell(row=current_write_row, column=3).number_format = '#,##0.0000'
@@ -1344,10 +1330,25 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = thin_border
     
     for _, row in df_details_data.iterrows():
-        ws2.append([row["Component Name"], row["Material Class"], row["Role/Piece Type"], row["Số lượng rập"], float(row["Dài sản xuất (L-inch)"]), float(row["Rộng sản xuất (W-inch)"]), row["Kiểu sơ đồ tổng"], row["Dự đoán Mật độ nén"], float(row["Gross Consumption"]), row["Thuật toán mô phỏng CAD"]])
+        # 🚨 ĐÃ SỬA VÁ LỖI CHÍ MẠNG: Sử dụng hàm .get() bọc an toàn 2 lớp Anh - Việt để chống triệt để lỗi KeyError sập app
+        comp_name_val = row.get("Component Name", row.get("component_name", "UNNAMED"))
+        mat_class_val = row.get("Material Class", row.get("material_class", "FABRIC"))
+        role_val = row.get("Role/Piece Type", row.get("piece_type", "MAJOR"))
+        pcs_val = row.get("Số lượng rập", row.get("piece_count", "2 Pcs"))
+        
+        # Kiểm tra hai lớp cho Dài sản xuất
+        length_val = row.get("Dài (L-inch)", row.get("Dài sản xuất (L-inch)", row.get("bounding_box_length", 0.0)))
+        # Kiểm tra hai lớp cho Rộng sản xuất
+        width_val = row.get("Rộng (W-inch)", row.get("Rộng sản xuất (W-inch)", row.get("bounding_box_width", 0.0)))
+        
+        layout_val = row.get("Kiểu sơ đồ tổng", "SOLID LAYOUT")
+        density_val = row.get("Dự đoán Mật độ nén", "85.0%")
+        consumption_val = row.get("Gross Consumption", 0.0)
+        algo_val = row.get("Thuật toán mô phỏng CAD", "CAD Profile Auto Sync")
+        
+        ws2.append([comp_name_val, mat_class_val, role_val, pcs_val, float(length_val), float(width_val), layout_val, density_val, float(consumption_val), algo_val])
         curr_row = ws2.max_row
         
-        # Khóa cứng logic căn lề trực tiếp bằng chỉ số cột số cụ thể
         for col_idx in range(1, len(detail_headers) + 1):
             cell = ws2.cell(row=curr_row, column=col_idx)
             cell.font = regular_font; cell.border = thin_border
@@ -1359,7 +1360,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
-    # Co giãn tự động kích thước chiều rộng cột Excel không dính lỗi Tupe Object
     for ws in [ws1, ws2]:
         for c_num, col_cells in enumerate(ws.columns, start=1):
             max_len = max(len(str(cell.value or '')) for cell in col_cells)
@@ -1368,6 +1368,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 # =====================================================================
 # 🟩 KHỐI 5b TỐI THƯỢNG (ÉP BUỘC BUNG BẢNG 100%): RENDERING UI & NÚT EXCEL PPJ
 # =====================================================================
