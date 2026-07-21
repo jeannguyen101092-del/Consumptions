@@ -831,8 +831,9 @@ def initialize_and_sync_parameters():
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a nâng cấp ổn định: Khóa cứng thứ tự danh sách linh kiện rập 
-    để đảm bảo định mức không bao giờ bị nhảy số sau mỗi lần quét.
+    """Khối 2a nâng cấp ổn định: Khóa cứng thứ tự danh sách linh kiện rập,
+    nâng Shape Factor thân quần lên 0.76 để ép định mức thân quần sụt sâu xuống.
+    Bảo vệ nguyên vẹn cấu trúc tính toán của dòng Áo Jacket.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -841,13 +842,13 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     
     query_lower = str(user_query_text).lower() if user_query_text else ""
     
-    # 🚨 SỬA LỖI NHẢY SỐ: Khóa cứng thứ tự lặp của dữ liệu BOM đầu vào theo tên linh kiện alphabetical
+    # Khóa cứng thứ tự lặp của dữ liệu BOM đầu vào theo tên linh kiện alphabetical để chống nhảy số khi F5
     stable_bom_list = sorted(
         [r for r in bom_rows_list if r and isinstance(r, dict)], 
         key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
     )
 
-    # 1. Nhận diện hoa văn vải
+    # 1. Nhận diện hoa văn vải (Solid, Stripe, Plaid, Nap)
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
     if "sọc" in query_lower or "stripe" in query_lower: fabric_pattern = "STRIPE"
     if "caro" in query_lower or "plaid" in query_lower: 
@@ -856,7 +857,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
     if any(k in query_lower for k in ["tuyết", "nap", "one way", "một chiều", "nhung"]): fabric_pattern, is_one_way_nap = "NAP", True
 
-    # 2. Nhận diện dòng sản phẩm ổn định
+    # 2. Bộ quét AI nhận diện dòng sản phẩm toàn cục từ tên rập BOM
     bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in stable_bom_list]).strip()
     full_detect_zone = f"{query_lower} {bom_components_text}"
 
@@ -872,7 +873,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     elif any(k in full_detect_zone for k in ["váy", "đầm", "dress", "skirt", "flare", "tùng"]):
         product_type = "DRESS_SKIRT"
 
-    # 3. Tính toán diện tích hình học rập
+    # 3. Vòng lặp tính toán diện tích hình học rập và tách mảng CHÍNH/PHỤ
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
     
@@ -888,17 +889,24 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         
         curr_item_lower = f"{comp_name} {piece_type_raw}".lower()
         
+        # Bù trừ đường may tiêu chuẩn biên công nghiệp (0.44 inch mỗi bên cạnh) và tỷ lệ co rút
         adj_l = (raw_l + (0.44 * 2.0)) * (1 + warp_shrinkage / 100.0)
         adj_w = (raw_w + (0.44 * 2.0)) * (1 + weft_shrinkage / 100.0)
         
+        # Nhận diện các chi tiết rập chính (Thân trước, thân sau, tay, ống quần, leg)
         is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or \
                            (raw_l > 15.0 and raw_w > 8.0) or \
                            any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
         
+        # Áp khung Shape Factor mô phỏng diện tích đa giác thực tế
         sf = 0.75 if is_actual_major else 0.85
-        if product_type == "TROUSER" and is_actual_major: sf = 0.63
-        elif product_type == "DRESS_SKIRT" and "flare" in curr_item_lower: sf = 0.52
         
+        # Đã sửa: Nâng mạnh hệ số của Thân Quần lên 0.76 để ép định mức thân quần sụt giảm mạnh xuống
+        if product_type == "TROUSER" and is_actual_major: 
+            sf = 0.76 
+        elif product_type == "DRESS_SKIRT" and "flare" in curr_item_lower: 
+            sf = 0.52
+            
         shape_area_single = (adj_l * adj_w) * sf
         
         if is_actual_major:
@@ -919,6 +927,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
+
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     """Khối 2b nâng cấp chống trật bài: Tách biệt hoàn toàn bộ phạt rập to cồng kềnh 
     và hệ số hao hụt đại trà giữa hàng Áo (Jacket) và hàng Quần (Trouser).
