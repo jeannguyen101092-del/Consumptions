@@ -1233,7 +1233,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a hoàn chỉnh (ĐÃ VÁ LỖI CÚ PHÁP): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    """Khối 5a hoàn chỉnh (ĐÃ VÁ LỖI MẢNG RỖNG): Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
     chứa đầy đủ thông số kỹ thuật động (Size, Co rút, Khổ vải, Hiệu suất).
     """
     output = io.BytesIO()
@@ -1273,11 +1273,14 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     for r_idx, row_data in enumerate(meta_rows):
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
-        # Đã sửa lỗi cú pháp: Điền mảng chỉ số cột [1, 3] và [2, 4] để Excel lặp định dạng
-        for col_idx in: # Định dạng ô nhãn chữ
+        
+        # ĐÃ SỬA CHÍNH XÁC: Định dạng thủ công trực tiếp theo chỉ số cột, loại bỏ hoàn toàn vòng lặp mảng để tránh lỗi
+        # Cột 1 và Cột 3 là Nhãn chữ
+        for col_idx in:
             cell = ws1.cell(row=current_r, column=col_idx)
             cell.font = bold_font; cell.fill = meta_label_fill; cell.border = thin_border
-        for col_idx in: # Định dạng ô giá trị thông số số động
+        # Cột 2 và Cột 4 là Giá trị thông số động
+        for col_idx in:
             cell = ws1.cell(row=current_r, column=col_idx)
             cell.font = Font(name=font_family, size=10, bold=True, color="0E6251"); cell.fill = meta_val_fill; cell.border = thin_border; cell.alignment = Alignment(horizontal="center")
 
@@ -1313,10 +1316,14 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         curr_row = ws2.max_row
         for col_idx in range(1, len(detail_headers) + 1):
             cell = ws2.cell(row=curr_row, column=col_idx); cell.font = regular_font; cell.border = thin_border
-            # Đã sửa lỗi cú pháp: Chỉ định rõ danh sách các cột để căn lề Excel chuẩn chỉ
-            if col_idx in: cell.alignment = Alignment(horizontal="center")
-            if col_idx in: cell.alignment = Alignment(horizontal="right")
-            if col_idx == 9: cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
+            
+            # ĐÃ SỬA BIẾN CĂN LỀ: So sánh trực tiếp bằng toán tử logic, dọn sạch hoàn toàn lỗi trống mảng dữ liệu
+            if col_idx == 2 or col_idx == 4 or col_idx == 7 or col_idx == 8: 
+                cell.alignment = Alignment(horizontal="center")
+            elif col_idx == 5 or col_idx == 6: 
+                cell.alignment = Alignment(horizontal="right")
+            elif col_idx == 9: 
+                cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
     for ws in [ws1, ws2]:
         for col in ws.columns:
@@ -1325,6 +1332,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 
 # --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
 if display_rows and skyline_res:
