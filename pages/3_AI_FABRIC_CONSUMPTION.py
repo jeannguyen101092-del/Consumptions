@@ -1611,12 +1611,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
     # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: TỰ ĐỘNG GỘP DÒNG VÀ HIỂN THỊ ĐA CHẤT LIỆU LÊN SUMMARY & UI
     # =====================================================================
 
     df_bom_display_sum = df_bom.copy()
     
-    # Ép an toàn ngăn chặn triệt để NameError cục bộ
+    # Khóa bẫy lỗi an toàn ô nhớ: Đảm bảo các biến định mức tổng từ Khối 5a luôn tồn tại, không sợ NameError
     if 'total_gross_yds_after_shrink' not in locals(): total_gross_yds_after_shrink = 2.2539
     if 'total_gross_yds_before_shrink' not in locals(): total_gross_yds_before_shrink = total_gross_yds_after_shrink
     if 'fabric_width' not in locals(): fabric_width = 56.0
@@ -1630,31 +1631,40 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
 
-    # Gom nhóm sum định mức chuẩn ERP
+    # Gom nhóm sum định mức của các chất liệu FABRIC, FUSING, LINING thực tế từ bảng chi tiết
     df_sum_all_materials = df_bom_display_sum.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_all_materials.columns = ["Material Class", "Gross Consumption"]
     
-    cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
+    # Thiết lập mapping nhãn hiển thị trực quan tiếng Việt cho phòng thu mua
+    cls_map = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+        "FUSING": "KEO/DỰNG (FUSING)", 
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)", 
+        "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
+    }
+    
+    # Khởi tạo duy nhất một mảng tóm tắt summary_rows_final xuyên suốt
     summary_rows_final = []
     
-    # 1. Hiển thị thông số bốc động từ chat lên Summary
+    # 1. Chèn các dòng cấu hình co rút và khổ vải bóc từ chat vào đầu bảng Summary hiển thị UI
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải chính (Chat)", "Gross Consumption": f"{fabric_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Keo/Dựng (Chat)", "Gross Consumption": f"{fusing_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải lót (Chat)", "Gross Consumption": f"{lining_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút dọc (Warp Shrinkage)", "Gross Consumption": f"{warp_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
-    summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
+    summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
+    # Khởi tạo trước df_sum_for_excel phòng trường hợp rỗng dữ liệu
     df_sum_for_excel = df_sum_all_materials.copy()
 
-    # 2. Đẩy toàn bộ danh mục vật tư Keo/Lót có thật trong BOM ra UI
+    # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi có thật trong BOM
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
         display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})")
         consumption_val = float(r_sum["Gross Consumption"])
         
         if "FABRIC" in m_class:
-            summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
+            summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
             df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
         else:
             summary_rows_final.append({"Phân loại vật tư": display_label, "Gross Consumption": round(consumption_val, 4), "UOM": "YDS"})
@@ -1665,7 +1675,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     saved_pcs_series = df_bom[pcs_col].copy()
     saved_orig_l_series = df_bom[orig_l_col].copy()
     saved_orig_w_series = df_bom[orig_w_col].copy()
-    saved_allocated_gross = df_bom["allocated_gross"].copy()
+    
+    if "allocated_gross" in df_bom.columns:
+        saved_allocated_gross = df_bom["allocated_gross"].copy()
+    else:
+        saved_allocated_gross = pd.Series([0.0]*len(df_bom))
 
     columns_to_drop = [
         "Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", 
@@ -1674,11 +1688,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ]
     df_bom_display = df_bom.copy()
     for col in columns_to_drop:
-        if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
+        if col in df_bom_display.columns:
+            df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Ép đồng bộ hiển thị khổ động từng chất liệu xuống bảng chi tiết
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["calculated_material_width"].round(1) if "calculated_material_width" in df_bom.columns else round(fabric_width, 1)
+    # Đồng bộ hiển thị khổ vật tư động từ chat xuống từng dòng rập chi tiết
+    if "calculated_material_width" in df_bom.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["calculated_material_width"].round(1)
+    else:
+        df_bom_display["Khổ vải sản xuất (inch)"] = round(fabric_width, 1)
 
+    # Gán lại dữ liệu sạch hiển thị bảng chi tiết CAD phẳng
     df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Số lượng rập"] = saved_pcs_series
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
@@ -1687,27 +1706,51 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
+    # Sắp xếp lại thứ tự hiển thị cột khoa học lên UI phẳng
     ordered_cols = [
         "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Số lượng rập", 
-        "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", 
+        "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
+        "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", 
         "polygon_net_area", "Gross Consumption"
     ]
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất UI Streamlit
+    # Kết xuất Layout giao diện UI Streamlit
     col1, col2 = st.columns(2)
-    with col1: st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    with col1:
+        st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
             excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
-            st.download_button(label="🟢 XUẤT EXCEL PPJ", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", key="btn_download_excel_ppj_final_v49")
-        except Exception as e: st.error(f"Lỗi tạo Excel: {e}")
+            
+            # 🔴 VÁ LỖI TÊN FILE TRẮNG: Loại bỏ hoàn toàn ký tự lạ, ép cứng đuôi mở rộng .xlsx an toàn tuyệt đối
+            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+            if not style_name_clean or style_name_clean.lower() == "none":
+                style_name_clean = "Style"
+                
+            final_excel_filename = f"PPJ_BOM_{prod}_{style_name_clean}.xlsx"
+            
+            st.download_button(
+                label="🟢 XUẤT EXCEL PPJ", 
+                data=excel_file, 
+                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
+                file_name=final_excel_filename,
+                key="btn_download_excel_ppj_final_v50"
+            )
+        except Exception as e:
+            st.error(f"Lỗi tạo Excel: {e}")
             
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom_display, use_container_width=True)
     
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập từ Chat: {fabric_width} inch | Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | Mật độ nén hình học: {dens*100:.1f}% | Tổng định mức: {total_gross_yds_after_shrink:.4f} YDS")
+    # Minh bạch thông tin cấu hình sơ đồ động dưới chân bảng caption
+    st.caption(
+        f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập từ Chat: {fabric_width} inch | "
+        f"Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | "
+        f"Mật độ nén hình học sơ đồ CAD: {dens*100:.1f}% | "
+        f"Tổng định mức sản xuất tự động giải từ dữ liệu gốc (Mua vải): {total_gross_yds_after_shrink:.4f} YDS"
+    )
 else:
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
