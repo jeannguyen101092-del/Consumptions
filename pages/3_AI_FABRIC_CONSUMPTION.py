@@ -1008,8 +1008,9 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 nâng cấp: Sửa lỗi trượt từ khóa có dấu cách (BACK PANEL, BELT) 
-    để ép nhân đôi lớp cắt thân sau và phụ kiện dài chuẩn xác cho Jacket.
+    """Khối 3 hoàn chỉnh: Bóc tách số lớp cắt thực tế trên bàn sản xuất.
+    Tự động nhân đôi lớp cắt bao túi quần lên thành 4 Pcs chuẩn xác cho vải LINING.
+    Bảo vệ nguyên vẹn logic nhân đôi của dòng Áo Jacket.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
@@ -1024,7 +1025,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
         
-        # SỬA LỖI: Tạo vùng quét chuỗi thông minh quét cả chữ có dấu cách lẫn viết liền
+        # Tạo vùng quét chuỗi thông minh chấp nhận cả ký tự đặc biệt, dấu cách và viết liền
         combined_str_item = f" {comp_name_raw} {piece_type_ai} ".lower().replace("_", " ")
         is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
@@ -1037,9 +1038,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             is_pant_component = product_segmented == "TROUSER" or any(k in combined_str_item for k in [" trouser ", " pant ", " jean ", " leg "])
             jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "nẹpcổ", "lapel", "veáo"]
 
-            # =====================================================================
-            # SỬA LỖI GÁN LỚP CẮT CHO JACKET TRÊN BÀN CẮT THỰC TẾ
-            # =====================================================================
+            # 1. Logic phân tầng lớp cắt tiêu chuẩn công nghiệp
             if "yoke" in combined_str_item or "đô" in combined_str_item:
                 layer_multiplier = 1 if is_pant_component else 2  
                 
@@ -1050,19 +1049,28 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
                 if any(k in combined_str_item for k in jacket_double_layers) and not is_pant_component:
                     layer_multiplier = 2
                 elif "flap" in combined_str_item or "nắp túi" in combined_str_item or "naptui" in combined_str_item:
-                    layer_multiplier = 2 if product_segmented == "SHIRT" else 4 # Jacket/Vét nắp túi tính 4 lớp
+                    layer_multiplier = 2 if product_segmented == "SHIRT" else 4 
                     
-            # ĐÃ SỬA LỖI: Ép buộc Thân sau (BACK) và Dây đai (BELT / SASH) của Áo Jacket tự động nhân 2 lớp cắt gập lộn biên
+            # 2. Giữ nguyên cấu trúc nhân đôi lớp cắt cho dòng Áo Jacket (Không động tới)
             if product_segmented in ["JACKET", "SUIT_BLAZER"]:
                 if "back" in combined_str_item or "thân sau" in combined_str_item:
-                    if pcs == 1: layer_multiplier = 2  # Cắt gập đôi biên vải hoặc rập mở đôi
+                    if pcs == 1: layer_multiplier = 2  
                 if any(k in combined_str_item for k in ["belt", "sash", "đai", "daithatlung"]):
-                    layer_multiplier = 2  # Dây đai luôn luôn cắt 2 lớp lộn biên
+                    layer_multiplier = 2  
+
+            # =====================================================================
+            # SỬA LỖI BAO TÚI QUẦN: TỰ ĐỘNG NHÂN ĐÔI LỚP CẮT LÊN THÀNH 4 PCS CHO QUẦN
+            # =====================================================================
+            if product_segmented == "TROUSER" and mat_class_raw == "LINING":
+                if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag"]):
+                    # Nếu file rập gốc khai báo 2 mảnh (cặp trái phải), nhân đôi lên thành 4 mảnh lót
+                    if pcs == 2: 
+                        layer_multiplier = 2  
             # =====================================================================
 
             is_belt_loop = "beltloop" in combined_str_item or "đỉa" in combined_str_item or "dia" in combined_str_item
 
-            # Thiết lập nhanh Shape Factor dựa trên hình học thực tế từ ảnh của bạn
+            # Thiết lập khung Shape Factor dựa trên hình học thực tế
             if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
                 shape_factor = 0.92 if "back" in combined_str_item else 0.85
                 if product_segmented == "DRESS_SKIRT" and "flare" in combined_str_item: shape_factor = 0.52
@@ -1078,12 +1086,20 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             if mat_class_raw == "FABRIC": 
                 total_fabric_piece_area += item_area
             
-            # Đẩy cấu trúc chi tiết sạch vào bộ nhớ hiển thị bảng
+            # Đẩy cấu trúc chi tiết sạch vào mảng hiển thị lên giao diện CAD
             piece_calculated_data.append({
-                "row_ref": r, "item_area": item_area, "is_button": is_button, 
-                "pcs_display": f"{pcs * layer_multiplier} Pcs", # Hiển thị chính xác tổng số rập thực tế lên bảng
-                "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
+                "row_ref": r, 
+                "item_area": item_area, 
+                "is_button": is_button, 
+                "pcs_display": f"{pcs * layer_multiplier} Pcs", # Hiển thị chuẩn số lượng tổng (4 Pcs)
+                "layer_multiplier": layer_multiplier, 
+                "mat_class_raw": mat_class_raw, 
+                "combined_str": combined_str_item, 
+                "is_belt_loop": is_belt_loop, 
+                "raw_l": raw_l, 
+                "raw_w": raw_w, 
+                "pcs_val": pcs, 
+                "custom_name": comp_name_raw
             })
                 
     return total_fabric_piece_area, piece_calculated_data
