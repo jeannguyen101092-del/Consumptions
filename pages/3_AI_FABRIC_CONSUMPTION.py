@@ -1101,8 +1101,12 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                             
                 elif mat_class_raw in ["FUSING", "LINING"]:
                     if usable_width > 0:
-                        gross_consumption = round(((item_area / usable_width) / 36.0 / 0.95), 4)
-                        calc_chain = f"Sơ đồ dựng/lót ({product_segmented}) độc lập"
+                        # Giao diện tính toán nền với mật độ nén 0.95 của bạn
+                        base_fusing_lining = ((item_area / usable_width) / 36.0 / 0.95)
+                        
+                        # CẬP NHẬT: Nhân thêm hệ số 0.75 để khấu trừ 25% hao hụt do lồng rập Keo/Lót siêu tiết kiệm
+                        gross_consumption = round(base_fusing_lining * 0.75, 4)
+                        calc_chain = f"Sơ đồ {mat_class_raw} (Nén 95%) + Khấu trừ 25% lồng ghép lợi phụ liệu"
                     else:
                         gross_consumption, calc_chain = 0.0, "❌ Khổ vải lỗi!"
                 else:
@@ -1118,6 +1122,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
+
 # --- HÀM ĐIỀU PHỐI CHẠY TOÀN BỘ CHU TRÌNH HỆ THỐNG ---
 bom_source, user_query_text = initialize_and_sync_parameters()
 
