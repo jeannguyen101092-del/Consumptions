@@ -1525,12 +1525,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_production_width, axis=1)
        # =====================================================================
         # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: TỰ ĐỘNG GỘP DÒNG VÀ HIỂN THỊ ĐA CHẤT LIỆU LÊN SUMMARY & UI
     # =====================================================================
 
     df_bom_display_sum = df_bom.copy()
     
-    # 🔴 VÁ LỖI KEYERROR TRIỆT TIÊU: Đảm bảo allocated_gross chắc chắn tồn tại kiểu số phục vụ groupby
+    # Đảm bảo allocated_gross chắc chắn tồn tại kiểu số sạch phục vụ groupby
     if "allocated_gross" not in df_bom_display_sum.columns:
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
@@ -1547,7 +1548,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
     }
     
-    # 🔴 VÁ LỖI KHAI BÁO: Khởi tạo mảng phẳng summary_rows_final sạch sẽ
+    # Khởi tạo mảng phẳng summary chính xác 100% không lo NameError
     summary_rows_final = []
     
     # 1. Chèn các dòng cấu hình co rút và khổ vải bóc từ chat vào đầu bảng
@@ -1556,6 +1557,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
+    # Khởi tạo trước df_sum_for_excel phòng trường hợp lặp rỗng
+    df_sum_for_excel = df_sum_all_materials.copy()
+
     # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi có thật trong BOM
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
@@ -1564,15 +1568,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if "FABRIC" in m_class:
             summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
-            df_sum_for_excel = df_sum_all_materials.copy()
             df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
         else:
+            # 🔴 ĐÃ ĐỒNG BỘ: Điền chính xác vào mảng summary_rows_final cho hệ Keo/Lót dựng
             summary_rows_final.append({"Phân loại vật tư": display_label, "Gross Consumption": round(consumption_val, 4), "UOM": "YDS"})
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
-    
-    if 'df_sum_for_excel' not in locals():
-        df_sum_for_excel = df_sum_all_materials.copy()
 
     # Trích xuất bản sao bảo vệ trước khi dọn dẹp cột trùng tên
     saved_pcs_series = df_bom[pcs_col].copy()
@@ -1594,7 +1595,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if col in df_bom_display.columns:
             df_bom_display = df_bom_display.drop(columns=[col])
 
-    # ĐỒNG BỘ HIỂN THỊ KHỔ VẢI TỰ ĐỘNG TỪ CHAT XUỐNG TỪNG DÒNG RẬP CHI TIẾT
+    # ĐỒNG BỘ HIỂN THỊ KHỔ VẬT TƯ TỰ ĐỘNG TỪ CHAT XUỐNG TỪNG DÒNG RẬP
     if "calculated_material_width" in df_bom.columns:
         df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["calculated_material_width"].round(1)
     else:
