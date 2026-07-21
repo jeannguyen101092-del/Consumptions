@@ -1310,7 +1310,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     wb.save(output)
     return output.getvalue()
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI NAMEERROR): RENDERING UI & NÚT EXCEL PPJ
+# 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI CHIA CỘT ST.COLUMNS): RENDERING UI & NÚT EXCEL PPJ
 # =====================================================================
 # Sử dụng trực tiếp dữ liệu hiển thị từ bộ nhớ phiên để không bị mất bảng và tránh lỗi chưa định nghĩa biến
 display_rows_source = st.session_state.get("processed_display_rows", [])
@@ -1345,8 +1345,8 @@ if display_rows_source and bom_source_ctx:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
-    col_title, col_btn = st.columns()
+    # 🚨 ĐÃ SỬA LỖI: Truyền mảng [3, 1] để phân chia tỉ lệ 2 cột nằm ngang mượt mà, sạch lỗi cú pháp
+    col_title, col_btn = st.columns([3, 1])
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
@@ -1357,7 +1357,7 @@ if display_rows_source and bom_source_ctx:
             data=excel_data,
             file_name=f"PPJ_BOM_Consumption_{product_segmented}_{bom_source_ctx.get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable_v4"
+            key="btn_download_excel_ppj_final_stable_v5"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
