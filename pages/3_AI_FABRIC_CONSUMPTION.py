@@ -1160,31 +1160,15 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
 
-# --- HÀM ĐIỀU PHỐI CHẠY TOÀN BỘ CHU TRÌNH HỆ THỐNG ---
-bom_source, user_query_text = initialize_and_sync_parameters()
-
-if bom_source:
-    bom_rows_list = bom_source.get("bom_rows", st.session_state.get("accumulated_bom_rows", []))
-    warp_shrink = bom_source.get("warp_shrinkage_percent", 0.0)
-    weft_shrink = bom_source.get("weft_shrinkage_percent", 0.0)
-    
-    # 1. Kích hoạt chuỗi Engine hình học sơ đồ
-    skyline_res = calculate_skyline_2d_metrics(bom_rows_list, user_query_text)
-    
-    # 2. Bóc tách lớp cắt và tổng diện tích rập
-    total_area, piece_data = process_pieces_layer_and_areas(bom_rows_list, skyline_res["product_segmented"], warp_shrink, weft_shrink)
-    
-    # 3. SỬA LỖI: Truyền trực tiếp kết quả dictionary 'skyline_res' vào Khối 4 để lấy đúng biến global_gross_fabric_yds
-    display_rows = allocate_gerber_share_consumption(piece_data, total_area, skyline_res)
-    
-   # =====================================================================
-# 🟩 KHỐI 5 NÂNG CẤP: RENDERING BẢNG BIỂU ĐỒNG BỘ THỜI GIAN THỰC (XẢ KẸT SỐ)
 # =====================================================================
-if display_rows:
+# 🟩 KHỐI 5 NÂNG CẤP: RENDERING BẢNG BIỂU ĐỒNG BỘ THỜI GIAN THỰC (ĐÃ SỬA LỖI SẬP MÀN HÌNH)
+# =====================================================================
+# Kiểm tra xem biến display_rows đã được khởi tạo thành công từ toán tử tính toán trước đó chưa
+if 'display_rows' in locals() and display_rows:
     df_bom = pd.DataFrame(display_rows)
     product_segmented = skyline_res["product_segmented"]
     
-    # 🚨 SỬA LỖI ĐỒNG BỘ: Trích xuất trực tiếp mật độ nén thực tế sau hiệu chỉnh từ bộ Engine Khối 2b
+    # Trích xuất trực tiếp mật độ nén thực tế sau hiệu chỉnh từ bộ Engine Khối 2b
     current_packing_density = skyline_res.get("actual_packing_density", 0.85)
     
     # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
@@ -1219,7 +1203,7 @@ if display_rows:
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
     st.dataframe(df_bom, use_container_width=True)
     
-    # 3. Footer thông báo thông số AI (Đã gỡ lỗi hiển thị)
+    # 3. Footer thông báo thông số AI
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
         f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
@@ -1230,4 +1214,5 @@ if display_rows:
     )
     st.markdown('</div>', unsafe_allow_html=True)
 else:
+    # Nếu bấm Clear Memory hoặc chưa nạp file, hệ thống lọt vào đây hiển thị dòng thông báo an toàn, không sập app
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
