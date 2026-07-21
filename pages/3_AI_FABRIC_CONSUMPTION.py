@@ -932,8 +932,9 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """Khối 2b hoàn chỉnh: Giả lập hiệu suất sơ đồ trên 90% cho chân váy hình chữ nhật,
-    cô lập an toàn định mức Jacket 2.6 yds, Quần tiết kiệm và đồ bộ Jumpsuit liền quần.
+    """Khối 2b hoàn chỉnh: Giả lập thuật toán nén sơ đồ và tính Yards vải tổng.
+    Đã hạ chặn trần hiệu suất tối đa của dòng SKIRT xuống đúng 90.0% để đẩy đm tăng lên.
+    GIỮ NGUYÊN TUYỆT ĐỐI cấu trúc cũ của Áo Jacket, Quần và Jumpsuit.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or ctx["major_shape_area"] == 0:
@@ -947,11 +948,13 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         major_nest_density = 0.910 if fabric_pattern == "SOLID" else (0.860 if fabric_pattern == "STRIPE" else 0.820)
     elif product_segmented == "JUMPSUIT":
         major_nest_density = 0.810 if fabric_pattern == "SOLID" else (0.760 if fabric_pattern == "STRIPE" else 0.720)
+        
     elif product_segmented == "SKIRT":
-        # Chân váy chữ nhật phẳng đứng lật đầu rập cực khít, ép hiệu suất cơ sở lên trên 90% (92.5%)
-        major_nest_density = 0.925 if fabric_pattern == "SOLID" else (0.870 if fabric_pattern == "STRIPE" else 0.830)
+        # Chân váy chữ nhật phẳng đứng lật đầu rập khít, đặt mật độ cơ sở quanh 88.5%
+        major_nest_density = 0.885 if fabric_pattern == "SOLID" else (0.840 if fabric_pattern == "STRIPE" else 0.800)
     elif product_segmented == "DRESS":
         major_nest_density = 0.765 if fabric_pattern == "SOLID" else (0.720 if fabric_pattern == "STRIPE" else 0.680)
+        
     else:
         major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
         if product_segmented in ["JACKET", "SUIT_BLAZER"]: major_nest_density -= 0.02
@@ -980,26 +983,28 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         actual_packing_density = major_nest_density + (0.015 if product_segmented in ["TROUSER", "SKIRT"] else 0.045)
 
     if ctx["plaid_repeat_inch"] > 0: actual_packing_density -= (ctx["plaid_repeat_inch"] * 0.007)
-    actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
+    
+    # 🚨 ĐÃ HIỆU CHỈNH: Ép chặn trần hiệu suất tối đa cho dòng SKIRT về đúng 90.0% (0.90) theo ý bạn
+    max_limit_density = 0.90 if product_segmented == "SKIRT" else 0.94
+    actual_packing_density = max(min(actual_packing_density, max_limit_density), 0.65)
 
     # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
     simulated_length = ((final_simulated_shape_area / ctx["fabric_width"]) / actual_packing_density) * (1.0 + ((ctx["bias_shape_area_weight"] / final_simulated_shape_area) * 0.15))
     simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
 
     # =====================================================================
-    # TÁCH BIỆT HAO HỤT BÀN CẮT SẢN XUẤT ĐẠI TRÀ THEO TỪNG CHỦNG LOẠI
+    # TÁCH BIỆT HAO HỤT BÀN CẮT THEO TỪNG CHỦNG LOẠI HÀNG BIỆT LẬP
     # =====================================================================
     if product_segmented in ["JACKET", "SUIT_BLAZER"]:
-        # Giữ nguyên hệ thống hao hụt mục tiêu đạt đúng 2.6 YDS của Áo Jacket
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.155  
         end_loss_inch = 3.0
     elif product_segmented == "JUMPSUIT":
         fabric_wastage_multiplier = 1.020 * 1.010 * 1.06
         end_loss_inch = 2.0
     elif product_segmented == "SKIRT":
-        # Chân váy hình chữ nhật siêu tiết kiệm hao hụt bàn cắt
-        fabric_wastage_multiplier = 1.015 * 1.005
-        end_loss_inch = 0.2
+        # Điều chỉnh tăng nhẹ hao hụt bàn cắt lên 3.5% để đẩy đm chân váy lên tầm an toàn
+        fabric_wastage_multiplier = 1.015 * 1.005 * 1.035
+        end_loss_inch = 1.0
     elif product_segmented == "DRESS":
         fabric_wastage_multiplier = 1.015 * 1.005 * 1.04
         end_loss_inch = 1.8
@@ -1017,6 +1022,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "global_gross_fabric_yds": global_gross_fabric,
         "major_shape_area": ctx["major_shape_area"]
     }
+
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
     """Khối 3 hoàn chỉnh (ĐÃ VÁ LỖI CÚ PHÁP): Bóc tách số lớp cắt thực tế trên bàn sản xuất.
     Tự động nhân 4 Pcs lót túi cho Quần/Jumpsuit và bóc tách các chi tiết Jacket rời.
