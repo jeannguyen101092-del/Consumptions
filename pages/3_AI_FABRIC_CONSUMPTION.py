@@ -1526,6 +1526,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
         # =====================================================================
        # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: TỰ ĐỘNG GỘP DÒNG VÀ HIỂN THỊ ĐA CHẤT LIỆU LÊN SUMMARY & UI
     # =====================================================================
 
@@ -1548,7 +1549,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
     }
     
-    # Khởi tạo mảng phẳng summary chính xác 100% không lo NameError
+    # 🔴 ĐÃ ĐỒNG BỘ: Sử dụng một mảng duy nhất summary_rows_final sạch sẽ xuyên suốt
     summary_rows_final = []
     
     # 1. Chèn các dòng cấu hình co rút và khổ vải bóc từ chat vào đầu bảng
@@ -1557,7 +1558,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # Khởi tạo trước df_sum_for_excel phòng trường hợp lặp rỗng
+    # Khởi tạo trước df_sum_for_excel phòng trường hợp rỗng
     df_sum_for_excel = df_sum_all_materials.copy()
 
     # 2. Quét mảng gộp nhóm hiển thị đầy đủ Vải chính, Dựng keo, lót túi có thật trong BOM
@@ -1570,7 +1571,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức đại trà ĐÃ NHÂN CO RÚT)", "Gross Consumption": round(total_gross_yds_after_shrink, 4), "UOM": "YDS (Mua hàng)"})
             df_sum_for_excel.loc[idx, "Gross Consumption"] = total_gross_yds_after_shrink
         else:
-            # 🔴 ĐÃ ĐỒNG BỘ: Điền chính xác vào mảng summary_rows_final cho hệ Keo/Lót dựng
+            # 🔴 ĐÃ SỬA: Đưa chính xác vào summary_rows_final cho phụ liệu Keo/Lót mà không bị NameError
             summary_rows_final.append({"Phân loại vật tư": display_label, "Gross Consumption": round(consumption_val, 4), "UOM": "YDS"})
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
