@@ -1434,9 +1434,9 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
 
 
 
-
 import streamlit as st
 import pandas as pd
+import re
 
 # 1. ĐỌC DỮ LIỆU ĐẦU VÀO VÀ LOẠI BỎ CỘT TRÙNG LẶP NGAY TỪ GỐC
 ctx = st.session_state.get("bom_data", {})
@@ -1464,16 +1464,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
     
-    # Trích xuất tỷ lệ co rút từ UI Streamlit
+    # 🔴 ĐỘT PHÁ CỐT LÕI: TỰ ĐỘNG ĐỌC VÀ BỐC TÁCH % CO RÚT TỪ ĐOẠN CHAT VĂN BẢN (CHAT INPUT)
+    # Lấy dữ liệu văn bản người dùng gõ từ ô chat chat_input của Streamlit
+    chat_input_text = str(st.session_state.get("chat_input", st.session_state.get("user_command", ""))).lower()
+    
+    # Thiết lập giá trị mặc định ban đầu
     warp_shrink = float(st.session_state.get("warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
     
-    # Kích thước sản xuất CAD thực tế (Đã cộng co rút để Skyline tính toán)
+    # Sử dụng Regex thông minh để bốc tách từ khóa tiếng Việt trong ô chat
+    # Quét co rút dọc
+    match_warp = re.search(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text)
+    if match_warp:
+        warp_shrink = float(match_warp.group(2))
+        st.session_state["warp_shrinkage"] = warp_shrink  # Đồng bộ ngược lại hệ thống
+        
+    # Quét co rút ngang
+    match_weft = re.search(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text)
+    if match_weft:
+        weft_shrink = float(match_weft.group(2))
+        st.session_state["weft_shrinkage"] = weft_shrink  # Đồng bộ ngược lại hệ thống
+
+    # Kích thước sản xuất CAD thực tế (Tự động cập nhật tức thì khi đoạn chat có số co rút)
     df_bom["Dài sản xuất (L-inch)"] = (df_bom[orig_l_col] * (1 + warp_shrink / 100.0)).round(2)
     df_bom["Rộng sản xuất (W-inch)"] = (df_bom[orig_w_col] * (1 + weft_shrink / 100.0)).round(2)
     
-    # Diện tích phẳng Gerber chuẩn
-    def force_calculate_gerber_area_v5(row):
+    # Tính lại diện tích phẳng Gerber dựa trên kích thước sản xuất mới đã nhận diện co rút từ đoạn chat
+    def force_calculate_gerber_area_v6(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0: return 0.0
@@ -1482,33 +1499,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sf = 0.88 if "back" in name else (0.52 if "flare" in name else 0.84)
         return round(seamed_l * seamed_w * sf, 2)
         
-    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v5, axis=1)
+    df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v6, axis=1)
 
-    # 🔴 ĐỊNH MỨC NGUỒN CHÂN LÝ TỪ SKYLINE (Đã chạy trên kích thước có co rút)
+    # ĐỊNH MỨC NGUỒN CHÂN LÝ TỪ SKYLINE
     total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.1582))
     if total_gross_yds_after_shrink <= 0: total_gross_yds_after_shrink = 1.1582
     dens = float(ctx.get("actual_packing_density", 0.82))
     if dens <= 0: dens = 0.82
 
-    # 🔴 SUY NGƯỢC LOGIC ĐỊNH MỨC TRƯỚC CO RÚT (Phục vụ hiển thị minh bạch báo cáo)
+    # Suy ngược định mức trước co rút để hiển thị báo cáo minh bạch
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
 
-    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH PHẲNG
+    # PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ LỆ DIỆN TÍCH PHẲNG MỚI CẬP NHẬT TỪ ĐOẠN CHAT
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     total_fabric_marker_area = (df_fabric_only["polygon_net_area"] * df_fabric_only["pcs_numeric"]).sum()
 
     df_bom["allocated_gross"] = 0.0
     if total_fabric_marker_area > 0:
-        def exact_share_allocation_v5(row):
+        def exact_share_allocation_v6(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
             if "FABRIC" in mat_class:
                 item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
-                # Phân bổ định mức chi tiết ăn theo con số Chân lý đã co rút
                 return round(total_gross_yds_after_shrink * (item_area_total / total_fabric_marker_area), 4)
             return 0.0
-        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v5, axis=1)
+        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_v6, axis=1)
 
-    # 🔴 THIẾT KẾ BẢNG SUMMARY MINH BẠCH THEO ĐỀ XUẤT CHUYÊN GIA
+    # Cập nhật hiển thị bảng SUMMARY
     summary_data = [
         {"Chỉ tiêu hiển thị": "Tỷ lệ co rút dọc (Warp Shrinkage)", "Giá trị định mức": f"{warp_shrink:+.1f}%", "Đơn vị tính": "%"},
         {"Chỉ tiêu hiển thị": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Giá trị định mức": f"{weft_shrink:+.1f}%", "Đơn vị tính": "%"},
@@ -1517,7 +1533,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ]
     df_sum_clean = pd.DataFrame(summary_data)
     
-    # Dựng bảng Summary thô để cấp cho hàm xuất Excel
+    # Dựng bảng Summary thô cấp cho hàm xuất Excel
     df_sum_for_excel = df_bom.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_for_excel.columns = ["Material Class", "Gross Consumption"]
     for idx, r_sum in df_sum_for_excel.iterrows():
@@ -1564,12 +1580,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             st.download_button(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-                key="btn_download_excel_ppj_final_v44"
+                key="btn_download_excel_ppj_final_v45"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
-    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang và định mức trước/sau
+    # Hiển thị bảng tổng hợp minh bạch thông số co rút dọc ngang
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
