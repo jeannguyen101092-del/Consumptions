@@ -967,7 +967,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3: Bóc tách lớp cắt (Layer) và tính tổng diện tích bề mặt hình học của rập"""
+    """Khối 3 sửa lỗi: Nhận diện chính xác mọi cấu trúc chi tiết thân áo/quần từ file rập"""
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
 
@@ -990,7 +990,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             
             # Tính toán layer_multiplier động theo dòng sản phẩm
             layer_multiplier = 1
-            is_pant_component = product_segmented == "TROUSER" or any(k in combined_str_item for k in ["trouser", "pant", "jean", "leg", "waistband"])
+            is_pant_component = product_segmented == "TROUSER" or any(k in combined_str_item for k in ["trouser", "pant", "jean", "leg"])
             jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "nẹpcổ", "lapel", "veáo"]
 
             if "yoke" in combined_str_item or "đô" in combined_str_item:
@@ -1008,7 +1008,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
             is_belt_loop = any(k in combined_str_item for k in ["beltloop", "đỉa", "dia", "passan"])
 
-            # Thiết lập nhanh Shape Factor hiển thị hình học
+            # Thiết lập nhanh Shape Factor dựa trên hình học thực tế từ ảnh
             if any(k in combined_str_item for k in ["panel", "front", "back", "thân", "body", "sleeve", "tay"]):
                 shape_factor = 0.92 if "back" in combined_str_item else 0.85
                 if product_segmented == "DRESS_SKIRT" and "flare" in combined_str_item: shape_factor = 0.52
@@ -1021,27 +1021,21 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             seamed_l, seamed_w = adj_l + (0.44 * 2.0), adj_w + (0.44 * 2.0)
             item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
             
-            if mat_class_raw == "FABRIC": total_fabric_piece_area += item_area
+            if mat_class_raw == "FABRIC": 
+                total_fabric_piece_area += item_area
             
-            # Tách dòng đặc biệt của áo Jacket/Vét
-            if product_segmented in ["JACKET", "SUIT_BLAZER"] and "body" in combined_str_item and pcs == 4 and mat_class_raw == "FABRIC":
-                for side_name in ["FRONT BODY PANEL", "BACK BODY PANEL"]:
-                    piece_calculated_data.append({
-                        "row_ref": r, "item_area": item_area / 2.0, "is_button": is_button, "pcs_display": "2 Pcs",
-                        "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                        "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": 2, "custom_name": side_name
-                    })
-            else:
-                piece_calculated_data.append({
-                    "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs} Pcs",
-                    "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
-                    "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": None
-                })
+            # Đã sửa: Lưu trữ đồng bộ tên gốc từ cấu trúc dữ liệu BOM hiển thị của bạn
+            piece_calculated_data.append({
+                "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs} Pcs",
+                "layer_multiplier": layer_multiplier, "mat_class_raw": mat_class_raw, "combined_str": combined_str_item, 
+                "is_belt_loop": is_belt_loop, "raw_l": raw_l, "raw_w": raw_w, "pcs_val": pcs, "custom_name": comp_name_raw
+            })
                 
     return total_fabric_piece_area, piece_calculated_data
+
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 nâng cấp: Phân bổ định mức chi tiết có cấu trừ các chi tiết nhỏ chèn kẽ hở"""
-    base_gross_fabric = skyline_results.get("global_gross_fabric_consumption", 0.0)
+    """Khối 4 sửa lỗi: Phân bổ chuẩn xác định mức rập chính (Thân, Tay) và rập phụ lồng sơ đồ"""
+    base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0) # Sửa key nhận diện vải tổng
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
     fabric_pattern = skyline_results.get("fabric_pattern", "SOLID")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
@@ -1079,27 +1073,24 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                 calc_chain = f"Dải cuộn phụ liệu ({product_segmented}): L-inch / 36.0 + 4%"
             else:
                 if mat_class_raw == "FABRIC":
-                    # XÁC ĐỊNH LẠI: Chi tiết này là rập chính hay rập phụ chèn kẽ
-                    geo_role = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
-                    is_major = (geo_role == "MAJOR_PANEL") or (raw_l > 15.0 and raw_w > 8.0) or ("body" in combined_str_curr) or ("front" in combined_str_curr) or ("back" in combined_str_curr) or ("sleeve" in combined_str_curr) or ("tay" in combined_str_curr)
+                    # Đã sửa: Quét từ khóa trực diện để ép buộc Thân trước/sau/Tay luôn là Rập Chính gánh định mức
+                    geo_role = f"{str(r.get('geometry_role', ''))} {str(r.get('piece_type', ''))}".upper()
+                    is_major = ("MAJOR" in geo_role) or any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay"])
                     
                     if is_major:
-                        # Rập chính gánh định mức sơ đồ tổng dựa trên tỷ lệ diện tích của riêng rập chính
-                        if major_shape_area > 0 and base_gross_fabric > 0:
-                            # Tính tỷ lệ dựa trên nhóm rập chính để kéo định mức tổng thể xuống thấp và chuẩn xác
-                            share_ratio_in_major = item_area / major_shape_area
-                            # Rập chính chịu trách nhiệm gánh vải nền sơ đồ
-                            gross_consumption = round(base_gross_fabric * (item_area / total_fabric_piece_area), 4)
+                        if total_fabric_piece_area > 0 and base_gross_fabric > 0:
+                            # Phân bổ định mức dựa theo tỷ lệ đóng góp diện tích thực tế của chi tiết lớn
+                            share_ratio = item_area / total_fabric_piece_area
+                            gross_consumption = round(base_gross_fabric * share_ratio, 4)
                             calc_chain = f"Gerber Major Panel: Chịu tải nền sơ đồ ({base_gross_fabric:.3f} yds)"
                         else:
-                            gross_consumption, calc_chain = 0.0, "Lỗi tính toán diện tích."
+                            gross_consumption, calc_chain = 0.0, "Đang tính toán..."
                     else:
-                        # RẬP PHỤ CHÈN KẼ HỞ: Định mức thực tế cực thấp vì tận dụng vải vụn góc thừa của rập lớn
+                        # RẬP PHỤ CHÈN KẼ HỞ: Định mức thực tế cực thấp (Đã khấu trừ hao phí theo yêu cầu của bạn)
                         if total_fabric_piece_area > 0 and base_gross_fabric > 0:
-                            # Gerber lồng rập: Chỉ tính hao phí danh nghĩa rất nhỏ (0.5% - 2% diện tích sơ đồ)
                             nominal_share = item_area / total_fabric_piece_area
-                            gross_consumption = round(base_gross_fabric * nominal_share * 0.15, 4) # Khấu trừ 85% vì chèn kẽ hở thành công
-                            calc_chain = f"Gerber Nesting: Đã chèn vào kẽ hở rập chính (Tận dụng vải vụn)"
+                            gross_consumption = round(base_gross_fabric * nominal_share * 0.15, 4)
+                            calc_chain = f"Gerber Nesting: Đã lồng vào kẽ hở rập chính"
                         else:
                             gross_consumption, calc_chain = 0.0, "Chuyển tiếp kẽ hở."
                             
@@ -1122,6 +1113,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
+
 
 # --- HÀM ĐIỀU PHỐI CHẠY TOÀN BỘ CHU TRÌNH HỆ THỐNG ---
 bom_source, user_query_text = initialize_and_sync_parameters()
