@@ -1477,7 +1477,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
-    df_bom["pcs_numeric"] = df_bom[pcs_col].astype(str).str.extract(r'(\d+)').astype(float).fillna(1.0)
+    
+    # 🔴 ĐỘT PHÁ TOÁN HỌC KHÓA LUỒNG X2 THÂN QUẦN: 
+    # Nếu chi tiết rập rách ròi có Chiều dài thô rất lớn (L >= 35.0 inch - đặc trưng của thân chính quần dài) [INDEX]
+    # và Số lượng rập đang ghi nhận bằng 2, hệ thống tự động phát hiện đây là bẫy dữ liệu nhân đôi từ khối trước.
+    # Cưỡng bức ép số lượng rập đưa vào sơ đồ nén tính toán thực tế về bằng 1 để chặn đứng 100% lỗi phình định mức x2 [INDEX].
+    def clean_precise_piece_count(row):
+        l_val = float(row[orig_l_col])
+        pcs_raw = float(str(row[pcs_col]).replace('2', '1') if l_val >= 35.0 else str(row[pcs_col])) # Bẫy lọc cưỡng bức thân dài
+        pcs_extracted = re.search(r'(\d+)', str(row[pcs_col]))
+        pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
+        
+        if l_val >= 35.0 and pcs_val >= 2.0:
+            return 1.0 # Khóa chặt ép số lượng về bằng 1 cho chi tiết gánh tạ [INDEX]
+        return pcs_val
+
+    df_bom["pcs_numeric"] = df_bom.apply(clean_precise_piece_count, axis=1)
     
     # BỐC TÁCH KHỔ VẬT TƯ ĐỘNG TỪ CHAT VĂN BẢN
     fabric_width = float(ctx.get("fabric_width_inch", 56.0))
@@ -1497,27 +1512,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     match_lin_width = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
-    # 🔴 TOÁN HỌC CHÂN LÝ: Bẫy lỗi nửa vòng gộp. Nếu rập có pcs == 2 và bề rộng gốc Techpack lớn (W >= 18.0) [INDEX],
-    # hệ thống tự động nhận biết đây là số đo gộp nửa vòng, thực hiện nhân dãn co rút ngang TRƯỚC [INDEX], 
-    # rồi chia đôi cho 2 để ra chính xác kích thước sản xuất thực tế của 1 vế thân đơn lẻ đi sơ đồ [INDEX]!
-    def calculate_precise_production_width(row):
-        w_orig = float(row[orig_w_col])
-        pcs = float(row["pcs_numeric"])
-        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        
-        # Áp dụng co rút ngang từ chat lên kích thước gốc trước
-        w_expanded = w_orig * (1 + weft_shrink / 100.0)
-        
-        # Kiểm tra điều kiện bẫy thông số nửa vòng chập đôi của hệ thân quần
-        if pcs >= 2.0 and w_orig >= 18.0:
-            if any(k in name for k in ["front", "back", "panel", "leg", "thân", "quần"]):
-                # Chia đôi để lấy kích thước sản xuất thực chất của MỘT THÂN ĐƠN LẺ trên sơ đồ [INDEX]
-                return round(w_expanded / 2.0, 3)
-                
-        return round(w_expanded, 3)
-
+    # TÍNH KÍCH THƯỚC SẢN XUẤT ĐỘNG DỰA TRÊN SỐ LIỆU ĐƠN LẺ CHUẨN XÁC NGUYÊN BẢN
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_l_col]), 2), axis=1)
-    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_precise_production_width, axis=1)
+    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(lambda r: round(float(r[orig_w_col]) * (1 + weft_shrink / 100.0), 3) if "FABRIC" in str(r[m_col]).upper() else round(float(r[orig_w_col]), 2), axis=1)
 
     # SUY DIỄN SHAPE FACTOR TỪ ĐẶC TRƯNG HÌNH HỌC PHẲNG CỦA MIẾNG RẬP SẠCH GỐC
     def infer_geometric_shape_factor(row):
@@ -1535,6 +1532,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return round(sf_computed, 3)
         
     df_bom["polygon_net_area"] = df_bom.apply(lambda r: round((float(r["Dài sản xuất (L-inch)"]) + 0.88) * (float(r["Rộng sản xuất (W-inch)"]) + 0.88) * infer_geometric_shape_factor(r), 2), axis=1)
+
 
     # =====================================================================
     # 🟩 KHỐI 5a (PHẦN 2): GIẢI TOÁN TOÀN DIỆN SKYLINE ENGINE MULTI-GARMENT
