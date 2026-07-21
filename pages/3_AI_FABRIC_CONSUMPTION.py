@@ -1271,7 +1271,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
 
 
 # =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ (TỐI GIẢN & ĐÃ VÁ TOÀN BỘ LỖI)
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ (VÁ DỨT ĐIỂM LỖI ATTR 'COLUMN')
 # =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
@@ -1282,7 +1282,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     output = io.BytesIO()
     wb = Workbook()
     
-    # Cấu hình định dạng chung tối giản
     font = Font(name="Segoe UI", size=10)
     bold = Font(name="Segoe UI", size=10, bold=True)
     header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
@@ -1299,7 +1298,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.cell(1, 1).font = Font(name="Segoe UI", size=14, bold=True, color="0E6251")
     ws1.append([])
     
-    # Nạp 2 dòng thông tin chung mã hàng (Meta Rows)
     meta = [
         ["Mã hàng:", str(bom_ctx.get("style_code", "N/A")).upper(), "Khách hàng:", str(bom_ctx.get("customer", "N/A")).upper()],
         ["Chủng loại:", str(product_type).upper(), "Hiệu suất:", f'{density * 100:.1f}%']
@@ -1307,13 +1305,11 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     for r in meta: ws1.append(r)
     ws1.append([])
     
-    # Định dạng tiêu đề cột cho Tab 1
     ws1.append(["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross)", "Đơn Vị Tính (UOM)"])
     for col in range(1, 5):
         cell = ws1.cell(row=ws1.max_row, column=col)
         cell.font = bold; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center")
         
-    # Duyệt ghi dữ liệu tổng hợp
     for _, row in df_summary.iterrows():
         ws1.append([
             row.get("Phân loại vật tư", "VẬT TƯ"), row.get("Material Class", "FABRIC"),
@@ -1335,7 +1331,6 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         cell = ws2.cell(row=1, column=col)
         cell.font = bold; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center")
 
-    # Duyệt và đẩy dữ liệu rập chi tiết xuống sheet
     for _, row in df_details.iterrows():
         ws2.append([
             row.get("Component Name", row.get("component_name", "UNNAMED")),
@@ -1348,32 +1343,29 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             float(row.get("Gross Consumption", row.get("gross_consumption", 0.0)))
         ])
         
-        # Định dạng nhanh căn lề và định dạng số cho từng ô dữ liệu
         ws2.cell(ws2.max_row, 4).alignment = Alignment(horizontal="center")
         ws2.cell(ws2.max_row, 5).number_format = '#,##0.00'
         ws2.cell(ws2.max_row, 6).number_format = '#,##0.00'
         ws2.cell(ws2.max_row, 8).number_format = '#,##0.0000'
 
     # =====================================================================
-    # TỰ ĐỘNG CĂN CHỈNH ĐỘ RỘNG CỘT & ĐÓNG KHUNG BẢNG (AUTO-FIT & BORDERS)
+    # 🛠️ ĐOẠN ĐÃ SỬA LỖI AUTO-FIT: SỬ DỤNG CHỈ SỐ CỘT ĐỂ TRÁNH LỖI TUP_LE
     # =====================================================================
     for ws in [ws1, ws2]:
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
             for cell in row:
                 if cell.value is not None and not cell.font.bold: cell.font = font
                 cell.border = thin_border
-        for col in ws.columns:
+                
+        # Sửa logic auto-fit dùng enumerate lấy số cột chuẩn openpyxl mới
+        for col_idx, col in enumerate(ws.columns, start=1):
             max_len = max(len(str(cell.value or '')) for cell in col)
-            ws.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 12)
+            col_letter = get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
     wb.save(output)
     output.seek(0)
     return output
-    # Dán đoạn này ngay phía trên Khối 5b để kiểm tra bộ nhớ đệm
-st.subheader("🔍 KẾT QUẢ KIỂM TRA BỘ NHỚ ĐỆM (DEBUG)")
-st.write("Trạng thái display_rows trong locals():", 'display_rows' in locals())
-st.write("Số lượng rập trong session_state:", len(st.session_state.get("processed_display_rows", [])))
-st.write("Thông tin mã hàng bom_data:", st.session_state.get("bom_data", {}))
 
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (FIXED COLUMNS)
