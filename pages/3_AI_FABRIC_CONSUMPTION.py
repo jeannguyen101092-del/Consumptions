@@ -1099,14 +1099,11 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
     }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh ổn định thế hệ mới: Bóc tách lớp cắt tự động từ PDF Callout.
-    Đã gỡ bỏ 100% hardcode đếm lớp. Tự động cập nhật trực tiếp diện tích hình học phẳng
-    và số chiếc thực tế sau nhân lớp lên giao diện UI và báo cáo file Excel.
+    """Khối 3 (Đoạn 1): Giải ma trận số lớp cắt thực tế lộn đối xứng hai bên cơ thể người.
+    Ép quy tắc chuẩn phòng IE PPJ Group: Nắp túi x4 Pcs, Cúp tay x4 Pcs, Dây đai x2 Pcs.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
-    
-    # Đọc dữ liệu văn bản thô toàn file PDF đã được module uploader trích xuất lưu vào bộ nhớ đệm trang
     raw_pdf_context = st.session_state.get("raw_pdf_text_extracted", "")
 
     for r in bom_rows_list:
@@ -1115,7 +1112,6 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         raw_w = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
         pcs = int(float(r.get("piece_count", r.get("Số lượng rập", 1))))
         
-        # Đồng bộ hóa định danh kiểm soát chữ hoa/chữ thường tránh bỏ sót dữ liệu
         mat_class_raw = str(r.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
@@ -1125,15 +1121,41 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
         if raw_l > 0 or is_button:
-            # Tính toán kích thước có cộng hao phí co rút dọc và ngang của vải đầu vào
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
-            # 🚨 ĐỘT PHÁ TỰ ĐỘNG: Gọi hàm quét văn bản PDF gốc để tìm chỉ định CUT/PAIR/FOLD thật từ Techpack của khách hàng
-            pdf_callout = extract_cutting_instructions_from_pdf(comp_name_raw, raw_pdf_context)
-            layer_multiplier = pdf_callout["layer_multiplier"]
-            calc_chain_log = pdf_callout["calc_log"]
+            # Khởi tạo mặc định
+            layer_multiplier = 1
+            is_pant_component = "TROUSER" in str(product_segmented).upper() or any(k in combined_str_item for k in [" trouser ", " pant ", " jean ", " leg "])
 
+            # =====================================================================
+            # 🚨 THUẬT TOÁN ÉP QUY TẮC NHÂN LỚP MAY LỘN HAI BÊN CƠ THỂ 🚨
+            # =====================================================================
+            # 1. Nắp túi (Flap): Áo có 2 bên x may lộn 2 lớp vải chính = Cắt 4 mảnh (x4 Pcs)
+            if "flap" in combined_str_item or "nắp túi" in combined_str_item or "naptui" in combined_str_item:
+                layer_multiplier = 2 if "SKIRT" in str(product_segmented).upper() else 4
+                
+            # 2. Cúp tay / Măng-sét (Cuff): Áo có 2 tay x may lộn 2 lớp vải chính = Cắt 4 mảnh (x4 Pcs)
+            elif "cuff" in combined_str_item or "măng sét" in combined_str_item or "mangset" in combined_str_item:
+                layer_multiplier = 4
+                
+            # 3. Dây đai / Thắt lưng vải chính (Sash / Belt): May lộn 2 lớp ép nhau = Cắt 2 mảnh (x2 Pcs)
+            elif any(k in combined_str_item for k in ["sash", "belt", "đai", "thắt lưng", "daithatlung"]):
+                layer_multiplier = 2
+                
+            # 4. Đô áo (Yoke), Cổ áo (Collar), Nẹp cổ / Ve áo (Facing/Placket) may lộn x2 lớp
+            elif any(k in combined_str_item for k in ["yoke", "đô", "collar", "cổ", "nẹpcổ", "lapel", "veáo", "facing", "nẹp", "tà", "placket"]):
+                layer_multiplier = 2
+                
+            # 5. Thân sau nếu rập thiết kế đơn lẻ ghi 1 chiếc, tự động nhân đôi biên bàn cắt đối xứng
+            elif ("back" in combined_str_item or "thân sau" in combined_str_item) and pcs == 1:
+                layer_multiplier = 2
+                
+            # 6. Ép 4 mảnh lót bao túi LINING độc lập cho mọi bàn cắt
+            if "LINING" in mat_class_raw:
+                if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag", "pocket lining"]):
+                    if pcs == 2: 
+                        layer_multiplier = 2  
             # =====================================================================
             # ➔ Thiết lập hệ số hình dạng xén góc rập (Shape Factor) phòng IE CAD
             # =====================================================================
@@ -1148,20 +1170,18 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             else:
                 shape_factor = 0.78
 
-            # Tính toán tổng diện tích sản xuất phẳng thực tế của chi tiết (Đã bao gồm đường may 0.44 inch x 2)
+            # Tính toán diện tích sản xuất phẳng (Bao gồm bù biên đường may tiêu chuẩn CAD)
             seamed_l, seamed_w = adj_l + (0.44 * 2.0), adj_w + (0.44 * 2.0)
             item_area = seamed_l * seamed_w * shape_factor * pcs * layer_multiplier
             
-            # Tích lũy tổng diện tích vải chính phục vụ giải toán phân bổ định mức
             if "FABRIC" in mat_class_raw: 
                 total_fabric_piece_area += item_area
             
-            # 🚨 ĐỒNG BỘ ĐỘNG: Cập nhật trực tiếp số lượng rập thực tế sau nhân lớp và diện tích vào dữ liệu gốc
+            # 🚨 ĐỒNG BỘ CHÍ MẠNG: Ghi đè số lượng hiển thị (ví dụ 4 Pcs, 2 Pcs) và diện tích thực tế ra bảng
             r["piece_count"] = pcs * layer_multiplier
-            r["Số lượng rập"] = pcs * layer_multiplier
-            r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor, 2)
+            r["Số lượng rập"] = f"{pcs * layer_multiplier} Pcs"
+            r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor * layer_multiplier, 2)
             r["calculation_status"] = "PROCESSED"
-            r["cad_algorithm"] = calc_chain_log
             
             piece_calculated_data.append({
                 "row_ref": r, "item_area": item_area, "is_button": is_button, "pcs_display": f"{pcs * layer_multiplier} Pcs",
@@ -1170,6 +1190,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             })
                 
     return total_fabric_piece_area, piece_calculated_data
+
 
 
 
