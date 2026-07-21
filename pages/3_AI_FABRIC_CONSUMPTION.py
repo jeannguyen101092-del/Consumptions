@@ -925,9 +925,9 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 
     # 4. THUẬT TOÁN ĐIỀN KẼ HỞ (GAP ABSORPTION CORES)
     if major_shape_area > 0:
-        # Xác định mật độ giác sơ đồ thực tế của riêng rập chính (ví dụ: rập chính chiếm 78% sơ đồ)
-        major_nest_density = 0.79 if fabric_pattern == "SOLID" else (0.74 if fabric_pattern == "STRIPE" else 0.70)
-        if product_type == "TROUSER": major_nest_density -= 0.04 # Quần có kết cấu rập uốn lượn nhiều khoảng trống hơn
+        # CẬP NHẬT: Nâng mật độ nén cơ sở cho rập chính lên cao hơn
+        major_nest_density = 0.835 if fabric_pattern == "SOLID" else (0.780 if fabric_pattern == "STRIPE" else 0.740)
+        if product_type == "TROUSER": major_nest_density -= 0.03 # Quần có kết cấu rập uốn lượn kẽ hở lớn hơn chút
         
         # Tính tổng diện tích của sơ đồ cần thiết để chứa riêng rập chính
         required_marker_area_for_major = major_shape_area / major_nest_density
@@ -935,8 +935,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         # Tính tổng diện tích kẽ hở trống có sẵn trên sơ đồ rập chính (Vải vụn kẽ hở sơ đồ)
         available_gap_area = required_marker_area_for_major - major_shape_area
         
-        # Gerber Nesting: Chi tiết nhỏ lọt hoàn toàn vào khoảng trống có sẵn
-        # Chúng ta giả định 70% diện tích kẽ hở có thể tận dụng để nhét rập nhỏ (vì vướng hình học)
+        # Lưu trữ hệ số 0.05 điều chỉnh của bạn: Hạn chế tối đa việc nhét rập nhỏ (chỉ cho nhét 5% kẽ trống)
         usable_gap_area = available_gap_area * 0.05
         
         if minor_shape_area <= usable_gap_area:
@@ -944,15 +943,17 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             final_simulated_shape_area = major_shape_area
             actual_packing_density = major_shape_area / required_marker_area_for_major
         else:
-            # Nếu rập phụ quá nhiều, vượt quá kẽ hở, phần dư thừa mới bắt đầu làm dài sơ đồ
+            # Nếu rập phụ vượt quá 5% kẽ hở, phần dư thừa bắt buộc phải kéo dài sơ đồ ra
             excess_minor_area = minor_shape_area - usable_gap_area
             final_simulated_shape_area = major_shape_area + excess_minor_area
-            actual_packing_density = major_nest_density + 0.04 # Mật độ nén tổng tăng lên vì sơ đồ chặt hơn
+            actual_packing_density = major_nest_density + 0.045 # Tăng mật độ nén tổng vì sơ đồ nhiều chi tiết đan xen hơn
 
         if plaid_repeat_inch > 0: actual_packing_density -= (plaid_repeat_inch * 0.007)
-        actual_packing_density = max(min(actual_packing_density, 0.92), 0.60)
+        
+        # CẬP NHẬT: Nâng hiệu suất sơ đồ tối đa (Chặn trên) từ 0.92 lên mức cực cao 0.94 theo ý bạn
+        actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
 
-        # Tính toán chiều dài sơ đồ giả lập cuối cùng (inch)
+        # Tính toán chiều dài sơ đồ giả lập cuối cùng (inch) - SỬA LỖI ĐOẠN CODE CỤT
         simulated_length = ((final_simulated_shape_area / usable_width) / actual_packing_density) * (1.0 + ((bias_shape_area_weight / final_simulated_shape_area) * 0.15))
         simulated_length *= (1.0 + (total_matching_score * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * constraint_penalty_multiplier
 
@@ -961,9 +962,11 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         global_gross_fabric, actual_packing_density = 0.0, 0.82
 
     return {
-        "product_segmented": product_type, "fabric_pattern": fabric_pattern,
-        "actual_packing_density": actual_packing_density, "global_gross_fabric_yds": global_gross_fabric,
-        "major_shape_area": major_shape_area # Chuyển tiếp diện tích rập chính sang khối phân bổ
+        "product_segmented": product_type, 
+        "fabric_pattern": fabric_pattern,
+        "actual_packing_density": actual_packing_density, 
+        "global_gross_fabric_yds": global_gross_fabric,
+        "major_shape_area": major_shape_area
     }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
