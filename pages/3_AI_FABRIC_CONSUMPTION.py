@@ -1145,16 +1145,25 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """Khối 4 hoàn chỉnh nâng cấp: Sửa lỗi ẩn bảng khi danh sách rập bị lạ tên.
-    Tự động kích hoạt cơ chế tính toán hình học dự phòng (Fallback) để luôn bung bảng hiển thị.
+    """Khối 4 hoàn chỉnh nâng cấp: Đồng bộ từ khóa vân vải động (Solid, Stripe, Plaid, Nap Layout) 
+    và kích hoạt thuật toán dự phòng Fallback để luôn bung bảng hiển thị mượt mà.
     """
-    base_gross_fabric = skyline_results.get("global_gross_fabric_yds", skyline_results.get("global_gross_fabric_consumption", 0.0))
+    base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0)
+    if base_gross_fabric == 0.0:
+        base_gross_fabric = skyline_results.get("global_gross_fabric_consumption", 0.0)
+    if base_gross_fabric == 0.0:
+        base_gross_fabric = skyline_results.get("global_gross_fabric", 0.0)
+        
     product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
-    fabric_pattern = skyline_results.get("fabric_pattern", "SOLID")
+    fabric_pattern_raw = skyline_results.get("fabric_pattern", "SOLID")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
     
     bom_source = st.session_state.get("bom_data", {})
     usable_width = bom_source.get("fabric_width_inch", 56.0)
+    
+    # 🚨 ĐỒNG BỘ TỪ KHÓA HIỂN THỊ TRÊN GIAO DIỆN VÀ FILE EXCEL
+    layout_mapping = {"SOLID": "SOLID LAYOUT", "STRIPE": "STRIPE LAYOUT", "PLAID": "PLAID LAYOUT", "NAP": "NAP LAYOUT (CẮT 1 CHIỀU)"}
+    current_layout_text = layout_mapping.get(fabric_pattern_raw, f"{fabric_pattern_raw} LAYOUT")
     
     processed_display_rows = []
 
@@ -1190,7 +1199,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                     is_major = ("MAJOR" in f"{str(r.get('geometry_role',''))} {str(r.get('piece_type',''))}".upper()) or \
                                any(k in combined_str_curr for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg"])
                     
-                    # 🚨 NÂNG CẤP BẢO VỆ: Nếu tổng diện tích lớn hơn 0 và có yards tổng thì phân bổ theo tỷ lệ share
                     if total_fabric_piece_area > 0 and base_gross_fabric > 0:
                         if is_major:
                             share_ratio = item_area / total_fabric_piece_area
@@ -1202,8 +1210,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
                             gross_consumption = round(base_gross_fabric * share_ratio * nesting_factor, 4)
                             calc_chain = f"Gerber Nesting ({product_segmented}): Tính {nesting_factor*100}% tiêu hao"
                     else:
-                        # 🚨 CƠ CHẾ DỰ PHÒNG HOÀN HẢO (FALLBACK): Nếu lạ tên chi tiết rập, tự động ép tính toán hình học CAD phẳng 
-                        # để đảm bảo bảng định mức LUÔN LUÔN hiển thị ra màn hình, không bị ẩn
                         estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
                         gross_consumption = round(estimated_base * 1.045, 4)
                         calc_chain = f"CAD Geometry Fallback: Giả lập hình học phẳng ({gross_consumption:.3f} yds)"
@@ -1221,25 +1227,23 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
             "Component Name": display_name, "Material Class": mat_class_raw, 
             "Role/Piece Type": f"{str(r.get('geometry_role', 'MINOR')).upper()} ({str(r.get('piece_type', 'MINOR')).upper()})",
             "Số lượng rập": pcs_display, "Dài sản xuất (L-inch)": raw_l, "Rộng sản xuất (W-inch)": raw_w,
-            "Kiểu sơ đồ tổng": f"{fabric_pattern} LAYOUT", "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
+            "Kiểu sơ đồ tổng": current_layout_text, "Dự đoán Mật độ nén": f"{actual_packing_density*100:.1f}%",
             "Gross Consumption": gross_consumption, "Trạng thái dữ liệu": f"🛡️ {confidence} ({status_raw})", "Thuật toán mô phỏng CAD": calc_chain
         })
 
     st.session_state["processed_display_rows"] = processed_display_rows
     return processed_display_rows
 
-# =====================================================================
-# 🟩 KHỐI 5a HOÀN CHỈNH (ĐÃ VÁ LỖI TRÙNG CỘT EXCEL): HÀM TẠO EXCEL BÁO CÁO PPJ
-# =====================================================================
+
 import io  
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val):
-    """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
-    Đã sửa lỗi cấu trúc đo độ rộng cột tự động cho openpyxl.
+def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val, fabric_pattern_raw):
+    """Khối 5a hoàn chỉnh ổn định: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
+    Đã đồng bộ in chính xác thông tin Vân vải (Trơn, Sọc, Caro, Một chiều) vào Technical Profile file Excel.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1256,9 +1260,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     regular_font = Font(name=font_family, size=10)
     thin_border = Border(left=Side(style='thin', color='BDC3C7'), right=Side(style='thin', color='BDC3C7'), top=Side(style='thin', color='BDC3C7'), bottom=Side(style='thin', color='BDC3C7'))
 
-    # =====================================================================
-    # TAB 1: BẢNG TỔNG HỢP VÀ THÔNG SỐ SƠ ĐỒ KỸ THUẬT (BOM SUMMARY)
-    # =====================================================================
     ws1 = wb.active
     ws1.title = "BOM Summary"
     ws1.sheet_view.showGridLines = True
@@ -1267,11 +1268,16 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = section_font
     
-    # Ma trận nạp 4 thông số cốt lõi lên đầu file Excel
+    # Dịch nhãn ngôn ngữ vân vải động gửi hệ thống PPJ
+    pattern_mapping = {"SOLID": "VẢI TRƠN (SOLID)", "STRIPE": "VẢI SỌC KẺ (STRIPE)", "PLAID": "VẢI CARO (PLAID/CHECK)", "NAP": "VẢI 1 CHIỀU / TUYẾT NHUNG (NAP)"}
+    detected_pattern_text = pattern_mapping.get(fabric_pattern_raw, f"VẢI ĐẶC THÙ ({fabric_pattern_raw})")
+
+    # Ma trận nạp đầy đủ thông số động kỹ thuật lên đầu file Excel
     meta_rows = [
         ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
         ["Co rút dọc (Warp Shrinkage):", f'{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%', "Co rút ngang (Weft Shrinkage):", f'{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%'],
-        ["Chủng loại sản phẩm:", str(product_type_text).upper(), "Hiệu suất sơ đồ (Density):", f'{packing_density_val * 100:.1f}%']
+        ["Chủng loại sản phẩm:", str(product_type_text).upper(), "Tính chất đặc thù vải:", detected_pattern_text],
+        ["Hiệu suất sơ đồ (Density):", f'{packing_density_val * 100:.1f}%', "Đơn vị chủ quản:", "PPJ IE CAD ENGINE"]
     ]
     
     start_meta_row = 5
@@ -1285,10 +1291,10 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=2).fill = meta_val_fill; ws1.cell(row=current_r, column=2).border = thin_border; ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
         ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=4).fill = meta_val_fill; ws1.cell(row=current_r, column=4).border = thin_border; ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
-    ws1.cell(row=9, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
+    ws1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
     for col_idx, h_text in enumerate(summary_headers, start=1):
-        cell = ws1.cell(row=10, column=col_idx, value=h_text)
+        cell = ws1.cell(row=11, column=col_idx, value=h_text)
         cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = thin_border
     
     for _, row in df_summary_data.iterrows():
@@ -1327,7 +1333,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
-    # 🚨 ĐÃ SỬA LỖI CHÍNH XÁC: Sử dụng enumerate trích xuất chỉ số cột số nguyên (integer) sạch bóng 100% lỗi tuple object
     for ws in [ws1, ws2]:
         for c_num, col_cells in enumerate(ws.columns, start=1):
             max_len = max(len(str(cell.value or '')) for cell in col_cells)
@@ -1336,24 +1341,13 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
-
-# =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH (ĐÃ VÁ LỖI CHIA CỘT ST.COLUMNS): RENDERING UI & NÚT EXCEL PPJ
-# =====================================================================
-# Sử dụng trực tiếp dữ liệu hiển thị từ bộ nhớ phiên để không bị mất bảng và tránh lỗi chưa định nghĩa biến
-display_rows_source = st.session_state.get("processed_display_rows", [])
-bom_source_ctx = st.session_state.get("bom_data", {})
-
-if display_rows_source and bom_source_ctx:
-    df_bom = pd.DataFrame(display_rows_source)
+# --- PHÂN ĐOẠN ĐIỀU PHỐI GIAO DIỆN VÀ NÚT TẢI FILE EXCEL ---
+if display_rows and skyline_res:
+    df_bom = pd.DataFrame(display_rows)
+    product_segmented = skyline_res["product_segmented"]
+    current_packing_density = skyline_res.get("actual_packing_density", 0.85)
+    current_fabric_pattern = skyline_res.get("fabric_pattern", "SOLID")
     
-    # Lấy thông số từ kết quả engine (nếu có biến cục bộ) hoặc đọc từ session_state gốc
-    product_segmented = skyline_res["product_segmented"] if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("product_segmented", "SKIRT")
-    
-    # Lấy mật độ nén thực tế sau hiệu chỉnh
-    current_packing_density = skyline_res.get("actual_packing_density", 0.85) if ('skyline_res' in locals() and skyline_res) else bom_source_ctx.get("global_packing_density", 0.85)
-    
-    # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
     if "Dự đoán Mật độ nén" in df_bom.columns:
         df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
 
@@ -1365,7 +1359,6 @@ if display_rows_source and bom_source_ctx:
         unsafe_allow_html=True
     )
     
-    # A. Trích xuất bảng tổng hợp định mức (BOM Summary) cho giao diện
     df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
     df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
     df_summary["UOM"] = "YDS"
@@ -1373,37 +1366,32 @@ if display_rows_source and bom_source_ctx:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    # 🚨 ĐÃ SỬA LỖI: Truyền mảng [3, 1] để phân chia tỉ lệ 2 cột nằm ngang mượt mà, sạch lỗi cú pháp
     col_title, col_btn = st.columns([3, 1])
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
-        # Gọi Khối 5a truyền toàn bộ thông số kỹ thuật động vào file Excel báo cáo PPJ Group
-        excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, bom_source_ctx, current_packing_density)
+        # ĐỒNG BỘ CHÍNH XÁC: Truyền thêm biến current_fabric_pattern sang Khối 5a để xuất báo cáo
+        excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, bom_source_ctx, current_packing_density, current_fabric_pattern)
         st.download_button(
             label="🟢 XUẤT FILE EXCEL PPJ",
             data=excel_data,
             file_name=f"PPJ_BOM_Consumption_{product_segmented}_{bom_source_ctx.get('style_code', 'Style')}.xlsx",
             mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
-            key="btn_download_excel_ppj_final_stable_v5"
+            key="btn_download_excel_ppj_final_stable_v6"
         )
         
     st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
-    
-    # B. Bảng chi tiết cấu trúc rập CAD trên giao diện
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
     st.dataframe(df_bom, use_container_width=True)
     
-    # C. Footer thông báo thông số AI động dưới chân bảng
     st.markdown(
         f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
         f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
         f'Size may mẫu: <b>{bom_source_ctx.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source_ctx.get("fabric_width_inch", 56.0)}"</b> | '
-        f'Co rút dọc: <b>{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút ngang: <b>{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%</b>.'
+        f'Co rút dọc: <b>{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%</b> | Co rút nang: <b>{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%</b>.'
         f'</p>', 
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
 else:
-    # Đoạn thông báo xuất hiện khi hệ thống trống file dữ liệu hoặc bấm Clear Memory
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
