@@ -1177,42 +1177,57 @@ if bom_source:
     # 3. SỬA LỖI: Truyền trực tiếp kết quả dictionary 'skyline_res' vào Khối 4 để lấy đúng biến global_gross_fabric_yds
     display_rows = allocate_gerber_share_consumption(piece_data, total_area, skyline_res)
     
-    # --- RENDERING BẢNG BIỂU LÊN GIAO DIỆN STREAMLIT ---
-    if display_rows:
-        df_bom = pd.DataFrame(display_rows)
-        product_segmented = skyline_res["product_segmented"]
-        
-        st.markdown('<div class="cad-card">', unsafe_allow_html=True)
-        st.markdown(
-            f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0;">'
-            f'📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ {product_segmented})'
-            f'</div>', 
-            unsafe_allow_html=True
-        )
-        
-        # 1. Bảng tổng hợp định mức (BOM Summary)
-        df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
-        df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
-        df_summary["UOM"] = "YDS"
-        
-        class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
-        df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
-        
-        st.subheader("Bảng tổng hợp định mức (BOM Summary)")
-        st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
-        
-        # 2. Bảng chi tiết rập CAD
-        st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
-        st.dataframe(df_bom, use_container_width=True)
-        
-        # 3. Footer thông báo thông số AI
-        st.markdown(
-            f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
-            f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Tính định mức dựa trên <b>Size may mẫu: {bom_source.get("calculated_on_size", "Mẫu")}</b> | '
-            f'Khổ vải: <b>{bom_source.get("fabric_width_inch", 56.0)}"</b> | Co rút dọc: <b>{warp_shrink}%</b> | Co rút ngang: <b>{weft_shrink}%</b>.'
-            f'</p>', 
-            unsafe_allow_html=True
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+   # =====================================================================
+# 🟩 KHỐI 5 NÂNG CẤP: RENDERING BẢNG BIỂU ĐỒNG BỘ THỜI GIAN THỰC (XẢ KẸT SỐ)
+# =====================================================================
+if display_rows:
+    df_bom = pd.DataFrame(display_rows)
+    product_segmented = skyline_res["product_segmented"]
+    
+    # 🚨 SỬA LỖI ĐỒNG BỘ: Trích xuất trực tiếp mật độ nén thực tế sau hiệu chỉnh từ bộ Engine Khối 2b
+    current_packing_density = skyline_res.get("actual_packing_density", 0.85)
+    
+    # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
+    if "Dự đoán Mật độ nén" in df_bom.columns:
+        df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
+
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0;">'
+        f'📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ {product_segmented})'
+        f'</div>', 
+        unsafe_allow_html=True
+    )
+    
+    # 1. Bảng tổng hợp định mức (BOM Summary)
+    df_summary = df_bom.groupby(["Material Class"], as_index=False).agg({"Gross Consumption": "sum"})
+    df_summary["Gross Consumption"] = df_summary["Gross Consumption"].round(4)
+    df_summary["UOM"] = "YDS"
+    
+    class_mapping = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+        "FUSING": "KEO/DỰNG (FUSING)", 
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)", 
+        "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
+    }
+    df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
+    
+    st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    st.dataframe(df_summary[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
+    
+    # 2. Bảng chi tiết rập CAD
+    st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({product_segmented})")
+    st.dataframe(df_bom, use_container_width=True)
+    
+    # 3. Footer thông báo thông số AI (Đã gỡ lỗi hiển thị)
+    st.markdown(
+        f'<p style="color: #7F8C8D; font-size: 0.85rem; margin-top: 10px; font-style: italic;">'
+        f'🤖 AI ghi nhận dòng hàng: <b>{product_segmented}</b> | Hiệu suất sơ đồ CAD thực tế: <b>{current_packing_density*100:.1f}%</b> | '
+        f'Size may mẫu: <b>{bom_source.get("calculated_on_size", "Mẫu")}</b> | Khổ vải: <b>{bom_source.get("fabric_width_inch", 56.0)}"</b> | '
+        f'Co rút dọc: <b>{warp_shrink}%</b> | Co rút ngang: <b>{weft_shrink}%</b>.'
+        f'</p>', 
+        unsafe_allow_html=True
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
 else:
     st.info("🔄 Bộ nhớ hệ thống đã được làm sạch. Vui lòng nạp file Techpack hoặc nhập câu lệnh mới để tính toán.")
