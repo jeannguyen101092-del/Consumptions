@@ -831,8 +831,9 @@ def initialize_and_sync_parameters():
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a: Bộ quét AI phân tách dòng hàng biệt lập và gán hệ số đa giác thực tế sf.
-    Đã tách riêng biệt phân hệ DRESS (Váy liền) và SKIRT (Chân váy).
+    """Khối 2a hoàn chỉnh: Khóa cứng thứ tự danh sách linh kiện rập Alphabetical.
+    Đẩy phân hệ SKIRT (Chân váy) lên vị trí ƯU TIÊN SỐ 1 để gỡ lỗi nhận diện nhầm sang dòng Jacket.
+    Đồng bộ bộ quét AI chất liệu tự động (Chat input + Techpack Spec).
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -847,38 +848,56 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
     )
 
-    # 1. Nhận diện hoa văn vải
-    fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-    if "sọc" in query_lower or "stripe" in query_lower: fabric_pattern = "STRIPE"
-    if "caro" in query_lower or "plaid" in query_lower: 
-        fabric_pattern = "PLAID"
-        repeat_match = re.search(r"(caro|sọc|repeat)\s*(\d+(\.\d+)?)", query_lower)
-        plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
-    if any(k in query_lower for k in ["tuyết", "nap", "one way", "một chiều", "nhung"]): fabric_pattern, is_one_way_nap = "NAP", True
-
-    # 2. Bộ quét AI phân tách dòng hàng biệt lập (Đảm bảo trật tự độ ưu tiên tối ưu)
+    # =====================================================================
+    # 1. ĐỒNG BỘ BỘ QUÉT AI CHẤT LIỆU TỰ ĐỘNG (CHAT INPUT + TECHPACK SPEC)
+    # =====================================================================
+    fabric_spec_text = str(bom_source.get("material_spec", bom_source.get("fabric_description", ""))).lower()
     bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in stable_bom_list]).strip()
+    fabric_detect_zone = f" {query_lower} {fabric_spec_text} {bom_components_text} ".replace("_", " ")
+
+    fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
+
+    if any(k in fabric_detect_zone for k in ["sọc", "stripe", "kẻ sọc", "kesoc", "ke soc", "kẻ dọc", "kedoc"]): 
+        fabric_pattern = "STRIPE"
+    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check", "glen", "houndstooth", "kẻ ô", "ke o"]): 
+        fabric_pattern = "PLAID"
+        repeat_match = re.search(r"(\d+(\.\d+)?)\s*(inch|in|cm)\s*(repeat|caro)", fabric_detect_zone)
+        plaid_repeat_inch = float(repeat_match.group(1)) if repeat_match else 4.0
+    elif any(k in fabric_detect_zone for k in ["tuyết", "tuyet", "nap", "one way", "oneway", "một chiều", "mot chieu", "nhung", "velvet", "corduroy", "nhung tăm", "nhung tam", "suede"]): 
+        fabric_pattern, is_one_way_nap = "NAP", True
+
+    # =====================================================================
+    # 2. BỘ LỌC ĐỘ ƯU TIÊN AI NHẬN DIỆN DÒNG SẢN PHẨM TOÀN CỤC
+    # =====================================================================
     techpack_meta_text = f"{str(bom_source.get('style_code', ''))} {str(bom_source.get('style_name', ''))} {str(bom_source.get('garment_type', ''))}".lower()
     full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text}"
 
-    product_type = "CASUAL_TOP" 
+    product_type = "CASUAL_TOP" # Dòng hàng mặc định ban đầu
     
-    if any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "bodysuit", "romper"]):
+    # ➔ ĐÃ HIỆU CHỈNH: Đẩy dòng CHÂN VÁY (SKIRT) lên độ ưu tiên SỐ 1 TUYỆT ĐỐI trên cùng bộ lọc
+    if any(k in full_detect_zone for k in ["skirt", "chân váy", "chan vay"]):
+        product_type = "SKIRT"
+    # ➔ ƯU TIÊN SỐ 2: Áo liền quần (Jumpsuit)
+    elif any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "bodysuit", "romper"]):
         product_type = "JUMPSUIT"
+    # ➔ ƯU TIÊN SỐ 3: Áo khoác / Jacket / Vét / Blazer
     elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit"]):
         product_type = "JACKET"
-    elif any(k in full_detect_zone for k in ["skirt", "chân váy", "chan vay"]):
-        product_type = "SKIRT"
+    # ➔ ƯU TIÊN SỐ 4: Váy liền / Đầm (Dress)
     elif any(k in full_detect_zone for k in ["đầm", "dress", "váy liền", "vay lien"]):
         product_type = "DRESS"
+    # ➔ ƯU TIÊN SỐ 5: Quần (Trouser / Jeans / Short)
     elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop"]):
         product_type = "TROUSER"
+    # ➔ CÁC DÒNG KHÁC GIỮ NGUYÊN HOÀN TOÀN THEO CAM KẾT KHÔNG ĐỘNG TỚI
     elif any(k in full_detect_zone for k in ["sơ mi", "shirt", "so mi", "yoke", "đô", "collar"]):
         product_type = "SHIRT"
     elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
         product_type = "KNIT_TEE"
 
-    # 3. Vòng lặp tính toán diện tích hình học rập
+    # =====================================================================
+    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC (SHAPE AREA ENGINE)
+    # =====================================================================
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
     
@@ -894,21 +913,24 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         
         curr_item_lower = f"{comp_name} {piece_type_raw}".lower()
         
+        # Bù trừ đường may tiêu chuẩn biên công nghiệp (0.44 inch mỗi bên) và co rút dọc ngang
         adj_l = (raw_l + (0.44 * 2.0)) * (1 + warp_shrinkage / 100.0)
         adj_w = (raw_w + (0.44 * 2.0)) * (1 + weft_shrinkage / 100.0)
         
+        # Nhận diện các chi tiết rập chính gánh nền sơ đồ
         is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or \
                            (raw_l > 15.0 and raw_w > 8.0) or \
                            any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg", "skirt"])
         
         sf = 0.75 if is_actual_major else 0.85
         
-        # Cập nhật hệ số đa giác cho phân hệ độc lập
+        # Áp khung định tuyến hệ số hình học chuyên biệt độc lập theo chủng loại hàng:
         if product_type == "JUMPSUIT" and is_actual_major: sf = 0.65 
         elif product_type == "TROUSER" and is_actual_major: sf = 0.76 
         elif product_type == "DRESS" and is_actual_major: sf = 0.68 
         elif product_type == "SKIRT" and is_actual_major: sf = 0.74 
         
+        # Điều chỉnh chiết khấu tùng xòe bo cong lượn sóng tạo vải vụn kẽ hở lớn biên
         if any(k in curr_item_lower for k in ["flare", "xòe", "tùng"]):
             sf = 0.52
             
@@ -923,7 +945,8 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
 
         if fabric_pattern in ["STRIPE", "PLAID"] and any(k in curr_item_lower for k in ["cf", "cb", "pocket", "collar"]): 
             total_matching_score += (3 * pcs)
-        if any(k in curr_item_lower for k in ["bias", "thiên", "xéo"]): bias_shape_area_weight += (shape_area_single * pcs)
+        if any(k in curr_item_lower for k in ["bias", "thiên", "xéo"]): 
+            bias_shape_area_weight += (shape_area_single * pcs)
 
     return {
         "product_type": product_type, "fabric_pattern": fabric_pattern, "plaid_repeat_inch": plaid_repeat_inch,
@@ -931,6 +954,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
+
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     """Khối 2b hoàn chỉnh chuẩn hóa: Khống chế định mức Jacket quay về mục tiêu 2.6 YDS.
     Đóng băng an toàn 100% logic của Quần, Jumpsuit, Đầm và Chân váy Skirt.
