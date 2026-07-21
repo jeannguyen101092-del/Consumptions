@@ -1493,25 +1493,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         weft_shrink = float(match_weft.group(2))
         st.session_state["weft_shrinkage"] = weft_shrink
         
-    # 🔴 ĐỘT PHÁ TÁCH BIỆT LOGIC CO RÚT: Chi tiết nào hệ FABRIC mới cộng co rút chat, hệ KEO DỰNG (FUSING) tự động giữ nguyên 0%
+    # TÁCH BIỆT LOGIC CO RÚT: Chỉ hệ FABRIC mới nhân co rút từ chat, hệ KEO DỰNG (FUSING) ép giữ nguyên 0% số gốc
     def calculate_production_length(row):
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         orig_l = float(row[orig_l_col])
         if "FABRIC" in mat_class:
             return round(orig_l * (1 + warp_shrink / 100.0), 2)
-        return round(orig_l, 2) # Giữ nguyên số gốc Techpack cho Keo/Dựng
+        return round(orig_l, 2)
 
     def calculate_production_width(row):
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         orig_w = float(row[orig_w_col])
         if "FABRIC" in mat_class:
             return round(orig_w * (1 + weft_shrink / 100.0), 2)
-        return round(orig_w, 2) # Giữ nguyên số gốc Techpack cho Keo/Dựng
+        return round(orig_w, 2)
 
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calculate_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calculate_production_width, axis=1)
     
-    # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER THỰC TẾ DỰ TRÊN SỐ ĐO SẢN XUẤT MỚI
+    # GIẢI TOÁN DIỆN TÍCH PHẲNG GERBER DỰA TRÊN SỐ ĐO SẢN XUẤT MỚI
     def force_calculate_gerber_area_v7(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
@@ -1522,6 +1522,83 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return round(seamed_l * seamed_w * sf, 2)
         
     df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v7, axis=1)
+
+    # NỐI LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE: Tính định mức vải chính dựa trên hệ rập vải sau co rút
+    total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
+    df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
+    
+    for _, row in df_fabric_only.iterrows():
+        pcs = float(row["pcs_numeric"])
+        l_inch = float(row["Dài sản xuất (L-inch)"])
+        w_inch = float(row["Rộng sản xuất (W-inch)"])
+        net_a = float(row["polygon_net_area"])
+        
+        name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        if any(k in name_lower for k in ["front", "back", "thân trước", "thân sau"]) and w_inch >= 20.0 and net_a > 0:
+            net_a = net_a / 2.0
+            
+        total_net_area += net_a * pcs
+        total_bbox_area += (l_inch * w_inch) * pcs if (l_inch * w_inch) > 0 else net_a * pcs
+        total_piece_count += pcs
+        for _ in range(int(max(1, pcs))): 
+            all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
+
+    if total_net_area > 0 and all_expanded_pieces:
+        major_threshold = total_net_area * 0.08
+        major_list = [p for p in all_expanded_pieces if p["net_area"] > major_threshold]
+        minor_list = [p for p in all_expanded_pieces if p["net_area"] <= major_threshold]
+        fragmentation = len(minor_list) / total_piece_count
+        bbox_fill = total_net_area / max(total_bbox_area, 0.1)
+        
+        if major_list:
+            avg_aspect = sum(max(p["length"], p["width"]) / max(min(p["length"], p["width"]), 0.1) for p in major_list) / len(major_list)
+            width_ratio = (sum(p["width"] for p in major_list) / len(major_list)) / fabric_width
+        else:
+            avg_aspect, width_ratio = 1.8, 0.28
+            
+        compactness = max(min(1.0 - (abs(avg_aspect - 1.0) * 0.05), 1.0), 0.60)
+        small_ratio = sum(p["net_area"] for p in minor_list) / total_net_area
+        width_penalty_logistic = 0.08 / (1.0 + np.exp(-18.0 * (width_ratio - 0.32)))
+
+        dens = max(min(0.66 + (bbox_fill * 0.12) + (compactness * 0.04) + (small_ratio * 0.05) + (fragmentation * 0.03) - width_penalty_logistic, 0.92), 0.62)
+        simulated_length = ((total_net_area / fabric_width) / dens) * (1.0 + ((1.0 - bbox_fill) * 0.04))
+        
+        wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
+        total_gross_yds_after_shrink = (simulated_length / 36.0) * (1.148 + wastage_curve) + ((1.5 + (total_piece_count / (total_net_area / 100.0) * 0.05) + (width_ratio * 1.5)) / 36.0)
+
+        if fabric_pattern_raw == "NAP": total_gross_yds_after_shrink += (4.0 * 0.35 * (1.0 - small_ratio)) / 36.0
+        elif fabric_pattern_raw in ["PLAID", "STRIPE"]: total_gross_yds_after_shrink *= (1.0 + min((4.0 * 1.35) / simulated_length, 0.35))
+    else:
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 2.2539)))
+        dens = 0.82
+
+    # Suy ngược định mức gốc trước co rút vải chính
+    total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
+
+    # 🔴 ĐỘT PHÁ TRIỆT TIÊU SỐ 0.0415 CHO KEO/DỰNG: Bỏ qua hoàn toàn cache cũ.
+    # Cưỡng bức tính toán định mức chi tiết độc lập: Vải ăn theo Skyline, Keo tự giải theo diện tích rập khổ 44 inch
+    total_fabric_marker_area = (df_fabric_only["polygon_net_area"] * df_fabric_only["pcs_numeric"]).sum()
+    df_bom["allocated_gross"] = 0.0
+
+    if total_fabric_marker_area > 0 and total_gross_yds_after_shrink > 0:
+        def exact_share_allocation_final_v8(row):
+            mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+            # 1. Hệ rập Vải chính phân bổ theo phương trình Skyline tổng
+            if "FABRIC" in mat_class:
+                item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
+                return round(total_gross_yds_after_shrink * (item_area_total / total_fabric_marker_area), 4)
+            # 2. Hệ rập KEO/DỰNG (FUSING) tự động băm nhỏ theo diện tích thực tế chia khổ 44 inch (Không dập khuôn 0.0415)
+            elif "FUSING" in mat_class or "LINING" in mat_class:
+                item_net_area = float(row.get("polygon_net_area", 0.0))
+                item_pcs = float(row.get("pcs_numeric", 1.0))
+                if item_net_area > 0:
+                    # Công thức chuẩn phòng CAD IE PPJ cho sơ đồ keo độc lập khổ 44 hiệu suất sơ đồ 82%
+                    return round(((item_net_area / 44.0) / 36.0 / 0.82) * item_pcs, 4)
+                return 0.0
+            else:
+                return 0.0
+        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v8, axis=1)
+
 
     # NỐI LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE: Tính trực tiếp định mức từ dữ liệu rập đầu vào sau co rút
     total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
