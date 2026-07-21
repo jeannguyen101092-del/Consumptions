@@ -1372,34 +1372,32 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     wb.save(output)
     return output.getvalue()
 # =====================================================================
-# 🟩 KHỐI 5b HOÀN CHỈNH (VÁ KHÉP KÍN LỖI NAMEERROR BIẾN VÂN VẢI): RENDERING UI & NÚT EXCEL PPJ
+# 🟩 KHỐI 5b HOÀN CHỈNH ĐỒNG BỘ BỀN VỮNG (BẢO VỆ GHIM CỨNG BẢNG 100%)
 # =====================================================================
-# Sử dụng trực tiếp dữ liệu hiển thị từ biến cục bộ hoặc bộ nhớ phiên để xả kẹt hiển thị thời gian thực
-final_ui_rows = display_rows if ('display_rows' in locals() and display_rows) else st.session_state.get("processed_display_rows", [])
-final_bom_ctx = bom_source if ('bom_source' in locals() and isinstance(bom_source, dict) and bom_source) else st.session_state.get("bom_data", {})
+# Ép hệ thống đọc dữ liệu hiển thị từ bộ nhớ phiên st.session_state để không bao giờ bị mất bảng khi Rerun
+final_ui_rows = st.session_state.get("processed_display_rows", [])
+final_bom_ctx = st.session_state.get("bom_data", {})
+
+# Kiểm tra nếu biến cục bộ có sẵn thì dùng, nếu không thì lấy từ bộ nhớ đệm an toàn dự phòng
+if not final_ui_rows and 'display_rows' in locals() and display_rows:
+    final_ui_rows = display_rows
+if not final_bom_ctx and 'bom_source' in locals() and bom_source:
+    final_bom_ctx = bom_source
 
 if final_ui_rows and final_bom_ctx:
     df_bom = pd.DataFrame(final_ui_rows)
     
-    # 🚨 ĐÃ SỬA LỖI CHÍ MẠNG: Khởi tạo giá trị mặc định an toàn cho cả 3 biến thông số sơ đồ ở phạm vi ngoài cùng
-    product_segmented = "SHIRT"
-    current_packing_density = 0.85
-    current_fabric_pattern = "SOLID"
+    # 🚨 ĐỒNG BỘ BIẾN KHÉP KÍN: Khởi tạo giá trị an toàn chống mọi lỗi NameError
+    product_segmented = final_bom_ctx.get("product_segmented", "JACKET")
+    current_packing_density = final_bom_ctx.get("global_packing_density", 0.85)
+    current_fabric_pattern = final_bom_ctx.get("fabric_pattern", "SOLID")
     
-    # Trích xuất cập nhật an toàn thông số sơ đồ từ bộ engine tính toán gần nhất (nếu biến tồn tại thực tế)
+    # Nếu có biến engine skyline_res vừa tính xong ở trên thì cập nhật thông số chính xác thời gian thực
     if 'skyline_res' in locals() and isinstance(skyline_res, dict) and skyline_res:
-        if "product_segmented" in skyline_res:
-            product_segmented = skyline_res["product_segmented"]
-        if "actual_packing_density" in skyline_res:
-            current_packing_density = skyline_res["actual_packing_density"]
-        if "fabric_pattern" in skyline_res:
-            current_fabric_pattern = skyline_res["fabric_pattern"]
-    else:
-        # Nếu bị trượt biến cục bộ, tự động bốc ngược từ bộ nhớ đệm cấu trúc Context Root phiên Streamlit
-        product_segmented = final_bom_ctx.get("product_segmented", "SHIRT")
-        current_packing_density = final_bom_ctx.get("global_packing_density", 0.85)
-        current_fabric_pattern = final_bom_ctx.get("fabric_pattern", "SOLID")
-    
+        if "product_segmented" in skyline_res: product_segmented = skyline_res["product_segmented"]
+        if "actual_packing_density" in skyline_res: current_packing_density = skyline_res["actual_packing_density"]
+        if "fabric_pattern" in skyline_res: current_fabric_pattern = skyline_res["fabric_pattern"]
+
     # Ép bảng chi tiết CAD cập nhật đúng cột 'Dự đoán Mật độ nén' hiển thị theo thực tế dòng hàng
     if "Dự đoán Mật độ nén" in df_bom.columns:
         df_bom["Dự đoán Mật độ nén"] = f"{current_packing_density * 100:.1f}%"
@@ -1420,12 +1418,12 @@ if final_ui_rows and final_bom_ctx:
     class_mapping = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_summary["Phân loại vật tư"] = df_summary["Material Class"].map(lambda x: class_mapping.get(x, f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ (Đã sửa lỗi đồng bộ biến)
+    # Bố trí hàng ngang cho tiêu đề bảng và nút Xuất Excel PPJ
     col_title, col_btn = st.columns([3, 1])
     with col_title:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col_btn:
-        # Gọi Khối 5a truyền đầy đủ thông số kỹ thuật động và nhãn vân vải sang file Excel báo cáo PPJ Group
+        # Gọi Khối 5a truyền đầy đủ thông số kỹ thuật động, mã hàng, khách hàng sang file Excel báo cáo PPJ Group
         excel_data = export_excel_ppj_format(df_summary, df_bom, product_segmented, final_bom_ctx, current_packing_density, current_fabric_pattern)
         st.download_button(
             label="🟢 XUẤT FILE EXCEL PPJ",
