@@ -1024,8 +1024,9 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     }
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh (ĐÃ VÁ LỖI CÚ PHÁP): Bóc tách số lớp cắt thực tế trên bàn sản xuất.
-    Tự động nhân 4 Pcs lót túi cho Quần/Jumpsuit và bóc tách các chi tiết Jacket rời.
+    """Khối 3 hoàn chỉnh ổn định: Bóc tách số lớp cắt thực tế trên bàn sản xuất.
+    Tự động khóa cứng quy tắc nhân đôi 4 Pcs bao túi cho TẤT CẢ các dòng hàng trên thị trường.
+    Bảo vệ nguyên vẹn 100% logic nhân đôi của dòng Áo Jacket và Váy Đầm.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
@@ -1040,6 +1041,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         geo_role_raw = str(r.get("geometry_role", "MINOR_COMPONENT")).upper().strip()
         piece_type_ai = str(r.get("piece_type", geo_role_raw)).upper().strip()
         
+        # Tạo vùng quét chuỗi thông minh chấp nhận cả ký tự đặc biệt, dấu cách và viết liền
         combined_str_item = f" {comp_name_raw} {piece_type_ai} ".lower().replace("_", " ")
         is_button = any(k in combined_str_item for k in ["button", "nút", "nut", "khuy"])
 
@@ -1047,10 +1049,12 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             adj_l = raw_l * (1 + warp_shrinkage / 100.0)
             adj_w = raw_w * (1 + weft_shrinkage / 100.0) if raw_w > 0 else raw_w
             
+            # Khởi tạo thông số lớp cấu trúc mặc định
             layer_multiplier = 1
             is_pant_component = product_segmented == "TROUSER" or any(k in combined_str_item for k in [" trouser ", " pant ", " jean ", " leg "])
             jacket_double_layers = ["cuff", "cúptay", "cuptay", "măngsét", "mangset", "bottomhem", "laiáo", "collar", "cổ", "nẹpcổ", "lapel", "veáo"]
 
+            # 1. Logic phân tầng lớp cắt cơ bản trên thị trường
             if "yoke" in combined_str_item or "đô" in combined_str_item:
                 layer_multiplier = 1 if is_pant_component else 2  
             elif "waistband" in combined_str_item or "lưng" in combined_str_item or "cạp" in combined_str_item:
@@ -1061,17 +1065,24 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
                 elif "flap" in combined_str_item or "nắp túi" in combined_str_item or "naptui" in combined_str_item:
                     layer_multiplier = 2 if product_segmented in ["SHIRT", "SKIRT", "DRESS"] else 4 
                     
+            # 2. Quy tắc nhân đôi lớp cắt cho dòng Áo Jacket đại trà (Không động tới)
             if product_segmented in ["JACKET", "SUIT_BLAZER"]:
                 if "back" in combined_str_item or "thân sau" in combined_str_item:
                     if pcs == 1: layer_multiplier = 2  
                 if any(k in combined_str_item for k in ["belt", "sash", "đai", "daithatlung"]):
                     layer_multiplier = 2  
 
-            if product_segmented in ["TROUSER", "JUMPSUIT"] and mat_class_raw == "LINING":
-                if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag"]):
-                    if pcs == 2: layer_multiplier = 2  
+            # =====================================================================
+            # 🚨 ĐÃ SỬA CHÍNH XÁC: ÉP 4 PCS BAO TÚI CHO MỌI LOẠI SẢN PHẨM TRÊN THỊ TRƯỜNG
+            # =====================================================================
+            # Không phân biệt Quần, Áo hay Chân váy, hễ là rập bao túi lót LINING thì bắt buộc cắt 4 mảnh
+            if mat_class_raw == "LINING":
+                if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag", "pocket lining"]):
+                    if pcs == 2: 
+                        layer_multiplier = 2  
+            # =====================================================================
 
-            # 🚨 ĐÃ SỬA LỖI CÚ PHÁP: Bổ sung đầy đủ điều kiện so sánh số lượng rập cho Váy Đầm
+            # 3. Quy tắc nhân đôi lớp cắt cho nẹp cổ / lót đầm của riêng dòng Váy Đầm
             if product_segmented in ["DRESS", "SKIRT"]:
                 if any(k in combined_str_item for k in ["neck facing", "nẹp cổ", "nepco", "facing", "lining dress", "lót đầm"]):
                     if pcs == 1 or pcs == 2: 
@@ -1100,6 +1111,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             })
                 
     return total_fabric_piece_area, piece_calculated_data
+
 
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
