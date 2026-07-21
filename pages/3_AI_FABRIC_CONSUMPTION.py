@@ -1229,6 +1229,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_display_rows
 
 
+# =====================================================================
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL BÁO CÁO PPJ (BỔ SUNG MÃ HÀNG & KHÁCH HÀNG)
+# =====================================================================
 import io  
 import pandas as pd
 from openpyxl import Workbook
@@ -1237,7 +1240,7 @@ from openpyxl.utils import get_column_letter
 
 def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text, bom_source_ctx, packing_density_val, fabric_pattern_raw):
     """Khối 5a hoàn chỉnh: Hàm dựng cấu trúc file Excel báo cáo PPJ Group 
-    Đã sửa lỗi cấu trúc tự động đo độ rộng cột và tích hợp thông số chất liệu vải động.
+    Đã bổ sung Mã Hàng (Style Code) và Khách Hàng (Customer) vào khối Technical Profile đầu trang.
     """
     output = io.BytesIO()
     wb = Workbook()
@@ -1269,8 +1272,9 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
     pattern_mapping = {"SOLID": "VẢI TRƠN (SOLID)", "STRIPE": "VẢI SỌC KẺ (STRIPE)", "PLAID": "VẢI CARO (PLAID/CHECK)", "NAP": "VẢI 1 CHIỀU / TUYẾT NHUNG (NAP)"}
     detected_pattern_text = pattern_mapping.get(fabric_pattern_raw, f"VẢI ĐẶC THÙ ({fabric_pattern_raw})")
 
-    # Ma trận nạp 4 thông số cốt lõi lên đầu file Excel
+    # 🚨 ĐÃ CẬP NHẬT: Thêm Mã hàng (Style Code) và Khách hàng (Customer) vào ma trận thông số 4 dòng
     meta_rows = [
+        ["Mã hàng / Style Code:", str(bom_source_ctx.get("style_code", bom_source_ctx.get("style_num", "N/A"))).upper(), "Khách hàng / Đối tác:", str(bom_source_ctx.get("customer", bom_source_ctx.get("buyer", "N/A"))).upper()],
         ["Size may mẫu (Sample Size):", str(bom_source_ctx.get("calculated_on_size", "Mẫu")), "Khổ vải hữu dụng (Width):", f'{bom_source_ctx.get("fabric_width_inch", 56.0)}"'],
         ["Co rút dọc (Warp Shrinkage):", f'{bom_source_ctx.get("warp_shrinkage_percent", 0.0)}%', "Co rút ngang (Weft Shrinkage):", f'{bom_source_ctx.get("weft_shrinkage_percent", 0.0)}%'],
         ["Chủng loại sản phẩm:", str(product_type_text).upper(), "Tính chất đặc thù vải:", detected_pattern_text],
@@ -1282,17 +1286,18 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
         current_r = start_meta_row + r_idx
         ws1.append(row_data)
         
-        # Gán định dạng thủ công trực tiếp cho từng ô theo vị trí hàng/cột, loại bỏ hoàn toàn vòng lặp mảng rỗng
+        # Thiết lập màu sắc và đóng khung cố định trực tiếp
         ws1.cell(row=current_r, column=1).font = bold_font; ws1.cell(row=current_r, column=1).fill = meta_label_fill; ws1.cell(row=current_r, column=1).border = thin_border
         ws1.cell(row=current_r, column=3).font = bold_font; ws1.cell(row=current_r, column=3).fill = meta_label_fill; ws1.cell(row=current_r, column=3).border = thin_border
         
         ws1.cell(row=current_r, column=2).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=2).fill = meta_val_fill; ws1.cell(row=current_r, column=2).border = thin_border; ws1.cell(row=current_r, column=2).alignment = Alignment(horizontal="center")
         ws1.cell(row=current_r, column=4).font = Font(name=font_family, size=10, bold=True, color="0E6251"); ws1.cell(row=current_r, column=4).fill = meta_val_fill; ws1.cell(row=current_r, column=4).border = thin_border; ws1.cell(row=current_r, column=4).alignment = Alignment(horizontal="center")
 
-    ws1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
+    # Đẩy bảng gộp Summary xuống dòng số 12 để nhường không gian cho khung thông số mở rộng
+    ws1.cell(row=11, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = section_font
     summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
     for col_idx, h_text in enumerate(summary_headers, start=1):
-        cell = ws1.cell(row=11, column=col_idx, value=h_text)
+        cell = ws1.cell(row=12, column=col_idx, value=h_text)
         cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = thin_border
     
     for _, row in df_summary_data.iterrows():
@@ -1331,7 +1336,6 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             elif col_idx == 9:
                 cell.font = bold_font; cell.number_format = '#,##0.0000'; cell.alignment = Alignment(horizontal="right")
                 
-    # Co giãn tự động kích thước chiều rộng cột Excel không dính lỗi Tupe Object
     for ws in [ws1, ws2]:
         for c_num, col_cells in enumerate(ws.columns, start=1):
             max_len = max(len(str(cell.value or '')) for cell in col_cells)
@@ -1340,6 +1344,7 @@ def export_excel_ppj_format(df_summary_data, df_details_data, product_type_text,
             
     wb.save(output)
     return output.getvalue()
+
 # =====================================================================
 # 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & ĐỒNG BỘ NÚT BẤM EXCEL PPJ
 # =====================================================================
