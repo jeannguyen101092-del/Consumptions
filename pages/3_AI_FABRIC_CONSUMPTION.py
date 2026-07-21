@@ -831,9 +831,9 @@ def initialize_and_sync_parameters():
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a nâng cấp ổn định: Khóa cứng thứ tự danh sách linh kiện rập,
-    nâng Shape Factor thân quần lên 0.76 để ép định mức thân quần sụt sâu xuống.
-    Bảo vệ nguyên vẹn cấu trúc tính toán của dòng Áo Jacket.
+    """Khối 2a nâng cấp toàn diện: Khóa cứng thứ tự danh sách linh kiện rập.
+    Tích hợp và phân hệ dòng hàng JUMPSUIT (Áo liền quần) lên độ ưu tiên số 1.
+    GIỮ NGUYÊN HOÀN TOÀN cấu trúc tính toán cũ của dòng Quần (Trouser) và Áo Jacket.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -857,15 +857,28 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         plaid_repeat_inch = float(repeat_match.group(2)) if repeat_match else 4.0
     if any(k in query_lower for k in ["tuyết", "nap", "one way", "một chiều", "nhung"]): fabric_pattern, is_one_way_nap = "NAP", True
 
-    # 2. Bộ quét AI nhận diện dòng sản phẩm toàn cục từ tên rập BOM
+    # 2. Bộ quét AI nhận diện chủng loại dòng sản phẩm toàn cục từ dữ liệu rập BOM
     bom_components_text = " ".join([str(r.get("component_name", "")).lower() + " " + str(r.get("piece_type", "")).lower() for r in stable_bom_list]).strip()
-    full_detect_zone = f"{query_lower} {bom_components_text}"
+    
+    # Đồng bộ quét từ khóa bổ sung từ thông tin text meta đầu file gốc techpack nếu có lưu trong bom_source
+    techpack_meta_text = f"{str(bom_source.get('style_code', ''))} {str(bom_source.get('style_name', ''))} {str(bom_source.get('garment_type', ''))}".lower()
+    full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text}"
 
-    product_type = "CASUAL_TOP"
-    if any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop", "đỉa"]):
-        product_type = "TROUSER"
+    product_type = "CASUAL_TOP" # Dòng hàng mặc định ban đầu
+    
+    # ➔ ĐÃ HIỆU CHỈNH ĐỘ ƯU TIÊN: Đẩy dòng JUMPSUIT (Áo liền quần) lên ƯU TIÊN SỐ 1
+    if any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "bodysuit", "romper", "dungaree"]):
+        product_type = "JUMPSUIT"
+        
+    # ➔ ƯU TIÊN SỐ 2: Nhận diện Áo khoác / Jacket (GIỮ NGUYÊN TUYỆT ĐỐI HỆ THỐNG CŨ)
     elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit", "cuff", "măngsét", "flap", "nắptúi"]):
         product_type = "JACKET"
+        
+    # ➔ ƯU TIÊN SỐ 3: Nhận diện dòng Quần (Trouser / Jeans) (GIỮ NGUYÊN TUYỆT ĐỐI HỆ THỐNG CŨ)
+    elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop", "đỉa"]):
+        product_type = "TROUSER"
+        
+    # ➔ CÁC DÒNG KHÁC GIỮ NGUYÊN THEO CAM KẾT KHÔNG ĐỘNG TỚI
     elif any(k in full_detect_zone for k in ["sơ mi", "shirt", "so mi", "yoke", "đô", "collar"]):
         product_type = "SHIRT"
     elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
@@ -901,9 +914,11 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         # Áp khung Shape Factor mô phỏng diện tích đa giác thực tế
         sf = 0.75 if is_actual_major else 0.85
         
-        # Đã sửa: Nâng mạnh hệ số của Thân Quần lên 0.76 để ép định mức thân quần sụt giảm mạnh xuống
-        if product_type == "TROUSER" and is_actual_major: 
-            sf = 0.76 
+        # ĐỊNH TUYẾN HỆ SỐ HÌNH HỌC ĐỘNG THEO CHỦNG LOẠI HÀNG:
+        if product_type == "JUMPSUIT" and is_actual_major:
+            sf = 0.65 # Đồ liền quần rập cực dài uốn lượn sâu ở eo/đáy, hao hụt kẽ hở biên lớn
+        elif product_type == "TROUSER" and is_actual_major: 
+            sf = 0.76 # Giữ nguyên hệ số cũ đã căn chỉnh của dòng Quần
         elif product_type == "DRESS_SKIRT" and "flare" in curr_item_lower: 
             sf = 0.52
             
@@ -927,6 +942,7 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         "bias_shape_area_weight": bias_shape_area_weight, "total_matching_score": total_matching_score, 
         "constraint_penalty": constraint_penalty, "stable_bom_list": stable_bom_list
     }
+
 
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     """Khối 2b nâng cấp: Giả lập thuật toán giác sơ đồ chéo gối đầu (Cross Nesting) 
