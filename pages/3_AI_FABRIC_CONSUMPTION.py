@@ -970,11 +970,26 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     if ctx["plaid_repeat_inch"] > 0: actual_packing_density -= (ctx["plaid_repeat_inch"] * 0.007)
     actual_packing_density = max(min(actual_packing_density, 0.94), 0.65)
 
-    # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
+       # 4. Tính toán chiều dài sơ đồ giả lập và quy đổi Yards
     simulated_length = ((final_simulated_shape_area / ctx["fabric_width"]) / actual_packing_density) * (1.0 + ((ctx["bias_shape_area_weight"] / final_simulated_shape_area) * 0.15))
     simulated_length *= (1.0 + (ctx["total_matching_score"] * 0.007)) * (1.02 if fabric_pattern == "PLAID" else 1.0) * ctx["constraint_penalty"]
 
-    global_gross_fabric = (simulated_length / 36.0) * 1.020 * 1.010 + (0.3 / 36.0)
+    # =====================================================================
+    # NÂNG HỆ SỐ HAO HỤT ĐẦU CÂY, DẠT DẬP SẢN XUẤT THỰC TẾ (BULK WASTAGE)
+    # =====================================================================
+    # Mặc định hao hụt biên vải và đầu tấm cơ bản là 2% (1.020) + 1% (1.010)
+    fabric_wastage_multiplier = 1.020 * 1.010 
+    end_loss_inch = 0.3
+    
+    # Nâng hao hụt riêng cho Áo Jacket/Vét vì bàn cắt dày và dạt dập khúc đầu cây nhiều hơn quần
+    if ctx["product_type"] in ["JACKET", "SUIT_BLAZER"]:
+        # Nhân thêm 8% hao hụt sản xuất đại trà (đầu cây, lỗi vải, nối khúc bàn cắt)
+        fabric_wastage_multiplier *= 1.08  
+        end_loss_inch = 1.5 # Cộng thêm 1.5 inch hao hụt đầu cây đầu tấm sơ đồ
+    # =====================================================================
+
+    # Áp dụng hệ số hao hụt mới vào công thức tính Yards cuối cùng
+    global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
 
     return {
         "product_segmented": ctx["product_type"], "fabric_pattern": fabric_pattern,
