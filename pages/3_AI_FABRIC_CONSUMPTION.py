@@ -1555,12 +1555,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         dens, total_gross_yds = 0.82, 0.2905
 
-    # 2. Phân bổ định mức chi tiết động tỉ lệ thuận theo diện tích rập hình học thực tế phẳng
+       # 2. 🚨 THUẬT TOÁN PHÂN BỔ ĐỊNH MỨC PHI TUYẾN TÍNH CHUẨN GERBER (ÉP ĐM CHI TIẾT NHỎ HẠ SÁT SÀN) 🚨
     total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
+    
     if total_marker_net_area > 0 and total_gross_yds > 0:
-        df_bom[g_col] = (((df_bom[area_col] * df_bom[pcs_col]) / total_marker_net_area) * total_gross_yds).round(5)
+        for idx, row in df_bom.iterrows():
+            net_a = float(row[area_col])
+            pcs_val = float(row[pcs_col])
+            name_lower = str(row.get("component_name", row.get("Component Name", ""))).lower()
+            role_upper = str(row.get("geometry_role", row.get("Role/Piece Type", ""))).upper()
+            
+            # Tính tỷ lệ diện tích phẳng hình học cơ sở
+            share_ratio = (net_a * pcs_val) / total_marker_net_area
+            item_gross = total_gross_yds * share_ratio
+            
+            # Kiểm tra xem chi tiết rập có phải là rập phụ nhỏ (Minor Components / Trims / Đỉa / Nắp túi / Mặt che túi)
+            is_major_panel = "MAJOR" in role_upper or any(k in name_lower for k in ["front", "back", "leg", "thân", "body"])
+            
+            if not is_major_panel:
+                # 🚨 ÉP CHIẾT KHẤU CHÍ MẠNG: Chi tiết nhỏ nhồi xen kẽ kẽ hở chỉ gánh tối đa 5% trọng số tiêu hao thực tế
+                item_gross = item_gross * 0.05
+                
+            df_bom.loc[idx, g_col] = round(item_gross, 5)
 
-    # Gom nhóm dữ liệu làm bảng tóm tắt vật tư (BOM Summary)
+    # Tiến hành gộp nhóm dữ liệu làm bảng tóm tắt vật tư (BOM Summary)
     df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
     df_sum.columns = ["Material Class", "Gross Consumption"]
     
@@ -1576,7 +1594,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
     df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
     
-    # Chuẩn hóa tên cột hiển thị UI giao diện Streamlit
+    # Chuẩn hóa đặt lại tên cột hiển thị UI giao diện Streamlit cho chuyên nghiệp
     df_bom_display = df_bom.copy()
     rename_rules = {
         "component_name": "Component Name", "material_class": "Material Class", 
@@ -1590,7 +1608,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất đồ họa cấu trúc giao diện
+    # Kích hoạt kết xuất khối Layout đồ họa trang web
     st.markdown('<div class="cad-card">', unsafe_allow_html=True)
     st.markdown(
         f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
@@ -1609,7 +1627,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 label="🟢 XUẤT EXCEL PPJ", data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
                 file_name=f"PPJ_BOM_Consumption_Engine.xlsx",
-                key="btn_download_excel_ppj_final_v34_ultimate"
+                key="btn_download_excel_ppj_final_v34_ultimate_minor_fixed"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
@@ -1620,5 +1638,3 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.caption(f"🤖 AI Nesting Engine | Mật độ nén hình học tự thích ứng: {dens*100:.1f}% | Tổng định mức giải toán tự động phẳng: {main_fabric_total:.4f} YDS")
     st.markdown('</div>', unsafe_allow_html=True)
-else:
-    st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
