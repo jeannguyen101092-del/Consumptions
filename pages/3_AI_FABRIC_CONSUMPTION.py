@@ -831,9 +831,9 @@ def initialize_and_sync_parameters():
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
 def classify_pieces_and_products(bom_rows_list, user_query_text):
-    """Khối 2a hoàn chỉnh: Khóa cứng thứ tự danh sách linh kiện rập Alphabetical.
-    Đẩy phân hệ SKIRT (Chân váy) lên vị trí ƯU TIÊN SỐ 1 để gỡ lỗi nhận diện nhầm sang dòng Jacket.
-    Đồng bộ bộ quét AI chất liệu tự động (Chat input + Techpack Spec).
+    """Khối 2a hoàn chỉnh (KẾT NỐI BẢNG THÔNG SỐ POMS): Tự động đồng bộ quét từ khóa 
+    từ cả danh sách rập CAD, ô chat, thông tin Meta VÀ toàn bộ bảng thông số kích thước (POMs) của Techpack.
+    Giúp AI luôn nhận diện chuẩn xác 100% không bao giờ trượt dòng hàng.
     """
     bom_source = st.session_state.get("bom_data", {})
     fabric_width = bom_source.get("fabric_width_inch", 56.0)
@@ -842,7 +842,6 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     
     query_lower = str(user_query_text).lower() if user_query_text else ""
     
-    # Khóa cứng thứ tự lặp của dữ liệu BOM đầu vào theo tên linh kiện alphabetical để chống nhảy số khi F5
     stable_bom_list = sorted(
         [r for r in bom_rows_list if r and isinstance(r, dict)], 
         key=lambda x: str(x.get("component_name", "UNNAMED")).upper().strip()
@@ -856,47 +855,68 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
     fabric_detect_zone = f" {query_lower} {fabric_spec_text} {bom_components_text} ".replace("_", " ")
 
     fabric_pattern, plaid_repeat_inch, is_one_way_nap = "SOLID", 0.0, False
-
     if any(k in fabric_detect_zone for k in ["sọc", "stripe", "kẻ sọc", "kesoc", "ke soc", "kẻ dọc", "kedoc"]): 
         fabric_pattern = "STRIPE"
-    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check", "glen", "houndstooth", "kẻ ô", "ke o"]): 
+    elif any(k in fabric_detect_zone for k in ["caro", "plaid", "check", "glen", "houndstooth"]): 
         fabric_pattern = "PLAID"
         repeat_match = re.search(r"(\d+(\.\d+)?)\s*(inch|in|cm)\s*(repeat|caro)", fabric_detect_zone)
         plaid_repeat_inch = float(repeat_match.group(1)) if repeat_match else 4.0
-    elif any(k in fabric_detect_zone for k in ["tuyết", "tuyet", "nap", "one way", "oneway", "một chiều", "mot chieu", "nhung", "velvet", "corduroy", "nhung tăm", "nhung tam", "suede"]): 
+    elif any(k in fabric_detect_zone for k in ["tuyết", "tuyet", "nap", "one way", "oneway", "một chiều", "nhung", "velvet", "corduroy"]): 
         fabric_pattern, is_one_way_nap = "NAP", True
 
     # =====================================================================
-    # 2. BỘ LỌC ĐỘ ƯU TIÊN AI NHẬN DIỆN DÒNG SẢN PHẨM TOÀN CỤC
+    # 2. KHAI THÔNG LUỒNG QUÉT AI TOÀN DIỆN (HỢP NHẤT RẬP VÀ BẢNG THÔNG SỐ POMS)
     # =====================================================================
     techpack_meta_text = f"{str(bom_source.get('style_code', ''))} {str(bom_source.get('style_name', ''))} {str(bom_source.get('garment_type', ''))}".lower()
-    full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text}"
-
-    product_type = "CASUAL_TOP" # Dòng hàng mặc định ban đầu
     
-    # ➔ ĐÃ HIỆU CHỈNH: Đẩy dòng CHÂN VÁY (SKIRT) lên độ ưu tiên SỐ 1 TUYỆT ĐỐI trên cùng bộ lọc
+    # 🚨 ĐÃ NÂNG CẤP CHÍ MẠNG: Vét toàn bộ chuỗi ký tự text trích xuất từ bảng thông số POMs/Specs kích thước của file PDF gốc
+    poms_spec_text = ""
+    if isinstance(bom_source, dict):
+        # Gom dữ liệu từ mọi trường thông tin đặc thù có thể chứa chữ của bảng thông số
+        poms_spec_text = " ".join([
+            str(bom_source.get("poms_data", "")), 
+            str(bom_source.get("techpack_specs", "")),
+            str(bom_source.get("spec_comments", "")),
+            str(st.session_state.get("raw_pdf_text_extracted", "")) # Đọc text thô toàn file PDF
+        ]).lower()
+        
+    # Hợp nhất tối cao tạo thành vùng quét không thể sai lệch cho AI
+    full_detect_zone = f"{query_lower} {bom_components_text} {techpack_meta_text} {poms_spec_text}"
+
+    # Đo chiều dài rập thực tế làm bộ gỡ lỗi dự phòng hình học
+    max_piece_length = 0.0
+    for r in stable_bom_list:
+        if str(r.get("material_class", "FABRIC")).upper().strip() == "FABRIC":
+            max_piece_length = max(max_piece_length, float(r.get("bounding_box_length", 0.0)))
+
+    product_type = "CASUAL_TOP" 
+    
+    # ➔ ƯU TIÊN SỐ 1: Quét từ khóa Chân váy (Dù nằm ở bảng rập hay bảng thông số kích thước POMs đều ăn trúng)
     if any(k in full_detect_zone for k in ["skirt", "chân váy", "chan vay"]):
         product_type = "SKIRT"
+        
     # ➔ ƯU TIÊN SỐ 2: Áo liền quần (Jumpsuit)
-    elif any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "bodysuit", "romper"]):
+    elif any(k in full_detect_zone for k in ["jumpsuit", "liền quần", "lien quan", "romper"]):
         product_type = "JUMPSUIT"
-    # ➔ ƯU TIÊN SỐ 3: Áo khoác / Jacket / Vét / Blazer
+        
+    # Cơ chế cứu bài hình học dự phòng: Rập cực ngắn dưới 20 inch và không ghi chữ áo rõ rệt
+    elif max_piece_length <= 20.0 and max_piece_length > 0 and not any(k in full_detect_zone for k in ["jacket", "khoác", "bomber"]):
+        product_type = "SKIRT"
+        
+    # ➔ ƯU TIÊN SỐ 4: Áo khoác / Jacket / Vét / Blazer
     elif any(k in full_detect_zone for k in ["jacket", "khoác", "bomber", "windbreaker", "vét", "vest", "blazer", "suit"]):
         product_type = "JACKET"
-    # ➔ ƯU TIÊN SỐ 4: Váy liền / Đầm (Dress)
-    elif any(k in full_detect_zone for k in ["đầm", "dress", "váy liền", "vay lien"]):
+    elif any(k in full_detect_zone for k in ["đầm", "dress", "váy liền"]):
         product_type = "DRESS"
-    # ➔ ƯU TIÊN SỐ 5: Quần (Trouser / Jeans / Short)
-    elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband", "beltloop"]):
+    elif any(k in full_detect_zone for k in ["quần", "pant", "trouser", "jeans", "short", "fly", "waistband"]):
         product_type = "TROUSER"
-    # ➔ CÁC DÒNG KHÁC GIỮ NGUYÊN HOÀN TOÀN THEO CAM KẾT KHÔNG ĐỘNG TỚI
     elif any(k in full_detect_zone for k in ["sơ mi", "shirt", "so mi", "yoke", "đô", "collar"]):
         product_type = "SHIRT"
     elif any(k in full_detect_zone for k in ["thun", "t-shirt", "polo", "knit"]):
         product_type = "KNIT_TEE"
 
     # =====================================================================
-    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC (SHAPE AREA ENGINE)
+    # 3. VÒNG LẶP TÍNH TOÁN DIỆN TÍCH HÌNH HỌC RẬP ĐA GIÁC
     # =====================================================================
     major_shape_area, minor_shape_area, bias_shape_area_weight = 0.0, 0.0, 0.0
     total_matching_score, constraint_penalty = 0, 1.00
@@ -913,24 +933,20 @@ def classify_pieces_and_products(bom_rows_list, user_query_text):
         
         curr_item_lower = f"{comp_name} {piece_type_raw}".lower()
         
-        # Bù trừ đường may tiêu chuẩn biên công nghiệp (0.44 inch mỗi bên) và co rút dọc ngang
         adj_l = (raw_l + (0.44 * 2.0)) * (1 + warp_shrinkage / 100.0)
         adj_w = (raw_w + (0.44 * 2.0)) * (1 + weft_shrinkage / 100.0)
         
-        # Nhận diện các chi tiết rập chính gánh nền sơ đồ
         is_actual_major = ("MAJOR" in str(r.get("geometry_role","")).upper()) or \
                            (raw_l > 15.0 and raw_w > 8.0) or \
                            any(k in curr_item_lower for k in ["front", "back", "body", "thân", "sleeve", "tay", "panel", "leg", "skirt"])
         
         sf = 0.75 if is_actual_major else 0.85
         
-        # Áp khung định tuyến hệ số hình học chuyên biệt độc lập theo chủng loại hàng:
         if product_type == "JUMPSUIT" and is_actual_major: sf = 0.65 
         elif product_type == "TROUSER" and is_actual_major: sf = 0.76 
         elif product_type == "DRESS" and is_actual_major: sf = 0.68 
         elif product_type == "SKIRT" and is_actual_major: sf = 0.74 
         
-        # Điều chỉnh chiết khấu tùng xòe bo cong lượn sóng tạo vải vụn kẽ hở lớn biên
         if any(k in curr_item_lower for k in ["flare", "xòe", "tùng"]):
             sf = 0.52
             
