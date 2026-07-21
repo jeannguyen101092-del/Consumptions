@@ -1270,6 +1270,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_display_rows
 
 
+# =====================================================================
+# 🟩 KHỐI 5a HOÀN CHỈNH: HÀM TẠO EXCEL PPJ (TỐI GIẢN & ĐÃ VÁ TOÀN BỘ LỖI)
+# =====================================================================
 import io, pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1279,13 +1282,15 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     output = io.BytesIO()
     wb = Workbook()
     
-    # Định dạng nhanh
+    # Cấu hình định dạng chung tối giản
     font = Font(name="Segoe UI", size=10)
     bold = Font(name="Segoe UI", size=10, bold=True)
     header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
     thin_border = Border(*[Side(style='thin', color='BDC3C7')]*4)
     
-    # TAB 1: BOM Summary
+    # =====================================================================
+    # TAB 1: BẢNG TỔNG HỢP VÀ THÔNG SỐ SƠ ĐỒ KỸ THUẬT (BOM SUMMARY)
+    # =====================================================================
     ws1 = wb.active
     ws1.title = "BOM Summary"
     ws1.sheet_view.showGridLines = True
@@ -1294,7 +1299,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.cell(1, 1).font = Font(name="Segoe UI", size=14, bold=True, color="0E6251")
     ws1.append([])
     
-    # Thông tin chung (Meta)
+    # Nạp 2 dòng thông tin chung mã hàng (Meta Rows)
     meta = [
         ["Mã hàng:", str(bom_ctx.get("style_code", "N/A")).upper(), "Khách hàng:", str(bom_ctx.get("customer", "N/A")).upper()],
         ["Chủng loại:", str(product_type).upper(), "Hiệu suất:", f'{density * 100:.1f}%']
@@ -1302,19 +1307,25 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     for r in meta: ws1.append(r)
     ws1.append([])
     
-    # Bảng tóm tắt định mức
+    # Định dạng tiêu đề cột cho Tab 1
     ws1.append(["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross)", "Đơn Vị Tính (UOM)"])
     for col in range(1, 5):
         cell = ws1.cell(row=ws1.max_row, column=col)
-        cell.font = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF"); cell.fill = header_fill
+        cell.font = bold; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center")
         
+    # Duyệt ghi dữ liệu tổng hợp
     for _, row in df_summary.iterrows():
         ws1.append([
             row.get("Phân loại vật tư", "VẬT TƯ"), row.get("Material Class", "FABRIC"),
             float(row.get("Gross Consumption", 0.0)), row.get("UOM", "YDS")
         ])
         ws1.cell(ws1.max_row, 3).number_format = '#,##0.0000'
-    # TAB 2: Detailed CAD Pieces
+        ws1.cell(ws1.max_row, 2).alignment = Alignment(horizontal="center")
+        ws1.cell(ws1.max_row, 4).alignment = Alignment(horizontal="center")
+
+    # =====================================================================
+    # TAB 2: CHI TIẾT CẤU TRÚC RẬP CAD (DETAILED CAD PIECES)
+    # =====================================================================
     ws2 = wb.create_sheet(title="Detailed CAD Pieces")
     ws2.sheet_view.showGridLines = True
     
@@ -1322,10 +1333,10 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws2.append(headers)
     for col in range(1, len(headers) + 1):
         cell = ws2.cell(row=1, column=col)
-        cell.font = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF"); cell.fill = header_fill
+        cell.font = bold; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center")
 
+    # Duyệt và đẩy dữ liệu rập chi tiết xuống sheet
     for _, row in df_details.iterrows():
-        # Lấy dữ liệu an toàn tránh lỗi KeyError
         ws2.append([
             row.get("Component Name", row.get("component_name", "UNNAMED")),
             row.get("Material Class", row.get("material_class", "FABRIC")),
@@ -1336,12 +1347,16 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             row.get("Kiểu sơ đồ tổng", "N/A"),
             float(row.get("Gross Consumption", row.get("gross_consumption", 0.0)))
         ])
-        # Định dạng định mức dòng hiện tại
+        
+        # Định dạng nhanh căn lề và định dạng số cho từng ô dữ liệu
+        ws2.cell(ws2.max_row, 4).alignment = Alignment(horizontal="center")
         ws2.cell(ws2.max_row, 5).number_format = '#,##0.00'
         ws2.cell(ws2.max_row, 6).number_format = '#,##0.00'
         ws2.cell(ws2.max_row, 8).number_format = '#,##0.0000'
 
-    # Auto-fit độ rộng cột và thêm đường viền cho cả 2 Tab
+    # =====================================================================
+    # TỰ ĐỘNG CĂN CHỈNH ĐỘ RỘNG CỘT & ĐÓNG KHUNG BẢNG (AUTO-FIT & BORDERS)
+    # =====================================================================
     for ws in [ws1, ws2]:
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
             for cell in row:
@@ -1349,32 +1364,79 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
                 cell.border = thin_border
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            ws.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 3, 12)
+            ws.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 12)
 
     wb.save(output)
     output.seek(0)
     return output
-    # 3. Giao diện tiêu đề bảng và Nút xuất file Excel PPJ
+# =====================================================================
+# 🟩 KHỐI 5b HOÀN CHỈNH: RENDERING UI & NÚT EXCEL PPJ (TỐI GIẢN CHUẨN)
+# =====================================================================
+import streamlit as st, pandas as pd
+
+# 1. Bốc tách dữ liệu khép kín từ bộ nhớ an toàn (Hỗ trợ cả List và DataFrame)
+rows = display_rows if ('display_rows' in locals() and display_rows is not None) else st.session_state.get("processed_display_rows", [])
+ctx = bom_source if ('bom_source' in locals() and isinstance(bom_source, dict)) else st.session_state.get("bom_data", {})
+df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows
+
+# Kiểm tra dữ liệu thực tế tồn tại trước khi tiến hành vẽ giao diện bảng định mức
+if ctx and df_bom is not None and not df_bom.empty:
+    # Trích xuất thông số kỹ thuật chung của dòng sản phẩm chống lỗi NameError
+    prod = str(ctx.get("product_segmented", "JACKET")).upper()
+    dens = float(ctx.get("global_packing_density", 0.85))
+    pat = str(ctx.get("fabric_pattern", "SOLID")).upper()
+    
+    # Tự động đồng bộ hóa tên cột để xử lý hàm gộp nhóm dữ liệu (Groupby)
+    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "Material Class")
+    g_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "Gross Consumption")
+    
+    # Ép kiểu dữ liệu dạng số để tính tổng định mức chính xác
+    df_bom[g_col] = pd.to_numeric(df_bom[g_col], errors='coerce').fillna(0.0)
+    df_sum = df_bom.groupby([m_col], as_index=False).agg({g_col: "sum"})
+    df_sum.columns = ["Material Class", "Gross Consumption"]
+    df_sum["Gross Consumption"] = df_sum["Gross Consumption"].round(4)
+    df_sum["UOM"] = "YDS"
+    
+    # Ánh xạ tên gọi danh mục tiếng Việt gửi báo cáo hệ thống PPJ Group
+    cls_map = {"FABRIC": "VẢI CHÍNH (MAIN FABRIC)", "FUSING": "KEO/DỰNG (FUSING)", "LINING": "VẢI LÓT/BAO TÚI (LINING)", "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"}
+    df_sum["Phân loại vật tư"] = df_sum["Material Class"].map(lambda x: cls_map.get(str(x).upper(), f"PHỤ LIỆU KHÁC ({x})"))
+    
+    # 2. Xây dựng cấu trúc layout và nút bấm Tải file Excel báo cáo
+    st.markdown('<div class="cad-card">', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="cad-header" style="background-color: #0E6251; color: white; padding: 10px; font-weight: bold; border-radius: 4px 4px 0 0; display: flex; justify-content: space-between; align-items: center;">'
+        f'<span>📦 ADVANCED INDUSTRIAL SUMMARY (THUẬT TOÁN ĐỒNG BỘ {prod})</span>'
+        f'</div>', 
+        unsafe_allow_html=True
+    )
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
         try:
+            # Gọi khối 5a xuất luồng nhị phân Excel truyền tải qua nút download
             excel_file = export_excel_ppj_format(df_sum, df_bom, prod, ctx, dens, pat)
             st.download_button(
-                label="🟢 XUẤT EXCEL PPJ", data=excel_file, mime="application/vnd.ms-excel",
-                file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx"
+                label="🟢 XUẤT EXCEL PPJ", 
+                data=excel_file, 
+                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet",
+                file_name=f"PPJ_BOM_{prod}_{ctx.get('style_code', 'Style')}.xlsx",
+                key="btn_download_excel_ppj_final_v15"
             )
         except Exception as e:
             st.error(f"Lỗi tạo Excel: {e}")
             
-    # Hiển thị 2 bảng định mức lên Streamlit UI
+    # Hiển thị bảng tổng hợp định mức vật tư lên màn hình UI
     st.dataframe(df_sum[["Phân loại vật tư", "Gross Consumption", "UOM"]], use_container_width=True)
     
+    # Hiển thị chi tiết danh mục cấu trúc rập CAD máy mẫu lên màn hình UI
     st.subheader(f"Bảng chi tiết cấu trúc rập máy mẫu ({prod})")
     st.dataframe(df_bom, use_container_width=True)
     
-    # Thông tin AI footer
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Mật độ: {dens*100:.1f}% | Khổ vải: {ctx.get('fabric_width_inch', 56.0)}\"")
+    # Ghi nhận chân trang thông số thuật toán đồng bộ hệ thống CAD PPJ
+    st.caption(f"🤖 AI Dòng hàng: {prod} | Mật độ: {dens*100:.1f}% | Khổ vải: {ctx.get('fabric_width_inch', 56.0)}\" | Co rút dọc: {ctx.get('warp_shrinkage_percent', 0.0)}%")
+    st.markdown('</div>', unsafe_allow_html=True)
 else:
-    st.info("💡 Hệ thống trống dữ liệu. Vui lòng nạp file PDF Techpack để bắt đầu.")
+    # Trả về giao diện trống chuẩn chỉ khi chưa nạp file dữ liệu Techpack đầu vào
+    st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
