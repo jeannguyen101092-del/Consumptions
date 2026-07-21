@@ -1018,7 +1018,7 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         "major_shape_area": ctx["major_shape_area"]
     }
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """Khối 3 hoàn chỉnh: Bóc tách số lớp cắt thực tế trên bàn sản xuất.
+    """Khối 3 hoàn chỉnh (ĐÃ VÁ LỖI CÚ PHÁP): Bóc tách số lớp cắt thực tế trên bàn sản xuất.
     Tự động nhân 4 Pcs lót túi cho Quần/Jumpsuit và bóc tách các chi tiết Jacket rời.
     """
     total_fabric_piece_area = 0.0
@@ -1065,9 +1065,11 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
                 if any(k in combined_str_item for k in ["pocketbag", "bao túi", "baotui", "túilót", "liningpocket", "pocket bag", "pocket_bag"]):
                     if pcs == 2: layer_multiplier = 2  
 
+            # 🚨 ĐÃ SỬA LỖI CÚ PHÁP: Bổ sung đầy đủ điều kiện so sánh số lượng rập cho Váy Đầm
             if product_segmented in ["DRESS", "SKIRT"]:
                 if any(k in combined_str_item for k in ["neck facing", "nẹp cổ", "nepco", "facing", "lining dress", "lót đầm"]):
-                    if pcs in: layer_multiplier = 2
+                    if pcs == 1 or pcs == 2: 
+                        layer_multiplier = 2
 
             is_belt_loop = "beltloop" in combined_str_item or "đỉa" in combined_str_item or "dia" in combined_str_item
 
@@ -1092,6 +1094,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             })
                 
     return total_fabric_piece_area, piece_calculated_data
+
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
     """Khối 4 hoàn chỉnh: Phân bổ định mức chi tiết CAD và tính hao hụt an toàn phụ liệu.
