@@ -1339,6 +1339,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         dens, total_gross_yds = 0.82, 0.2905
     # 2. Phân bổ định mức chi tiết động tỉ lệ thuận theo diện tích rập
+       # 2. Phân bổ định mức chi tiết động tỉ lệ thuận theo diện tích rập
     total_marker_net_area = (df_bom[area_col] * df_bom[pcs_col]).sum()
     if total_marker_net_area > 0 and total_gross_yds > 0:
         df_bom[g_col] = (((df_bom[area_col] * df_bom[pcs_col]) / total_marker_net_area) * total_gross_yds).round(5)
@@ -1382,8 +1383,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         unsafe_allow_html=True
     )
     
-    # Đã sửa lỗi chia cột có mảng tỷ lệ hợp lệ chống sập trang màu hồng
-    col1, col2 = st.columns()
+    # 🚨 ĐÃ SỬA LỖI TẠI ĐÂY: Điền tham số tỷ lệ chia cột hợp lệ để loại bỏ lỗi TypeError sập trang
+    col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
