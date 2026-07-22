@@ -1395,27 +1395,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - ĐÃ ĐẢO NGƯỢC LOGIC CHUẨN: NHIỀU CHI TIẾT -> HIỆU SUẤT CAO
+         # =====================================================================
+    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - TOÀN NGÀNH MAY (ĐÃ ĐỒNG BỘ MA TRẬN PHỤ THUỘC SỐ CHI TIẾT)
     # =====================================================================
-    # Chuẩn hóa: Nhiều chi tiết nhỏ dễ lồng ghép vào khoảng trống -> packing_density tăng lên
+    # Chuẩn hóa chuẩn công nghiệp: Càng nhiều chi tiết (COMPLEX) -> Hiệu suất sơ đồ (packing_density) càng GIẢM
     PRODUCT_KNOWLEDGE_BASE = {
         "JEAN_LONG": {
             "body_ratio": {"SIMPLE": 0.85, "NORMAL": 0.87, "COMPLEX": 0.90}, 
-            "packing_density": {"SIMPLE": 0.78, "NORMAL": 0.82, "COMPLEX": 0.85} # Nhiều chi tiết -> Hiệu suất cao hơn
+            "packing_density": {"SIMPLE": 0.865, "NORMAL": 0.835, "COMPLEX": 0.80} # Quần Jean chuẩn thực tế
+        }, 
+        "CHINO_PANT": {
+            "body_ratio": {"SIMPLE": 0.84, "NORMAL": 0.86, "COMPLEX": 0.89}, 
+            "packing_density": {"SIMPLE": 0.855, "NORMAL": 0.825, "COMPLEX": 0.79} # Quần Chino/Khaki
         }, 
         "SHORT": {
             "body_ratio": {"SIMPLE": 0.83, "NORMAL": 0.86, "COMPLEX": 0.88}, 
-            "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.81, "COMPLEX": 0.84}
+            "packing_density": {"SIMPLE": 0.865, "NORMAL": 0.835, "COMPLEX": 0.805} # Quần Short
+        },
+        "TOPS_KNIT": {
+            "body_ratio": {"SIMPLE": 0.80, "NORMAL": 0.83, "COMPLEX": 0.85}, 
+            "packing_density": {"SIMPLE": 0.835, "NORMAL": 0.805, "COMPLEX": 0.77} # Áo thun / Áo Polo
+        },
+        "SHIRT_WOVEN": {
+            "body_ratio": {"SIMPLE": 0.78, "NORMAL": 0.81, "COMPLEX": 0.84}, 
+            "packing_density": {"SIMPLE": 0.825, "NORMAL": 0.79, "COMPLEX": 0.75} # Áo Sơ mi / Hoodie
         },
         "JACKET": {
             "body_ratio": {"SIMPLE": 0.52, "NORMAL": 0.60, "COMPLEX": 0.65}, 
-            "packing_density": {"SIMPLE": 0.68, "NORMAL": 0.74, "COMPLEX": 0.80} # SỬA CHO JACKET: Tăng dần hiệu suất từ 68% lên 80%
+            "packing_density": {"SIMPLE": 0.78, "NORMAL": 0.73, "COMPLEX": 0.675} # Jacket / Parka / Blazer
+        },
+        "SKIRT": {
+            "body_ratio": {"SIMPLE": 0.80, "NORMAL": 0.82, "COMPLEX": 0.85}, 
+            "packing_density": {"SIMPLE": 0.855, "NORMAL": 0.80, "COMPLEX": 0.71} # Váy đơn giản đến váy nhiều múi
         }
     }
     SHAPE_LIBRARY = {"CURVED_PANEL": 0.82, "LONG_RECTANGLE": 0.94, "DEFAULT": 0.78}
     CUTTING_RULES = {"BELT_LOOP": {"width": 1.5, "length": 30.0}}
 
+    # Quét số lượng chi tiết túi và tổng chi tiết rập thực tế từ file đầu vào
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
     
     total_pocket_pieces = sum(
@@ -1428,48 +1445,78 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not isinstance(ai_decision, dict):
         ai_decision = {}
     
-    # 1. Đồng bộ nhận diện dòng hàng từ ngữ cảnh
-    if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper():
-        ai_product_type = "JACKET"
-        if total_pocket_pieces >= 6 or total_pattern_pieces > 16:
-            ai_complexity = "COMPLEX"
-        else:
-            ai_complexity = "NORMAL"
-            
-        p_rules = PRODUCT_KNOWLEDGE_BASE["JACKET"]
-        assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.60)
-        target_density = p_rules["packing_density"].get(ai_complexity, 0.74)
-        
-        #🚨 LƯU Ý KỸ THUẬT: Hàng càng nhiều chi tiết tuy hiệu suất tăng, nhưng hao hụt đầu tấm / đầu khúc khi cắt thực tế sẽ tăng theo
-        target_wastage = 1.06 if ai_complexity == "COMPLEX" else 1.03 
-    else:
-        if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO", "TROUSER", "QUẦN"]):
-            ai_product_type = "JEAN_LONG"
-        else:
-            ai_product_type = "JEAN_LONG" 
-            
-        if total_pattern_pieces > 12 or total_pocket_pieces >= 4:
-            ai_complexity = "COMPLEX"
-        else:
-            ai_complexity = "NORMAL"
-            
-        p_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
-        assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.88)
-        target_density = p_rules["packing_density"].get(ai_complexity, 0.82) 
-        
-        target_wastage = 1.03 if ai_complexity == "NORMAL" else 1.06
+    prod_upper_name = str(prod).upper().strip()
 
+    # 📊 LUỒNG TỰ ĐỘNG PHÂN PHÂN LOẠI MẶT HÀNG TOÀN NGÀNH MAY
+    if any(k in prod_upper_name for k in ["JACKET", "SAFARI", "COAT", "BLAZER", "VEST", "PARKA", "ÁO KHOÁC"]):
+        ai_product_type = "JACKET"
+        # Định hạng độ phức tạp dựa trên tổng số lượng rập chi tiết chi phối
+        if total_pocket_pieces >= 6 or total_pattern_pieces > 18:
+            ai_complexity = "COMPLEX"
+        elif total_pocket_pieces >= 3 or total_pattern_pieces > 12:
+            ai_complexity = "NORMAL"
+        else:
+            ai_complexity = "SIMPLE"
+
+    elif any(k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "CHÂN VÁY", "ĐẦM"]):
+        ai_product_type = "SKIRT"
+        if total_pattern_pieces > 14 or "THỜI TRANG" in prod_upper_name:
+            ai_complexity = "COMPLEX" # Váy thời trang nhiều múi
+        elif total_pattern_pieces > 8:
+            ai_complexity = "NORMAL"
+        else:
+            ai_complexity = "SIMPLE"
+
+    elif any(k in prod_upper_name for k in ["POLO", "TEE", "TSHIRT", "T-SHIRT", "AO THUN"]):
+        ai_product_type = "TOPS_KNIT"
+        if total_pattern_pieces > 10 or "POLO" in prod_upper_name:
+            ai_complexity = "NORMAL" if total_pattern_pieces <= 14 else "COMPLEX"
+        else:
+            ai_complexity = "SIMPLE"
+
+    elif any(k in prod_upper_name for k in ["SHIRT", "SƠ MI", "HOODIE"]):
+        ai_product_type = "SHIRT_WOVEN"
+        ai_complexity = "COMPLEX" if total_pattern_pieces > 15 else ("NORMAL" if total_pattern_pieces > 9 else "SIMPLE")
+
+    elif any(k in prod_upper_name for k in ["CHINO", "KHAKI", "TROUSER"]):
+        ai_product_type = "CHINO_PANT"
+        ai_complexity = "COMPLEX" if total_pattern_pieces > 14 else ("NORMAL" if total_pattern_pieces > 8 else "SIMPLE")
+
+    elif any(k in prod_upper_name for k in ["SHORT", "NGẮN"]):
+        ai_product_type = "SHORT"
+        ai_complexity = "COMPLEX" if total_pattern_pieces > 12 else ("NORMAL" if total_pattern_pieces > 7 else "SIMPLE")
+
+    else:
+        # Mặc định cứu cánh cho dòng hàng Quần Jean dài
+        ai_product_type = "JEAN_LONG"
+        ai_complexity = "COMPLEX" if total_pattern_pieces > 14 else ("NORMAL" if total_pattern_pieces > 8 else "SIMPLE")
+
+    # 📊 TRA CỨU ĐỘNG THAM SỐ TỪ MA TRẬN PHỤ THUỘC SỐ CHI TIẾT ĐÃ CHUẨN HÓA
+    p_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
+    assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.85)
+    target_density = p_rules["packing_density"].get(ai_complexity, 0.82) 
+    
+    # Thiết lập hệ số hao hụt tỷ lệ thuận với số lượng chi tiết để chống hụt vải xưởng cắt
+    if ai_complexity == "COMPLEX":
+        target_wastage = 1.06 # Hao hụt 6% cho hàng cực kỳ nhiều chi tiết nhỏ
+    elif ai_complexity == "NORMAL":
+        target_wastage = 1.04 # Hao hụt 4% cho hàng trung bình
+    else:
+        target_wastage = 1.02 # Hao hụt 2% cho hàng đơn giản ít mảnh
+
+    # Khởi tạo an toàn cấu trúc dữ liệu tránh lỗi KeyError hệ thống
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
+    # Đóng gói và đẩy dữ liệu chuẩn vào bộ nhớ hệ thống
     ctx["ai_expert_decision"]["assigned_marker_density"] = target_density
     ctx["ai_expert_decision"]["wastage_factor"] = target_wastage
     ctx["ai_expert_decision"]["complexity_tier"] = ai_complexity
-    
     st.session_state["bom_data"] = ctx
 
+    # Xuất thông tin chuỗi suy luận AI minh bạch lên màn hình ứng dụng chính
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` ({ai_complexity}) | Mật độ sơ đồ vải chính: `{target_density*100:.1f}%` | Hao hụt vải chính: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Nhóm mặt hàng: `{ai_product_type}` | Phân hạng dựa trên số lượng chi tiết: `{ai_complexity}` (Tổng số mảnh: {total_pattern_pieces:.0f}) | Mật độ sơ đồ (Marker Density): `{target_density*100:.1f}%` | Hệ số hao hụt biên: `{((target_wastage-1)*100):.1f}%`")
 
 
          # =====================================================================
