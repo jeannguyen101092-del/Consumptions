@@ -1423,7 +1423,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 5: KIẾN TRÚC MATERIAL SOLVER ĐỒNG BỘ ĐỘNG 100% THAM SỐ TỪ AI
+        # =====================================================================
+    # 🟩 ĐOẠN 5: KIẾN TRÚC MATERIAL SOLVER ĐỒNG BỘ ĐỘNG 100% THAM SỐ TỪ AI (SỬA LỌC HÌNH HỌC)
     # =====================================================================
     lock_original_techpack = st.session_state.get("lock_original_techpack", False)
     pattern_has_shrink = True  # Rập sản xuất đã dãn co rút từ Đoạn 4
@@ -1431,12 +1432,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     current_warp_factor = (1 + warp_shrink / 100.0) if not pattern_has_shrink else 1.0
     current_weft_factor = (1 + weft_shrink / 100.0) if not pattern_has_shrink else 1.0
 
-    # 🚨 ĐỒNG BỘ ĐỘNG TOÀN DIỆN: Bốc tách chính xác tỷ trọng thân chỉ định từ Bộ não AI trả về
+    # ĐỒNG BỘ ĐỘNG TOÀN DIỆN: Bóc tách chính xác tỷ trọng thân chỉ định từ Bộ não AI trả về
     product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
     
     # Python kế thừa 100% ma trận tri thức AI đã gán động cho dòng hàng tương ứng
     ai_assigned_body_ratio = float(product_rules["body_ratio"].get(ai_complexity, 0.88))
-    ai_assigned_density = float(target_density) # Sử dụng trực tiếp mật độ nén sơ đồ AI ấn định trên KPI (Ví dụ: 86.5%)
+    ai_assigned_density = float(target_density) # Mật độ nén sơ đồ AI ấn định trên KPI (Ví dụ: 86.5%)
     ai_assigned_wastage = float(target_wastage) # Bù hao hụt công nghiệp nhà máy từ AI
 
     # -----------------------------------------------------------------
@@ -1460,12 +1461,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     pcs = float(r["pcs_numeric"])
                     net_a = float(r["polygon_net_area"])
                     comp_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
-                    p_class = str(r.get("piece_type", r.get("piece_class", ""))).upper()
                     
                     self.total_fabric_net_area += net_a * pcs
-                    # Đồng bộ chính xác theo quy tắc mở rộng nhãn thân của AI ở Khối 5a Phần 2 của bạn
-                    if any(k in comp_name or k in p_class for k in ["BODY", "PANEL", "LEG", "THÂN", "ỐNG"]):
-                        if "FACING" not in comp_name and "WELT" not in comp_name:
+                    
+                    # 🚨 ĐỘT PHÁ SỬA LỖI: Lọc thông minh theo diện tích rập hình học thực tế
+                    # Các chi tiết thân quần lớn (FRONT/BACK PANEL) luôn có diện tích phẳng > 150.0 inch vuông
+                    if net_a >= 150.0 or any(k in comp_name for k in ["TROUSER", "LEG", "PANEL", "BODY"]):
+                        # Loại trừ túi lót lọt vào nhầm trường
+                        if "BAG" not in comp_name and "LINING" not in comp_name:
                             total_body_area += net_a * pcs
             
             # Giải phương trình giải tích không gian sơ đồ bằng tham số gốc của AI
@@ -1486,7 +1489,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_a = float(row["polygon_net_area"])
             pcs = float(row["pcs_numeric"])
             if self.total_fabric_net_area > 0:
-                # ĐỒNG BỘ TỔNG DÒNG: Lưu trữ định mức lồng ghép lũy kế của tổng dòng (Không chia pcs)
+                # ĐỒNG BỘ TỔNG DÒNG: Lưu trữ định mức lồng ghép lũy kế của tổng dòng
                 return round(self.total_gross_yds * ((net_a * pcs) / self.total_fabric_net_area), 4)
             return 0.0
 
@@ -1496,7 +1499,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     class FusingSolver:
         def __init__(self, marker_width, density, wastage):
             self.marker_width = marker_width
-            self.density = density  # Tối ưu mật độ rải keo công nghiệp chi tiết nhỏ vụn
+            self.density = density
             self.wastage = wastage
 
         def calculate_row_gross(self, row):
@@ -1505,7 +1508,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if net_a <= 0 or self.marker_width <= 0 or self.density <= 0: 
                 return 0.0
             
-            # ĐỒNG BỘ SỐ LƯỢNG: Nhân đầy đủ số lượng rập dòng (total_area = net_a * pcs)
             total_fusing_area = net_a * pcs
             fusing_length = total_fusing_area * current_warp_factor * current_weft_factor
             
@@ -1518,7 +1520,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     class LiningSolver:
         def __init__(self, marker_width, density, wastage):
             self.marker_width = marker_width
-            self.density = density  # Tối ưu mật độ rải bao túi lót lọt khe sơ đồ
+            self.density = density
             self.wastage = wastage
 
         def calculate_row_gross(self, row):
@@ -1527,7 +1529,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if net_a <= 0 or self.marker_width <= 0 or self.density <= 0: 
                 return 0.0
             
-            # ĐỒNG BỘ SỐ LƯỢNG: Nhân đầy đủ số lượng rập dòng (total_area = net_a * pcs)
             total_lining_area = net_a * pcs
             lining_length = total_lining_area * current_warp_factor * current_weft_factor
             
@@ -1537,7 +1538,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # -----------------------------------------------------------------
     # ĐIỀU PHỐI ĐA PIPELINE THEO CHỈ ĐỊNH ĐỘNG TỪ BỘ NÃO AI
     # -----------------------------------------------------------------
-    # Python ghi nhận toàn bộ ma trận tri thức do AI trả về nạp trực tiếp vào tham số khởi tạo các Solver
     fabric_engine = FabricSolver(df_bom, ai_assigned_body_ratio, fabric_width, ai_assigned_density, ai_assigned_wastage)
     fusing_engine = FusingSolver(fusing_width, density=0.74, wastage=ai_assigned_wastage)
     lining_engine = LiningSolver(lining_width, density=0.72, wastage=ai_assigned_wastage)
