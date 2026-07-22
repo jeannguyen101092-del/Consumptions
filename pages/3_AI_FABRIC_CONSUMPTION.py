@@ -1620,10 +1620,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "predicted_density": 0.792,
         "confidence": 0.96,
         "reasoning": [
-            "Phát hiện 5 chi tiết thuộc nhóm POCKET qua phân tích Sketch hình ảnh.",
-            "Phát hiện 7 đỉa cấu hình cắt theo quy tắc dây dọc (BELT_LOOP_STRIP).",
+            "Phát hiện các chi tiết thuộc nhóm POCKET và lót túi qua phân tích kết cấu hình ảnh.",
+            "Phát hiện hệ thống đỉa cấu hình cắt độc lập theo quy tắc dây dọc (BELT_LOOP_STRIP).",
             "Mẫu thiết kế trơn truyền thống, hoàn toàn không có túi hộp (Cargo Pocket).",
-            "Nhóm thân chính (BODY_FRONT / BODY_BACK) chiếm tỷ trọng diện tích rập chủ đạo ~88%."
+            "Nhóm thân chính (BODY_FRONT / BODY_BACK) chiếm tỷ trọng diện tích rập vải chính chủ đạo ~88%."
         ],
         "manufacturing_rules": ["BELT_LOOP_STRIP", "POCKET_GAP_FILL"]
     })
@@ -1665,7 +1665,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_class = str(row.get("piece_class", "OTHER")).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         
-        # Áp dụng Quy tắc Sản xuất (Level 4): Quy tắc băm đỉa cắt dây (Strip), bỏ qua diện tích hình chữ nhật bao bọc
+        # Áp dụng Quy tắc Sản xuất (Level 4): Quy tắc băm đỉa cắt dây (Strip), bỏ qua diện tích bao bọc hình chữ nhật [INDEX]
         if piece_class in CUTTING_RULES and CUTTING_RULES[piece_class].get("method") == "strip":
             rule = CUTTING_RULES[piece_class]
             return round(rule["width"] * rule["length"], 2)
@@ -1674,13 +1674,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.0
         
-        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library
+        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library [INDEX]
         sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
-    # 📊 LEVEL 5: AI REASONING & CONVERSION ENGINE (GIẢI TOÁN TOÀN DIỆN DIỆN TÍCH SƠ ĐỒ)
+    # 📊 LEVEL 5: AI REASONING & CONVERSION ENGINE (GIẢI TOÁN TOÀN DIỆN DIỆN TÍCH SƠ ĐỒ VẢI CHÍNH)
     total_body_net_area = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
@@ -1689,22 +1689,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         
-        # Chỉ gom diện tích của những chi tiết được phân loại thuộc cụm Thân (BODY)
+        # Chỉ gom diện tích của những chi tiết được phân loại thuộc cụm Thân (BODY) [INDEX]
         if piece_class in ["BODY_FRONT", "BODY_BACK", "BODY_SIDE"]:
             total_body_net_area += net_a * pcs
 
     if total_body_net_area > 0:
-        # Tra cứu tỷ lệ phân rã diện tích thân từ Ma trận tri thức Level 3
+        # Tra cứu tỷ lệ phân rã diện tích thân từ Ma trận tri thức Level 3 [INDEX]
         product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
         target_body_ratio = product_rules["body_ratio"].get(ai_complexity, 0.88)
         
-        # Suy ngược tổng diện tích sơ đồ dự kiến dựa trên tỷ lệ % phân rã
+        # Suy ngược tổng diện tích sơ đồ dự kiến dựa trên tỷ lệ % phân rã [INDEX]
         estimated_total_marker_area = total_body_net_area / target_body_ratio
         
-        # Chiều dài sơ đồ mô phỏng tính bằng inch (Sử dụng mật độ nén do AI dự đoán)
+        # Chiều dài sơ đồ mô phỏng tính bằng inch (Sử dụng mật độ nén do AI dự đoán) [INDEX]
         simulated_length = (estimated_total_marker_area / fabric_width) / ai_predicted_density
         
-        # Hệ số hao hụt công nghiệp cố định (3% cho hao hụt đầu cây đầu tấm vải sơ đồ)
+        # Hệ số hao hụt công nghiệp cố định (3% cho hao hụt đầu cây đầu tấm vải sơ đồ) [INDEX]
         wastage_factor = 1.03  
         total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
     else:
@@ -1713,23 +1713,40 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT TỶ LỆ THEO DIỆN TÍCH RẬP THỰC TẾ
-    total_net_area_all = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows())
+    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT ĐỘC LẬP TỪNG CHẤT LIỆU (ĐỒNG BỘ ĐỘNG THEO YÊU CẦU NGHIỆP VỤ)
+    # Tính tổng diện tích của RIÊNG mảng Vải chính FABRIC phục vụ băm tỷ lệ vải chính chính xác [INDEX]
+    total_fabric_net_area_only = sum(
+        float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
+        for _, r in df_bom.iterrows() 
+        if "FABRIC" in str(r.get(m_col, "FABRIC")).upper()
+    )
     
-    if total_net_area_all > 0:
-        def exact_share_allocation_final_v8(row):
-            mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
-            pcs = float(row.get("pcs_numeric", 1.0))
-            net_a = float(row.get("polygon_net_area", 0.0))
+    def exact_share_allocation_final_v9(row):
+        mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+        pcs = float(row.get("pcs_numeric", 1.0))
+        net_a = float(row.get("polygon_net_area", 0.0))
+        
+        # 1. VẢI CHÍNH (MAIN FABRIC): Giữ nguyên phân bổ theo tỷ trọng diện tích tịnh [INDEX]
+        if "FABRIC" in mat_class:
+            if total_fabric_net_area_only > 0:
+                return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only), 4)
+            return 0.0
             
-            if "FABRIC" in mat_class:
-                return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_net_area_all), 4)
-            elif "FUSING" in mat_class:
+        # 2. KEO/DỰNG (FUSING): Tính độc lập tuyệt đối theo diện tích thật, khổ keo riêng và hiệu suất sơ đồ keo (82%) [INDEX]
+        elif "FUSING" in mat_class:
+            if net_a > 0 and fusing_width > 0:
                 return round(((net_a / fusing_width) / 36.0 / 0.82) * pcs, 4)
-            elif "LINING" in mat_class:
+            return 0.0
+            
+        # 3. VẢI LÓT (LINING): Tính độc lập tuyệt đối theo diện tích thật, khổ lót riêng và hiệu suất sơ đồ lót (80%) [INDEX]
+        elif "LINING" in mat_class:
+            if net_a > 0 and lining_width > 0:
                 return round(((net_a / lining_width) / 36.0 / 0.80) * pcs, 4)
             return 0.0
-        df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v8, axis=1)
+            
+        return 0.0
+
+    df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v9, axis=1)
 
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
