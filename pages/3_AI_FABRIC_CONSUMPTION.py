@@ -1657,8 +1657,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-       # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (SẠCH LỖI)
+          # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY ĐỒNG BỘ ĐỘNG TRỰC TIẾP (KẾT HỢP SCHEMA BẠN VIẾT)
     # =====================================================================
 
     # 🎯 ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
@@ -1669,14 +1669,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if idx < len(df_bom):
             df_bom.loc[idx, m_col] = mat_val
 
-    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO THƯ VIỆN ĐỘNG
+    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO THƯ VIỆN ĐỘNG & BỘ CHUYỂN ĐỔI CỦA BẠN
     def calculate_geometry_piece_area(row):
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
+        cutting_method = str(row.get("cutting_method", "standard")).lower().strip()
         
-        # ĐÃ SỬA: Đổi toàn bộ CUTTING_RULES thành biến thư viện động KB_RULES sạch lỗi NameError
-        if piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
-            rule = KB_RULES[piece_class]
+        # Áp dụng Quy tắc Sản xuất từ Thư viện động: Tính dải dây dài hình học nếu bắt được nhãn đỉa hoặc strip
+        if cutting_method == "strip" or piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
+            rule = KB_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
             return round(rule["width"] * rule["length"], 2)
 
         l_val = float(row["Dài sản xuất (L-inch)"])
@@ -1687,7 +1688,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
         if "PANEL" in piece_class or "BODY" in piece_class:
             sf = 0.84  # Bảo toàn diện tích rập thật lớn cho thân áo khoác Jacket
-        return round(l_val * w_val * sf, 2)
+            
+        # Tính toán diện tích phẳng thô cơ sở
+        raw_area = l_val * w_val * sf
+        
+        # 🎯 KÍCH HOẠT ĐỒNG BỘ NỀN TẢNG: Gọi hàm vạn năng convert_to_sq_inches do bạn viết
+        # để tự động bảo vệ hệ thống, quy đổi sạch sẽ đơn vị đo lường CM2/MM2 về IN2 chuẩn sơ đồ CAD [I]
+        p_unit = str(row.get("polygon_unit", "IN2"))
+        final_converted_net_area = convert_to_sq_inches(raw_area, p_unit)
+        
+        return round(final_converted_net_area, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
@@ -1695,8 +1705,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_fabric_net_area_accumulated = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
-    # Quét toàn bộ bảng rập và cộng dồn diện tích tích lũy của MỌI chi tiết vải chính (Thân + Tay + Cổ + Túi + Nẹp)
+    # 🎯 ÁP DỤNG DANH SÁCH BẠN VIẾT: Loại trừ tận gốc các phụ liệu đếm chiếc (nhãn mác, chỉ may, nút bấm) khỏi mảng vải cuộn [I]
     for _, row in df_fabric_only.iterrows():
+        comp_name_upper = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
+        
+        # Kiểm tra xem tên chi tiết có chứa bất kỳ từ khóa cấm nào trong mảng EXCLUDE_HARDWARE_KEYS của bạn không [I]
+        if any(key in comp_name_upper for key in EXCLUDE_HARDWARE_KEYS):
+            continue # Gạt bỏ rác phụ liệu ngay lập tức [I]
+            
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         total_fabric_net_area_accumulated += net_a * pcs
@@ -1713,7 +1729,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Chiều dài sơ đồ mô phỏng thực tế (inch) = Tổng diện tích tích lũy toàn bộ rập FABRIC / (Khổ vải * Mật độ nén)
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         
-        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp đầu tấm (hao hụt vải 5% an toàn sản xuất)
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy (hao hụt vải 5% an toàn sản xuất)
         total_gross_yds_after_shrink = (simulated_length / 36.0) * 1.05
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.85))
