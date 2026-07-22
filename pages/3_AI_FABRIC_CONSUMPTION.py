@@ -1264,7 +1264,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_rows
 
 # =====================================================================
-# 🟩 KHỐI BỔ SUNG ĐẦU TỆP: HÀM KẾT XUẤT EXCEL CHUẨN ĐẠI TRÀ PPJ GROUP
+# 🟩 KHỐI BỔ SUNG ĐẦU TỆP: HÀM KẾT XUẤT EXCEL CHUẨN ĐẠI TRÀ PPJ GROUP (ĐÃ SỬA CÚ PHÁP)
 # =====================================================================
 import io
 from openpyxl import Workbook
@@ -1292,7 +1292,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
     ws1.title = "BOM Summary"
     ws1.sheet_view.showGridLines = True
     
-    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
+    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢY LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
     ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
     ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
     
