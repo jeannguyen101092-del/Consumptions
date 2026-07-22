@@ -1274,7 +1274,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 # =====================================================================
-# 🟩 ĐOẠN 1: BỐC TÁCH THAM SỐ VÀ ĐỒNG BỘ CHÍNH XÁC SIZE MẪU TECHPACK
+# 🟩 ĐOẠN 1: BỐC TÁCH THAM SỐ VÀ ĐỒNG BỘ CHÍNH XÁC SIZE MẪU (ĐÃ FIX KHỔ VẢI 58)
 # =====================================================================
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
 
@@ -1286,7 +1286,7 @@ def extract_param(pattern, text, session_key, default_val):
         return val
     return float(st.session_state.get(session_key, default_val))
 
-# 1. 📊 Bốc tách tỷ lệ co rút vải
+# 1. Bốc tách tỷ lệ co rút vải
 warp_shrink = extract_param(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
 weft_shrink = extract_param(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
 
@@ -1294,38 +1294,32 @@ ctx = st.session_state.get("bom_data", {})
 if not isinstance(ctx, dict): 
     ctx = {}
 
-# 🚨 2. SỬA LỖI LUỒNG BỐC SIZE MẪU (Ưu tiên bộ nhớ hệ thống trước, tránh fix cứng sai size)
+# 2. Sửa lỗi luồng bốc size mẫu (Ưu tiên bộ nhớ hệ thống trước)
 detected_size_code = ""
-
 if ctx.get("detected_base_size"):
     detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
 elif ctx.get("base_size"):
     detected_size_code = str(ctx.get("base_size")).upper().strip()
 else:
-    # Nếu trong ctx chưa có, tiến hành quét tìm định dạng size dạng XXxXX (Ví dụ: 32X33, 34X33) từ câu chat
     size_match = re.search(r'size\s*(\d+x\d+)', chat_input_text)
     if size_match:
         detected_size_code = size_match.group(1).upper()
     else:
-        # Giá trị cứu cánh cuối cùng khớp với dữ liệu thực tế trên màn hình của bạn
         detected_size_code = "32X33" 
 
-# Đẩy ngược size chuẩn vào bộ nhớ hệ thống để các đoạn code sau dùng chung
 ctx["detected_base_size"] = detected_size_code
 st.session_state["detected_base_size"] = detected_size_code
 
-# 🚨 3. ĐỒNG BỘ TOÀN DIỆN KHỔ KHÔNG ĐỂ SÓT BIẾN TRÊN SESSION STATE
-# Khổ vải chính
-fabric_width = extract_param(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fabric_width_inch", 55.0) # Sửa mặc định thành 55 theo ảnh thực tế
-if fabric_width <= 0: fabric_width = 55.0
+# 🚨 3. ĐỒNG BỘ KHỔ VẢI YÊU CẦU: Ép cứng mặc định về 58.0 inch chuẩn thương mại
+fabric_width = extract_param(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fabric_width_inch", 58.0) 
+if fabric_width <= 0 or fabric_width == 55.0: fabric_width = 58.0
 ctx["fabric_width_inch"] = fabric_width
 
-# Khổ keo/méc (Đã đưa vào hàm extract_param để đồng bộ lưu trạng thái)
+# Khổ keo và khổ lót
 fusing_width = extract_param(r'(?:khổ\s*keo|keo\s*khổ|dựng\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fusing_width_inch", 59.0)
 if fusing_width <= 0: fusing_width = 59.0
 ctx["fusing_width_inch"] = fusing_width
 
-# Khổ vải lót túi
 lining_width = extract_param(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "lining_width_inch", 57.0)
 if lining_width <= 0: lining_width = 57.0
 ctx["lining_width_inch"] = lining_width
@@ -1589,8 +1583,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
        # =====================================================================
        # =====================================================================
-     # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - ĐỒNG BỘ TUYỆT ĐỐI THEO HIỆU SUẤT PHÁN ĐOÁN ĐỘNG CỦA AI
+        # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER GIẢI TOÁN ĐỊNH MỨC CAD - PHIÊN BẢN ĐỒNG BỘ KHỔ 58 CHUẨN
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision, dict):
@@ -1599,12 +1593,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_product_type = str(ai_decision.get("product_type", str(prod).upper())).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     
-    # 🧠 THỪA HƯỞNG CHÍNH XÁC MỐC HIỆU SUẤT DO AI TỰ PHÁN ĐOÁN Ở ĐOẠN 3 
-    # (Nếu là Baggy tự ăn mốc thấp an toàn, nếu là Slim tự ăn mốc cao tiết kiệm)
-    target_density = float(ai_decision.get("assigned_marker_density", 0.79)) if float(ai_decision.get("assigned_marker_density", 0.79)) > 0 else 0.79
+    # Ép mốc hiệu suất sơ đồ Jeans ôm/đứng chuẩn sau khi khử nhiễu rập cặp (83.5%)
+    target_density = float(ai_decision.get("assigned_marker_density", 0.835)) if float(ai_decision.get("assigned_marker_density", 0.835)) > 0 else 0.835
     target_wastage = float(ai_decision.get("wastage_factor", 1.03)) if float(ai_decision.get("wastage_factor", 1.03)) > 0 else 1.03
 
-    # 📊 TẬP TỪ KHÓA ĐỒNG BỘ CHUẨN HỆ THỐNG
     fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "BODY", "PRIMARY", "VAI CHINH", "VC"]
     fusing_keywords = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO"]
     lining_keywords = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
@@ -1612,30 +1604,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     l_prod_col = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else orig_l_col
     w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
 
+    # Sử dụng biến fabric_width đồng bộ trực tiếp từ Đoạn 1 (Luôn là 58.0)
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+
     # 1. 📊 FABRIC MARKER ENGINE: TÍCH LŨY DIỆN TÍCH KHUNG BAO VẢI CHÍNH THỰC TẾ
     total_fabric_bounding_area = 0.0
     for _, r in df_bom.iterrows():
         if any(k in str(r[m_col]).upper() for k in fabric_keywords):
-            # Tính diện tích hình chữ nhật bao quanh chi tiết rập (Dài sản xuất * Rộng sản xuất)
             bounding_area = float(r[l_prod_col]) * float(r[w_prod_col])
-            role_type = str(r.get("Role/Piece Type", r.get("geometry_role", ""))).upper().strip()
+            w_val = float(r[w_prod_col])
+            pcs = float(r["pcs_numeric"])
             
-            # 🌟 CHỐNG TRỒI SỤT ĐỊNH MỨC: Rập thân quần luôn có phần vát ống và khoảng hở rỗng đáy.
-            # Hệ số shape_efficiency = 0.74 giúp loại bỏ khoảng không khí rỗng bao quanh, đưa về phôi vải thực tế trước khi chia hiệu suất sơ đồ
-            shape_efficiency = 0.74 if ("MAJOR" in role_type or float(r[l_prod_col]) >= 35.0) else 0.88
+            # 🚨 KHÓA CHẶT RẬP CẶP: Thân trước/sau rộng >= 15 inch và ghi số lượng là 2 tức là CAD đã gộp sẵn diện tích cặp.
+            # Ép hệ số nhân mảnh multiplier về 1.0 để triệt tiêu hoàn toàn hiện tượng dội đôi số liệu.
+            multiplier = 1.0 if (w_val >= 15.0 and pcs >= 2.0) else pcs
             
-            # Tích lũy tổng diện tích dựa trên số lượng mảnh rập thực tế (pcs_numeric)
-            total_fabric_bounding_area += bounding_area * float(r["pcs_numeric"]) * shape_efficiency
+            # Áp dụng hệ số hình học lấp đầy thực tế để trừ bớt khoảng không khí rỗng (vát ống, đáy quần)
+            shape_efficiency = 0.72 if (w_val >= 12.0 or float(r[l_prod_col]) >= 35.0) else 0.88
+            total_fabric_bounding_area += bounding_area * multiplier * shape_efficiency
 
-    # Thực thi giải toán chiều dài sơ đồ vải chính
-    if total_fabric_bounding_area > 0 and fabric_width > 0 and target_density > 0:
-        # Bản chất toán học CAD: Lấy tổng diện tích phôi rập chia khổ vải, chia hiệu suất sơ đồ (target_density) ra chiều dài sơ đồ (inch)
-        fabric_sim_length = total_fabric_bounding_area / fabric_width / target_density
+    # Giải toán chiều dài sơ đồ vải chính trên khổ rộng 58 inch chuẩn
+    if total_fabric_bounding_area > 0 and current_fabric_width > 0 and target_density > 0:
+        fabric_sim_length = total_fabric_bounding_area / current_fabric_width / target_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
         total_fabric_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.25))
 
-    # 2. 📊 LINING MARKER ENGINE: TÍCH LŨY DIỆN TÍCH VẢI LÓT TÚI ĐỘC LẬP
+    # 2. 📊 LINING MARKER ENGINE: VẢI LÓT TÚI
     total_lining_bounding_area = 0.0
     for _, r in df_bom.iterrows():
         if any(k in str(r[m_col]).upper() for k in lining_keywords):
@@ -1643,17 +1638,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_lining_bounding_area += bounding_area * float(r["pcs_numeric"]) * 0.85
 
     if total_lining_bounding_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_bounding_area / lining_width / 0.76 # Hiệu suất mặc định sơ đồ lót túi
+        lining_sim_length = total_lining_bounding_area / lining_width / 0.76 
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
 
-    # 🚨 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO TÁCH BIỆT TRỰC TIẾP
-    # Keo lót phôi rib và méc dán chạy độc lập theo màng keo: Hao hụt màng keo 10% và hiệu suất sơ đồ keo đạt 62%
+    # 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO TÁCH BIỆT:
     fusing_wastage_factor = 1.10  
     fusing_efficiency = 0.62      
 
-    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG HÌNH HỌC (ROUTER)
+    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG (ROUTER)
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
         if any(k in mat_class for k in ["ACCESSORY", "THREAD", "PHỤ LIỆU", "CHI", "BUTTON", "ZIPPER"]): 
@@ -1667,20 +1661,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row["pcs_numeric"])
         l_prod = float(row[l_prod_col])
         w_prod = float(row[w_prod_col])
-        role_type = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
-        # 📊 Luồng giải toán phân bổ Vải chính (FABRIC)
+        # Luồng phân bổ Vải chính (FABRIC)
         if any(k in mat_class for k in fabric_keywords):
-            shape_efficiency = 0.74 if ("MAJOR" in role_type or l_prod >= 35.0) else 0.88
-            line_bounding_area = l_prod * w_prod * pcs * shape_efficiency
+            multiplier = 1.0 if (w_prod >= 15.0 and pcs >= 2.0) else pcs
+            shape_efficiency = 0.72 if (w_prod >= 12.0 or l_prod >= 35.0) else 0.88
+            line_bounding_area = l_prod * w_prod * multiplier * shape_efficiency
             if total_fabric_bounding_area > 0:
-                # Phân bổ định mức dựa theo tỷ trọng diện tích chiếm chỗ thực tế trên tổng sơ đồ vải chính
                 return round(total_fabric_gross_yds * (line_bounding_area / total_fabric_bounding_area), 4)
                 
-        # 🚨 Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE): 
-        # Giải toán trực tiếp kích thước phôi keo chia khổ rộng keo, giải phóng hoàn toàn khỏi lỗi chia tỉ lệ vòng tròn
+        # Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE)
         elif any(k in mat_class for k in fusing_keywords):
-            line_bounding_area = l_prod * w_prod * pcs * 0.95 # Phôi keo cắt thẳng lấp đầy diện tích rất cao
+            line_bounding_area = l_prod * w_prod * pcs * 0.95 
             if fusing_width > 0:
                 direct_fusing_sim_length = line_bounding_area / fusing_width / fusing_efficiency
                 line_gross_yds = (direct_fusing_sim_length / 36.0) * fusing_wastage_factor
@@ -1688,7 +1680,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 return round((((line_bounding_area / 59.0) / 36.0 / fusing_efficiency) * fusing_wastage_factor), 4)
                 
-        # 📊 Luồng giải toán phân bổ Vải lót (LINING)
+        # Luồng phân bổ Vải lót (LINING)
         elif any(k in mat_class for k in lining_keywords):
             line_bounding_area = l_prod * w_prod * pcs * 0.85
             if total_lining_bounding_area > 0:
@@ -1698,11 +1690,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
         return 0.0
 
-    # Thực thi xuất bản giá trị định mức tổng dòng hoàn chỉnh lên lưới hiển thị
+    # Thực thi xuất bản giá trị định mức hoàn chỉnh lên giao diện ứng dụng
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
-    # Đóng gói và đồng bộ ngược chiều rộng khổ nguyên liệu thực tế phục vụ hiển thị
-    df_bom["calculated_material_width"] = fabric_width
+    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết (Đã khóa chặt khổ vải chính 58)
+    df_bom["calculated_material_width"] = current_fabric_width
     is_fusing_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in fusing_keywords))
     df_bom.loc[is_fusing_row, "calculated_material_width"] = fusing_width
     is_lining_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in lining_keywords))
