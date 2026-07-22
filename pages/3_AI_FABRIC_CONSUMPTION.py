@@ -1850,34 +1850,37 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
     # =====================================================================
-    # 🟩 KHỐI 5b (PHẦN 2): ĐỒNG BỘ SIZE RẬP, BIÊN TẬP ĐỘNG & KẾT XUẤT DOWNLOAD EXCEL ĐA BIẾN CHAT
+        # =====================================================================
+    # 🟩 KHỐI 5b (PHẦN 2): BỘ KHỬ TRÙNG LẶP CỘT (ANTI-DUPLICATION ENGINE)
     # =====================================================================
 
-    # ---------------------------------------------------------------------
-    # 📊 TẦNG 3: TRÍCH XUẤT VÀ BẢO VỆ CHUỒI DỮ LIỆU ĐẦU RA (TÍCH HỢP SIZE RẬP)
-    # ---------------------------------------------------------------------
     saved_pcs_series = df_bom_display_sum["pcs_numeric"].copy()
-    saved_orig_l_series = df_bom_display_sum[orig_l_col].copy()
-    saved_orig_w_series = df_bom_display_sum[orig_w_col].copy()
+    saved_orig_l_series = df_bom_display_sum[orig_l_col].copy() if orig_l_col in df_bom_display_sum.columns else df_bom_display_sum["Dài sản xuất (L-inch)"].copy()
+    saved_orig_w_series = df_bom_display_sum[orig_w_col].copy() if orig_w_col in df_bom_display_sum.columns else df_bom_display_sum["Rộng sản xuất (W-inch)"].copy()
     saved_allocated_gross = df_bom_display_sum["allocated_gross"].copy()
 
     # Bẫy kích cỡ size từ rập gốc
     raw_size_col = next((c for c in ["size", "Size", "SZ", "Kích cỡ", "Cỡ size"] if c in df_bom_display_sum.columns), None)
-    if raw_size_col:
-        saved_size_series = df_bom_display_sum[raw_size_col].astype(str).copy()
-    else:
-        saved_size_series = pd.Series([str(ctx.get("size_code", ctx.get("size", "29")))] * len(df_bom_display_sum))
+    saved_size_series = df_bom_display_sum[raw_size_col].astype(str).copy() if raw_size_col else pd.Series(["29"] * len(df_bom_display_sum))
 
+    # ĐỒNG BỘ KHỬ TRÙNG LẶP: Danh sách tất cả các biến thể tên cột viết hoa/viết thường bắt buộc phải drop sạch trước khi gán mới
     columns_to_drop = [
         "Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", 
         "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", "allocated_gross", 
-        "pcs_numeric", "fabric_width_inch", "fabric_width", "size", "Size", "SZ", "material_class", "Material Class"
+        "pcs_numeric", "fabric_width_inch", "fabric_width", "size", "Size", "SZ", 
+        "material_class", "Material Class", "piece_type", "uom", "bounding_box_length", 
+        "bounding_box_width", "data_confidence", "calculation_status", "geometry_role", "Role/Piece Type"
     ]
+    
     df_bom_display = df_bom_display_sum.copy()
-    for col in columns_to_drop:
-        if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
+    
+    # Duyệt và gạt bỏ tận gốc cả các cột ẩn hoặc cột động trùng lặp để tránh nhân đôi giao diện
+    for col in df_bom_display_sum.columns:
+        if col in columns_to_drop or col.lower() in [c.lower() for c in columns_to_drop]:
+            if col in df_bom_display.columns:
+                df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Tra cứu và in đúng khổ của từng loại vật tư vải/keo/lót riêng biệt lên bảng chi tiết [INDEX]
+    # GÁN MỚI ĐỒNG BỘ: Chỉ tạo duy nhất 1 cột chuẩn hóa, chặn đứng hoàn toàn bẫy nhân đôi của Pandas
     df_bom_display["Material Class"] = df_bom_display_sum[m_col].astype(str).str.upper().str.strip()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display_sum["calculated_material_width"].round(1) if "calculated_material_width" in df_bom_display_sum.columns else round(fabric_width, 1)
     df_bom_display["Size tính toán"] = saved_size_series
@@ -1886,63 +1889,50 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
     df_bom_display["Rộng gốc Techpack (inch)"] = saved_orig_w_series
 
-    df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
+    # Đổi tên hiển thị cột tên chi tiết sạch sẽ
+    if "component_name" in df_bom_display.columns:
+        df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name"})
+        
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
-    # Cấu hình thứ tự cột chuẩn kỹ thuật
+    # Khóa cứng thứ tự các cột hiển thị tinh gọn, gạt bỏ toàn bộ các cột rác lặp lại ở phía sau
     ordered_cols = [
-        "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
+        "Component Name", "Material Class", "Khổ vải sản xuất (inch)", 
         "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "Gross Consumption"
     ]
-    display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
-    df_bom_display = df_bom_display[display_cols_final]
+    display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns]
+    df_bom_display = df_bom_display[display_cols_final] # Chỉ giữ lại mảng cột tinh gọn này
     
-    # 🟢 KẾT XUẤT NÚT DOWNLOAD EXCEL ĐỒNG BỘ ĐA BIẾN CHAT THỜI GIAN THỰC [INDEX]
+    # Render giao diện nút Xuất Excel đại trà
     col1, col2 = st.columns(2)
     with col1: st.subheader("📊 Bảng Tổng Hợp Định Mức (BOM Summary)")
     with col2:
         try:
-            # Ép nạp trực tiếp toàn bộ dữ liệu co rút và khổ động thời gian thực từ Chat vào cục context của Excel [INDEX]
-            ctx["warp_shrinkage"] = warp_shrink
-            ctx["weft_shrinkage"] = weft_shrink
             ctx["fabric_width"] = fabric_width
             ctx["fusing_width"] = fusing_width
             ctx["lining_width"] = lining_width
-            ctx["global_gross_fabric_yds"] = fabric_detail_sum_actual
+            ctx["warp_shrinkage"] = warp_shrink
+            ctx["weft_shrinkage"] = weft_shrink
             ctx["product_type"] = audit_prod_type
             ctx["complexity_tier"] = audit_complexity
-            ctx["assigned_marker_density"] = target_density
 
             excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
-            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            if not style_name_clean or style_name_clean.lower() == "none": style_name_clean = "Style"
-            final_excel_filename = f"PPJ_AUDIT_BOM_{prod}_{style_name_clean}.xlsx"
-            
-            st.download_button(
-                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
-                data=excel_file, 
-                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
-                file_name=final_excel_filename, 
-                key="btn_download_excel_ppj_final_v57_fixed_v3"
-            )
+            st.download_button(label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_AUDIT_BOM_{prod}.xlsx", key="btn_download_excel_ppj_final_v58_fixed")
         except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
             
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     
     # ---------------------------------------------------------------------
-    # 📊 TẦNG 4: TRÌNH BIÊN TẬP CẤU TRÚC RẬP ĐA CHỨC NĂNG (MỞ QUYỀN SỬA CHẤT LIỆU) [INDEX]
+    # 📊 TẦNG 4: TRÌNH BIÊN TẬP CẤU TRÚC RẬP CHI TIẾT TINH GỌN SAU KIỂM TOÁN
     # ---------------------------------------------------------------------
     st.subheader(f"⚙️ Trình Kiểm Toán & Hiệu Chỉnh Cấu Trúc Rập Chi Tiết ({prod})")
-    st.info("💡 Hệ thống mở thêm quyền sửa cột **'Material Class'**. Bạn có thể chọn cấu phần đổi thành **FUSING** hoặc **LINING**, bộ toán 6 tầng sẽ tự động kích hoạt tính keo/lót ngay!")
-
-    if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
+    st.info("💡 Bảng chi tiết đã được dọn dẹp sạch sẽ các cột rác trùng lặp. Bạn có thể sửa trực tiếp cột Số lượng rập hoặc Chất liệu để ép hệ thống tính toán lại tự động!")
 
     edited_df_final = st.data_editor(
         df_bom_display,
         column_config={
             "Component Name": st.column_config.TextColumn("Component Name", disabled=True),
             "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "FUSING", "LINING", "ACCESSORY"], required=True),
-            "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", disabled=True),
             "Size tính toán": st.column_config.TextColumn("Size tính toán", disabled=True),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=20.0, step=1.0, required=True),
@@ -1951,10 +1941,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", disabled=True)
         },
         disabled=False,
-        key="bom_final_interactive_view_editor_v14"
+        key="bom_final_interactive_view_editor_v15"
     )
 
-    # ĐỒNG BỘ ĐẢO NGƯỢC CẢ HAI TRƯỜNG DỮ LIỆU SỐ LƯỢNG VÀ CHẤT LIỆU [INDEX]
+    # ĐỒNG BỘ ĐẢO NGƯỢC CẢ HAI TRƯỜNG DỮ LIỆU SỐ LƯỢNG VÀ CHẤT LIỆU
     has_changed = False
     for idx, row in edited_df_final.iterrows():
         new_pcs = float(row["Số lượng rập"])
@@ -1969,11 +1959,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             st.session_state["user_edited_materials"][idx] = new_mat
             has_changed = True
 
-    # Đồng bộ ép ngược biến chất liệu về df_bom gốc trước khi rerun [INDEX]
+    # Đồng bộ ép ngược biến chất liệu về df_bom gốc trước khi rerun
     for idx, mat_val in st.session_state["user_edited_materials"].items():
         if idx < len(df_bom): df_bom.loc[idx, m_col] = mat_val
 
     if has_changed:
         st.rerun()
-    
-    st.caption(f"🤖 AI Audit Engine: {prod} | Khổ vải thiết lập: {fabric_width} inch | Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | Hiệu suất sơ đồ CAD áp dụng: {target_density*100:.1f}% | Tổng định mức mua hàng (Khớp sơ đồ): {fabric_detail_sum_actual:.4f} YDS")
