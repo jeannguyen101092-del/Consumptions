@@ -1533,13 +1533,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     #    # =====================================================================
      # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - ĐỒNG BỘ 100% TRẠNG THÁI SỬA CHẤT LIỆU TAY TỪ NGƯỜI DÙNG
+        # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - ĐỒNG BỘ 100% BIẾN CHỈNH SỐ LƯỢNG RẬP VÀ CHẤT LIỆU
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision, dict): ai_decision = {}
         
-    # Kế thừa mốc hiệu suất khóa cứng chuẩn công ty của anh từ Đoạn 3 (87.5% cho quần, 88% cho Jacket...)
-    target_density = float(ai_decision.get("assigned_marker_density", 0.875)) if float(ai_decision.get("assigned_marker_density", 0.875)) > 0 else 0.875
+    # Kế thừa mốc hiệu suất khóa cứng chuẩn công ty của anh từ Đoạn 3 (Đầm xòe = 78%, Quần dài = 87.5%...)
+    target_density = float(ai_decision.get("assigned_marker_density", 0.78)) if float(ai_decision.get("assigned_marker_density", 0.78)) > 0 else 0.78
     target_wastage = float(ai_decision.get("wastage_factor", 1.03)) if float(ai_decision.get("wastage_factor", 1.03)) > 1.0 else 1.03
 
     fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "BODY", "PRIMARY", "VAI CHINH", "VC"]
@@ -1550,44 +1551,48 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
 
-    # 🚨 HÀM ĐỒNG BỘ PHÂN LOẠI CHẤT LIỆU (Cập nhật trực tiếp lựa chọn từ st.session_state tay của anh)
+    # 🚨 HÀM ĐỒNG BỘ PHÂN LOẠI CHẤT LIỆU SỬA TAY ĐỘNG
     def local_strict_classify(row, idx):
-        # Nếu dòng rập này đã được anh đổi nhãn trên lưới, ưu tiên bốc nhãn mới nhất để tính toán
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][idx]).upper().strip()
-            
         mat_str = str(row[m_col]).upper().strip()
         comp_str = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
         role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
-        
-        if any(k in mat_str or k in comp_str for k in fusing_keywords):
-            return "FUSING"
-        if any(k in mat_str or k in comp_str or k in role_str for k in lining_keywords):
-            return "LINING"
-        if any(k in mat_str or k in comp_str for k in ["ACCESSORY", "THREAD", "CHI", "BUTTON", "ZIPPER", "RIVET"]):
-            return "ACCESSORY"
+        if any(k in mat_str or k in comp_str for k in fusing_keywords): return "FUSING"
+        if any(k in mat_str or k in comp_str or k in role_str for k in lining_keywords): return "LINING"
+        if any(k in mat_str or k in comp_str for k in ["ACCESSORY", "THREAD", "CHI", "BUTTON", "ZIPPER", "RIVET"]): return "ACCESSORY"
         return "FABRIC"
 
-    # 📊 LUỒNG 1: FABRIC MARKER ENGINE - TÍCH LŨY DIỆN TÍCH VẢI CHÍNH ĐỘNG (VC)
+    # 📊 LUỒNG 1: FABRIC MARKER ENGINE - TÍCH LŨY DIỆN TÍCH VẢI CHÍNH CÓ ĐỒNG BỘ SỐ LƯỢNG SỬA TAY
     max_fabric_length = 0.0
     total_fabric_net_area = 0.0
+    original_fabric_net_area = 0.0 # Biến đo lường tỷ lệ tăng thêm để mở rộng trần bảo vệ động
     
     for idx, r in df_bom.iterrows():
-        # Gọi hàm đồng bộ nhãn để bắt trúng nếu anh vừa chuyển dòng này thành FABRIC
         p_class = local_strict_classify(r, idx)
+        
+        # ĐỒNG BỘ SỐ LƯỢNG RẬP CHỈNH SỬA TAY: 
+        # Bốc số lượng từ session_state nếu anh đã sửa, nếu chưa sửa mới lấy file gốc
+        current_pcs = float(st.session_state["user_edited_pieces"][idx]) if ("user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]) else float(r["pcs_numeric"])
         
         if p_class == "FABRIC":
             l_val = float(r[l_prod_col])
-            # Thực hiện cộng dồn diện tích tịnh đa giác rập và số lượng mảnh của dòng vừa chuyển đổi
-            total_fabric_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
+            # Tích lũy tổng diện tích chính xác dựa trên số lượng rập anh vừa chỉnh sửa tay
+            total_fabric_net_area += float(r["polygon_net_area"]) * current_pcs
+            original_fabric_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
             if l_val > max_fabric_length:
                 max_fabric_length = l_val
 
-    # Tính toán chiều dài sơ đồ vải chính tổng hợp chuẩn quy trình CAD
+    # 🧠 THUẬT TOÁN MỞ RỘNG TRẦN BẢO VỆ ĐỘNG (DYNAMIC MARKER WINDOW PROTECTION):
+    # Tính tỷ lệ tăng trưởng số lượng mảnh rập rải trên bàn cắt của anh
+    scale_multiplier = total_fabric_net_area / original_fabric_net_area if original_fabric_net_area > 0 else 1.0
+
     if max_fabric_length > 0 and total_fabric_net_area > 0:
         fabric_sim_length = total_fabric_net_area / current_fabric_width / target_density
-        # Ghim bảo vệ trần lõi sơ đồ thương mại sạch số
-        max_allowed_length = max_fabric_length * 1.06
+        
+        # 🚨 ĐÃ SỬA LỖI ĐÓNG BĂNG: Trần khống chế tối đa tự động nhân tịnh tiến theo tỷ lệ tăng mảnh rập (scale_multiplier). 
+        # Giúp định mức vải chính tăng vọt lên chính xác khi anh nâng số lượng rập, và giảm sâu xuống khi anh hạ số lượng rập!
+        max_allowed_length = max_fabric_length * 1.08 * scale_multiplier
         if fabric_sim_length > max_allowed_length:
             fabric_sim_length = max_allowed_length
             
@@ -1595,11 +1600,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         total_fabric_gross_yds = 1.18 
 
-    # 📊 LUỒNG 2: LINING MARKER ENGINE - VẢI LÓT TÚI CHUẨN ĐỘNG
+    # 📊 LUỒNG 2: LINING MARKER ENGINE - VẢI LÓT TÚI CHUẨN ĐỘNG THEO SỐ LƯỢNG SỬA TAY
     total_lining_net_area = 0.0
     for idx, r in df_bom.iterrows():
+        current_pcs = float(st.session_state["user_edited_pieces"][idx]) if ("user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]) else float(r["pcs_numeric"])
         if local_strict_classify(r, idx) == "LINING":
-            total_lining_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
+            total_lining_net_area += float(r["polygon_net_area"]) * current_pcs
 
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.76
@@ -1607,7 +1613,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         total_lining_gross_yds = 0.0
 
-    # 📊 LUỒNG 3: KEO LÓT / MÉC KEO TỰ SUY LUẬN THEO ĐỘ RỖNG HÌNH HỌC (GIỮ NGUYÊN KIẾN TRÚC THÔNG MINH)
+    # 📊 LUỒNG 3: KEO LÓT / MÉC KEO TỰ SUY LUẬN THEO ĐỘ RỖNG HÌNH HỌC (ĐÃ ĐỒNG BỘ SỐ LƯỢNG)
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         bounding_box_area = l_prod * w_prod
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
@@ -1624,7 +1630,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             direct_fusing_sim_length = (net_area * pcs) / fusing_width / fusing_efficiency_calc
             return (direct_fusing_sim_length / 36.0) * fusing_wastage_calc
 
-    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT (ROUTER KIẾN TRÚC GRAPH SOLVER CHUẨN)
+    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT (ROUTER)
     def core_engine_router(row, idx):
         p_class = local_strict_classify(row, idx)
         if p_class == "ACCESSORY": 
@@ -1635,23 +1641,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if "original_raw_gross" in df_bom.columns and float(row.get("original_raw_gross", 0.0)) > 0:
                 return round(float(row["original_raw_gross"]), 4)
 
-        pcs = float(row["pcs_numeric"])
+        # Bốc số lượng rập đồng bộ thời gian thực để phân bổ chính xác định mức đơn dòng
+        pcs = float(st.session_state["user_edited_pieces"][idx]) if ("user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]) else float(row["pcs_numeric"])
         net_area = float(row["polygon_net_area"])
         l_prod = float(row[l_prod_col])
         w_prod = float(row[w_prod_col])
         
-        # 🚨 Luồng 1: Giải toán cho KEO LÓT / MÉC KEO
+        # Luồng 1: Giải toán cho KEO LÓT / MÉC KEO
         if p_class == "FUSING":
             fusing_line_gross = dynamic_fusing_solver(l_prod, w_prod, net_area, pcs)
             return round(fusing_line_gross, 4)
                 
-        # 🚨 Luồng 2: Giải toán cho VẢI CHÍNH (FABRIC) -> Tự động nhận diện phân bổ nếu được chuyển đổi chất liệu tay
+        # Luồng 2: Giải toán cho VẢI CHÍNH (FABRIC)
         elif p_class == "FABRIC":
             line_net_area_sum = net_area * pcs
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * (line_net_area_sum / total_fabric_net_area), 4)
                 
-        # 🚨 Luồng 3: Giải toán cho VẢI LÓT (LINING)
+        # Luồng 3: Giải toán cho VẢI LÓT (LINING)
         elif p_class == "LINING":
             line_net_area_sum = net_area * pcs
             if total_lining_net_area > 0:
@@ -1661,10 +1668,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
         return 0.0
 
-    # Thực thi giải toán xuất bản giá trị định mức chi tiết từng dòng có bẫy chỉ mục index
+    # Thực thi giải toán xuất bản giá trị định mức
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     
-    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết dựa trên hàm nhận diện sửa đổi tay
+    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết
     df_bom["calculated_material_width"] = current_fabric_width
     for idx, row in df_bom.iterrows():
         p_class = local_strict_classify(row, idx)
