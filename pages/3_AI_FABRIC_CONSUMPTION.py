@@ -1553,8 +1553,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-         # =====================================================================
-    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - KNOWLEDGE BASE ĐỘ PHỨC TẠP QUẦN JEANS
+        # =====================================================================
+    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - HIỆU CHỈNH TĂNG ĐỊNH MỨC THỰC TẾ
     # =====================================================================
 
     # 1. Tính diện tích phẳng Gerber chuẩn hóa hình học theo loại rập
@@ -1601,17 +1601,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in name for k in ["loop", "đỉa"]): total_minor_pieces += pcs
         if any(k in name for k in ["cargo", "hộp", "flap", "nắp túi"]): has_cargo_pocket = True
 
-    # Ma trận Loại hàng × Mức độ phức tạp (Áp dụng cho dòng hàng JEANS)
-    # Đơn giản: Thân 90% | Trung bình: Thân 88% | Phức tạp: Thân 85%
+    # 🔴 ĐÃ HIỆU CHỈNH: Hạ tỷ trọng diện tích thân chính xuống để ép tổng định mức Yards tăng lên sát thực tế
+    # Đơn giản: Thân chiếm 85% | Trung bình: Thân chiếm 82% | Phức tạp: Thân chiếm 78%
     if has_cargo_pocket or total_minor_pieces > 6:
         complexity_tier = "Phức tạp"
-        target_body_ratio = 0.85
+        target_body_ratio = 0.78
     elif total_minor_pieces >= 5:
         complexity_tier = "Trung bình"
-        target_body_ratio = 0.88
+        target_body_ratio = 0.82
     else:
         complexity_tier = "Đơn giản"
-        target_body_ratio = 0.90
+        target_body_ratio = 0.85
 
     # 🔴 TOÁN HỌC THỰC CHẤT ĐỘNG: GIẢI PHƯƠNG TRÌNH ĐỊNH MỨC THEO DIỆN TÍCH THÂN CHÍNH
     total_body_net_area = 0.0
@@ -1627,7 +1627,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_body_net_area += net_a * pcs
 
     if total_body_net_area > 0:
-        # Đã sửa đổi tên biến sạch ký tự tiếng Việt phục vụ biên dịch mượt mà
         estimated_total_marker_area = total_body_net_area / target_body_ratio
         
         # Hiệu suất đi sơ đồ thực tế trong phòng CAD Lectra (dao động từ 72.8% đến 74.2%)
@@ -1644,10 +1643,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Tính tổng số yards vải thực tế cần mua (sau co rút dọc/ngang)
         total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
         
-        # Bẫy lỗi an toàn kiểm soát khung định mức quần Jeans dài tiêu chuẩn không bị phình to
-        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.65), 1.15)
+        # 🔴 ĐÃ HIỆU CHỈNH: Nâng trần bẫy lỗi lên tối đa 1.85 YDS để phù hợp với các mã Jeans co rút lớn hoặc phom to đại trà
+        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.85), 1.22)
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.35))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
 
     # Tính định mức thô trước co rút phục vụ bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
