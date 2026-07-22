@@ -1575,6 +1575,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
+        # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
@@ -1604,11 +1605,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         st_code = str(bom_ctx.get("style_code", "N/A")).upper()
         cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
-        sz_sample = str(bom_ctx.get("size_code", "29")).upper()
         
         m_data = [
             ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-            ("Size may mẫu (Sample Size):", sz_sample, "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
+            ("Size may mẫu (Sample Size):", str(detected_size_code), "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
             ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
             ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
         ]
@@ -1642,7 +1642,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
 
-        # 🚨 ĐÃ SỬA LỖI AUTO-FIT TAB 1: Thay thế col.column thành chỉ số đếm số nguyên chuẩn xác
         for col_idx, col in enumerate(w_s1.columns, start=1):
             m_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col_idx)
@@ -1665,9 +1664,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                if c_idx == 1 or c_idx == 2 or c_idx == 3:
+                if c_idx in:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif c_idx == 4 or c_idx == 5 or c_idx == 6:
+                elif c_idx in:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -1675,7 +1674,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
             c_row += 1
 
-        # 🚨 ĐÃ SỬA LỖI AUTO-FIT TAB 2: Thay thế col.column thành chỉ số đếm số nguyên chuẩn xác
         for col_idx, col in enumerate(w_s2.columns, start=1):
             m_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col_idx)
@@ -1685,7 +1683,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
 
-       # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -1695,14 +1693,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.1f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 🚨 ĐÃ SỬA LỖI NHÂN ĐÔI LŨY KẾ: Gom nhóm tính tổng trực tiếp từ cột Gross Consumption (Không nhân lặp pcs_numeric nữa)
-    summary_grouped = df_bom.groupby([m_col]).agg({"Gross Consumption": "sum"}).reset_index()
+    # Thuật toán gom nhóm dữ liệu tạo bảng BOM Summary sạch đồng bộ sang Excel
+    df_bom["total_item_gross"] = df_bom["Gross Consumption"] * df_bom["pcs_numeric"]
+    summary_grouped = df_bom.groupby([m_col]).agg({"total_item_gross": "sum"}).reset_index()
     
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
     df_summary = pd.DataFrame({
         "Phân loại vật tư": summary_grouped[m_col].apply(lambda x: cls_map.get(str(x).upper(), "VẬT TƯ KHÁC")),
         "Material Class": summary_grouped[m_col].str.upper(),
-        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
+        "Gross Consumption": summary_grouped["total_item_gross"].round(4),
         "UOM": "YDS"
     })
 
@@ -1710,17 +1709,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # Cấu trúc ma trận hiển thị chi tiết lưới rập và gán tên chữ tiếng Việt cho cột Số lượng
+    # Cấu trúc ma trận hiển thị chi tiết lưới rập và gán nhãn Size mẫu chuẩn xác 34x33
     df_bom_display = df_bom.copy()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
-    df_bom_display["Size tính toán"] = str(ctx.get("size_code", "29"))
+    
+    # 🚨 ĐỒNG BỘ ĐỘNG: Đưa trực tiếp biến bóc size mẫu chuẩn xác từ Techpack lên giao diện
+    df_bom_display["Size tính toán"] = detected_size_code
+    
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display["Số lượng rập"] = df_bom_display["pcs_numeric"]
     
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # Chia cột chức năng kết xuất UI (Sửa dứt điểm lỗi trống ngoặc)
+    # Chia cột chức năng kết xuất UI chuẩn st.columns(2) dập lỗi đỏ
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
