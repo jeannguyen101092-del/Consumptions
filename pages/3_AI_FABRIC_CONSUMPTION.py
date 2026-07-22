@@ -840,7 +840,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
         ("Size may mẫu (Sample Size):", sample_size, "Khổ vải hữu dụng (Width):", f'{width_val}"'),
         ("Co rút dọc (Warp Shrinkage):", f'{warp_val}%', "Co rút ngang (Weft Shrinkage):", f'{weft_val}%'),
         ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%'),
-        ("Độ phức tạp kết cấu (AI):", complexity_level, "Định dạng sơ đồ vân vải:", f"{str(fabric_pattern).upper()} LAYOUT")
+        ("Độ phức tạp kết cấu (AI):", complexity_val, "Định dạng sơ đồ vân vải:", f"{str(fabric_pattern).upper()} LAYOUT")
     ]
     
     for idx, t_row in enumerate(tech_data, start=5):
@@ -928,6 +928,13 @@ if bom_ctx and ("bom_rows" in bom_ctx or len(st.session_state.get("processed_dis
     df_sum_all_materials = df_bom_display_sum.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_all_materials.columns = ["Material Class", "Gross Consumption"]
     
+    cls_map = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+        "FUSING": "KEO/DỰNG (FUSING)", 
+        "LINING": "VẢI LÓT/BAO TÚI (LINING)", 
+        "ACCESSORY": "PHỤ LIỆU ĐẾM CHIẾC (ACCESSORY)"
+    }
+    
     summary_rows_final = [
         {"Phân loại vật tư": "Khổ vải Vải chính (Chat)", "Gross Consumption": f"{fabric_width:.1f} inch", "UOM": "Khổ sơ đồ"},
         {"Phân loại vật tư": "Khổ vải Keo/Dựng (Chat)", "Gross Consumption": f"{fusing_width:.1f} inch", "UOM": "Khổ sơ đồ"},
@@ -944,7 +951,7 @@ if bom_ctx and ("bom_rows" in bom_ctx or len(st.session_state.get("processed_dis
 
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
-        display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})") if 'cls_map' in locals() else f"VẬT TƯ ({m_class})"
+        display_label = cls_map.get(m_class, f"VẬT TƯ ({m_class})")
         if "FABRIC" in m_class:
             summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức tiêu hao sản xuất đại trà)", "Gross Consumption": round(fabric_detail_sum_actual, 4), "UOM": "YDS (Mua hàng)"})
             df_sum_for_excel.loc[idx, "Gross Consumption"] = fabric_detail_sum_actual
@@ -999,12 +1006,3 @@ if bom_ctx and ("bom_rows" in bom_ctx or len(st.session_state.get("processed_dis
     st.caption(f"🤖 AI Dòng hàng: {prod_key} | Kết cấu Ma trận: {complexity_level} | Hiệu suất sơ đồ CAD: {dens*100:.2f}% | Tổng định mức tiêu hao (Mua vải): {fabric_detail_sum_actual:.4f} YDS")
 else:
     st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack vào bộ uploader để bắt đầu tự động tính định mức.")
-
-
-
-
-
-
-
-
-
