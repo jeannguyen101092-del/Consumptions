@@ -1553,8 +1553,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-        # =====================================================================
-    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - HIỆU CHỈNH TĂNG ĐỊNH MỨC THỰC TẾ
+         # =====================================================================
+    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - TĂNG ĐỊNH MỨC AN TOÀN SẢN XUẤT
     # =====================================================================
 
     # 1. Tính diện tích phẳng Gerber chuẩn hóa hình học theo loại rập
@@ -1601,17 +1601,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in name for k in ["loop", "đỉa"]): total_minor_pieces += pcs
         if any(k in name for k in ["cargo", "hộp", "flap", "nắp túi"]): has_cargo_pocket = True
 
-    # 🔴 ĐÃ HIỆU CHỈNH: Hạ tỷ trọng diện tích thân chính xuống để ép tổng định mức Yards tăng lên sát thực tế
-    # Đơn giản: Thân chiếm 85% | Trung bình: Thân chiếm 82% | Phức tạp: Thân chiếm 78%
+    # 🔴 ĐÃ TĂNG ĐỊNH MỨC: Tiếp tục hạ tỷ trọng diện tích của thân chính để nâng tổng Yards
+    # Đơn giản: Thân 82% | Trung bình: Thân 76% | Phức tạp: Thân 72%
     if has_cargo_pocket or total_minor_pieces > 6:
         complexity_tier = "Phức tạp"
-        target_body_ratio = 0.78
+        target_body_ratio = 0.72
     elif total_minor_pieces >= 5:
         complexity_tier = "Trung bình"
-        target_body_ratio = 0.82
+        target_body_ratio = 0.76
     else:
         complexity_tier = "Đơn giản"
-        target_body_ratio = 0.85
+        target_body_ratio = 0.82
 
     # 🔴 TOÁN HỌC THỰC CHẤT ĐỘNG: GIẢI PHƯƠNG TRÌNH ĐỊNH MỨC THEO DIỆN TÍCH THÂN CHÍNH
     total_body_net_area = 0.0
@@ -1637,14 +1637,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Chiều dài sơ đồ mô phỏng thực tế (inch)
         simulated_length = (estimated_total_marker_area / fabric_width) / dens
         
-        # Hệ số hao hụt đầu cây, dạt biên đầu tấm vải đại trà đại bản
-        wastage_factor = 1.05  # Định biên hao hụt 5% cho phòng mẫu an toàn
+        # 🔴 ĐÃ TĂNG ĐỊNH MỨC: Nâng hệ số hao hụt lên 1.10 (Bù hao hụt đầu khúc vải cây 10% an toàn)
+        wastage_factor = 1.10  
         
         # Tính tổng số yards vải thực tế cần mua (sau co rút dọc/ngang)
         total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
         
-        # 🔴 ĐÃ HIỆU CHỈNH: Nâng trần bẫy lỗi lên tối đa 1.85 YDS để phù hợp với các mã Jeans co rút lớn hoặc phom to đại trà
-        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.85), 1.22)
+        # Mở rộng trần kiểm soát tối đa cho phép co giãn định mức an toàn
+        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.95), 1.25)
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
 
