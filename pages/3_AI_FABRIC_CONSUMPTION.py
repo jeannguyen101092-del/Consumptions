@@ -1685,7 +1685,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         workbook.save(output_stream)
         output_stream.seek(0)
         return output_stream
-    # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -1695,15 +1695,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.1f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # Thuật toán gom nhóm dữ liệu tạo bảng BOM Summary sạch đồng bộ sang Excel
-    df_bom["total_item_gross"] = df_bom["Gross Consumption"] * df_bom["pcs_numeric"]
-    summary_grouped = df_bom.groupby([m_col]).agg({"total_item_gross": "sum"}).reset_index()
+    # 🚨 ĐÃ SỬA LỖI DỘI SỐ: Gom nhóm tính tổng trực tiếp từ cột Gross Consumption (Không nhân lặp pcs_numeric nữa)
+    summary_grouped = df_bom.groupby([m_col]).agg({"Gross Consumption": "sum"}).reset_index()
     
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
     df_summary = pd.DataFrame({
         "Phân loại vật tư": summary_grouped[m_col].apply(lambda x: cls_map.get(str(x).upper(), "VẬT TƯ KHÁC")),
         "Material Class": summary_grouped[m_col].str.upper(),
-        "Gross Consumption": summary_grouped["total_item_gross"].round(4),
+        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
         "UOM": "YDS"
     })
 
@@ -1715,7 +1714,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom.copy()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
     
-    # Đồng bộ nhãn Size may mẫu chuẩn xác 34x33 từ tài liệu gốc Kenpark
+    # Đồng bộ nhãn Size may mẫu chuẩn xác từ tài liệu gốc Kenpark
     df_bom_display["Size tính toán"] = detected_size_code
     
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
@@ -1730,6 +1729,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     with col_t2:
         try:
+            # Gọi trực tiếp hàm xuất Excel nội bộ được khai báo từ Đoạn 6
             excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
