@@ -1593,25 +1593,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
          # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): CURVATURE INDEX ENGINE - GIẢI TOÁN ĐỘ CONG HÌNH HỌC TỰ ĐỘNG
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (VÁ LỖI SCOPE)
     # =====================================================================
 
-    # ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
+    # 🎯 ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay dữ liệu sửa đổi chất liệu từ người dùng
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
     for idx, mat_val in st.session_state["user_edited_materials"].items():
         if idx < len(df_bom): df_bom.loc[idx, m_col] = mat_val
 
-    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO TIÊU CHUẨN ĐỘ CONG
+    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THEO TIÊU CHUẨN ĐỘ CONG VÀ SẠCH LỖI SCOPE
     def calculate_geometry_piece_area(row):
+        # 🎯 VÁ LỖI SCOPE: Trích xuất trực tiếp bộ biến thư viện động từ session_state sát đầu hàm để bẻ gãy triệt để NameError
+        LOCAL_KB_RULES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("MANUFACTURING_RULES", {})
+        LOCAL_KB_SHAPES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("SHAPE_COEFFICIENTS", {})
+        
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         cutting_method = str(row.get("cutting_method", "standard")).lower().strip()
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         
-        # 1. Nếu AI/Rule Engine chỉ định quy tắc cắt dây băm nhỏ (Strip) như Đỉa quần
-        if cutting_method == "strip" or piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
-            rule = KB_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
+        # 1. Áp dụng Quy tắc Sản xuất từ Thư viện động: Tính dải dây dài nếu có lệnh strip
+        if cutting_method == "strip" or piece_class in LOCAL_KB_RULES and LOCAL_KB_RULES[piece_class].get("method") == "strip":
+            rule = LOCAL_KB_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
             return round(rule["width"] * rule["length"], 2)
 
         # Trích xuất kích thước dài rộng thô cơ sở từ bảng dữ liệu
@@ -1620,18 +1624,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if l_val <= 0 or w_val <= 0: return 0.0
         
         # Đọc Chỉ số độ cong (Curvature Index) do AI hoặc hình học CAD bóc tách tự động
-        # Mặc định fallback là 0.0 (Thẳng) nếu Techpack trơn không khai báo
         curvature_idx = float(row.get("curvature_index", 0.0))
         
-        # 🎯 TRỤC TOÁN HỌC MỚI: Nếu rập có độ cong lớn (>0.25) hoặc là KEO, LÓT cố định
-        # Giữ nguyên diện tích bao thật tịnh phẳng (sf = 1.0) để bảo toàn không gian nén sơ đồ
+        # Nếu rập có độ cong lớn (>0.25) hoặc là KEO, LÓT cố định
         if "FUSING" in mat_class or "LINING" in mat_class or cutting_method == "continuous" or curvature_idx > 0.25:
             sf = 1.0
         else:
-            # Vải chính (FABRIC) tra cứu hệ số lấp đầy rập chuẩn từ Shape Library
-            sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
+            # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động sạch lỗi
+            sf = LOCAL_KB_SHAPES.get(shape_type, LOCAL_KB_SHAPES.get(piece_class, LOCAL_KB_SHAPES.get("DEFAULT", 0.78)))
             if "PANEL" in piece_class or "BODY" in piece_class:
-                sf = 0.84  # Hệ số rập cong thân áo khoác Jacket/Quần
+                sf = 0.84  # Hệ số rập cong thân
             
         raw_area = l_val * w_val * sf
         
@@ -1683,10 +1685,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         cutting_method = str(row.get("cutting_method", "standard")).lower().strip()
         
-        # Trích xuất dữ liệu thông số động phục vụ ma trận tính toán Curvature Index của bạn
         l_val = float(row.get("Dài sản xuất (L-inch)", 0.0))
         w_val = float(row.get("Rộng sản xuất (W-inch)", 0.0))
-        curvature_idx = float(row.get("curvature_index", 0.0)) # Nhận diện chỉ số độ cong trực tiếp [INDEX]
+        curvature_idx = float(row.get("curvature_index", 0.0))
         
         # 1. VẢI CHÍNH (MAIN FABRIC)
         if "FABRIC" in mat_class:
@@ -1694,25 +1695,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only), 4)
             return 0.0
             
-        # 2. KEO/DỰNG (FUSING): ĐỒNG BỘ 100% MA TRẬN ĐỘ CONG PHI TUYẾN TÍNH DO BẠN ĐỀ XUẤT [INDEX]
+        # 2. KEO/DỰNG (FUSING)
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
                 fusing_efficiency = KB_RULES.get("FUSING", {}).get("packing_efficiency", 0.82)
                 
-                # 🎯 BIỆN LUẬN LỚP 1: Cạp thẳng hoặc cong siêu nhẹ (0.00 - 0.10) ➔ Tính theo chiều dài tích lũy (Linear) bảo toàn bề rộng cạp
-                if 0.00 <= curvature_idx <= 0.10:
-                    return round(((l_val * w_val * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
-                
-                # 🎯 BIỆN LUẬN LỚP 2: Cạp cong nhẹ (0.10 - 0.25) ➔ Linear * Hệ số hiệu chỉnh nhỏ bổ sung (1.04)
-                elif 0.10 < curvature_idx <= 0.25:
-                    base_linear_gross = ((l_val * w_val * pcs) / fusing_width) / 36.0 / fusing_efficiency
-                    return round(base_linear_gross * 1.04, 4) # Nhân thêm 4% bù kẽ hở cong nhẹ
-                
-                # 🎯 BIỆN LUẬN LỚP 3: Cạp cong nhiều (>0.25) ➔ Tính hoàn toàn dựa trên diện tích đa giác lọt khe không gian rập chuẩn CAD [INDEX]
-                elif curvature_idx > 0.25:
+                if cutting_method == "continuous" or piece_class == "WAISTBAND":
                     return round(((net_a * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
                 
-                # Fallback tổng quát cho các chi tiết dựng nhỏ khác
                 return round(((net_a * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
             return 0.0
             
@@ -1729,6 +1719,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
 
 
