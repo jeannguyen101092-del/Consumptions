@@ -1655,12 +1655,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
-       # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY ĐỒNG BỘ ĐỘNG TRỰC TIẾP
+     # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY ĐỘNG - CỘNG TỔNG DIỆN TÍCH THỰC TẾ 100%
     # =====================================================================
 
     # 🎯 ĐÃ ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
-    # Đảm bảo cứ đổi nhãn chất liệu trên UI là luồng toán học ở dưới nhận diện được ngay lập tức
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
         
@@ -1673,46 +1672,47 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         
-        # 🎯 ĐÃ SỬA LỖI NAMEERROR: Đổi toàn bộ CUTTING_RULES thành biến thư viện động KB_RULES chuẩn xác 100% [INDEX]
-        if piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
-            rule = KB_RULES[piece_class]
+        # Áp dụng Quy tắc Sản xuất từ Thư viện động cho đỉa quần/đỉa áo
+        if piece_class in CUTTING_RULES and CUTTING_RULES[piece_class].get("method") == "strip":
+            rule = CUTTING_RULES[piece_class]
             return round(rule["width"] * rule["length"], 2)
 
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.0
         
-        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động [INDEX]
-        sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
+        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động
+        sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
         if "PANEL" in piece_class or "BODY" in piece_class:
             sf = 0.84  # Bảo toàn diện tích rập thật lớn cho thân áo khoác Jacket
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
-    # 📊 LEVEL 5: CONSUMPTION ENGINE - CỘNG DỒN DIỆN TÍCH TÍCH LŨY THỰC TẾ ĐẦU THÂN VẢI CHÍNH
+    # 📊 LEVEL 5: CONSUMPTION ENGINE - CỘNG TỔNG LŨY KẾ TUYỆT ĐỐI 100% DIỆN TÍCH VẢI CHÍNH [INDEX]
     total_fabric_net_area_accumulated = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
-    # Gom diện tích tích lũy chuẩn hóa của các chi tiết vải chính
+    # 🎯 THAY ĐỔI LỚN: Quét qua toàn bộ bảng và cộng dồn diện tích của MỌI chi tiết vải chính có trong sơ đồ [INDEX]
     for _, row in df_fabric_only.iterrows():
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         total_fabric_net_area_accumulated += net_a * pcs
 
     if total_fabric_net_area_accumulated > 0:
-        # Tra cứu trực tiếp mật độ nén sơ đồ từ Thư viện động DB dựa trên loại hàng [INDEX]
-        product_rules = KB_PRODUCTS.get(ai_product_type, KB_PRODUCTS["JEAN_LONG"])
+        # Tra cứu mật độ nén sơ đồ từ Thư viện động DB dựa trên loại hàng
+        product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
         fixed_density = product_rules["packing_density"].get(ai_complexity, target_density)
         
-        # Nhân hệ số bù khoảng trống lọt khe vật lý (Gap Fill Factor) lên 1.24 cho áo khoác Jacket [INDEX]
+        # 🎯 HIỆU CHỈNH KẼ HỞ: Áo khoác Jacket có nách, cổ cong lớn tạo ra nhiều khoảng trống lọt khe lãng phí vải
+        # Nhân thêm hệ số lọt khe vật lý 1.18 (bù 18% vải hao hụt kẽ hở giữa các chi tiết) [INDEX]
         if "JACKET" in ai_product_type:
-            total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.24
+            total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.18
             
-        # Chiều dài sơ đồ mô phỏng tính bằng inch [INDEX]
+        # Chiều dài sơ đồ mô phỏng thực tế (inch) = Tổng diện tích tích lũy toàn bộ rập FABRIC / (Khổ vải * Mật độ nén) [INDEX]
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         
-        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy (hao hụt 5% an toàn sản xuất) [INDEX]
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp đầu tấm (hao hụt vải 5% an toàn sản xuất) [INDEX]
         total_gross_yds_after_shrink = (simulated_length / 36.0) * 1.05
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.85))
@@ -1721,7 +1721,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
     # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐỘC LẬP TỪNG CHẤT LIỆU CHUẨN XƯỞNG CẮT PPJ
-    # Tính tổng diện tích vải chính động thời gian thực ngay tại thời điểm chạy phân bổ [INDEX]
     total_fabric_net_area_only = sum(
         float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
         for _, r in df_bom.iterrows() 
@@ -1733,26 +1732,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row.get("pcs_numeric", 1.0))
         net_a = float(row.get("polygon_net_area", 0.0))
         
-        # 1. VẢI CHÍNH (MAIN FABRIC): Phân bổ tỷ lệ động theo tổng diện tích tích lũy vải chính [INDEX]
         if "FABRIC" in mat_class:
             if total_fabric_net_area_only > 0:
                 return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only), 4)
             return 0.0
-            
-        # 2. KEO/DỰNG (FUSING): Tính độc lập tuyệt đối theo diện tích thật, khổ keo riêng và hiệu suất sơ đồ keo (82%) [INDEX]
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
                 total_fusing_item_area = net_a * pcs
                 return round((total_fusing_item_area / fusing_width) / 36.0 / 0.82, 4)
             return 0.0
-            
-        # 3. VẢI LÓT (LINING): Tính độc lập tuyệt đối theo diện tích thật, khổ lót riêng và hiệu suất sơ đồ lót (80%) [INDEX]
         elif "LINING" in mat_class:
             if net_a > 0 and lining_width > 0:
                 total_lining_item_area = net_a * pcs
                 return round((total_lining_item_area / lining_width) / 36.0 / 0.80, 4)
             return 0.0
-            
         return 0.0
 
     df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v10, axis=1)
