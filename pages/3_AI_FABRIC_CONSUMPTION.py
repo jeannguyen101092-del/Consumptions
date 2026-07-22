@@ -1752,9 +1752,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         # =====================================================================
        # =====================================================================
-    # 🟩 KHỐI 5b: KẾT XUẤT ĐỒ HỌA ĐỒNG BỘ ĐỘNG THEO TOÁN HỌC THỰC TẾ 100%
+       # =====================================================================
+    # 🟩 KHỐI 5b (PHẦN 1): AI GỢI Ý SỐ LƯỢNG CHUẨN & MỞ QUYỀN SỬA TAY TRÊN UI
     # =====================================================================
-
     df_bom_display_sum = df_bom.copy()
     
     # Khóa bẫy lỗi an toàn ô nhớ ngăn chặn NameError cục bộ
@@ -1767,6 +1767,49 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'weft_shrink' not in locals(): weft_shrink = 0.0
     if 'dens' not in locals(): dens = 0.80
 
+    # 🤖 AI tự động dự đoán số lượng rập chuẩn (Bù đắp lỗi thiếu rập của cạp/thân)
+    def ai_suggest_pieces(row):
+        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        current_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
+        if any(k in name for k in ["band", "waistband", "cạp", "lưng"]) and current_pcs < 2:
+            return 2.0
+        if any(k in name for k in ["front panel", "back panel", "yoke", "thân trước", "thân sau", "đô sau"]) and current_pcs < 2:
+            return 2.0
+        return current_pcs
+
+    if "Số lượng rập" not in df_bom_display_sum.columns:
+        df_bom_display_sum["Số lượng rập"] = df_bom_display_sum[pcs_col] if pcs_col in df_bom_display_sum.columns else 1.0
+    df_bom_display_sum["Số lượng rập"] = df_bom_display_sum.apply(ai_suggest_pieces, axis=1)
+
+    # 📊 Render bảng dạng data_editor cho phép người dùng kích đúp chuột sửa số lượng
+    st.subheader(f"⚙️ Khối Điều Chỉnh Cấu Trúc Rập Máy Mẫu ({prod})")
+    st.info("💡 Bạn có thể click trực tiếp vào ô số liệu ở cột **'Số lượng rập'** bên dưới để sửa tay. Công thức định mức tổng và chi tiết sẽ tự động tính lại ngay lập tức!")
+
+    edited_df = st.data_editor(
+        df_bom_display_sum,
+        column_config={
+            "Component Name": st.column_config.TextColumn("Component Name", disabled=True),
+            "Material Class": st.column_config.TextColumn("Material Class", disabled=True),
+            "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
+            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=20.0, step=1.0, help="Sửa số lượng rập tại đây"),
+            "Dài sản xuất (L-inch)": st.column_config.NumberColumn("Dài sản xuất (L-inch)", disabled=True),
+            "Rộng sản xuất (W-inch)": st.column_config.NumberColumn("Rộng sản xuất (W-inch)", disabled=True),
+            "Dài gốc Techpack (inch)": st.column_config.NumberColumn("Dài gốc Techpack (inch)", disabled=True),
+            "Rộng gốc Techpack (inch)": st.column_config.NumberColumn("Rộng gốc Techpack (inch)", disabled=True),
+            "polygon_net_area": st.column_config.NumberColumn("Diện tích rập", disabled=True),
+            "Gross Consumption": st.column_config.NumberColumn("Định mức chi tiết", disabled=True)
+        },
+        disabled=False, 
+        key="bom_user_interactive_editor_v2"
+    )
+
+    # Đồng bộ số rập vừa nhập thủ công vào luồng bộ nhớ của Engine
+    df_bom_display_sum["pcs_numeric"] = pd.to_numeric(edited_df["Số lượng rập"], errors='coerce').fillna(1.0)
+    df_bom[pcs_col] = df_bom_display_sum["pcs_numeric"]
+    df_bom["pcs_numeric"] = df_bom_display_sum["pcs_numeric"]
+    # =====================================================================
+    # 🟩 KHỐI 5b (PHẦN 2): GOM NHÓM TÍNH ĐỊNH MỨC SUMMARY VÀ XUẤT FILE EXCEL
+    # =====================================================================
     if "allocated_gross" not in df_bom_display_sum.columns:
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
@@ -1783,7 +1826,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     }
     summary_rows_final = []
     
-    # 1. Hiển thị thông số bóc động từ chat lên bảng Summary
+    # Thiết lập mảng hiển thị dữ liệu Summary lên đầu trang
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải chính (Chat)", "Gross Consumption": f"{fabric_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Keo/Dựng (Chat)", "Gross Consumption": f"{fusing_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải lót (Chat)", "Gross Consumption": f"{lining_width:.1f} inch", "UOM": "Khổ sơ đồ"})
@@ -1791,12 +1834,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # 🔴 CHÂN LÝ: Bốc nguyên vẹn số tổng Fabric thực chất từ kết quả giải toán Khối 5a lên Summary, không gán cứng [INDEX]!
     fabric_detail_sum_actual = df_bom_display_sum[df_bom_display_sum[m_col].astype(str).str.upper().str.contains("FABRIC")]["allocated_gross"].sum()
-    
     df_sum_for_excel = df_sum_all_materials.copy()
 
-    # 2. Đẩy toàn bộ mảng gom nhóm đa chất liệu lên Summary (Cam kết khớp khít 100% với cột chi tiết bên dưới)
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
         display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})")
@@ -1811,24 +1851,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
 
-    # Trích xuất bản sao bảo vệ trước khi dọn dẹp cột trùng tên phục vụ render UI chi tiết
-    saved_pcs_series = df_bom[pcs_col].copy()
-    saved_orig_l_series = df_bom[orig_l_col].copy()
-    saved_orig_w_series = df_bom[orig_w_col].copy()
-    saved_allocated_gross = df_bom["allocated_gross"].copy()
+    # Bảo toàn chuỗi series để render giao diện chi tiết chính xác
+    saved_pcs_series = df_bom_display_sum["Số lượng rập"].copy()
+    saved_orig_l_series = df_bom_display_sum[orig_l_col].copy()
+    saved_orig_w_series = df_bom_display_sum[orig_w_col].copy()
+    saved_allocated_gross = df_bom_display_sum["allocated_gross"].copy()
 
     columns_to_drop = [
         "Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", 
         "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", "allocated_gross", 
         "pcs_numeric", "fabric_width_inch", "fabric_width"
     ]
-    df_bom_display = df_bom.copy()
+    df_bom_display = df_bom_display_sum.copy()
     for col in columns_to_drop:
         if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Ép đồng bộ hiển thị khổ động từng chất liệu xuống bảng chi tiết
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["calculated_material_width"].round(1) if "calculated_material_width" in df_bom.columns else round(fabric_width, 1)
-
+    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display_sum["calculated_material_width"].round(1) if "calculated_material_width" in df_bom_display_sum.columns else round(fabric_width, 1)
     df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Số lượng rập"] = saved_pcs_series
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
@@ -1845,7 +1883,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất UI Giao diện và Nút Download file Excel PPJ
+    # Vẽ nút tải file Excel PPJ đồng bộ định mức đã sửa
     col1, col2 = st.columns(2)
     with col1: st.subheader("Bảng tổng hợp định mức (BOM Summary)")
     with col2:
@@ -1853,7 +1891,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             ctx["warp_shrinkage"] = warp_shrink
             ctx["weft_shrinkage"] = weft_shrink
             ctx["global_gross_fabric_yds"] = fabric_detail_sum_actual
-
             excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, dens, fabric_pattern_raw)
             
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
