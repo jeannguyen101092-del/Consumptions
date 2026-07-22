@@ -1592,20 +1592,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     target_wastage = float(ai_decision.get("wastage_factor", 1.02))
 
 
-         # =====================================================================
-       # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (ĐỒNG BỘ SCOPE BIẾN SẠCH LỖI)
+          # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY ĐỘNG - NÂNG TIÊU HAO AN TOÀN CHO QUÂN CHINO
     # =====================================================================
 
-    # 🎯 ĐÃ ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
+    # 🎯 ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay dữ liệu sửa đổi chất liệu từ người dùng
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
-        
     for idx, mat_val in st.session_state["user_edited_materials"].items():
-        if idx < len(df_bom):
-            df_bom.loc[idx, m_col] = mat_val
+        if idx < len(df_bom): df_bom.loc[idx, m_col] = mat_val
 
-    # 📐 VÁ LỖI TRIỆT ĐỂ: Khai báo trích xuất đồng bộ bộ ba biến thư viện động sát đầu khối để chặn vĩnh viễn bẫy NameError [INDEX]
     LOCAL_KB_PRODUCTS = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("PRODUCT_MATRICES", {})
     LOCAL_KB_SHAPES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("SHAPE_COEFFICIENTS", {})
     LOCAL_KB_RULES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("MANUFACTURING_RULES", {})
@@ -1622,7 +1618,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             rule = LOCAL_KB_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
             return round(rule["width"] * rule["length"], 2)
 
-        # Trích xuất kích thước dài rộng thô cơ sở từ bảng dữ liệu
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.0
@@ -1634,14 +1629,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "FUSING" in mat_class or "LINING" in mat_class or cutting_method == "continuous" or curvature_idx > 0.25:
             sf = 1.0
         else:
-            # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động sạch lỗi
             sf = LOCAL_KB_SHAPES.get(shape_type, LOCAL_KB_SHAPES.get(piece_class, LOCAL_KB_SHAPES.get("DEFAULT", 0.78)))
             if "PANEL" in piece_class or "BODY" in piece_class:
-                sf = 0.84  # Hệ số rập cong thân
+                sf = 0.84  # Bảo toàn diện tích rập thật lớn cho nhóm thân
             
         raw_area = l_val * w_val * sf
-        
-        # Bộ chuyển đổi đơn vị đo lường vạn năng gác cổng bảo vệ dòng hình học
         p_unit = str(row.get("polygon_unit", "IN2"))
         final_converted_net_area = convert_to_sq_inches(raw_area, p_unit)
         return round(final_converted_net_area, 2)
@@ -1661,26 +1653,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_fabric_net_area_accumulated += net_a * pcs
 
     if total_fabric_net_area_accumulated > 0:
-        # 🎯 VÁ LỖI TRIỆT ĐỂ: Gọi đúng biến LOCAL_KB_PRODUCTS đã được bẫy scope an toàn [INDEX]
         product_rules = LOCAL_KB_PRODUCTS.get(ai_product_type, LOCAL_KB_PRODUCTS.get("JEAN_LONG", {}))
         fixed_density = product_rules.get("packing_density", {}).get(ai_complexity, target_density)
         
-        # Bù hao hụt khoảng trống nách cổ lọt khe vật lý 1.18 riêng cho dòng Jacket
-        if "JACKET" in ai_product_type:
-            total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.18
+        # 🎯 HIỆU CHỈNH LỚN: Áp dụng hệ số bù khoảng trống lọt khe vật lý lên 1.22 cho cả nhóm JEAN_LONG / CHINO 
+        # để dạt sơ đồ mô phỏng dài ra chuẩn xác, đẩy định mức dâng cao an toàn xưởng cắt [INDEX]
+        if "JEAN_LONG" in ai_product_type or "JACKET" in ai_product_type:
+            total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.22
             
         # Chiều dài sơ đồ mô phỏng thực tế (inch)
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         
-        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy 3%
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy 3% (1.03) [INDEX]
         total_gross_yds_after_shrink = (simulated_length / 36.0) * target_wastage
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.35))
 
-    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐẦU RA - CHUẨN ĐẠT ĐIỂM 10 TUYỆT ĐỐI (KHÔNG QUÉT CHUỖI VĂN BẢN)
+    # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐẦU RA - CHUẨN ĐẠT ĐIỂM 10 TUYỆT ĐỐI
     total_fabric_net_area_only = sum(
         float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
         for _, r in df_bom.iterrows() 
@@ -1708,10 +1699,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
                 fusing_efficiency = LOCAL_KB_RULES.get("FUSING", {}).get("packing_efficiency", 0.82)
-                
-                if cutting_method == "continuous" or piece_class == "WAISTBAND":
+                if cutting_method == "continuous" or piece_class == "WAISTBAND" or 0.00 <= curvature_idx <= 0.10:
                     return round(((net_a * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
-                
                 return round(((net_a * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
             return 0.0
             
