@@ -1837,7 +1837,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_sum_for_excel.loc[idx, "Gross Consumption"] = consumption_val
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
-       # =====================================================================
+         # =====================================================================
     # 🟩 KHỐI 5b (PHẦN 2): MỞ QUYỀN SỬA CHẤT LIỆU (MATERIAL CLASS) ĐỂ TỰ TÍNH KEO/LÓT
     # =====================================================================
 
@@ -1859,8 +1859,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for col in columns_to_drop:
         if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Khôi phục và chuẩn hóa hiển thị các trường dữ liệu
-    df_bom_display["Material Class"] = df_bom_display_sum[m_col].astype(str).str.upper().strip()
+    # 🎯 ĐÃ SỬA LỖI CÚ PHÁP CHUỖI: Chuyển .strip() thành .str.strip() để bẻ gãy AttributeError
+    df_bom_display["Material Class"] = df_bom_display_sum[m_col].astype(str).str.upper().str.strip()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display_sum["calculated_material_width"].round(1) if "calculated_material_width" in df_bom_display_sum.columns else round(fabric_width, 1)
     df_bom_display["Size tính toán"] = saved_size_series
     df_bom_display["Số lượng rập"] = saved_pcs_series
@@ -1904,7 +1904,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom_display,
         column_config={
             "Component Name": st.column_config.TextColumn("Component Name", disabled=True),
-            # 🎯 KÍCH HOẠT THANH CHỌN (DROPDOWN) CHO PHÉP SỬA CHẤT LIỆU TRỰC TIẾP TRÊN INTERFACE
             "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "FUSING", "LINING", "ACCESSORY"], required=True),
             "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", disabled=True),
@@ -1930,7 +1929,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             st.session_state["user_edited_pieces"][idx] = new_pcs
             has_changed = True
         if new_mat != old_mat:
-            # Lưu lại dòng chất liệu bạn đã sửa vào bộ nhớ đệm để Khối 5a bốc giải toán
             st.session_state["user_edited_materials"][idx] = new_mat
             has_changed = True
 
