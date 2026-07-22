@@ -1274,7 +1274,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 # =====================================================================
-# 🟩 ĐOẠN 1: BỐC TÁCH THAM SỐ TỪ CHAT TRƯỚC ĐỂ ĐẬP TAN TRẠNG THÁI ĐÓNG BĂNG CACHE
+# 🟩 ĐOẠN 1: BỐC TÁCH THAM SỐ VÀ ĐỒNG BỘ CHÍNH XÁC SIZE MẪU TECHPACK
 # =====================================================================
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
 
@@ -1286,27 +1286,31 @@ def extract_param(pattern, text, session_key, default_val):
         return val
     return float(st.session_state.get(session_key, default_val))
 
-# Bóc tách tỷ lệ co rút dọc và ngang động
 warp_shrink = extract_param(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
 weft_shrink = extract_param(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
 
-# Khởi tạo hoặc đọc cấu hình dữ liệu gốc
 ctx = st.session_state.get("bom_data", {})
 if not isinstance(ctx, dict): 
     ctx = {}
 
-# Bóc tách khổ vải chính (Mặc định 56 inch nếu trống)
+# 🚨 SỬA LỖI BỐC SIZE: Quét tìm chính xác cỡ size may mẫu (Ví dụ: 34x33) từ Techpack/Ngữ cảnh đầu vào
+detected_size_code = "34X33" # Mặc định theo tài liệu mẫu AC SLIM STR CHINO
+if ctx.get("detected_base_size"):
+    detected_size_code = str(ctx.get("detected_base_size")).upper()
+elif ctx.get("base_size"):
+    detected_size_code = str(ctx.get("base_size")).upper()
+
+# Trích xuất khổ vải các loại nguyên liệu
 fabric_width = extract_param(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fabric_width_inch", 56.0)
-if fabric_width <= 0: 
-    fabric_width = 56.0
+if fabric_width <= 0: fabric_width = 56.0
 ctx["fabric_width_inch"] = fabric_width
 
-# Bóc tách khổ vật tư phụ (Keo dựng và Vải lót)
 match_fus = re.search(r'(?:khổ\s*keo|keo\s*khổ|dựng\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
 fusing_width = float(match_fus.group(1)) if match_fus else 59.0
 
 match_lin = re.search(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text)
 lining_width = float(match_lin.group(1)) if match_lin else 57.0
+
 # =====================================================================
 # 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
 # =====================================================================
@@ -1440,35 +1444,35 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
     # =====================================================================
-    # 🟩 ĐOẠN 5: GEOMETRIC LAYOUT SOLVERS ENGINE - BAO PHỦ TOÀN NGÀNH MAY
+        # =====================================================================
+    # 🟩 ĐOẠN 5: GEOMETRIC LAYOUT SOLVERS ENGINE - BAO PHỦ TOÀN NGÀNH MAY (SỬA ĐM CAO)
     # =====================================================================
     lock_original_techpack = st.session_state.get("lock_original_techpack", False)
     
-    # Đồng bộ thông số co rút toàn cục
-    current_warp_factor = (1 + warp_shrink / 100.0) if not pattern_has_shrink else 1.0
-    current_weft_factor = (1 + weft_shrink / 100.0) if not pattern_has_shrink else 1.0
+    # Kích thước rập sản xuất ở Đoạn 4 đã nhân sẵn co rút -> Tắt nhân lặp co rút lần 2
+    current_warp_factor = 1.0
+    current_weft_factor = 1.0
     
-    # Đồng bộ 100% dữ liệu bóc tách chỉ định từ Bộ não AI
-    ai_density = float(target_density) if target_density > 0 else 0.85
+    # Kế thừa chính xác mật độ nén sơ đồ AI bóc tách thực tế trên giao diện (Ví dụ: 86.5%)
+    ai_density = float(target_density) if target_density > 0 else 0.865
     ai_wastage = float(target_wastage) if target_wastage > 0 else 1.02
 
     # -----------------------------------------------------------------
     # SOLVER 1: GIẢI TOÁN SƠ ĐỒ LỒNG GHÉP PHẲNG (AREA LAYOUT SOLVER)
     # -----------------------------------------------------------------
     class AreaLayoutSolver:
-        """Giải bài toán đi sơ đồ lồng ghép đa giác (Thân chính, Lót túi, Keo mếch dán phom...)"""
-        def __init__(self, df, width, density, wastage, body_ratio=0.64):
+        """Giải bài toán đi sơ đồ lồng ghép đa giác dựa trên Tổng diện tích rập thực tế chia Khổ vải"""
+        def __init__(self, df, width, density, wastage):
             self.df = df
             self.width = width
             self.density = density
             self.wastage = wastage
-            self.body_ratio = body_ratio
             self.total_gross_yds = 0.0
             self.total_net_area = 0.0
             self._solve_marker_equation()
 
         def _solve_marker_equation(self):
-            # Tích lũy diện tích của toàn bộ chi tiết đi sơ đồ phẳng
+            # Tích lũy diện tích thực tế của TẤT CẢ các miếng rập vải chính rải trên sơ đồ
             total_marker_pieces_area = 0.0
             for _, r in self.df.iterrows():
                 if r["assigned_solver"] == "AreaSolver" and "FABRIC" in str(r[m_col]).upper():
@@ -1476,10 +1480,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             self.total_net_area = total_marker_pieces_area
             
+            # 🚨 CÔNG THỨC SỬA ĐM CAO: Chiều dài sơ đồ thô = Tổng diện tích rập / Khổ vải. 
+            # Sau đó mới chia cho Hiệu suất lấp đầy sơ đồ (density) để tính bù khoảng trống lọt khe lồng ghép.
             if self.total_net_area > 0 and self.width > 0 and self.density > 0:
-                # Phương trình chiều dài sơ đồ hình học phẳng công nghiệp
-                sim_length = (self.total_net_area / self.body_ratio) / self.width / self.density
-                self.total_gross_yds = (sim_length * current_warp_factor * current_weft_factor / 36.0) * self.wastage
+                sim_length = (self.total_net_area / self.width) / self.density
+                # Đổi từ inch sang Yards (chia cho 36.0) và nhân hệ số hao hụt công nghiệp nhà máy
+                self.total_gross_yds = (sim_length / 36.0) * self.wastage
             else:
                 self.total_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.45))
 
@@ -1487,7 +1493,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_a = float(row["polygon_net_area"])
             pcs = float(row["pcs_numeric"])
             if self.total_net_area > 0:
-                # Trả về định mức lồng ghép lũy kế của tổng dòng (Khớp 100% BOM Summary)
+                # Trả về Định mức tổng dòng chuẩn xác khớp hoàn toàn với bảng tổng BOM Summary
                 return round(self.total_gross_yds * ((net_a * pcs) / self.total_net_area), 4)
             return 0.0
 
@@ -1495,14 +1501,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # SOLVER 2: GIẢI TOÁN CẮT BĂNG DỌC / CẮT DÂY (STRIP LAYOUT SOLVER)
     # -----------------------------------------------------------------
     class StripLayoutSolver:
-        """Giải bài toán cắt băng dây liên tục (Đỉa quần Jeans, Dây viền áo, Cạp cắp thẳng...)"""
         def __init__(self, width, density, wastage):
             self.width = width
             self.density = density if density > 0 else 0.85
             self.wastage = wastage
 
         def calculate_gross(self, row):
-            # Cắt dây phụ thuộc vào chiều dài sợi dây kéo dài liên tục
             l_orig = float(row[orig_l_col])
             w_orig = float(row[orig_w_col])
             pcs = float(row["pcs_numeric"])
@@ -1510,18 +1514,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if l_orig <= 0 or w_orig <= 0 or self.width <= 0: 
                 return 0.0
                 
-            # Tổng diện tích chiếm dụng của cụm băng cắt dây
             total_strip_area = (l_orig * w_orig * pcs)
-            # Bài toán rải dây dọc theo khổ vải sản xuất
             strip_length = (total_strip_area / self.width) / self.density
-            gross_yds = (strip_length * current_warp_factor * current_weft_factor / 36.0) * self.wastage
+            gross_yds = (strip_length / 36.0) * self.wastage
             return round(gross_yds, 4)
 
     # -----------------------------------------------------------------
     # SOLVER 3: GIẢI TOÁN CHIỀU DÀI TUYẾN TÍNH (LENGTH LAYOUT SOLVER)
     # -----------------------------------------------------------------
     class LengthLayoutSolver:
-        """Giải bài toán tiêu hao theo mét dài trực tiếp (Dây dệt Hoodie, Chun rạp Bra, Chun quần...)"""
         def __init__(self, wastage):
             self.wastage = wastage
 
@@ -1531,56 +1532,47 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if l_orig <= 0: 
                 return 0.0
                 
-            # Tiêu hao mét dài chạy trực tiếp nhân số lượng rập và hao hụt đầu cây nhà máy
-            total_length_inch = l_orig * pcs * current_warp_factor
+            total_length_inch = l_orig * pcs
             gross_yds = (total_length_inch / 36.0) * self.wastage
             return round(gross_yds, 4)
 
     # -----------------------------------------------------------------
-    # CHƯƠNG TRÌNH ĐIỀU PHỐI VÀ ĐỊNH TUYẾN KHÔNG GIAN SOLVERS
+    # ĐIỀU PHỐI VÀ ĐỊNH TUYẾN LAYOUT SOLVERS ENGINE
     # -----------------------------------------------------------------
-    # Khởi tạo các Core Solvers độc lập, nạp 100% tham số động đồng bộ từ AI
-    universal_area_solver = AreaLayoutSolver(df_bom, fabric_width, ai_density, ai_wastage, body_ratio=0.64)
+    universal_area_solver = AreaLayoutSolver(df_bom, fabric_width, ai_density, ai_wastage)
     universal_strip_solver = StripLayoutSolver(fabric_width, density=0.85, wastage=ai_wastage)
     universal_length_solver = LengthLayoutSolver(wastage=ai_wastage)
 
     def core_engine_router(row):
-        # Kiểm tra chế độ khóa Techpack thủ công
         if lock_original_techpack:
             orig_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
             if orig_col and float(row.get(orig_col, 0.0)) > 0:
                 return round(float(row[orig_col]), 4)
 
-        # Định tuyến Solver dựa trên nhãn chỉ định kỹ thuật của Rule Engine
         solver_class = row["assigned_solver"]
         mat_class = str(row[m_col]).upper().strip()
         
-        # Phân phối luồng giải toán hình học
         if solver_class == "LengthSolver":
             return universal_length_solver.calculate_gross(row)
         elif solver_class == "StripSolver":
             return universal_strip_solver.calculate_gross(row)
         else:
-            # AreaSolver xử lý phân loại khổ theo từng dòng vật tư (Vải chính, Keo, Lót)
             if "FABRIC" in mat_class:
                 return universal_area_solver.calculate_gross(row)
             elif "FUSING" in mat_class or "INTERLINING" in mat_class:
-                # Tạo một bộ giải sơ đồ keo cục bộ ăn theo khổ keo dâng cao an toàn
-                local_fusing_solver = AreaLayoutSolver(df_bom, fusing_width, density=0.74, wastage=ai_wastage, body_ratio=0.85)
+                local_fusing_solver = AreaLayoutSolver(df_bom, fusing_width, density=0.85, wastage=ai_wastage)
                 return local_fusing_solver.calculate_gross(row)
             elif "LINING" in mat_class:
-                # Tạo một bộ giải sơ đồ lót cục bộ ăn theo khổ lót lọt khe an toàn
-                local_lining_solver = AreaLayoutSolver(df_bom, lining_width, density=0.72, wastage=ai_wastage, body_ratio=0.82)
+                local_lining_solver = AreaLayoutSolver(df_bom, lining_width, density=0.82, wastage=ai_wastage)
                 return local_lining_solver.calculate_gross(row)
         return 0.0
 
-    # Thực thi tính định mức tổng dòng đồng bộ toàn diện hệ thống
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
-    # Cấu hình cập nhật ngược lại độ rộng vật tư thực tế
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
 
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
