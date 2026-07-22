@@ -1324,63 +1324,62 @@ lining_width = extract_param(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ
 if lining_width <= 0: lining_width = 57.0
 ctx["lining_width_inch"] = lining_width
 
+# =====================================================================
+# 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
+# =====================================================================
+rows = ctx.get("bom_rows", [])
+if not rows:
+    rows = st.session_state.get("processed_display_rows", [])
 
-    # =====================================================================
-    # 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
-    # =====================================================================
-    rows = ctx.get("bom_rows", [])
-    if not rows:
-        rows = st.session_state.get("processed_display_rows", [])
+if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
+    df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
+    df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
+    
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper().strip()
+    fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
+    
+    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
+    pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
+    orig_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
+    orig_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
+    
+    df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
+    df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
+    
+    # Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học
+    target_orig_gross_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
+    if target_orig_gross_col:
+        df_bom["original_raw_gross"] = pd.to_numeric(df_bom[target_orig_gross_col], errors='coerce').fillna(0.0)
+    else:
+        df_bom["original_raw_gross"] = 0.0
 
-    if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
-        df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
-        df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
+    # Khởi tạo bộ đệm lưu trữ chỉnh sửa loại vật liệu của người dùng
+    if "user_edited_materials" not in st.session_state:
+        st.session_state["user_edited_materials"] = {}
+    if "user_edited_pieces" not in st.session_state:
+        st.session_state["user_edited_pieces"] = {}
+
+    # Ghi đè loại vật tư nếu người dùng tự sửa tay trên lưới UI
+    for idx, row in df_bom.iterrows():
+        if idx in st.session_state["user_edited_materials"]:
+            df_bom.at[idx, m_col] = st.session_state["user_edited_materials"][idx]
+
+    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP
+    def clean_precise_piece_count(row):
+        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
+        pcs_raw_str = str(row.get(pcs_col, "1"))
+        pcs_extracted = re.search(r'(\d+)', pcs_raw_str)
+        pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
         
-        prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper().strip()
-        fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
-        
-        m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
-        pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
-        orig_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
-        orig_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
-        
-        df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
-        df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
-        
-        # Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học
-        target_orig_gross_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
-        if target_orig_gross_col:
-            df_bom["original_raw_gross"] = pd.to_numeric(df_bom[target_orig_gross_col], errors='coerce').fillna(0.0)
-        else:
-            df_bom["original_raw_gross"] = 0.0
+        if any(k in comp_name for k in ["POCKET BAG", "TÚI LÓT", "LÓT TÚI"]):
+            return max(pcs_val, 4.0)
+        return pcs_val
 
-        # Khởi tạo bộ đệm lưu trữ chỉnh sửa loại vật liệu của người dùng
-        if "user_edited_materials" not in st.session_state:
-            st.session_state["user_edited_materials"] = {}
-        if "user_edited_pieces" not in st.session_state:
-            st.session_state["user_edited_pieces"] = {}
-
-        # 🚨 ĐÃ CẬP NHẬT: Ghi đè loại vật tư nếu người dùng tự sửa tay trên lưới UI
-        for idx, row in df_bom.iterrows():
-            if idx in st.session_state["user_edited_materials"]:
-                df_bom.at[idx, m_col] = st.session_state["user_edited_materials"][idx]
-
-        # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP
-        def clean_precise_piece_count(row):
-            comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
-            pcs_raw_str = str(row.get(pcs_col, "1"))
-            pcs_extracted = re.search(r'(\d+)', pcs_raw_str)
-            pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
-            
-            if any(k in comp_name for k in ["POCKET BAG", "TÚI LÓT", "LÓT TÚI"]):
-                return max(pcs_val, 4.0)
-            return pcs_val
-
-        df_bom["pcs_numeric"] = [
-            float(st.session_state["user_edited_pieces"][idx]) if idx in st.session_state["user_edited_pieces"]
-            else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
-        ]
-        df_bom[pcs_col] = df_bom["pcs_numeric"]
+    df_bom["pcs_numeric"] = [
+        float(st.session_state["user_edited_pieces"][idx]) if idx in st.session_state["user_edited_pieces"]
+        else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
+    ]
+    df_bom[pcs_col] = df_bom["pcs_numeric"]
 
          # =====================================================================
     # 🟩 ĐOẠN 3: KNOWLEDGE BASE - ĐỒNG BỘ TUYỆT ĐỐI THEO HIỆU SUẤT TIÊU CHUẨN CỦA CÔNG TY
