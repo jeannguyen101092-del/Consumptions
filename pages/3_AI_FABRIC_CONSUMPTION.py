@@ -1437,6 +1437,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
         # =====================================================================
         # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 6: AI AUDIT DASHBOARD, INTERACTIVE EDITOR & KẾT XUẤT EXCEL
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -1458,7 +1459,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "UOM": "YDS"
     })
 
-    # 🚨 ĐÃ KHÔI PHỤC: Hiển thị bảng định mức tổng (BOM Summary) ngay trên màn hình chính
+    # ĐỒNG BỘ: Hiển thị bảng định mức tổng (BOM Summary) ngay trên màn hình chính
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
@@ -1471,12 +1472,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "pcs_numeric", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # Bộ chia cột chức năng an toàn
-    col_t1, col_t2 = st.columns()
+    # 🚨 ĐÃ SỬA LỖI: Điền tham số tỷ lệ [3, 1] vào st.columns để phân chia 2 cột an toàn và đẹp mắt
+    col_t1, col_t2 = st.columns([3, 1])
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
     with col_t2:
-        # Bẫy lỗi an toàn: Nếu hàm export_excel_ppj_format chưa được định nghĩa ở trên đầu file app.py, hệ thống sẽ tự động khởi tạo luồng fallback dự phòng để không làm sập nút tải
+        # Bẫy lỗi dự phòng (Fallback) nếu hàm export_excel_ppj_format chưa được định nghĩa
         if 'export_excel_ppj_format' not in globals() and 'export_excel_ppj_format' not in locals():
             def export_excel_ppj_format(df_sum, df_det, *args, **kwargs):
                 out = io.BytesIO()
