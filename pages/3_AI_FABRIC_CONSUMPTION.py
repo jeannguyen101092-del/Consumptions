@@ -1414,10 +1414,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["polygon_net_area"] = df_bom.apply(calc_piece_net_area, axis=1)
     # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5: GIẢI PHƯƠNG TRÌNH KHÔNG GIAN SƠ ĐỒ VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT
     # =====================================================================
-    total_body_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if any(k in str(r.get("piece_type", "")).upper() for k in ["BODY", "PANEL"]) and "FABRIC" in str(r[m_col]).upper())
-    total_fabric_net_area_only = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FABRIC" in str(r[m_col]).upper())
+    # 🚨 ĐÃ SỬA BỘ LỌC CHI TIẾT THÂN CHÍNH: Quét diện tích rập bao gồm cả LEG PANEL, FRONT, BACK của vải chính để gom đủ diện tích gốc
+    total_body_net_area = 0.0
+    for _, r in df_bom.iterrows():
+        m_class = str(r[m_col]).upper().strip()
+        comp_name = str(r.get("component_name", r.get("Component Name", ""))).upper().strip()
+        p_class = str(r.get("piece_type", r.get("piece_class", "OTHER"))).upper().strip()
+        
+        # Chỉ gom nhóm các chi tiết thuộc VẢI CHÍNH (FABRIC) và là các tấm rập thân quần/áo chính
+        if "FABRIC" in m_class:
+            if any(k in comp_name or k in p_class for k in ["BODY", "PANEL", "LEG", "THÂN", "ỐNG"]):
+                # Loại trừ các chi tiết nắp túi đắp hoặc chi tiết mép keo phụ lọt vào vải chính
+                if "FACING" not in comp_name and "WELT" not in comp_name:
+                    total_body_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
+
+    total_fabric_net_area_only = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FABRIC" in str(r.get(m_col, "FABRIC")).upper())
 
     if total_body_net_area > 0:
         simulated_length = (total_body_net_area / assigned_body_ratio / fabric_width) / target_density
@@ -1452,9 +1466,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
-        # =====================================================================
-          # =====================================================================
-       # =====================================================================
+
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
