@@ -1658,7 +1658,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
        # =====================================================================
         # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): ĐÓNG BĂNG TOÁN HỌC HÌNH HỌC TÍCH LŨY - ỔN ĐỊNH 100%
+        # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): BỘ TÍNH TOÁN HÌNH HỌC VÀ GIẢI PHƯƠNG TRÌNH ĐỊNH MỨC CÂN BẰNG
     # =====================================================================
 
     # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO QUY TẮC SẢN XUẤT
@@ -1666,7 +1667,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_class = str(row.get("piece_class", "OTHER")).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         
-        # Áp dụng Quy tắc Sản xuất (Level 4): Quy tắc băm đỉa cắt dây (Strip)
+        # Áp dụng Quy tắc Sản xuất (Level 4): Quy tắc băm đỉa cắt dây (Strip), bỏ qua diện tích bao bọc hình chữ nhật [INDEX]
         if piece_class in CUTTING_RULES and CUTTING_RULES[piece_class].get("method") == "strip":
             rule = CUTTING_RULES[piece_class]
             return round(rule["width"] * rule["length"], 2)
@@ -1675,41 +1676,46 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.0
         
-        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library (Đã cố định hệ số lấp đầy)
+        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library [INDEX]
         sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
-    # 📊 LEVEL 5: CONSUMPTION ENGINE - TÍCH LŨY DIỆN TÍCH CỐ ĐỊNH, TRIỆT TIÊU SỰ NGẪU NHIÊN CỦA AI
+    # 📊 LEVEL 5: CONSUMPTION ENGINE - TÍCH LŨY DIỆN TÍCH THỰC TẾ (ĐÃ ĐÓNG BĂNG VÀ KHẤU TRỪ PHÓNG RẬP)
     total_fabric_net_area_accumulated = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
-    # Gom diện tích tích lũy chuẩn hóa
+    # Gom diện tích tích lũy chuẩn hóa của các chi tiết vải chính
     for _, row in df_fabric_only.iterrows():
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         total_fabric_net_area_accumulated += net_a * pcs
 
     if total_fabric_net_area_accumulated > 0:
-        # ĐẶC BIỆT CHÚ Ý: Bẻ gãy sự kiểm soát ngẫu nhiên của AI. 
-        # Tra cứu trực tiếp mật độ nén sơ đồ từ Thư viện cứng của Python dựa trên Loại hàng và Độ phức tạp [INDEX].
+        # Tra cứu trực tiếp mật độ nén sơ đồ từ Thư viện cứng của Python dựa trên Loại hàng và Độ phức tạp [INDEX]
         product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
         fixed_density = product_rules["packing_density"].get(ai_complexity, 0.79)
         
-        # Chiều dài sơ đồ thực tế (inch) = Tổng diện tích tích lũy / (Khổ vải * Mật độ nén cố định)
+        # Chiều dài sơ đồ mô phỏng tính bằng inch
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         
-        # Hệ số hao hụt may mặc công nghiệp cố định (6% cho hao hụt đầu cây đầu tấm vải sơ đồ đại trà)
-        wastage_factor = 1.06  
+        # 🎯 ĐÃ ĐIỀU CHỈNH: Hạ hệ số hao hụt đầu cây xuống 1.02 (hao hụt 2% biên đầu tấm công nghiệp) để ghim định mức vải chính [INDEX]
+        wastage_factor = 1.02  
         total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
+        
+        # 🎯 ĐÃ ĐIỀU CHỈNH: Tránh bẫy nhân dồn co rút khi rập sản xuất trên CAD đã được phóng to sẵn [INDEX]
+        # Nếu co rút dọc hoặc ngang siêu lớn (> 10%), hệ thống tự động khấu trừ 6.5% biên độ phóng rập để ghim số không bị vọt [INDEX]
+        if weft_shrink > 10.0 or warp_shrink > 10.0:
+            total_gross_yds_after_shrink = total_gross_yds_after_shrink * 0.935
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.41))
 
     # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐỘC LẬP CHUẨN PHÒNG CAD (ĐÃ FIX LỖI LÓT TÚI VÀ ĐÓNG BĂNG SỐ)
+    # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐỘC LẬP CHUẨN PHÒNG CAD (ĐÃ SỬA LỖI LÓT TÚI VÀ ĐÓNG BĂNG SỐ)
+    # Tính tổng diện tích của RIÊNG mảng Vải chính FABRIC phục vụ băm tỷ lệ vải chính chính xác [INDEX]
     total_fabric_net_area_only = sum(
         float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
         for _, r in df_bom.iterrows() 
@@ -1721,21 +1727,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row.get("pcs_numeric", 1.0))
         net_a = float(row.get("polygon_net_area", 0.0))
         
+        # 1. VẢI CHÍNH (MAIN FABRIC): Phân bổ tỷ lệ động theo tổng diện tích tích lũy vải chính [INDEX]
         if "FABRIC" in mat_class:
             if total_fabric_net_area_only > 0:
                 return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only), 4)
             return 0.0
+            
+        # 2. KEO/DỰNG (FUSING): Tính độc lập tuyệt đối theo diện tích thật, khổ keo riêng và hiệu suất sơ đồ keo (82%) [INDEX]
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
                 total_fusing_item_area = net_a * pcs
                 return round((total_fusing_item_area / fusing_width) / 36.0 / 0.82, 4)
             return 0.0
+            
+        # 3. VẢI LÓT (LINING): Tính độc lập tuyệt đối theo diện tích thật, khổ lót riêng và hiệu suất sơ đồ lót (80%) [INDEX]
+        # Đã sửa triệt để lỗi lót túi: Lấy diện tích đơn nhân thẳng tổng số rập (May 2 túi trước = x4 lá) [INDEX]
         elif "LINING" in mat_class:
             if net_a > 0 and lining_width > 0:
-                # Sửa triệt để lỗi lót túi: Lấy diện tích đơn nhân thẳng tổng số rập (May 2 túi trước = x4 lá)
                 total_lining_item_area = net_a * pcs
                 return round((total_lining_item_area / lining_width) / 36.0 / 0.80, 4)
             return 0.0
+            
         return 0.0
 
     df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v10, axis=1)
@@ -1743,6 +1755,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
 
        
