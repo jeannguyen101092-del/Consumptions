@@ -1395,18 +1395,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-        # =====================================================================
-    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU (ĐÃ ĐỒNG BỘ CTX)
+         # =====================================================================
+    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU QUYẾT ĐỊNH HIỆU SUẤT CAD (ĐÃ SỬA LỖI KEYERROR)
     # =====================================================================
     PRODUCT_KNOWLEDGE_BASE = {
-        "JEAN_LONG": {"body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85}, "packing_density": {"SIMPLE": 0.85, "NORMAL": 0.82, "COMPLEX": 0.78}}, # Hạ nhẹ mật độ để định mức an toàn, không bị thấp
+        "JEAN_LONG": {"body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85}, "packing_density": {"SIMPLE": 0.85, "NORMAL": 0.82, "COMPLEX": 0.78}}, 
         "SHORT":     {"body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.86, "COMPLEX": 0.83}, "packing_density": {"SIMPLE": 0.86, "NORMAL": 0.83, "COMPLEX": 0.80}},
         "JACKET":    {"body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.60, "COMPLEX": 0.52}, "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.72, "COMPLEX": 0.690}}
     }
     SHAPE_LIBRARY = {"CURVED_PANEL": 0.82, "LONG_RECTANGLE": 0.94, "DEFAULT": 0.78}
     CUTTING_RULES = {"BELT_LOOP": {"width": 1.5, "length": 30.0}}
 
-    # Đã sửa lỗi: Quét từ khóa túi từ cả tên chi tiết rập (Component Name) để tránh bị sót số liệu
+    # Đã sửa lỗi: Quét từ khóa túi từ cột Component Name thực tế để tránh bị sót số liệu
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
     
     total_pocket_pieces = sum(
@@ -1416,6 +1416,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_pattern_pieces = df_bom["pcs_numeric"].sum()
 
     ai_decision = ctx.get("ai_expert_decision", {})
+    if not isinstance(ai_decision, dict):
+        ai_decision = {}
     
     # Đồng bộ nhận diện dòng hàng từ ngữ cảnh
     if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper():
@@ -1423,13 +1425,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if total_pocket_pieces >= 6 or total_pattern_pieces > 16:
             ai_complexity, assigned_body_ratio, target_density, target_wastage = "COMPLEX", 0.55, 0.690, 1.08
         else:
-            ai_complexity, assigned_body_ratio, target_density, target_wastage = "NORMAL", 0.62, 0.740, 1.04 # Nâng hao hụt lên 4%
+            ai_complexity, assigned_body_ratio, target_density, target_wastage = "NORMAL", 0.62, 0.740, 1.04
     else:
-        # Nếu là quần hoặc các mặt hàng khác
+        # Nếu là quần hoặc các mặt hàng khác (Ví dụ: Chino, Jean)
         if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO", "TROUSER", "QUẦN"]):
             ai_product_type = "JEAN_LONG"
         else:
-            ai_product_type = "JEAN_LONG" # Mặc định cứu cánh
+            ai_product_type = "JEAN_LONG" # Giá trị cứu cánh mặc định
             
         # Tự động phân hạng độ phức tạp dựa trên số lượng mảnh rập thực tế quét từ file
         if total_pattern_pieces > 12 or total_pocket_pieces >= 4:
@@ -1441,14 +1443,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.88)
         target_density = p_rules["packing_density"].get(ai_complexity, 0.82)
         
-        # Nâng hệ số hao hụt an toàn cho vải chính (Mặc định nâng lên hẳn 4% - 5% để kéo định mức lên)
+        # Nâng hệ số hao hụt an toàn cho vải chính (Mặc định nâng lên hẳn 4% - 6% để tránh hao hụt khi cắt xưởng)
         target_wastage = 1.04 if ai_complexity == "NORMAL" else 1.06
 
-    # 🚨 ĐẶC BIỆT QUAN TRỌNG: Đẩy trực tiếp giá trị vừa giải toán vào bộ nhớ hệ thống
-    # Để Đoạn 5 có thể thừa hưởng chính xác con số thông minh này, không bị reset về mặc định cũ
+    # 🚨 ĐÃ SỬA LỖI KEYERROR CHÍ MẠNG: Bẫy khởi tạo an toàn nếu key ai_expert_decision chưa có trong ctx
+    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+        ctx["ai_expert_decision"] = {}
+
+    # Đẩy trực tiếp giá trị vừa giải toán vào bộ nhớ hệ thống một cách an toàn
     ctx["ai_expert_decision"]["assigned_marker_density"] = target_density
     ctx["ai_expert_decision"]["wastage_factor"] = target_wastage
     ctx["ai_expert_decision"]["complexity_tier"] = ai_complexity
+    
+    # Đồng bộ lưu ngược lại vào Streamlit Session State để chống mất dữ liệu khi ứng dụng chạy tiếp
     st.session_state["bom_data"] = ctx
 
     # Render bảng hộp suy luận minh bạch Explainable AI lên đầu ứng dụng
