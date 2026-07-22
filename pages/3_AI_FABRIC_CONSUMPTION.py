@@ -1539,7 +1539,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
         # =====================================================================
     #    # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - TÁCH BIỆT HÌNH HỌC (VẢI CHÍNH BAREM KHÍT vs KEO LÓT KHUNG BAO CAO)
+       # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - ĐỒNG BỘ TUYỆT ĐỐI THEO BAREM KHÓA CHỐNG NGƯỢC SỐ
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision, dict):
@@ -1548,7 +1549,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_product_type = str(ai_decision.get("product_type", str(prod).upper())).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     
-    # 1. Tuân thủ tuyệt đối mốc hiệu suất vải chính do AI tra cứu từ Đoạn 3 (Barem công ty)
+    # Tuân thủ tuyệt đối mốc hiệu suất vải chính do AI tra cứu từ Đoạn 3 (Quần dài = 87.5%)
     target_density = float(ai_decision.get("assigned_marker_density", 0.875)) if float(ai_decision.get("assigned_marker_density", 0.875)) > 0 else 0.875
     target_wastage = float(ai_decision.get("wastage_factor", 1.03)) if float(ai_decision.get("wastage_factor", 1.03)) > 0 else 1.03
 
@@ -1561,12 +1562,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
 
-    # 📊 LUỒNG 1: FABRIC MARKER ENGINE - VẢI CHÍNH TÍNH THEO DIỆN TÍCH TỊNH ĐA GIÁC GỐC CAD
+    # 📊 LUỒNG 1: FABRIC MARKER ENGINE - CÔ LẬP TUYỆT ĐỐI CHỈ TÍNH VẢI CHÍNH CHUẨN ĐA GIÁC
     max_fabric_length = 0.0
     total_fabric_net_area = 0.0
     
     for _, r in df_bom.iterrows():
-        if any(k in str(r[m_col]).upper() for k in fabric_keywords):
+        mat_class_check = str(r[m_col]).upper().strip()
+        # Chặn: Nếu dòng đó là Keo (FUSING) thì loại bỏ hoàn toàn, không cho cộng nhầm vào diện tích Vải chính
+        if any(k in mat_class_check for k in fusing_keywords):
+            continue
+            
+        if any(k in mat_class_check for k in fabric_keywords):
             l_val = float(r[l_prod_col])
             total_fabric_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
             if l_val > max_fabric_length:
@@ -1574,8 +1580,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if max_fabric_length > 0 and total_fabric_net_area > 0:
         fabric_sim_length = total_fabric_net_area / current_fabric_width / target_density
-        # Bộ lọc ghim trần vải chính chống vọt xông ri theo đúng barem xưởng (Khống chế tối đa 8%)
-        max_allowed_length = max_fabric_length * 1.08
+        # Ghim cứng trần bảo vệ vải chính tối đa 1.06 lần thân sau để dập số sập xuống mốc khít khao
+        max_allowed_length = max_fabric_length * 1.06
         if fabric_sim_length > max_allowed_length:
             fabric_sim_length = max_allowed_length
             
@@ -1591,12 +1597,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         total_lining_gross_yds = 0.22
 
-    # 🚨 LUỒNG 3: ĐIỀU CHỈNH RIÊNG BIỆT ĐỂ ĐẨY ĐỊNH MỨC KEO LÓT LÊN CAO
-    # Nâng mạnh hệ số hao hụt keo lên hẳn 20% (1.20) để bù trừ lỗi dán ép co rút nhiệt
-    # Đồng thời ép hiệu suất sơ đồ keo lỏng xuống hẳn 52% (0.52) để chiều dài keo dôi ra nhiều
-    fusing_wastage_factor = 1.20  
-    fusing_efficiency = 0.52      
-
     # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT (ROUTER)
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
@@ -1611,28 +1611,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row["pcs_numeric"])
         net_area = float(row["polygon_net_area"])
         
-        # 📊 Phân bổ Vải chính (FABRIC) -> Giữ nguyên vẹn logic khít chuẩn barem công ty của anh
-        if any(k in mat_class for k in fabric_keywords):
+        # 🚨 ƯU TIÊN LUỒNG 1: GIẢI TOÁN MÉC KEO / KEO LÓT RIB TRƯỚC ĐỂ TRÁNH BỊ VẢI CHÍNH NUỐT SỐ
+        if any(k in mat_class for k in fusing_keywords):
+            l_prod = float(row[l_prod_col])
+            # Chuẩn ngành may: Định mức keo lót dán thẳng cạp/rib bằng (Chiều dài sản xuất / 36) * Số lượng mảnh * Hao hụt an toàn 1.12
+            # Công thức này đưa keo lót về đúng giá trị thực tế dôi dư vừa vặn, chặn đứng hiện tượng vọt số ảo lên 0.17 yds
+            fusing_line_gross = (l_prod / 36.0) * pcs * 1.12
+            return round(fusing_line_gross, 4)
+                
+        # 📊 Luồng giải toán Vải chính (FABRIC)
+        elif any(k in mat_class for k in fabric_keywords):
             line_net_area_sum = net_area * pcs
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * (line_net_area_sum / total_fabric_net_area), 4)
                 
-        # 🚨 ĐÃ CỨU NGUY KEO LÓT VÀ MÉC (FUSING ENGINE): 
-        # Bẻ gãy hoàn toàn phép toán diện tích tịnh đa giác. Khóa chặt thuật toán bốc kích thước KHUNG BAO CHỮ NHẬT SẢN XUẤT (Dài sản xuất * Rộng sản xuất * Số mảnh).
-        # Nhân tiếp với hao hụt 20% và chia cho hiệu suất lỏng 52% để ép con số định mức keo vọt cao lên an toàn.
-        elif any(k in mat_class for k in fusing_keywords):
-            l_prod = float(row[l_prod_col])
-            w_prod = float(row[w_prod_col])
-            line_bounding_area_fusing = l_prod * w_prod * pcs
-            
-            if fusing_width > 0:
-                direct_fusing_sim_length = line_bounding_area_fusing / fusing_width / fusing_efficiency
-                line_gross_yds = (direct_fusing_sim_length / 36.0) * fusing_wastage_factor
-                return round(line_gross_yds, 4)
-            else:
-                return round((((line_bounding_area_fusing / 59.0) / 36.0 / fusing_efficiency) * fusing_wastage_factor), 4)
-                
-        # 📊 Phân bổ Vải lót (LINING)
+        # 📊 Luồng giải toán Vải lót (LINING)
         elif any(k in mat_class for k in lining_keywords):
             line_net_area_sum = net_area * pcs
             if total_lining_net_area > 0:
@@ -1651,6 +1644,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[is_fusing_row, "calculated_material_width"] = fusing_width
     is_lining_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in lining_keywords))
     df_bom.loc[is_lining_row, "calculated_material_width"] = lining_width
+
 
 
 
