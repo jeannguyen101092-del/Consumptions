@@ -1452,91 +1452,94 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
         # =====================================================================
        # =====================================================================
-         # =====================================================================
-    # 🟩 ĐOẠN 5: GEOMETRIC LAYOUT SOLVERS ENGINE - CHUẨN HOÁ PHƯƠNG TRÌNH SƠ ĐỒ CAD
+      # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER GIẢI TOÁN ĐỊNH MỨC SƠ ĐỒ CAD THƯƠNG MẠI
     # =====================================================================
-    lock_original_techpack = st.session_state.get("lock_original_techpack", False)
+    # Trích xuất tham số AI Expert chỉ định động từ ngữ cảnh hệ thống
+    ai_decision = ctx.get("ai_expert_decision", {})
+    ai_product_type = "JACKET" if any(k in str(prod).upper() for k in ["JACKET", "SAFARI"]) else ("JEAN_LONG" if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO"]) else str(prod).upper())
+    ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     
-    # Kích thước rập sản xuất ở Đoạn 4 đã nhân sẵn co rút -> Tắt nhân lặp co rút lần 2
-    current_warp_factor = 1.0
-    current_weft_factor = 1.0
-    
-    # Kế thừa chính xác mật độ nén sơ đồ AI bóc tách thực tế trên giao diện (Ví dụ: 86.5%)
-    ai_density = float(target_density) if target_density > 0 else 0.865
-    ai_wastage = float(target_wastage) if target_wastage > 0 else 1.02
+    target_density = float(ai_decision.get("assigned_marker_density", 0.865)) if float(ai_decision.get("assigned_marker_density", 0.865)) > 0 else 0.865
+    target_wastage = float(ai_decision.get("wastage_factor", 1.02)) if float(ai_decision.get("wastage_factor", 1.02)) > 0 else 1.02
 
-    # 1. 📊 PIPELINE GIẢI TOÁN VẢI CHÍNH (FABRIC LAYOUT ENGINE)
-    total_fabric_net_area_accumulated = 0.0
+    # 1. 📊 PIPELINE GIẢI TOÁN VẢI CHÍNH TỔNG THỂ (FABRIC MARKER ENGINE)
+    # CÔ LẬP TUYỆT ĐỐI: Chỉ tích lũy diện tích của các miếng rập thuộc VẢI CHÍNH (FABRIC)
+    total_fabric_net_area = 0.0
     for _, r in df_bom.iterrows():
         if "FABRIC" in str(r[m_col]).upper():
-            total_fabric_net_area_accumulated += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
+            total_fabric_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
 
-    if total_fabric_net_area_accumulated > 0 and fabric_width > 0 and ai_density > 0:
-        # Phương trình sơ đồ hình học phẳng nguyên bản công nghiệp
-        fabric_sim_length = total_fabric_net_area_accumulated / fabric_width / ai_density
-        total_fabric_gross_yds = (fabric_sim_length / 36.0) * ai_wastage
+    if total_fabric_net_area > 0 and fabric_width > 0 and target_density > 0:
+        # Phương trình giải tích không gian sơ đồ hình học phẳng nguyên bản công nghiệp
+        fabric_sim_length = total_fabric_net_area / fabric_width / target_density
+        total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
         total_fabric_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.38))
 
-    # 2. 📊 PIPELINE GIẢI TOÁN MẾCH KEO TÁCH BIỆT (FUSING LAYOUT ENGINE)
-    total_fusing_net_area_accumulated = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FUSING" in str(r[m_col]).upper() or "KEO" in str(r[m_col]).upper())
-    if total_fusing_net_area_accumulated > 0 and fusing_width > 0:
-        # Ép mật độ sơ đồ mếch keo chi tiết vụn nhỏ xuống 64.0% giúp dâng ĐM an toàn
-        fusing_sim_length = total_fusing_net_area_accumulated / fusing_width / 0.64
-        total_fusing_gross_yds = (fusing_sim_length / 36.0) * 1.05
+    # 2. 📊 PIPELINE GIẢI TOÁN MÉC KEO ĐỘC LẬP (FUSING MARKER ENGINE)
+    # Tích lũy diện tích phẳng thực tế của các dòng chi tiết thuộc KEO / FUSING
+    total_fusing_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FUSING" in str(r[m_col]).upper() or "KEO" in str(r[m_col]).upper())
+    if total_fusing_net_area > 0 and fusing_width > 0:
+        # Ép mật độ sơ đồ mếch keo chi tiết vụn nhỏ xuống hẳn 64.0% giúp dâng ĐM an toàn tránh hụt đầu vải
+        fusing_sim_length = total_fusing_net_area / fusing_width / 0.64
+        total_fusing_gross_yds = (fusing_sim_length / 36.0) * target_wastage
     else:
         total_fusing_gross_yds = 0.0
 
-    # 3. 📊 PIPELINE GIẢI TOÁN VẢI LÓT TÁCH BIỆT (LINING LAYOUT ENGINE)
-    total_lining_net_area_accumulated = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "LINING" in str(r[m_col]).upper() or "LÓT" in str(r[m_col]).upper())
-    if total_lining_net_area_accumulated > 0 and lining_width > 0:
-        # Ép mật độ sơ đồ lót bao túi lọt khe thực tế xuống 68.0% giúp dâng ĐM an toàn
-        lining_sim_length = total_lining_net_area_accumulated / lining_width / 0.68
-        total_lining_gross_yds = (lining_sim_length / 36.0) * 1.05
+    # 3. 📊 PIPELINE GIẢI TOÁN VẢI LÓT TÚI ĐỘC LẬP (LINING MARKER ENGINE)
+    # Tích lũy diện tích phẳng thực tế của các dòng chi tiết thuộc LÓT / LINING (Đã nhân x4 lớp ở Đoạn 2)
+    total_lining_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "LINING" in str(r[m_col]).upper() or "LÓT" in str(r[m_col]).upper())
+    if total_lining_net_area > 0 and lining_width > 0:
+        # Ép mật độ sơ đồ lót bao túi lọt khe thực tế xuống hẳn 68.0% giúp dâng ĐM an toàn thương mại
+        lining_sim_length = total_lining_net_area / lining_width / 0.68
+        total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
 
-    # ⚙️ BỘ ĐIỀU PHỐI PHÂN BỔ ĐỊNH MỨC THEO TỶ TRỌNG DIỆN TÍCH THỰC TẾ CHIẾM CHỖ CỦA DÒNG
+    # ⚙️ BỘ ĐIỀU PHỐI (ROUTER): Định tuyến phân bổ định mức dựa trên tỷ trọng không gian chiếm chỗ của tổng dòng
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
-        if "ACCESSORY" in mat_class or "THREAD" in mat_class or "PHỤ LIỆU" in mat_class:
+        # Bộ bẫy chặn an toàn: Bỏ qua và tắt tính toán hình học đối với Chỉ may và Phụ liệu đếm chiếc
+        if "ACCESSORY" in mat_class or "THREAD" in mat_class or "PHỤ LIỆU" in mat_class: 
             return 0.0
-
+        
+        # Kiểm tra cờ khóa định mức Techpack thủ công của người dùng
         if lock_original_techpack:
-            orig_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
-            if orig_col and float(row.get(orig_col, 0.0)) > 0:
-                return round(float(row[orig_col]), 4)
+            if "original_raw_gross" in df_bom.columns and float(row.get("original_raw_gross", 0.0)) > 0:
+                return round(float(row["original_raw_gross"]), 4)
 
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         
-        # Luồng phân bổ Vải chính
+        # Luồng phân bổ Vải chính (FABRIC)
         if "FABRIC" in mat_class:
-            if total_fabric_net_area_accumulated > 0:
-                # Định mức của dòng = Tổng định mức Yards sơ đồ * (Diện tích dòng chi tiết / Tổng diện tích vải chính)
-                return round(total_fabric_gross_yds * ((net_a * pcs) / total_fabric_net_area_accumulated), 4)
+            if total_fabric_net_area > 0:
+                # Định mức của dòng = Tổng yards sơ đồ vải chính * (Diện tích dòng chi tiết / Tổng diện tích vải chính)
+                return round(total_fabric_gross_yds * ((net_a * pcs) / total_fabric_net_area), 4)
                 
-        # Luồng phân bổ Méc Keo độc lập
+        # Luồng phân bổ Méc Keo độc lập (FUSING)
         elif "FUSING" in mat_class or "INTERLINING" in mat_class:
-            if total_fusing_net_area_accumulated > 0:
-                return round(total_fusing_gross_yds * ((net_a * pcs) / total_fusing_net_area_accumulated), 4)
+            if total_fusing_net_area > 0:
+                return round(total_fusing_gross_yds * ((net_a * pcs) / total_fusing_net_area), 4)
             else:
-                # Fallback bảo vệ keo dựng dâng cao an toàn nếu file thiếu dữ liệu gom nhóm
-                return round((((net_a * pcs) / fusing_width) / 36.0 / 0.64) * 1.05, 4)
+                # Fallback dự phòng tính toán an toàn độc lập nếu rập đơn lẻ
+                return round((((net_a * pcs) / fusing_width) / 36.0 / 0.64) * target_wastage, 4)
                 
-        # Luồng phân bổ Vải Lót bao túi độc lập
+        # Luồng phân bổ Vải lót bao túi độc lập (LINING)
         elif "LINING" in mat_class:
-            if total_lining_net_area_accumulated > 0:
-                return round(total_lining_gross_yds * ((net_a * pcs) / total_lining_net_area_accumulated), 4)
+            if total_lining_net_area > 0:
+                return round(total_lining_gross_yds * ((net_a * pcs) / total_lining_net_area), 4)
             else:
-                # Fallback bảo vệ lót túi dâng cao an toàn nếu file thiếu dữ liệu gom nhóm
-                return round((((net_a * pcs) / lining_width) / 36.0 / 0.68) * 1.05, 4)
+                # Fallback dự phòng tính toán an toàn độc lập nếu rập đơn lẻ
+                return round((((net_a * pcs) / lining_width) / 36.0 / 0.68) * target_wastage, 4)
                 
         return 0.0
 
     # Thực thi giải toán xuất bản giá trị định mức tổng dòng hoàn chỉnh sạch lỗi
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
+    # Đóng gói đồng bộ ngược chiều rộng khổ nguyên liệu thực tế cho từng dòng chi tiết phục vụ hiển thị
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
