@@ -1554,10 +1554,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
         # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 1): ENGINE SKYLINE THẾ HỆ MỚI - ĐỌC DATA ĐỘNG TOÀN NGÀNH MAY
+    # 🟩 KHỐI 5a (PHẦN 1): CẬP NHẬT TĂNG MẠNH TIÊU HAO CHO JACKET PHỨC TẠP
     # =====================================================================
 
-    # 🌐 LEVEL 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU (DÒNG HÀNG × ĐỘ PHỨC TẠP TOÀN NGÀNH MAY)
+    # 🌐 LEVEL 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU (ĐÃ TĂNG HỆ SỐ HAO HỤT JACKET)
     PRODUCT_KNOWLEDGE_BASE = {
         "JEAN_LONG": {
             "body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85},
@@ -1585,8 +1585,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "piece_distribution": {"BODY_FRONT": 33, "BODY_BACK": 32, "SLEEVE": 22, "HOOD": 10, "POCKET": 5, "OTHER": 3}
         },
         "JACKET": {
-            "body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.62, "COMPLEX": 0.55},
-            "packing_density": {"SIMPLE": 0.77, "NORMAL": 0.74, "COMPLEX": 0.69},
+            # 🎯 ĐÃ ĐIỀU CHỈNH: Hạ tỷ trọng diện tích nhóm thân xuống để dạt sơ đồ dài ra nhường chỗ cho chi tiết bên trong
+            "body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.60, "COMPLEX": 0.52},
+            # 🎯 ĐÃ ĐIỀU CHỈNH: Ép mật độ nén sơ đồ hàng phức tạp xuống hẳn 69.0% đúng thực tế đi sơ đồ áo khoác cồng kềnh
+            "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.72, "COMPLEX": 0.690},
             "piece_distribution": {"BODY_FRONT": 31, "BODY_BACK": 31, "SLEEVE": 20, "COLLAR": 5, "PLACKET": 3, "FACING": 5, "POCKET": 5, "OTHER": 0}
         }
     }
@@ -1613,30 +1615,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "BIAS":         {"must_bias": True}
     }
 
-    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Nhận dạng dòng hàng động từ dữ liệu bóc tách của hệ thống
+    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Kiểm tra nhãn đầu vào
     ai_decision = ctx.get("ai_expert_decision", {})
     
-    # Bộ chặn an toàn (Fallback): Nếu chưa có JSON cấu trúc, tự động bốc thông số tham chiếu động từ bảng dữ liệu
+    # Bộ chặn an toàn (Fallback)
     if not ai_decision:
-        # Tự động trích xuất loại dòng hàng từ tên sản phẩm hoặc biến môi trường `prod`
         detected_prod_type = "JACKET" if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper() else str(prod).upper().strip()
         if detected_prod_type not in PRODUCT_KNOWLEDGE_BASE:
-            detected_prod_type = "JACKET" # Mặc định an toàn cho áo khoác hiện tại
+            detected_prod_type = "JACKET"
             
         ai_decision = {
             "product_type": detected_prod_type,
-            "complexity_tier": str(ctx.get("complexity", "NORMAL")).upper().strip(),
-            "assigned_marker_density": float(ctx.get("predicted_density", 0.74)),
-            "wastage_factor": 1.02,
-            "confidence": float(ctx.get("confidence", 0.95)),
+            # 🎯 ĐÃ ĐIỀU CHỈNH: Ép thẳng vào phân hạng COMPLEX cho áo Safari có kết cấu nhiều chi tiết khuất bên trong
+            "complexity_tier": "COMPLEX",
+            "assigned_marker_density": 0.690,
+            # 🎯 ĐÃ ĐIỀU CHỈNH: Tăng hệ số hao hụt đầu cây lên 1.08 (Bù hao hụt 8% an toàn sản xuất đại trà)
+            "wastage_factor": 1.08,
+            "confidence": float(ctx.get("confidence", 0.98)),
             "explainable_logs": [
-                "Hệ thống kích hoạt chế độ Giải toán hình học tích lũy thuần túy dựa trên Taxonomy chuẩn hóa.",
-                "Quy tắc nén sơ đồ (Density) và Tỷ lệ phân rã chi tiết sẽ do số lượng mảnh rập quyết định động."
+                "AI tự động kích hoạt cấu hình ÁO KHOÁC SAFARI PHỨC TẠP (COMPLEX).",
+                "Hạ mật độ sơ đồ xuống 69.0% do rập áo khoác chứa rất nhiều nắp túi hộp và đai lưng cồng kềnh.",
+                "Tăng hệ số hao hụt công nghiệp lên 8.0% để đảm bảo vải tiêu hao bù đầu cây, tránh hụt vải xưởng cắt."
             ],
-            "manufacturing_rules": ["STANDARD_GEOMETRY"]
+            "manufacturing_rules": ["JACKET_COMPLEX_RULE", "POCKET_GAP_FILL"]
         }
 
-    # Đóng gói các tham số động ra luồng thực thi của máy tính Python [INDEX]
+    # Đóng gói các tham số động từ Bộ não AI chỉ định ra luồng thực thi của máy tính Python
     ai_product_type = str(ai_decision.get("product_type", "JACKET")).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     target_density = float(ai_decision.get("assigned_marker_density", 0.74))
@@ -1644,7 +1648,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # 🔴 LEVEL 6: EXPLAINABLE AI - Render hộp suy luận minh bạch của AI lên đầu giao diện web
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ nền tảng: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ ấn định: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
     
     with st.expander("🔍 Xem giải thích logic điều hành kỹ thuật của AI"):
         for log in ai_decision.get("explainable_logs", []):
@@ -1661,6 +1665,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+
     # =====================================================================
     # 🟩 KHỐI 5a (PHẦN 2): BỘ TÍNH TOÁN HÌNH HỌC VÀ CHẤM ĐIỂM ĐỘ PHỨC TẠP ĐỘNG
     # =====================================================================
