@@ -1263,6 +1263,132 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     st.session_state["processed_display_rows"] = processed_rows
     return processed_rows
 
+# =====================================================================
+# 🟩 KHỐI BỔ SUNG ĐẦU TỆP: HÀM KẾT XUẤT EXCEL CHUẨN ĐẠI TRÀ PPJ GROUP
+# =====================================================================
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, density, fabric_pattern):
+    output = io.BytesIO()
+    wb = Workbook()
+    
+    font_family = "Segoe UI"
+    font = Font(name=font_family, size=10)
+    bold = Font(name=font_family, size=10, bold=True)
+    title_font = Font(name=font_family, size=14, bold=True, color="0E6251")
+    header_font = Font(name=font_family, size=10, bold=True, color="FFFFFF")
+    
+    header_fill = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
+    meta_fill = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
+    
+    thin_side = Side(style='thin', color='BDC3C7')
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    
+    # TAB 1: BOM SUMMARY
+    ws1 = wb.active
+    ws1.title = "BOM Summary"
+    ws1.sheet_view.showGridLines = True
+    
+    ws1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=font_family, size=8, italic=True, color="7F8C8D")
+    ws1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = title_font
+    ws1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=font_family, size=11, bold=True)
+    
+    style_code = str(bom_ctx.get("style_num", bom_ctx.get("style_code", bom_ctx.get("style_name", "N/A")))).upper()
+    customer_name = str(bom_ctx.get("customer_name", bom_ctx.get("customer", bom_ctx.get("buyer", "FACTORY STANDARD")))).upper()
+    sample_size = str(bom_ctx.get("detected_base_size", bom_ctx.get("calculated_on_size", bom_ctx.get("base_size", "27")))).upper()
+    
+    warp_val = float(bom_ctx.get("warp_shrinkage", 0.0))
+    weft_val = float(bom_ctx.get("weft_shrinkage", 0.0))
+    width_val = float(bom_ctx.get("fabric_width_inch", 56.0))
+    density_val = float(density if density else 0.85)
+    
+    meta_data = [
+        ("Mã hàng / Style Code:", style_code, "Khách hàng / Đối tác:", customer_name),
+        ("Size may mẫu (Sample Size):", sample_size, "Khổ vải hữu dụng (Width):", f'{width_val}"'),
+        ("Co rút dọc (Warp Shrinkage):", f'{warp_val}%', "Co rút ngang (Weft Shrinkage):", f'{weft_val}%'),
+        ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density_val * 100:.1f}%')
+    ]
+    
+    for r_idx, row_data in enumerate(meta_data, start=5):
+        for c_idx, val in enumerate(row_data, start=1):
+            cell = ws1.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = thin_border
+            if c_idx in:
+                cell.font = bold
+                cell.fill = meta_fill
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                cell.font = font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                
+    ws1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=font_family, size=11, bold=True)
+    
+    summary_headers = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
+    for col_idx, h_text in enumerate(summary_headers, start=1):
+        cell = ws1.cell(row=11, column=col_idx, value=h_text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+        
+    current_write_row = 12
+    for _, row in df_summary.iterrows():
+        ws1.cell(row=current_write_row, column=1, value=row.get("Phân loại vật tư", "VẬT TƯ"))
+        ws1.cell(row=current_write_row, column=2, value=row.get("Material Class", "FABRIC"))
+        ws1.cell(row=current_write_row, column=3, value=float(row.get("Gross Consumption", 0.0)))
+        ws1.cell(row=current_write_row, column=4, value=row.get("UOM", "YDS"))
+        
+        ws1.cell(row=current_write_row, column=3).number_format = '#,##0.0000'
+        for col_idx in range(1, 5):
+            c = ws1.cell(row=current_write_row, column=col_idx)
+            c.font = font
+            c.border = thin_border
+            if col_idx in: 
+                c.alignment = Alignment(horizontal="center", vertical="center")
+        current_write_row += 1
+
+    for col in ws1.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws1.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 12)
+
+    # TAB 2: DETAILED CAD PIECES
+    ws2 = wb.create_sheet(title="Detailed CAD Pieces")
+    ws2.sheet_view.showGridLines = True
+    
+    ws2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=font_family, size=11, bold=True)
+    
+    headers = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+    for col_idx, h_text in enumerate(headers, start=1):
+        cell = ws2.cell(row=3, column=col_idx, value=h_text)
+        cell.font = header_font; cell.fill = header_fill; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = thin_border
+
+    current_detail_row = 4
+    for _, row in df_details.iterrows():
+        for col_idx, h_col in enumerate(headers, start=1):
+            val = row.get(h_col, "")
+            cell = ws2.cell(row=current_detail_row, column=col_idx, value=val)
+            cell.font = font; cell.border = thin_border
+            
+            if col_idx in:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            elif col_idx in:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                if isinstance(val, (int, float)):
+                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
+        current_detail_row += 1
+
+    for col in ws2.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws2.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 12)
+
+    wb.save(output)
+    output.seek(0)
+    return output
 
 import io
 import re
