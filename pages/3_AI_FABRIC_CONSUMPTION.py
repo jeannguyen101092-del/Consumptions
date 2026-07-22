@@ -1739,7 +1739,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
        # =====================================================================
-    # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE - ĐÃ SỬA LỖI LOOP)
+       # =====================================================================
+    # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE - ĐÃ SỬA LỖI NAMEERROR KÈM KEO CHUẨN)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
@@ -1748,8 +1749,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.1f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 🚨 ĐÃ SỬA LỖI ĐỊNH DANH VẬT TƯ KHÁC: Tạo cột chuẩn phân loại tạm thời để Groupby chính xác tiếng Việt
-    df_bom["_temp_class"] = df_bom[m_col].apply(classify_material)
+    # 🚨 ĐÃ SỬA LỖI NAMEERROR: Khai báo lại hàm phân loại chuẩn hóa ngay tại Đoạn 7 để đồng bộ phạm vi biến
+    fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "BODY", "PRIMARY", "VAI CHINH", "VC"]
+    fusing_keywords = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO"]
+    lining_keywords = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
+
+    def local_classify_material(material_name):
+        m_upper = str(material_name).upper().strip()
+        if any(k in m_upper for k in fusing_keywords):
+            return "FUSING"
+        if any(k in m_upper for k in lining_keywords):
+            return "LINING"
+        if any(k in m_upper for k in fabric_keywords):
+            return "FABRIC"
+        if any(k in m_upper for k in ["ACCESSORY", "THREAD", "BUTTON", "ZIPPER", "PHU LIEU", "LABEL", "CHI"]):
+            return "ACCESSORY"
+        return "UNKNOWN"
+
+    # Sử dụng hàm nội bộ vừa khai báo độc lập để tính tổng nhóm tiếng Việt sạch lỗi dội số
+    df_bom["_temp_class"] = df_bom[m_col].apply(local_classify_material)
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
@@ -1761,7 +1779,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "UOM": "YDS"
     })
 
-    # Hiển thị bảng định mức tổng hợp chuẩn xác lên UI
+    # Hiển thị bảng tổng hợp tiêu hao vật tư đại trà chuẩn xác lên giao diện UI
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
@@ -1770,7 +1788,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
     df_bom_display["Size tính toán"] = detected_size_code
     
-    # Chuẩn hóa tên cột đồng bộ tránh trùng hoặc mất cột khi ép cấu trúc hiển thị
     df_bom_display = df_bom_display.rename(columns={
         "component_name": "Component Name", 
         "material_class": "Material Class", 
@@ -1779,7 +1796,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Số lượng rập"] = df_bom_display["pcs_numeric"]
     
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
-    # Chỉ giữ lại các cột thực tế tồn tại trong DataFrame để tránh dội lỗi KeyError
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
 
@@ -1789,28 +1805,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     with col_t2:
         try:
-            # Gọi hàm xuất Excel định dạng PPJ thương mại nội bộ
             excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: 
             st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # 🚨 ĐÃ SỬA LỖI INFINITE LOOP: Gọi data_editor hiển thị chỉnh sửa trực tiếp số lượng rập an toàn
+    # Gọi data_editor hiển thị chỉnh sửa trực tiếp số lượng rập an toàn chống Infinite Loop
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={"Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=20.0, step=1.0)}, 
         use_container_width=True, 
         hide_index=True,
-        key="bom_data_editor_grid" # Đặt key tĩnh cố định thành phần xử lý của Streamlit
+        key="bom_data_editor_grid_final" 
     )
 
-    # Khởi tạo lưu bộ nhớ chỉnh sửa của người dùng
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
     has_changed = False
-    # So sánh trực tiếp giá trị chỉnh sửa trên bảng lưới với mảng gốc df_bom để ra quyết định Rerun chính xác
     for idx, row in edited_df.iterrows():
         old_val = float(df_bom.at[idx, "pcs_numeric"])
         new_val = float(row["Số lượng rập"])
@@ -1818,7 +1831,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             st.session_state["user_edited_pieces"][idx] = new_val
             has_changed = True
             
-    # Cập nhật ngược bộ nhớ đệm phục vụ cho vòng lặp tính toán sau
     if has_changed:
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
         st.rerun()
