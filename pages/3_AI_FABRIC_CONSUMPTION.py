@@ -1435,7 +1435,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
-    # 6. AI AUDIT DASHBOARD, INTERACTIVE EDITOR & KẾT XUẤT EXCEL
+        # =====================================================================
+    # 🟩 ĐOẠN 6: AI AUDIT DASHBOARD, INTERACTIVE EDITOR & KẾT XUẤT EXCEL
+    # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type)
@@ -1464,14 +1466,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "pcs_numeric", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # Nút xuất file và Trình biên tập lưới
-    col_t1, col_t2 = st.columns()
+    # 🚨 ĐÃ SỬA LỖI: Điền tham số tỷ lệ [3, 1] vào st.columns để chia 2 cột an toàn, cân đối giao diện
+    col_t1, col_t2 = st.columns([3, 1])
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     with col_t2:
         try:
             excel_file = export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
-            st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}.xlsx", use_container_width=True)
-        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
+            st.download_button("🟢 DOWNLOAD EXCEL", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}.xlsx", use_container_width=True)
+        except Exception as e: 
+            st.error(f"Lỗi kết xuất Excel: {e}")
 
     # Đưa vào lưới st.data_editor và bẫy lỗi vòng lặp vô hạn
     st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
@@ -1482,5 +1485,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if float(row["pcs_numeric"]) != float(st.session_state["processed_display_rows"][idx].get("pcs_numeric", 1.0)):
             st.session_state["user_edited_pieces"][idx] = float(row["pcs_numeric"])
             has_changed = True
+            
     if has_changed: 
         st.rerun()
