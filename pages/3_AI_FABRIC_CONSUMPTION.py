@@ -1593,27 +1593,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
          # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (VÁ LỖI SCOPE)
+       # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (ĐỒNG BỘ SCOPE BIẾN SẠCH LỖI)
     # =====================================================================
 
-    # 🎯 ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay dữ liệu sửa đổi chất liệu từ người dùng
+    # 🎯 ĐÃ ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
-    for idx, mat_val in st.session_state["user_edited_materials"].items():
-        if idx < len(df_bom): df_bom.loc[idx, m_col] = mat_val
-
-    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THEO TIÊU CHUẨN ĐỘ CONG VÀ SẠCH LỖI SCOPE
-    def calculate_geometry_piece_area(row):
-        # 🎯 VÁ LỖI SCOPE: Trích xuất trực tiếp bộ biến thư viện động từ session_state sát đầu hàm để bẻ gãy triệt để NameError
-        LOCAL_KB_RULES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("MANUFACTURING_RULES", {})
-        LOCAL_KB_SHAPES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("SHAPE_COEFFICIENTS", {})
         
+    for idx, mat_val in st.session_state["user_edited_materials"].items():
+        if idx < len(df_bom):
+            df_bom.loc[idx, m_col] = mat_val
+
+    # 📐 VÁ LỖI TRIỆT ĐỂ: Khai báo trích xuất đồng bộ bộ ba biến thư viện động sát đầu khối để chặn vĩnh viễn bẫy NameError [INDEX]
+    LOCAL_KB_PRODUCTS = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("PRODUCT_MATRICES", {})
+    LOCAL_KB_SHAPES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("SHAPE_COEFFICIENTS", {})
+    LOCAL_KB_RULES = st.session_state.get("GLOBAL_KNOWLEDGE_LIBRARY", {}).get("MANUFACTURING_RULES", {})
+
+    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO TIÊU CHUẨN ĐỘ CONG
+    def calculate_geometry_piece_area(row):
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         cutting_method = str(row.get("cutting_method", "standard")).lower().strip()
         mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
         
-        # 1. Áp dụng Quy tắc Sản xuất từ Thư viện động: Tính dải dây dài nếu có lệnh strip
+        # Áp dụng Quy tắc Sản xuất từ Thư viện động cho đỉa quần/đỉa áo
         if cutting_method == "strip" or piece_class in LOCAL_KB_RULES and LOCAL_KB_RULES[piece_class].get("method") == "strip":
             rule = LOCAL_KB_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
             return round(rule["width"] * rule["length"], 2)
@@ -1657,18 +1661,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_fabric_net_area_accumulated += net_a * pcs
 
     if total_fabric_net_area_accumulated > 0:
-        product_rules = KB_PRODUCTS.get(ai_product_type, KB_PRODUCTS["JACKET"])
-        fixed_density = product_rules["packing_density"].get(ai_complexity, target_density)
+        # 🎯 VÁ LỖI TRIỆT ĐỂ: Gọi đúng biến LOCAL_KB_PRODUCTS đã được bẫy scope an toàn [INDEX]
+        product_rules = LOCAL_KB_PRODUCTS.get(ai_product_type, LOCAL_KB_PRODUCTS.get("JEAN_LONG", {}))
+        fixed_density = product_rules.get("packing_density", {}).get(ai_complexity, target_density)
         
         # Bù hao hụt khoảng trống nách cổ lọt khe vật lý 1.18 riêng cho dòng Jacket
         if "JACKET" in ai_product_type:
             total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.18
             
+        # Chiều dài sơ đồ mô phỏng thực tế (inch)
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
+        
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy 3%
         total_gross_yds_after_shrink = (simulated_length / 36.0) * target_wastage
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
 
+    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
     # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐẦU RA - CHUẨN ĐẠT ĐIỂM 10 TUYỆT ĐỐI (KHÔNG QUÉT CHUỖI VĂN BẢN)
@@ -1698,7 +1707,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 2. KEO/DỰNG (FUSING)
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
-                fusing_efficiency = KB_RULES.get("FUSING", {}).get("packing_efficiency", 0.82)
+                fusing_efficiency = LOCAL_KB_RULES.get("FUSING", {}).get("packing_efficiency", 0.82)
                 
                 if cutting_method == "continuous" or piece_class == "WAISTBAND":
                     return round(((net_a * pcs) / fusing_width) / 36.0 / fusing_efficiency, 4)
@@ -1709,7 +1718,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 3. VẢI LÓT (LINING)
         elif "LINING" in mat_class:
             if net_a > 0 and lining_width > 0:
-                lining_efficiency = KB_RULES.get("POCKET_BAG", {}).get("packing_efficiency", 0.80)
+                lining_efficiency = LOCAL_KB_RULES.get("POCKET_BAG", {}).get("packing_efficiency", 0.80)
                 return round(((net_a * pcs) / lining_width) / 36.0 / lining_efficiency, 4)
             return 0.0
         return 0.0
