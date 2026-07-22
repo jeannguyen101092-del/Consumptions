@@ -1552,21 +1552,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
    
 
-    # =====================================================================
-    # 🟩 KHỐI 5a: ENGINE SKYLINE THẾ HỆ MỚI - ĐỒNG BỘ ĐỘNG KHỔ VẬT TƯ TỪ CHAT
+       # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 1): ENGINE SKYLINE THẾ HỆ MỚI - ĐỌC DATA ĐỘNG TOÀN NGÀNH MAY
     # =====================================================================
 
-    # 🎯 BỘ PHÂN TÍCH KHỔ VẢI THÔNG MINH (DYNAMIC OVERRIDE RULE)
-    # Lớp 1: Đọc thông số chỉ định từ Chat (Nếu có). 
-    # Lớp 2: Nếu Chat trống, tự động trả về số MẶC ĐỊNH chuẩn ngành (Chính: 58, Keo: 59, Lót: 57)
+    # 🎯 [ĐỒNG BỘ KHỔ VẢI CHAT]: Rút trực tiếp cấu hình từ Chat để làm sạch ô nhớ toàn cục
     fabric_width = float(ctx.get('fabric_width', ctx.get('global_fabric_width', 58.0)))
     fusing_width = float(ctx.get('fusing_width', ctx.get('global_fusing_width', 59.0)))
     lining_width = float(ctx.get('lining_width', ctx.get('global_lining_width', 57.0)))
     
-    # Lực lượng cứu cháy phòng hờ cache của Streamlit bị lưu số 56.0 cũ
+    # Ép dự phòng nếu cache trình duyệt của Streamlit bị kẹt số 56.0 cũ
     if fabric_width == 56.0: fabric_width = 58.0
 
-    # 🌐 LEVEL 3: DECOUPLED KNOWLEDGE BASE - Tri thức tách biệt khỏi mã nguồn
+    # 🌐 LEVEL 3: DECOUPLED KNOWLEDGE BASE - Tri thức tách biệt hoàn toàn khỏi mã nguồn [INDEX]
     if "GLOBAL_KNOWLEDGE_LIBRARY" not in st.session_state:
         st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"] = {
             "PRODUCT_MATRICES": {
@@ -1609,13 +1607,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             }
         }
 
-    # Trích xuất dữ liệu động từ thư viện DB Session
+    # Trích xuất dữ liệu động từ thư viện DB Session [INDEX]
     KB_PRODUCTS = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["PRODUCT_MATRICES"]
     KB_SHAPES = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["SHAPE_COEFFICIENTS"]
     KB_RULES = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["MANUFACTURING_RULES"]
 
-    # 🤖 ĐỌC KẾT QUẢ REASONING ĐỘNG TỪ BỘ NÃO AI 
+    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Nhận dạng dòng hàng động từ dữ liệu bóc tách của hệ thống
     ai_decision = ctx.get("ai_expert_decision", {})
+    
+    # Bộ chặn an toàn (Fallback): Nếu chưa có JSON cấu trúc, tự động bốc thông số tham chiếu động từ bảng dữ liệu [INDEX]
     if not ai_decision:
         detected_prod_type = "JACKET" if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper() else str(prod).upper().strip()
         if detected_prod_type not in KB_PRODUCTS: detected_prod_type = "JACKET"
@@ -1624,28 +1624,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "product_type": detected_prod_type,
             "complexity_tier": "COMPLEX",
             "assigned_marker_density": float(ctx.get("predicted_density", 0.69)),
-            "wastage_factor": 1.08,
+            "wastage_factor": 1.05,
             "confidence": float(ctx.get("confidence", 0.98)),
             "explainable_logs": [
-                "Hệ thống vận hành cơ chế giải toán hình học tích lũy tự học từ dữ liệu Techpack thực tế.",
-                "AI tự động nhận diện và cấu hình khổ rộng đồng bộ động theo chỉ định (Vải chính = 58, Keo = 59, Lót = 57)."
+                "Hệ thống vận hành cơ chế giải toán hình học tích lũy lũy kế thực tế 100% đầu rập.",
+                "AI đóng băng mật độ nén sơ đồ (Density = 69.0%) cố định theo thư viện để triệt tiêu sự trồi sụt số."
             ],
             "manufacturing_rules": ["JACKET_COMPLEX_RULE", "POCKET_GAP_FILL"]
         }
 
+    # Đóng gói các tham số động từ Bộ não AI chỉ định ra luồng thực thi của máy tính Python [INDEX]
     ai_product_type = str(ai_decision.get("product_type", "JACKET")).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     target_density = float(ai_decision.get("assigned_marker_density", 0.69))
-    target_wastage = float(ai_decision.get("wastage_factor", 1.08))
+    target_wastage = float(ai_decision.get("wastage_factor", 1.05))
 
-    # 🔴 LEVEL 6: EXPLAINABLE AI UI
+    # 🔴 LEVEL 6: EXPLAINABLE AI UI - In thông báo chỉ định tự động lên đầu trang web [INDEX]
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
     st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ ấn định từ KB DB: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
     
     with st.expander("🔍 Xem giải thích logic điều hành kỹ thuật của AI"):
         for log in ai_decision.get("explainable_logs", []): st.markdown(f"• {log}")
 
-    # Đồng bộ hóa bộ đệm Session State phục vụ trình biên tập sửa tay số lượng rập
+    # Đồng bộ hóa bộ đệm Session State phục vụ trình biên tập sửa tay số lượng rập [INDEX]
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
 
     def sync_pieces_from_editor(row, idx):
@@ -1654,6 +1655,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+
 
        # =====================================================================
     # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (SẠCH LỖI)
