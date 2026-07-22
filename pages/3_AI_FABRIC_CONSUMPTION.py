@@ -1395,13 +1395,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-         # =====================================================================
-    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - AI PHÁN ĐOÁN ĐỘNG THEO TỶ TRỌNG DIỆN TÍCH HÌNH HỌC (THAY THẾ BẢNG SỐ CỨNG)
+          # =====================================================================
+    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - AI PHÁN ĐOÁN HIỆU SUẤT ĐỘNG THEO ĐỘ BÈ HÌNH HỌC RẬP (SỬA LỖI ĐM CAO)
     # =====================================================================
-    # Trích xuất tên cột Component Name chuẩn xác trên UI
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
     
-    # 📊 BƯỚC 1: AI PHÂN TÍCH KẾT CẤU HÌNH HỌC CỦA TẬP RẬP (GEOMETRIC INTELLIGENCE ENGINE)
+    # 📊 BƯỚC 1: AI PHÂN TÍCH CHU VI VÀ HÌNH HỌC KHÔNG GIAN CỦA TẬP RẬP (GEOMETRIC AI BRAIN)
     total_fabric_pieces = 0.0
     large_pieces_count = 0.0
     small_pieces_count = 0.0
@@ -1409,14 +1408,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_area_bounding_box = 0.0
     large_pieces_area = 0.0
     
+    # Biến phân tích phom dáng: Đo độ bè ngang của các tấm rập thân chính
+    total_aspect_ratio = 0.0
+    major_panel_count = 0.0
+
     fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "VAI CHINH", "VC"]
     
-    # AI duyệt qua từng dòng rập vải chính để phân tích độ to/nhỏ của chu vi hình học
     for _, r in df_bom.iterrows():
         mat_class_str = str(r[m_col]).upper().strip()
         if any(k in mat_class_str for k in fabric_keywords):
             pcs = float(r["pcs_numeric"])
-            # Tính diện tích khung bao bao quanh thực tế của chi tiết rập (Dài * Rộng)
             l_val = float(r.get("Dài sản xuất (L-inch)", r[orig_l_col]))
             w_val = float(r.get("Rộng sản xuất (W-inch)", r[orig_w_col]))
             piece_area = l_val * w_val
@@ -1424,68 +1425,81 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_fabric_pieces += pcs
             total_area_bounding_box += piece_area * pcs
             
-            # Tiêu chuẩn AI: Nếu rập dài trên 25 inch HOẶC rộng trên 12 inch -> Được xếp vào hạng "Tấm Rập Lớn" (Thân, Ống, Váy...)
+            # Phân tách rập lớn và rập nhỏ
             if l_val >= 25.0 or w_val >= 12.0:
                 large_pieces_count += pcs
                 large_pieces_area += piece_area * pcs
+                
+                # Tính tỷ lệ Dài / Rộng (Aspect Ratio) của thân chính để phát hiện độ thụng/bè của ống quần
+                if w_val > 0 and "MAJOR" in str(r.get("Role/Piece Type", r.get("geometry_role", ""))).upper():
+                    total_aspect_ratio += (l_val / w_val) * pcs
+                    major_panel_count += pcs
             else:
                 small_pieces_count += pcs
 
-    # 📊 BƯỚC 2: AI TỰ ĐỘNG ĐÁNH GIÁ CHỈ SỐ LỒNG GHÉP SƠ ĐỒ (MARKER LAYOUT FEASIBILITY)
-    # Tính tỷ lệ chiếm chỗ của các tấm rập lớn trên tổng diện tích
+    # 📊 BƯỚC 2: AI TÍNH TOÁN CÁC CHỈ SỐ PHÁN ĐOÁN KHÔNG GIAN
     large_area_ratio = large_pieces_area / total_area_bounding_box if total_area_bounding_box > 0 else 0.0
-    
-    # Tính tỷ lệ phân bổ số lượng mảnh rập nhỏ (để biết có nhiều chi tiết phụ lồng ghép hay không)
     small_piece_ratio = small_pieces_count / total_fabric_pieces if total_fabric_pieces > 0 else 0.0
+    
+    # Chỉ số hình học trung bình (Dài / Rộng của thân quần)
+    # Thân quần Slim ôm: Dài gấp 3 lần rộng (Ratio ~ 3.0 - 3.5) -> Sơ đồ rất khít
+    # Thân quần Baggy thụng/Ống rộng: Dài chỉ gấp 2 lần rộng (Ratio ~ 2.2 - 2.6) -> Sơ đồ cực kỳ hở
+    average_aspect_ratio = total_aspect_ratio / major_panel_count if major_panel_count > 0 else 3.0
 
-    # 🌟 AI THỰC HIỆN PHÁN ĐOÁN LOGIC MẬT ĐỘ SƠ ĐỒ THEO THỰC TẾ HÌNH HỌC (AI BRAIN)
+    # 📊 BƯỚC 3: AI THỰC HIỆN PHÁN ĐOÁN MẬT ĐỘ SƠ ĐỒ THEO KIỂU DÁNG VÀ SỐ CHI TIẾT
     prod_upper_name = str(prod).upper().strip()
     
-    # Khởi tạo mốc hiệu suất nền tảng dựa trên dòng sản phẩm chính
+    # 1. Định hình mốc hiệu suất sàn tiêu chuẩn theo dòng sản phẩm
     if any(k in prod_upper_name for k in ["JACKET", "SAFARI", "COAT", "BLAZER", "ÁO KHOÁC"]):
         ai_product_type = "JACKET"
-        base_density = 0.72  # Áo khoác kết cấu lỏng hơn quần
+        base_density = 0.72  
     elif any(k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM"]):
         ai_product_type = "SKIRT"
-        base_density = 0.74  # Chân váy xòe, khó lồng ghép
+        base_density = 0.74  
     elif any(k in prod_upper_name for k in ["POLO", "TEE", "SHIRT", "SƠ MI", "AO THUN"]):
         ai_product_type = "TOPS"
-        base_density = 0.79  # Áo thun, sơ mi thông thường
+        base_density = 0.79  
     else:
         ai_product_type = "JEANS/PANTS"
-        base_density = 0.81  # Nhóm quần dài (Quần Jean, Chino, Trouser)
+        base_density = 0.81  # Mốc mặc định cho quần dài thông thường
 
-    # 🧠 TOÁN SUY LUẬN TỰ ĐỘNG CỦA AI ĐIỀU CHỈNH HIỆU SUẤT ĐỘNG:
-    # Quy tắc 1: Nếu tỷ lệ diện tích tấm rập lớn quá cao (ví dụ rập quần Baggy ống to bè chiếm trên 75% sơ đồ) -> Ép hiệu suất sụt giảm mạnh
-    if large_area_ratio >= 0.75:
-        density_modifier = -0.06  # Hạ mạnh 6% hiệu suất sơ đồ vì rập quá to và xòe, không thể xếp khít
-    elif large_area_ratio >= 0.60:
-        density_modifier = -0.03  # Hạ nhẹ 3% hiệu suất
-    else:
-        density_modifier = 0.0    # Giữ nguyên mốc tiêu chuẩn
+    # 2. 🧠 AI PHÁN ĐOÁN ĐỘNG KIỂU DÁNG HÌNH HỌC (SHAPE INTELLIGENCE):
+    shape_detected_comment = "Tiêu chuẩn (Regular/Slim)"
+    
+    if ai_product_type == "JEANS/PANTS":
+        # NẾU AI PHÁT HIỆN RẬP THÂN QUẦN QUÁ BÈ (Ratio thấp dưới 2.7, ví dụ quần Baggy của bạn)
+        if average_aspect_ratio <= 2.7:
+            base_density = 0.75  # Ép mốc nền sụt giảm ngay từ đầu vì rập thụng to xòe
+            shape_detected_comment = "Phom thụng / Ống rộng (Baggy/Wide Leg)"
+        elif average_aspect_ratio >= 3.3:
+            base_density = 0.83  # Tự động đẩy mốc nền lên cao vì rập dài và ôm gọn, rất dễ rải sơ đồ khít
+            shape_detected_comment = "Phom ôm / Ống đứng đứng (Slim/Straight)"
 
-    # Quy tắc 2: Sự xuất hiện của các chi tiết nhỏ lồng ghép (Cơ chế phản biện ý kiến của bạn!)
-    # Nếu số lượng mảnh nhỏ chiếm tỷ trọng lớn (trên 40% tổng số mảnh rập) -> AI cộng thưởng tăng hiệu suất vì dễ chèn kẽ hở
-    if small_piece_ratio >= 0.50:
-        density_modifier += 0.04   # Thưởng thêm 4% hiệu suất (Nhiều đỉa, đáp, cơi... dễ đi sơ đồ khít)
-    elif small_piece_ratio >= 0.35:
-        density_modifier += 0.02   # Thưởng thêm 2% hiệu suất
+    # 3. 🧠 AI PHẢN BIỆN DỰA TRÊN SỐ LƯỢNG CHI TIẾT CON (Ý KIẾN CỦA BẠN):
+    # Nếu số lượng chi tiết nhỏ, phụ trợ (đỉa, đáp, cơi...) chiếm tỷ trọng lớn -> AI cộng thưởng tăng hiệu suất
+    density_modifier = 0.0
+    if small_piece_ratio >= 0.55:
+        density_modifier += 0.04   # Nhiều chi tiết nhỏ chèn kẽ hở xuất sắc -> Thưởng 4% hiệu suất
+    elif small_piece_ratio >= 0.40:
+        density_modifier += 0.02   # Thưởng 2% hiệu suất
+    elif large_area_ratio >= 0.80 and small_piece_ratio < 0.20:
+        density_modifier -= 0.03   # Ít chi tiết nhỏ để chèn vào rập khổng lồ -> Phạt trừ bớt 3%
 
-    # Tính toán con số hiệu suất chỉ định cuối cùng sau khi AI phán đoán hình học rập
+    # Chỉ định con số hiệu suất cuối cùng sau chuỗi suy luận hình học phẳng
     target_density = round(base_density + density_modifier, 3)
     
-    # Tự động gán mức độ phức tạp trực quan cho người dùng dễ hiểu
-    if target_density <= 0.75:
-        ai_complexity = "COMPLEX (Rập to xòe, rất khó đi sơ đồ)"
-        target_wastage = 1.06  # Nhiều rập to nguy cơ lỗi vải cao -> Hao hụt 6%
+    # Tự động phân loại độ phức tạp trực quan phục vụ quản trị doanh nghiệp
+    if target_density <= 0.74:
+        ai_complexity = "COMPLEX (Rập to xòe, sơ đồ lỏng)"
+        target_wastage = 1.05  
     elif target_density <= 0.81:
         ai_complexity = "NORMAL (Cân đối chi tiết chuẩn)"
-        target_wastage = 1.04  # Hao hụt 4%
+        target_wastage = 1.03  
     else:
-        ai_complexity = "SIMPLE (Nhiều chi tiết nhỏ lồng ghép khít)"
-        target_wastage = 1.02  # Hao hụt 2%
+        ai_complexity = "SIMPLE (Xếp khít, hiệu suất rất cao)"
+        target_wastage = 1.02  
 
-    # Đẩy trực tiếp giá trị vào bộ nhớ hệ thống ctx an toàn
+    # Ghi dữ liệu an toàn vào hệ thống ctx tránh lỗi KeyError
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
@@ -1494,10 +1508,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["complexity_tier"] = ai_complexity
     st.session_state["bom_data"] = ctx
 
-    # Xuất thông tin chuỗi phân tích hình học thông minh của AI lên giao diện UI
+    # Xuất thông tin trực quan minh bạch chuỗi tư duy của AI lên màn hình chính
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.info(f"📊 **AI GEOMETRIC ANALYTICS** | Diện tích tấm rập to chiếm: `{large_area_ratio*100:.1f}%` | Tỷ lệ chi tiết nhỏ lồng ghép: `{small_piece_ratio*100:.1f}%` của tổng {total_fabric_pieces:.0f} mảnh.")
-    st.success(f"✅ **AI PHÁN ĐOÁN ĐỘNG CHỈ ĐỊNH** | Dòng hàng nhận diện: `{ai_product_type}` | Phân hạng kết cấu: `{ai_complexity}` | Mật độ sơ đồ (Marker Density) tự tính: `{target_density*100:.1f}%` | Hệ số hao hụt: `{((target_wastage-1)*100):.1f}%`")
+    st.info(f"📊 **AI GEOMETRIC AUDIT** | Phom dáng phát hiện: `{shape_detected_comment}` (Chỉ số Dài/Rộng thân: {average_aspect_ratio:.2f}) | Tỷ lệ chi tiết phụ lồng ghép: `{small_piece_ratio*100:.1f}%`")
+    st.success(f"✅ **AI PHÁN ĐOÁN ĐỘNG CHỈ ĐỊNH** | Dòng hàng: `{ai_product_type}` | Kết cấu: `{ai_complexity}` | Mật độ sơ đồ (Marker Density): `{target_density*100:.1f}%` | Hệ số hao hụt biên: `{((target_wastage-1)*100):.1f}%`")
+
 
 
          # =====================================================================
@@ -1574,7 +1589,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
        # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER GIẢI TOÁN ĐỊNH MỨC CAD - CHUẨN ĐỊNH MỨC THƯƠNG MẠI SẠCH LỖI
+     # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - ĐỒNG BỘ TUYỆT ĐỐI THEO HIỆU SUẤT PHÁN ĐOÁN ĐỘNG CỦA AI
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision, dict):
@@ -1583,7 +1599,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_product_type = str(ai_decision.get("product_type", str(prod).upper())).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     
-    # Kế thừa chính xác hiệu suất sơ đồ thông minh từ Đoạn 3 truyền xuống
+    # 🧠 THỪA HƯỞNG CHÍNH XÁC MỐC HIỆU SUẤT DO AI TỰ PHÁN ĐOÁN Ở ĐOẠN 3 
+    # (Nếu là Baggy tự ăn mốc thấp an toàn, nếu là Slim tự ăn mốc cao tiết kiệm)
     target_density = float(ai_decision.get("assigned_marker_density", 0.79)) if float(ai_decision.get("assigned_marker_density", 0.79)) > 0 else 0.79
     target_wastage = float(ai_decision.get("wastage_factor", 1.03)) if float(ai_decision.get("wastage_factor", 1.03)) > 0 else 1.03
 
@@ -1595,27 +1612,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     l_prod_col = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else orig_l_col
     w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
 
-    # 1. 📊 FABRIC MARKER ENGINE: TÍCH LŨY DIỆN TÍCH THỰC TẾ CÓ TÍNH ĐẾN ĐỘ VÁT HÌNH HỌC RẬP
+    # 1. 📊 FABRIC MARKER ENGINE: TÍCH LŨY DIỆN TÍCH KHUNG BAO VẢI CHÍNH THỰC TẾ
     total_fabric_bounding_area = 0.0
     for _, r in df_bom.iterrows():
         if any(k in str(r[m_col]).upper() for k in fabric_keywords):
+            # Tính diện tích hình chữ nhật bao quanh chi tiết rập (Dài sản xuất * Rộng sản xuất)
             bounding_area = float(r[l_prod_col]) * float(r[w_prod_col])
             role_type = str(r.get("Role/Piece Type", r.get("geometry_role", ""))).upper().strip()
             
-            # 🌟 CHỐNG QUÁ CAO / QUÁ THẤP: Rập thân quần luôn có phần vát ống và rỗng đáy (Hiệu suất hình học chiếm tầm 72%)
-            # Nhân với 0.72 giúp loại bỏ diện tích không khí rỗng bao quanh, đưa về diện tích phôi vải thực tế trước khi chia mật độ sơ đồ
-            shape_efficiency = 0.72 if ("MAJOR" in role_type or float(r[l_prod_col]) >= 35.0) else 0.88
+            # 🌟 CHỐNG TRỒI SỤT ĐỊNH MỨC: Rập thân quần luôn có phần vát ống và khoảng hở rỗng đáy.
+            # Hệ số shape_efficiency = 0.74 giúp loại bỏ khoảng không khí rỗng bao quanh, đưa về phôi vải thực tế trước khi chia hiệu suất sơ đồ
+            shape_efficiency = 0.74 if ("MAJOR" in role_type or float(r[l_prod_col]) >= 35.0) else 0.88
             
-            # Tôn trọng tuyệt đối số lượng mảnh rập pcs_numeric thực tế trên UI của bạn
+            # Tích lũy tổng diện tích dựa trên số lượng mảnh rập thực tế (pcs_numeric)
             total_fabric_bounding_area += bounding_area * float(r["pcs_numeric"]) * shape_efficiency
 
+    # Thực thi giải toán chiều dài sơ đồ vải chính
     if total_fabric_bounding_area > 0 and fabric_width > 0 and target_density > 0:
+        # Bản chất toán học CAD: Lấy tổng diện tích phôi rập chia khổ vải, chia hiệu suất sơ đồ (target_density) ra chiều dài sơ đồ (inch)
         fabric_sim_length = total_fabric_bounding_area / fabric_width / target_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
         total_fabric_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.25))
 
-    # 2. 📊 LINING MARKER ENGINE: VẢI LÓT TÚI
+    # 2. 📊 LINING MARKER ENGINE: TÍCH LŨY DIỆN TÍCH VẢI LÓT TÚI ĐỘC LẬP
     total_lining_bounding_area = 0.0
     for _, r in df_bom.iterrows():
         if any(k in str(r[m_col]).upper() for k in lining_keywords):
@@ -1623,17 +1643,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_lining_bounding_area += bounding_area * float(r["pcs_numeric"]) * 0.85
 
     if total_lining_bounding_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_bounding_area / lining_width / 0.76 
+        lining_sim_length = total_lining_bounding_area / lining_width / 0.76 # Hiệu suất mặc định sơ đồ lót túi
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
 
-    # 🚨 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO: 
-    # Đặt mốc cân bằng thương mại: Hao hụt màng keo 10% và hiệu suất sơ đồ keo đạt 62%
+    # 🚨 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO TÁCH BIỆT TRỰC TIẾP
+    # Keo lót phôi rib và méc dán chạy độc lập theo màng keo: Hao hụt màng keo 10% và hiệu suất sơ đồ keo đạt 62%
     fusing_wastage_factor = 1.10  
     fusing_efficiency = 0.62      
 
-    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG (ROUTER)
+    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TỶ TRỌNG HÌNH HỌC (ROUTER)
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
         if any(k in mat_class for k in ["ACCESSORY", "THREAD", "PHỤ LIỆU", "CHI", "BUTTON", "ZIPPER"]): 
@@ -1649,16 +1669,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_prod = float(row[w_prod_col])
         role_type = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
-        # Luồng phân bổ Vải chính (FABRIC)
+        # 📊 Luồng giải toán phân bổ Vải chính (FABRIC)
         if any(k in mat_class for k in fabric_keywords):
-            shape_efficiency = 0.72 if ("MAJOR" in role_type or l_prod >= 35.0) else 0.88
+            shape_efficiency = 0.74 if ("MAJOR" in role_type or l_prod >= 35.0) else 0.88
             line_bounding_area = l_prod * w_prod * pcs * shape_efficiency
             if total_fabric_bounding_area > 0:
+                # Phân bổ định mức dựa theo tỷ trọng diện tích chiếm chỗ thực tế trên tổng sơ đồ vải chính
                 return round(total_fabric_gross_yds * (line_bounding_area / total_fabric_bounding_area), 4)
                 
-        # Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE)
+        # 🚨 Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE): 
+        # Giải toán trực tiếp kích thước phôi keo chia khổ rộng keo, giải phóng hoàn toàn khỏi lỗi chia tỉ lệ vòng tròn
         elif any(k in mat_class for k in fusing_keywords):
-            line_bounding_area = l_prod * w_prod * pcs * 0.95 # Keo lót phôi thẳng lấp đầy cao
+            line_bounding_area = l_prod * w_prod * pcs * 0.95 # Phôi keo cắt thẳng lấp đầy diện tích rất cao
             if fusing_width > 0:
                 direct_fusing_sim_length = line_bounding_area / fusing_width / fusing_efficiency
                 line_gross_yds = (direct_fusing_sim_length / 36.0) * fusing_wastage_factor
@@ -1666,7 +1688,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 return round((((line_bounding_area / 59.0) / 36.0 / fusing_efficiency) * fusing_wastage_factor), 4)
                 
-        # Luồng phân bổ Vải lót (LINING)
+        # 📊 Luồng giải toán phân bổ Vải lót (LINING)
         elif any(k in mat_class for k in lining_keywords):
             line_bounding_area = l_prod * w_prod * pcs * 0.85
             if total_lining_bounding_area > 0:
@@ -1676,10 +1698,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
         return 0.0
 
-    # Thực thi xuất bản giá trị định mức hoàn chỉnh lên giao diện ứng dụng
+    # Thực thi xuất bản giá trị định mức tổng dòng hoàn chỉnh lên lưới hiển thị
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
-    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết
+    # Đóng gói và đồng bộ ngược chiều rộng khổ nguyên liệu thực tế phục vụ hiển thị
     df_bom["calculated_material_width"] = fabric_width
     is_fusing_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in fusing_keywords))
     df_bom.loc[is_fusing_row, "calculated_material_width"] = fusing_width
