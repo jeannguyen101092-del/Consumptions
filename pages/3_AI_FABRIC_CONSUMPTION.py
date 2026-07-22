@@ -1553,8 +1553,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-         # =====================================================================
-    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - TĂNG ĐỊNH MỨC AN TOÀN SẢN XUẤT
+      # =====================================================================
+    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - ĐỒNG BỘ ĐỘNG THEO THÔNG SỐ RẬP (SHORT/KIDS/LONG)
     # =====================================================================
 
     # 1. Tính diện tích phẳng Gerber chuẩn hóa hình học theo loại rập
@@ -1578,7 +1578,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # AI tự động điền trước số lượng rập chuẩn kỹ thuật (Bù đắp lỗi Techpack thiếu rập)
+    # AI tự động điền trước số lượng rập chuẩn kỹ thuật
     def ai_suggest_pieces(row, idx):
         if idx in st.session_state["user_edited_pieces"]:
             return float(st.session_state["user_edited_pieces"][idx])
@@ -1594,15 +1594,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 📊 ĐÁNH GIÁ ĐỘ PHỨC TẠP DỰA TRÊN THÔNG TIN RẬP SẢN XUẤT (KNOWLEDGE BASE MA TRẬN)
     total_minor_pieces = 0
     has_cargo_pocket = False
+    max_body_length = 0.0  # Biến lưu trữ chiều dài lớn nhất của thân quần để nhận diện dòng sản phẩm
     
     for idx, row in df_bom.iterrows():
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
         pcs = float(row["pcs_numeric"])
+        l_val = float(row["Dài sản xuất (L-inch)"])
+        
         if any(k in name for k in ["loop", "đỉa"]): total_minor_pieces += pcs
         if any(k in name for k in ["cargo", "hộp", "flap", "nắp túi"]): has_cargo_pocket = True
+        if any(k in name for k in ["front", "back", "leg", "thân"]):
+            if l_val > max_body_length: max_body_length = l_val
 
-    # 🔴 ĐÃ TĂNG ĐỊNH MỨC: Tiếp tục hạ tỷ trọng diện tích của thân chính để nâng tổng Yards
-    # Đơn giản: Thân 82% | Trung bình: Thân 76% | Phức tạp: Thân 72%
+    # Áp dụng ma trận tỷ lệ nhóm chi tiết động dựa trên độ phức tạp
     if has_cargo_pocket or total_minor_pieces > 6:
         complexity_tier = "Phức tạp"
         target_body_ratio = 0.72
@@ -1621,8 +1625,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
-        
-        # Chỉ gom diện tích của Thân Trước và Thân Sau
         if any(k in name for k in ["front", "back", "leg", "thân trước", "thân sau"]):
             total_body_net_area += net_a * pcs
 
@@ -1637,14 +1639,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Chiều dài sơ đồ mô phỏng thực tế (inch)
         simulated_length = (estimated_total_marker_area / fabric_width) / dens
         
-        # 🔴 ĐÃ TĂNG ĐỊNH MỨC: Nâng hệ số hao hụt lên 1.10 (Bù hao hụt đầu khúc vải cây 10% an toàn)
+        # Hệ số hao hụt đầu cây, dạt biên đầu tấm vải đại trà đại bản (10%)
         wastage_factor = 1.10  
-        
-        # Tính tổng số yards vải thực tế cần mua (sau co rút dọc/ngang)
         total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
         
-        # Mở rộng trần kiểm soát tối đa cho phép co giãn định mức an toàn
-        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.95), 1.25)
+        # 🎯 ĐÃ PHÁT TRIỂN: BỘ CHẶN ĐỘNG THEO THÔNG SỐ (Dài rập thân quần)
+        # Tự động tính toán khung chặn logic dựa trên chiều dài thật của mẫu rập
+        # Ví dụ: Dài rập 15 inch (quần shorts/kids) -> khung chặn dưới tự tụt xuống 0.25Y
+        dynamic_floor = max(0.20, round((max_body_length / 36.0) * 0.75, 2))
+        dynamic_ceil = max(1.00, round((max_body_length / 36.0) * 1.85, 2))
+        
+        # Ép khung chặn động phi tuyến tính hoàn toàn theo thông số rập quét được
+        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, dynamic_ceil), dynamic_floor)
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
 
