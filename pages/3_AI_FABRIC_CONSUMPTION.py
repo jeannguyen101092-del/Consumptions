@@ -1896,17 +1896,51 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom_display[display_cols_final]
     
     # Render giao diện nút Xuất Excel đại trà
+        # =====================================================================
+    # 🟢 ĐÃ HIỆU CHỈNH: ĐỒNG BỘ TRIỆT ĐỂ THÔNG SỐ CHAT VÀO ĐẦU RA FILE EXCEL
+    # =====================================================================
     col1, col2 = st.columns(2)
     with col1: st.subheader("📊 Bảng Tổng Hợp Định Mức (BOM Summary)")
     with col2:
         try:
+            # 🎯 ĐẬP TAN MẶC ĐỊNH: Ép nạp trực tiếp toàn bộ dữ liệu co rút và khổ động thời gian thực
+            # từ màn hình web vào cục context để file Excel không bị bốc số mặc định cũ [INDEX]
+            ctx["warp_shrinkage"] = warp_shrink
+            ctx["weft_shrinkage"] = weft_shrink
             ctx["fabric_width"] = fabric_width
-            excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
-            st.download_button(label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_AUDIT_BOM_{prod}.xlsx", key="btn_download_excel_ppj_final_v56")
-        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
+            ctx["fusing_width"] = fusing_width
+            ctx["lining_width"] = lining_width
+            ctx["global_gross_fabric_yds"] = fabric_detail_sum_actual
             
-    st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
-    
+            # Ghi nhận nhãn phân loại phức tạp và mật độ sơ đồ để file Excel in ra báo cáo kiểm toán đồng bộ [INDEX]
+            ctx["product_type"] = audit_prod_type
+            ctx["complexity_tier"] = audit_complexity
+            ctx["assigned_marker_density"] = target_density
+
+            # Thực thi kết xuất file Excel PPJ Thương mại theo thông số Chat [INDEX]
+            excel_file = export_excel_ppj_format(
+                df_sum_for_excel, 
+                df_bom_display, 
+                prod, 
+                ctx, 
+                target_density, 
+                fabric_pattern_raw
+            )
+            
+            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+            if not style_name_clean or style_name_clean.lower() == "none": style_name_clean = "Style"
+            final_excel_filename = f"PPJ_AUDIT_BOM_{prod}_{style_name_clean}.xlsx"
+            
+            st.download_button(
+                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
+                data=excel_file, 
+                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
+                file_name=final_excel_filename, 
+                key="btn_download_excel_ppj_final_v57_fixed"
+            )
+        except Exception as e: 
+            st.error(f"Lỗi kết xuất Excel: {e}")
+
     # ---------------------------------------------------------------------
     # 📊 TẦNG 4: TRÌNH BIÊN TẬP CẤU TRÚC RẬP ĐA CHỨC NĂNG (CHO PHÉP SỬA CHẤT LIỆU)
     # ---------------------------------------------------------------------
