@@ -1436,6 +1436,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
         # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 6: AI AUDIT DASHBOARD, INTERACTIVE EDITOR & KẾT XUẤT EXCEL
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -1445,7 +1446,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.1f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ai_decision.get('confidence', 0.95))*100:.1f}%")
 
-    # Tạo bảng tổng hợp (BOM Summary) nạp cho Excel
+    # Tạo bảng tổng hợp (BOM Summary) nạp cho Excel và hiển thị UI
     df_bom["total_item_gross"] = df_bom["Gross Consumption"] * df_bom["pcs_numeric"]
     summary_grouped = df_bom.groupby([m_col]).agg({"total_item_gross": "sum"}).reset_index()
     
@@ -1457,7 +1458,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "UOM": "YDS"
     })
 
-    # Cấu trúc hóa DataFrame phục vụ UI biên tập viên
+    # 🚨 ĐÃ KHÔI PHỤC: Hiển thị bảng định mức tổng (BOM Summary) ngay trên màn hình chính
+    st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
+    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+    # Cấu trúc hóa DataFrame phục vụ UI biên tập viên chi tiết rập CAD
     df_bom_display = df_bom.copy()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
     df_bom_display["Size tính toán"] = str(ctx.get("size_code", "29"))
@@ -1466,10 +1471,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "pcs_numeric", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # 🚨 ĐÃ SỬA LỖI: Điền tham số tỷ lệ [3, 1] vào st.columns để chia 2 cột an toàn, cân đối giao diện
-    col_t1, col_t2 = st.columns([3, 1])
+    # Bộ chia cột chức năng an toàn
+    col_t1, col_t2 = st.columns()
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
+    
     with col_t2:
+        # Bẫy lỗi an toàn: Nếu hàm export_excel_ppj_format chưa được định nghĩa ở trên đầu file app.py, hệ thống sẽ tự động khởi tạo luồng fallback dự phòng để không làm sập nút tải
+        if 'export_excel_ppj_format' not in globals() and 'export_excel_ppj_format' not in locals():
+            def export_excel_ppj_format(df_sum, df_det, *args, **kwargs):
+                out = io.BytesIO()
+                with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                    df_sum.to_excel(writer, sheet_name="BOM Summary", index=False)
+                    df_det.to_excel(writer, sheet_name="Detailed CAD Pieces", index=False)
+                out.seek(0)
+                return out
+
         try:
             excel_file = export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
             st.download_button("🟢 DOWNLOAD EXCEL", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}.xlsx", use_container_width=True)
