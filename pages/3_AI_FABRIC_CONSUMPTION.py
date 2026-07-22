@@ -1452,110 +1452,51 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
         # =====================================================================
        # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 5: GEOMETRIC LAYOUT SOLVERS ENGINE - PHÂN BỔ THEO CHIỀU DÀI RẬP
+         # =====================================================================
+    # 🟩 ĐOẠN 5: GEOMETRIC LAYOUT SOLVERS ENGINE - CHUẨN HOÁ PHƯƠNG TRÌNH SƠ ĐỒ CAD
     # =====================================================================
     lock_original_techpack = st.session_state.get("lock_original_techpack", False)
     
+    # Kích thước rập sản xuất ở Đoạn 4 đã nhân sẵn co rút -> Tắt nhân lặp co rút lần 2
     current_warp_factor = 1.0
     current_weft_factor = 1.0
     
-    # Tham số động của Vải chính kế thừa chuẩn từ bộ não AI chỉ định
+    # Kế thừa chính xác mật độ nén sơ đồ AI bóc tách thực tế trên giao diện (Ví dụ: 86.5%)
     ai_density = float(target_density) if target_density > 0 else 0.865
     ai_wastage = float(target_wastage) if target_wastage > 0 else 1.02
 
-    # -----------------------------------------------------------------
-    # SOLVER 1: BỘ GIẢI SƠ ĐỒ VẢI CHÍNH TỔNG QUÁT (AREA LAYOUT SOLVER)
-    # -----------------------------------------------------------------
-    class AreaLayoutSolver:
-        """Giải bài toán đi sơ đồ lồng ghép đa giác và phân bổ theo TỶ TRỌNG CHIỀU DÀI (Chuẩn sơ đồ Quần)"""
-        def __init__(self, df, width, density, wastage):
-            self.df = df
-            self.width = width
-            self.density = density
-            self.wastage = wastage
-            self.total_gross_yds = 0.0
-            self.total_net_area = 0.0
-            self.total_fabric_length_accumulated = 0.0  # Tích lũy tổng chiều dài dòng vải chính
-            self._solve_marker_equation()
+    # 1. 📊 PIPELINE GIẢI TOÁN VẢI CHÍNH (FABRIC LAYOUT ENGINE)
+    total_fabric_net_area_accumulated = 0.0
+    for _, r in df_bom.iterrows():
+        if "FABRIC" in str(r[m_col]).upper():
+            total_fabric_net_area_accumulated += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
 
-        def _solve_marker_equation(self):
-            total_marker_pieces_area = 0.0
-            total_len_accum = 0.0
-            
-            for _, r in self.df.iterrows():
-                mat_class_check = str(r[m_col]).upper().strip()
-                if "FABRIC" in mat_class_check and r["assigned_solver"] == "AreaSolver":
-                    pcs = float(r["pcs_numeric"])
-                    net_a = float(r["polygon_net_area"])
-                    l_prod = float(r.get("Dài sản xuất (L-inch)", float(r[orig_l_col])))
-                    
-                    total_marker_pieces_area += net_a * pcs
-                    # Tích lũy chiều dài thực tế phục vụ phân bổ dòng cân bằng
-                    total_len_accum += l_prod * pcs
-            
-            self.total_net_area = total_marker_pieces_area
-            self.total_fabric_length_accumulated = total_len_accum
-            
-            if self.total_net_area > 0 and self.width > 0 and self.density > 0:
-                sim_length = (self.total_net_area / self.width) / self.density
-                self.total_gross_yds = (sim_length / 36.0) * self.wastage
-            else:
-                self.total_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.45))
+    if total_fabric_net_area_accumulated > 0 and fabric_width > 0 and ai_density > 0:
+        # Phương trình sơ đồ hình học phẳng nguyên bản công nghiệp
+        fabric_sim_length = total_fabric_net_area_accumulated / fabric_width / ai_density
+        total_fabric_gross_yds = (fabric_sim_length / 36.0) * ai_wastage
+    else:
+        total_fabric_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.38))
 
-        def calculate_gross(self, row):
-            pcs = float(row["pcs_numeric"])
-            l_prod = float(row.get("Dài sản xuất (L-inch)", float(row[orig_l_col])))
-            
-            if self.total_fabric_length_accumulated > 0:
-                # 🚨 ĐỘT PHÁ ĐỒNG BỘ SỐ LIỆU: Phân bổ theo tỷ trọng CHIỀU DÀI dòng (L-inch * pcs) thay vì diện tích phẳng.
-                # Giúp Thân trước và Thân sau có định mức Yards cân bằng nhau tuyệt đối theo chiều dài bàn cắt.
-                return round(self.total_gross_yds * ((l_prod * pcs) / self.total_fabric_net_area_only_from_outer), 4) if 'self.total_fabric_net_area_only_from_outer' in locals() else round(self.total_gross_yds * ((l_prod * pcs) / self.total_fabric_length_accumulated), 4)
-            return 0.0
+    # 2. 📊 PIPELINE GIẢI TOÁN MẾCH KEO TÁCH BIỆT (FUSING LAYOUT ENGINE)
+    total_fusing_net_area_accumulated = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FUSING" in str(r[m_col]).upper() or "KEO" in str(r[m_col]).upper())
+    if total_fusing_net_area_accumulated > 0 and fusing_width > 0:
+        # Ép mật độ sơ đồ mếch keo chi tiết vụn nhỏ xuống 64.0% giúp dâng ĐM an toàn
+        fusing_sim_length = total_fusing_net_area_accumulated / fusing_width / 0.64
+        total_fusing_gross_yds = (fusing_sim_length / 36.0) * 1.05
+    else:
+        total_fusing_gross_yds = 0.0
 
-    # -----------------------------------------------------------------
-    # SOLVER 2: GIẢI TOÁN CẮT BĂNG DỌC / CẮT DÂY (STRIP LAYOUT SOLVER)
-    # -----------------------------------------------------------------
-    class StripLayoutSolver:
-        def __init__(self, width, density, wastage):
-            self.width = width
-            self.density = density if density > 0 else 0.85
-            self.wastage = wastage
+    # 3. 📊 PIPELINE GIẢI TOÁN VẢI LÓT TÁCH BIỆT (LINING LAYOUT ENGINE)
+    total_lining_net_area_accumulated = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "LINING" in str(r[m_col]).upper() or "LÓT" in str(r[m_col]).upper())
+    if total_lining_net_area_accumulated > 0 and lining_width > 0:
+        # Ép mật độ sơ đồ lót bao túi lọt khe thực tế xuống 68.0% giúp dâng ĐM an toàn
+        lining_sim_length = total_lining_net_area_accumulated / lining_width / 0.68
+        total_lining_gross_yds = (lining_sim_length / 36.0) * 1.05
+    else:
+        total_lining_gross_yds = 0.0
 
-        def calculate_gross(self, row):
-            l_orig = float(row[orig_l_col])
-            w_orig = float(row[orig_w_col])
-            pcs = float(row["pcs_numeric"])
-            if l_orig <= 0 or w_orig <= 0 or self.width <= 0: 
-                return 0.0
-            total_strip_area = (l_orig * w_orig * pcs)
-            strip_length = (total_strip_area / self.width) / self.density
-            gross_yds = (strip_length / 36.0) * self.wastage
-            return round(gross_yds, 4)
-
-    # -----------------------------------------------------------------
-    # SOLVER 3: GIẢI TOÁN CHIỀU DÀI TUYẾN TÍNH (LENGTH LAYOUT SOLVER)
-    # -----------------------------------------------------------------
-    class LengthLayoutSolver:
-        def __init__(self, wastage):
-            self.wastage = wastage
-
-        def calculate_gross(self, row):
-            l_orig = float(row[orig_l_col])
-            pcs = float(row["pcs_numeric"])
-            if l_orig <= 0: 
-                return 0.0
-            total_length_inch = l_orig * pcs
-            gross_yds = (total_length_inch / 36.0) * self.wastage
-            return round(gross_yds, 4)
-
-    # -----------------------------------------------------------------
-    # ĐIỀU PHỐI VÀ ĐỊNH TUYẾN LAYOUT SOLVERS ENGINE
-    # -----------------------------------------------------------------
-    universal_area_solver = AreaLayoutSolver(df_bom, fabric_width, ai_density, ai_wastage)
-    universal_strip_solver = StripLayoutSolver(fabric_width, density=0.85, wastage=ai_wastage)
-    universal_length_solver = LengthLayoutSolver(wastage=ai_wastage)
-
+    # ⚙️ BỘ ĐIỀU PHỐI PHÂN BỔ ĐỊNH MỨC THEO TỶ TRỌNG DIỆN TÍCH THỰC TẾ CHIẾM CHỖ CỦA DÒNG
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
         if "ACCESSORY" in mat_class or "THREAD" in mat_class or "PHỤ LIỆU" in mat_class:
@@ -1566,38 +1507,39 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if orig_col and float(row.get(orig_col, 0.0)) > 0:
                 return round(float(row[orig_col]), 4)
 
-        solver_class = row["assigned_solver"]
+        pcs = float(row["pcs_numeric"])
+        net_a = float(row["polygon_net_area"])
         
-        if solver_class == "LengthSolver":
-            return universal_length_solver.calculate_gross(row)
-        elif solver_class == "StripSolver":
-            return universal_strip_solver.calculate_gross(row)
-        else:
-            if "FABRIC" in mat_class:
-                return universal_area_solver.calculate_gross(row)
-            elif "FUSING" in mat_class or "INTERLINING" in mat_class:
-                l_prod = float(row.get("Dài sản xuất (L-inch)", 0.0))
-                w_prod = float(row.get("Rộng sản xuất (W-inch)", 0.0))
-                pcs = float(row["pcs_numeric"])
-                if l_prod > 0 and w_prod > 0 and fusing_width > 0:
-                    fusing_length = (l_prod * w_prod * pcs) / fusing_width / 0.65
-                    return round((fusing_length / 36.0) * ai_wastage, 4)
-                return 0.0
-            elif "LINING" in mat_class:
-                net_area = float(row["polygon_net_area"])
-                pcs = float(row["pcs_numeric"])
-                if net_area > 0 and lining_width > 0:
-                    lining_length = (net_area * pcs) / lining_width / 0.70
-                    return round((lining_length / 36.0) * ai_wastage, 4)
-                return 0.0
+        # Luồng phân bổ Vải chính
+        if "FABRIC" in mat_class:
+            if total_fabric_net_area_accumulated > 0:
+                # Định mức của dòng = Tổng định mức Yards sơ đồ * (Diện tích dòng chi tiết / Tổng diện tích vải chính)
+                return round(total_fabric_gross_yds * ((net_a * pcs) / total_fabric_net_area_accumulated), 4)
+                
+        # Luồng phân bổ Méc Keo độc lập
+        elif "FUSING" in mat_class or "INTERLINING" in mat_class:
+            if total_fusing_net_area_accumulated > 0:
+                return round(total_fusing_gross_yds * ((net_a * pcs) / total_fusing_net_area_accumulated), 4)
+            else:
+                # Fallback bảo vệ keo dựng dâng cao an toàn nếu file thiếu dữ liệu gom nhóm
+                return round((((net_a * pcs) / fusing_width) / 36.0 / 0.64) * 1.05, 4)
+                
+        # Luồng phân bổ Vải Lót bao túi độc lập
+        elif "LINING" in mat_class:
+            if total_lining_net_area_accumulated > 0:
+                return round(total_lining_gross_yds * ((net_a * pcs) / total_lining_net_area_accumulated), 4)
+            else:
+                # Fallback bảo vệ lót túi dâng cao an toàn nếu file thiếu dữ liệu gom nhóm
+                return round((((net_a * pcs) / lining_width) / 36.0 / 0.68) * 1.05, 4)
+                
         return 0.0
 
+    # Thực thi giải toán xuất bản giá trị định mức tổng dòng hoàn chỉnh sạch lỗi
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
-
 
 
           # =====================================================================
