@@ -1340,19 +1340,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom["original_raw_gross"] = 0.0
 
-    # Thuật toán tự động x4 cho lót túi trước/sau
+    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP THỜI GIAN THỰC
     def clean_precise_piece_count(row):
-        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper()
+        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
+        m_class = str(row.get(m_col, "")).upper().strip()
         l_val = float(row[orig_l_col])
         
-        if "POCKET BAG" in comp_name or "TÚI LÓT" in comp_name or "LÓT TÚI" in comp_name:
+        # Quy tắc 1: Nếu là lót túi trước/sau (Pocket Bag) bắt buộc gán thẳng bằng 4.0 lớp
+        if any(k in comp_name for k in ["POCKET BAG", "TÚI LÓT", "LÓT TÚI"]):
             return 4.0
             
         pcs_extracted = re.search(r'(\d+)', str(row[pcs_col]))
         pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
         
-        if l_val >= 35.0 and pcs_val >= 2.0 and "FABRIC" in str(row[m_col]).upper():
-            return 1.0
+        # Quy tắc 2: 🚨 KHÓA CHẶT SỐ LƯỢNG THÂN CHÍNH: Nếu là tấm rập gánh tạ diện tích lớn của Vải chính -> Ép cứng về 1 lớp rải sơ đồ
+        if "FABRIC" in m_class:
+            if l_val >= 35.0 or any(k in comp_name for k in ["LEG PANEL", "FRONT PANEL", "BACK PANEL", "THÂN BIẾN"]):
+                return 1.0
+                
         return pcs_val
 
     if "user_edited_pieces" not in st.session_state:
@@ -1363,6 +1368,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
     ]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+
 
     # =====================================================================
     # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU QUYẾT ĐỊNH HIỆU SUẤT CAD
