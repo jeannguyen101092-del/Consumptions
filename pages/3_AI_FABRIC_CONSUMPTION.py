@@ -1397,7 +1397,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "SHIRT":       0.87,   # Áo sơ mi / Áo kiểu
         "JEAN_LONG":   0.875,  # Quần dài / Trouser / Chino / Khaki
         "SHORT":       0.88,   # Quần Short / Quần ngắn
-        "JACKET":      0.84,   # Áo Jacket / Áo khoác dày
+        "JACKET":      0.82,   # Áo Jacket / Áo khoác dày
         "VEST":        0.85,   # Áo Vest / Blazer
         "TOPS_KNIT":   0.80,   # Áo thun / T-shirt / Polo
         "SKIRT":       0.87,   # Váy / Chân váy đơn giản
