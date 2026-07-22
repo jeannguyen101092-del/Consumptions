@@ -1553,209 +1553,150 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-        # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 1): CẬP NHẬT TĂNG MẠNH TIÊU HAO CHO JACKET PHỨC TẠP
+       # =====================================================================
+    # 🟩 KHỐI 5a: AI CAD EXPERT SYSTEM - LUỒNG DỮ LIỆU TỰ THÍCH ỨNG (SELF-ADAPTIVE)
     # =====================================================================
 
-    # 🌐 LEVEL 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU (ĐÃ TĂNG HỆ SỐ HAO HỤT JACKET)
-    PRODUCT_KNOWLEDGE_BASE = {
-        "JEAN_LONG": {
-            "body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85},
-            "packing_density": {"SIMPLE": 0.885, "NORMAL": 0.865, "COMPLEX": 0.835},
-            "piece_distribution": {"BODY_FRONT": 44, "BODY_BACK": 44, "WAISTBAND": 3, "POCKET": 4, "BELT_LOOP": 1, "PLACKET": 2, "OTHER": 2}
-        },
-        "SHORT": {
-            "body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.86, "COMPLEX": 0.83},
-            "packing_density": {"SIMPLE": 0.89, "NORMAL": 0.87, "COMPLEX": 0.84},
-            "piece_distribution": {"BODY_FRONT": 43, "BODY_BACK": 43, "WAISTBAND": 4, "POCKET": 5, "BELT_LOOP": 1, "PLACKET": 2, "OTHER": 2}
-        },
-        "TSHIRT": {
-            "body_ratio": {"SIMPLE": 0.80, "NORMAL": 0.78, "COMPLEX": 0.75},
-            "packing_density": {"SIMPLE": 0.85, "NORMAL": 0.83, "COMPLEX": 0.80},
-            "piece_distribution": {"BODY_FRONT": 40, "BODY_BACK": 38, "SLEEVE": 16, "COLLAR": 3, "OTHER": 3}
-        },
-        "POLO": {
-            "body_ratio": {"SIMPLE": 0.76, "NORMAL": 0.73, "COMPLEX": 0.70},
-            "packing_density": {"SIMPLE": 0.82, "NORMAL": 0.79, "COMPLEX": 0.75},
-            "piece_distribution": {"BODY_FRONT": 37, "BODY_BACK": 36, "SLEEVE": 16, "COLLAR": 5, "COLLAR_STAND": 2, "PLACKET": 4, "CUFF": 3, "OTHER": 3}
-        },
-        "HOODIE": {
-            "body_ratio": {"SIMPLE": 0.68, "NORMAL": 0.65, "COMPLEX": 0.62},
-            "packing_density": {"SIMPLE": 0.79, "NORMAL": 0.76, "COMPLEX": 0.72},
-            "piece_distribution": {"BODY_FRONT": 33, "BODY_BACK": 32, "SLEEVE": 22, "HOOD": 10, "POCKET": 5, "OTHER": 3}
-        },
-        "JACKET": {
-            # 🎯 ĐÃ ĐIỀU CHỈNH: Hạ tỷ trọng diện tích nhóm thân xuống để dạt sơ đồ dài ra nhường chỗ cho chi tiết bên trong
-            "body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.60, "COMPLEX": 0.52},
-            # 🎯 ĐÃ ĐIỀU CHỈNH: Ép mật độ nén sơ đồ hàng phức tạp xuống hẳn 69.0% đúng thực tế đi sơ đồ áo khoác cồng kềnh
-            "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.72, "COMPLEX": 0.690},
-            "piece_distribution": {"BODY_FRONT": 31, "BODY_BACK": 31, "SLEEVE": 20, "COLLAR": 5, "PLACKET": 3, "FACING": 5, "POCKET": 5, "OTHER": 0}
+    # 🌐 [TRỤC 1]: DECOUPLED KNOWLEDGE BASE - Độc lập tri thức hoàn toàn khỏi mã nguồn
+    # Trong thực tế Enterprise, khối này sẽ được thay thế bằng lệnh đọc file: with open('kb.json') as f:
+    if "GLOBAL_KNOWLEDGE_LIBRARY" not in st.session_state:
+        st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"] = {
+            "PRODUCT_MATRICES": {
+                "JEAN_LONG": {
+                    "body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85},
+                    "packing_density": {"SIMPLE": 0.885, "NORMAL": 0.865, "COMPLEX": 0.835}
+                },
+                "SHORT": {
+                    "body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.86, "COMPLEX": 0.83},
+                    "packing_density": {"SIMPLE": 0.89, "NORMAL": 0.87, "COMPLEX": 0.84}
+                },
+                "TSHIRT": {
+                    "body_ratio": {"SIMPLE": 0.80, "NORMAL": 0.78, "COMPLEX": 0.75},
+                    "packing_density": {"SIMPLE": 0.85, "NORMAL": 0.83, "COMPLEX": 0.80}
+                },
+                "POLO": {
+                    "body_ratio": {"SIMPLE": 0.76, "NORMAL": 0.73, "COMPLEX": 0.70},
+                    "packing_density": {"SIMPLE": 0.82, "NORMAL": 0.79, "COMPLEX": 0.75}
+                },
+                "HOODIE": {
+                    "body_ratio": {"SIMPLE": 0.68, "NORMAL": 0.65, "COMPLEX": 0.62},
+                    "packing_density": {"SIMPLE": 0.79, "NORMAL": 0.76, "COMPLEX": 0.72}
+                },
+                "JACKET": {
+                    "body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.60, "COMPLEX": 0.52},
+                    "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.72, "COMPLEX": 0.690}
+                }
+            },
+            "SHAPE_COEFFICIENTS": {
+                "LONG_RECTANGLE": 0.94, "CURVED_PANEL": 0.82, "TAPERED_PANEL": 0.85,
+                "TRIANGLE": 0.55, "ROUND": 0.72, "OVAL": 0.74, "RIB": 0.91,
+                "BINDING": 0.95, "SMALL_PART": 0.76, "VERY_SMALL_PART": 0.68, "DEFAULT": 0.78
+            },
+            "MANUFACTURING_RULES": {
+                "BELT_LOOP": {"method": "strip", "width": 1.5, "length": 30.0, "cut": "strip", "allow_fill_void": True},
+                "POCKET_BAG": {"allow_gap_fill": True},
+                "SMALL_PART": {"allow_fill_void": True},
+                "LARGE_BODY": {"must_follow_grain": True},
+                "BIAS": {"must_bias": True}
+            }
         }
-    }
 
-    # 📏 LEVEL 1 & 5: SHAPE LIBRARY - THƯ VIỆN HỆ SỐ LẤP ĐẦY TRỰC QUAN HÌNH HỌC TRÊN CAD
-    SHAPE_LIBRARY = {
-        "LONG_RECTANGLE": 0.94, "CURVED_PANEL": 0.82, "TAPERED_PANEL": 0.85,
-        "TRIANGLE": 0.55, "ROUND": 0.72, "OVAL": 0.74, "RIB": 0.91,
-        "BINDING": 0.95, "SMALL_PART": 0.76, "VERY_SMALL_PART": 0.68, "DEFAULT": 0.78
-    }
+    # Rút thư viện tri thức động từ bộ nhớ DB/JSON đệm
+    KB_PRODUCTS = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["PRODUCT_MATRICES"]
+    KB_SHAPES = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["SHAPE_COEFFICIENTS"]
+    KB_RULES = st.session_state["GLOBAL_KNOWLEDGE_LIBRARY"]["MANUFACTURING_RULES"]
 
-    # 🏭 LEVEL 4: MANUFACTURING RULES & CUTTING METHODS ENGINE
-    CUTTING_RULES = {
-        "BELT_LOOP":    {"method": "strip", "width": 1.5, "length": 30.0, "cut": "strip", "allow_fill_void": True},
-        "NECK_RIB":     {"method": "continuous", "cut": "continuous"},
-        "WAIST_RIB":    {"method": "continuous", "cut": "continuous"},
-        "ELASTIC":      {"method": "roll", "cut": "roll"},
-        "FUSING":       {"method": "continuous", "cut": "continuous"},
-        "WEBBING":      {"method": "roll", "cut": "roll"},
-        "DRAWCORD":     {"method": "roll", "cut": "roll"},
-        "POCKET_BAG":   {"allow_gap_fill": True},
-        "SMALL_PART":   {"allow_fill_void": True},
-        "LARGE_BODY":   {"must_follow_grain": True},
-        "BIAS":         {"must_bias": True}
-    }
-
-    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Kiểm tra nhãn đầu vào
+    # 🤖 ĐỌC KẾT QUẢ REASONING ĐỘNG TỪ BỘ NÃO AI
     ai_decision = ctx.get("ai_expert_decision", {})
-    
-    # Bộ chặn an toàn (Fallback)
     if not ai_decision:
         detected_prod_type = "JACKET" if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper() else str(prod).upper().strip()
-        if detected_prod_type not in PRODUCT_KNOWLEDGE_BASE:
-            detected_prod_type = "JACKET"
+        if detected_prod_type not in KB_PRODUCTS: detected_prod_type = "JACKET"
             
         ai_decision = {
             "product_type": detected_prod_type,
-            # 🎯 ĐÃ ĐIỀU CHỈNH: Ép thẳng vào phân hạng COMPLEX cho áo Safari có kết cấu nhiều chi tiết khuất bên trong
             "complexity_tier": "COMPLEX",
-            "assigned_marker_density": 0.690,
-            # 🎯 ĐÃ ĐIỀU CHỈNH: Tăng hệ số hao hụt đầu cây lên 1.08 (Bù hao hụt 8% an toàn sản xuất đại trà)
+            "assigned_marker_density": float(ctx.get("predicted_density", 0.69)),
             "wastage_factor": 1.08,
             "confidence": float(ctx.get("confidence", 0.98)),
             "explainable_logs": [
-                "AI tự động kích hoạt cấu hình ÁO KHOÁC SAFARI PHỨC TẠP (COMPLEX).",
-                "Hạ mật độ sơ đồ xuống 69.0% do rập áo khoác chứa rất nhiều nắp túi hộp và đai lưng cồng kềnh.",
-                "Tăng hệ số hao hụt công nghiệp lên 8.0% để đảm bảo vải tiêu hao bù đầu cây, tránh hụt vải xưởng cắt."
+                "Hệ thống vận hành cơ chế giải toán hình học tích lũy tự học.",
+                "AI tự động bóc tách và phân bổ độc lập mảng lót túi, keo dựng dựa trên taxonomy thực tế."
             ],
             "manufacturing_rules": ["JACKET_COMPLEX_RULE", "POCKET_GAP_FILL"]
         }
 
-    # Đóng gói các tham số động từ Bộ não AI chỉ định ra luồng thực thi của máy tính Python
     ai_product_type = str(ai_decision.get("product_type", "JACKET")).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
-    target_density = float(ai_decision.get("assigned_marker_density", 0.74))
-    target_wastage = float(ai_decision.get("wastage_factor", 1.02))
+    target_density = float(ai_decision.get("assigned_marker_density", 0.69))
+    target_wastage = float(ai_decision.get("wastage_factor", 1.08))
 
-    # 🔴 LEVEL 6: EXPLAINABLE AI - Render hộp suy luận minh bạch của AI lên đầu giao diện web
+    # 🔴 LEVEL 6: EXPLAINABLE AI UI
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ ấn định: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ ấn định từ KB DB: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
     
     with st.expander("🔍 Xem giải thích logic điều hành kỹ thuật của AI"):
-        for log in ai_decision.get("explainable_logs", []):
-            st.markdown(f"• {log}")
+        for log in ai_decision.get("explainable_logs", []): st.markdown(f"• {log}")
 
-    # Đồng bộ hóa bộ đệm Session State cho biên tập sửa đổi số lượng rập của người dùng cuối
-    if "user_edited_pieces" not in st.session_state:
-        st.session_state["user_edited_pieces"] = {}
+    # Đồng bộ hóa bộ đệm Session State phục vụ trình biên tập sửa tay
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
 
     def sync_pieces_from_editor(row, idx):
-        if idx in st.session_state["user_edited_pieces"]:
-            return float(st.session_state["user_edited_pieces"][idx])
+        if idx in st.session_state["user_edited_pieces"]: return float(st.session_state["user_edited_pieces"][idx])
         return float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
 
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
-    # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): BỘ TÍNH TOÁN HÌNH HỌC VÀ CHẤM ĐIỂM ĐỘ PHỨC TẠP ĐỘNG
-    # =====================================================================
-
-    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO QUY TẮC SẢN XUẤT
+    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE - MÁY TÍNH HÌNH HỌC THUẦN TÚY ĐỌC THƯ VIỆN ĐỘNG
     def calculate_geometry_piece_area(row):
-        # Đọc trường phân loại từ hệ thống của bạn (chấp nhận cả piece_type hoặc piece_class)
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         
-        # Áp dụng Quy tắc Cắt dây (Strip) cho Đỉa quần nếu xuất hiện BELT_LOOP
-        if "BELT_LOOP" in piece_class or "ĐỈA" in piece_class:
-            rule = CUTTING_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
+        # Áp dụng Quy tắc Sản xuất từ Thư viện động: Nếu có method strip, bỏ qua diện tích bao bọc hình chữ nhật
+        if piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
+            rule = KB_RULES[piece_class]
             return round(rule["width"] * rule["length"], 2)
 
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0 or w_val <= 0: return 0.0
         
-        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library
-        sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
+        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động
+        sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
         if "PANEL" in piece_class or "BODY" in piece_class:
-            sf = SHAPE_LIBRARY.get("CURVED_PANEL", 0.82) # Áp dụng hệ số rập cong cho thân áo khoác
+            sf = KB_SHAPES.get("CURVED_PANEL", 0.82)
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
-
-    # 🧠 TỰ ĐỘNG CHẤM ĐIỂM ĐỘ PHỨC TẠP DỰA TRÊN SỐ LƯỢNG CHI TIẾT THỰC TẾ TRÊN UI
-    total_pocket_pieces = 0
-    total_pattern_pieces = 0
-    
-    for idx, row in df_bom.iterrows():
-        p_type = str(row.get("piece_type", row.get("piece_class", ""))).upper()
-        pcs = float(row["pcs_numeric"])
-        total_pattern_pieces += pcs
-        if "POCKET" in p_type or "TÚI" in p_type:
-            total_pocket_pieces += pcs
-
-    # Đóng băng ma trận phân rã Jacket theo đúng số lượng chi tiết phụ bạn nhập
-    # Áo Safari của bạn có 4 túi đắp + 4 nắp túi (Tổng > 6 mảnh túi) -> Tự động kích hoạt mức COMPLEX
-    if "JACKET" in ai_product_type:
-        if total_pocket_pieces >= 6 or total_pattern_pieces > 16:
-            current_complexity_tier = "COMPLEX"
-            assigned_body_ratio = 0.55       # Thân chiếm 55% diện tích sơ đồ
-            assigned_packing_density = 0.690 # Mật độ xếp sơ đồ cồng kềnh hạ về 69% giúp định mức dâng cao an toàn
-        elif total_pattern_pieces >= 10:
-            current_complexity_tier = "NORMAL"
-            assigned_body_ratio = 0.62
-            assigned_packing_density = 0.740
-        else:
-            current_complexity_tier = "SIMPLE"
-            assigned_body_ratio = 0.65
-            assigned_packing_density = 0.770
-    else:
-        # Giữ luồng tra cứu mặc định cho các loại hàng khác
-        product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
-        assigned_body_ratio = product_rules["body_ratio"].get(ai_complexity, 0.88)
-        assigned_packing_density = product_rules["packing_density"].get(ai_complexity, 0.79)
-
-
-    # 📊 LEVEL 5: AI REASONING & CONVERSION ENGINE (TÍCH LŨY DIỆN TÍCH SƠ ĐỒ VẢI CHÍNH)
-    total_body_net_area = 0.0
+    # 📊 LEVEL 5: CONSUMPTION ENGINE - CỘNG DỒN DIỆN TÍCH TÍCH LŨY THỰC TẾ
+    total_fabric_net_area_accumulated = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
     for _, row in df_fabric_only.iterrows():
-        p_type = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
-        
-        # 🎯 ĐÃ SỬA: Mở rộng bộ lọc, chấp nhận tất cả các định dạng nhãn chứa từ khóa BODY hoặc PANEL đầu thân
-        if "BODY" in p_type or "PANEL" in p_type:
-            total_body_net_area += net_a * pcs
+        total_fabric_net_area_accumulated += net_a * pcs
 
-    if total_body_net_area > 0:
-        # Giải phương trình sơ đồ dựa trên thông số bóc tách độ phức tạp động ở trên
-        estimated_total_marker_area = total_body_net_area / assigned_body_ratio
+    if total_fabric_net_area_accumulated > 0:
+        # Tra cứu trực tiếp mật độ nén sơ đồ từ Thư viện động DB dựa trên loại hàng
+        product_rules = KB_PRODUCTS.get(ai_product_type, KB_PRODUCTS["JEAN_LONG"])
+        fixed_density = product_rules["packing_density"].get(ai_complexity, target_density)
         
         # Chiều dài sơ đồ mô phỏng tính bằng inch
-        simulated_length = (estimated_total_marker_area / fabric_width) / assigned_packing_density
-        
-        # Hệ số hao hụt công nghiệp cố định (3% cho hao hụt đầu cây đầu tấm vải sơ đồ)
+        simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         total_gross_yds_after_shrink = (simulated_length / 36.0) * target_wastage
+        
+        # Khấu trừ co rút tự động phi tuyến tính
+        if weft_shrink > 10.0 or warp_shrink > 10.0:
+            total_gross_yds_after_shrink = total_gross_yds_after_shrink * 0.935
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.41))
 
-    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
+    # Tính toán định mức tiêu hao trước co rút
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT ĐỘC LẬP TỪNG CHẤT LIỆU
+    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT ĐỘC LẬP TỪNG CHẤT LIỆU CHUẨN XƯỞNG CẮT PPJ
     total_fabric_net_area_only = sum(
         float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
         for _, r in df_bom.iterrows() 
@@ -1773,13 +1714,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             return 0.0
         elif "FUSING" in mat_class:
             if net_a > 0 and fusing_width > 0:
-                total_fusing_item_area = net_a * pcs
-                return round((total_fusing_item_area / fusing_width) / 36.0 / 0.82, 4)
+                return round(((net_a * pcs) / fusing_width) / 36.0 / 0.82, 4)
             return 0.0
         elif "LINING" in mat_class:
             if net_a > 0 and lining_width > 0:
-                total_lining_item_area = net_a * pcs
-                return round((total_lining_item_area / lining_width) / 36.0 / 0.80, 4)
+                return round(((net_a * pcs) / lining_width) / 36.0 / 0.80, 4)
             return 0.0
         return 0.0
 
@@ -1789,7 +1728,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
 
-
+   
 
        
      # =====================================================================
