@@ -1395,18 +1395,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-         # =====================================================================
-    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU QUYẾT ĐỊNH HIỆU SUẤT CAD (ĐÃ SỬA LỖI KEYERROR)
+      # =====================================================================
+    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU (ĐÃ ĐỒNG BỘ MA TRẬN CHUẨN)
     # =====================================================================
+    # 🌟 GHI CHÚ KỸ THUẬT: Muốn định mức CAO lên, bắt buộc phải HẠ chỉ số packing_density thấp xuống.
     PRODUCT_KNOWLEDGE_BASE = {
-        "JEAN_LONG": {"body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.87}, "packing_density": {"SIMPLE": 0.87, "NORMAL": 0.88, "COMPLEX": 0.88}}, 
-        "SHORT":     {"body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.88, "COMPLEX": 0.89}, "packing_density": {"SIMPLE": 0.885, "NORMAL": 0.89, "COMPLEX": 0.89}},
-        "JACKET":    {"body_ratio": {"SIMPLE": 0.84, "NORMAL": 0.86, "COMPLEX": 0.85}, "packing_density": {"SIMPLE": 0.87, "NORMAL": 0.875, "COMPLEX": 0.88}}
+        "JEAN_LONG": {
+            "body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.87}, 
+            "packing_density": {"SIMPLE": 0.82, "NORMAL": 0.79, "COMPLEX": 0.75} # Hạ sâu xuống 75%-79% để kích định mức quần lên cao an toàn
+        }, 
+        "SHORT": {
+            "body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.88, "COMPLEX": 0.89}, 
+            "packing_density": {"SIMPLE": 0.82, "NORMAL": 0.80, "COMPLEX": 0.76}
+        },
+        "JACKET": {
+            "body_ratio": {"SIMPLE": 0.84, "NORMAL": 0.86, "COMPLEX": 0.85}, 
+            "packing_density": {"SIMPLE": 0.74, "NORMAL": 0.70, "COMPLEX": 0.66}
+        }
     }
     SHAPE_LIBRARY = {"CURVED_PANEL": 0.82, "LONG_RECTANGLE": 0.94, "DEFAULT": 0.78}
     CUTTING_RULES = {"BELT_LOOP": {"width": 1.5, "length": 30.0}}
 
-    # Đã sửa lỗi: Quét từ khóa túi từ cột Component Name thực tế để tránh bị sót số liệu
+    # Quét từ khóa túi từ cột Component Name thực tế
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
     
     total_pocket_pieces = sum(
@@ -1419,13 +1429,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not isinstance(ai_decision, dict):
         ai_decision = {}
     
-    # Đồng bộ nhận diện dòng hàng từ ngữ cảnh
+    # 1. Đồng bộ nhận diện dòng hàng từ ngữ cảnh
     if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper():
         ai_product_type = "JACKET"
         if total_pocket_pieces >= 6 or total_pattern_pieces > 16:
-            ai_complexity, assigned_body_ratio, target_density, target_wastage = "COMPLEX", 0.55, 0.690, 1.08
+            ai_complexity = "COMPLEX"
         else:
-            ai_complexity, assigned_body_ratio, target_density, target_wastage = "NORMAL", 0.62, 0.740, 1.04
+            ai_complexity = "NORMAL"
+            
+        p_rules = PRODUCT_KNOWLEDGE_BASE["JACKET"]
+        assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.60)
+        target_density = p_rules["packing_density"].get(ai_complexity, 0.70)
+        target_wastage = 1.08 if ai_complexity == "COMPLEX" else 1.04
     else:
         # Nếu là quần hoặc các mặt hàng khác (Ví dụ: Chino, Jean)
         if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO", "TROUSER", "QUẦN"]):
@@ -1439,28 +1454,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             ai_complexity = "NORMAL"
             
+        # 🚨 ĐÃ SỬA: Bốc trực tiếp từ ma trận cấu hình động ở trên, xóa bỏ mọi dòng gán cứng đè biến
         p_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
         assigned_body_ratio = p_rules["body_ratio"].get(ai_complexity, 0.88)
-        target_density = p_rules["packing_density"].get(ai_complexity, 0.82)
+        target_density = p_rules["packing_density"].get(ai_complexity, 0.79) 
         
-        # Nâng hệ số hao hụt an toàn cho vải chính (Mặc định nâng lên hẳn 4% - 6% để tránh hao hụt khi cắt xưởng)
-        target_wastage = 1.04 if ai_complexity == "NORMAL" else 1.06
+        # Nâng hệ số hao hụt an toàn thương mại cho vải chính lên (NORMAL = 5%, COMPLEX = 8%)
+        target_wastage = 1.05 if ai_complexity == "NORMAL" else 1.08
 
-    # 🚨 ĐÃ SỬA LỖI KEYERROR CHÍ MẠNG: Bẫy khởi tạo an toàn nếu key ai_expert_decision chưa có trong ctx
+    # Khởi tạo an toàn tránh lỗi KeyError
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
-    # Đẩy trực tiếp giá trị vừa giải toán vào bộ nhớ hệ thống một cách an toàn
+    # Đẩy trực tiếp giá trị vào bộ nhớ hệ thống
     ctx["ai_expert_decision"]["assigned_marker_density"] = target_density
     ctx["ai_expert_decision"]["wastage_factor"] = target_wastage
     ctx["ai_expert_decision"]["complexity_tier"] = ai_complexity
     
-    # Đồng bộ lưu ngược lại vào Streamlit Session State để chống mất dữ liệu khi ứng dụng chạy tiếp
+    # Đồng bộ lưu ngược lại vào Streamlit Session State
     st.session_state["bom_data"] = ctx
 
     # Render bảng hộp suy luận minh bạch Explainable AI lên đầu ứng dụng
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` ({ai_complexity}) | Mật độ sơ đồ: `{target_density*100:.1f}%` | Hao hụt vải chính: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` ({ai_complexity}) | Mật độ sơ đồ vải chính: `{target_density*100:.1f}%` | Hao hụt vải chính: `{((target_wastage-1)*100):.1f}%`")
 
          # =====================================================================
     # 🟩 ĐOẠN 4: RULE ENGINE - ĐỊNH TUYẾF PHƯƠNG PHÁP GIẢI TOÁN HÌNH HỌC PHẲNG (SỬA LỖI KEO THẤP)
@@ -1532,14 +1548,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
        # =====================================================================
         # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER GIẢI TOÁN ĐỊNH MỨC CAD - PHIÊN BẢN TÁCH KEO ĐỘC LẬP TRỰC TIẾP
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
+    if not isinstance(ai_decision, dict):
+        ai_decision = {}
+        
     ai_product_type = "JACKET" if any(k in str(prod).upper() for k in ["JACKET", "SAFARI"]) else ("JEAN_LONG" if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO"]) else str(prod).upper())
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     
-    target_density = float(ai_decision.get("assigned_marker_density", 0.82)) if float(ai_decision.get("assigned_marker_density", 0.82)) > 0 else 0.82
-    target_wastage = float(ai_decision.get("wastage_factor", 1.04)) if float(ai_decision.get("wastage_factor", 1.04)) > 0 else 1.04
+    # Thừa hưởng chính xác con số tính toán động từ ma trận Đoạn 3 truyền xuống
+    target_density = float(ai_decision.get("assigned_marker_density", 0.79)) if float(ai_decision.get("assigned_marker_density", 0.79)) > 0 else 0.79
+    target_wastage = float(ai_decision.get("wastage_factor", 1.05)) if float(ai_decision.get("wastage_factor", 1.05)) > 0 else 1.05
 
     # 📊 BỘ TỪ KHÓA ĐỒNG BỘ CHUẨN ĐÓN ĐẦU AI OCR TOÀN DIỆN
     fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "BODY", "PRIMARY", "VAI CHINH", "VC"]
@@ -1566,14 +1587,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         total_lining_gross_yds = 0.0
 
-    # 🚨 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO: Nâng hao hụt màng keo dán ép nhiệt
-    fusing_wastage_factor = 1.15  # Tăng hẳn lên 15% hao hụt biên cắt phôi, co rút và cháy màng keo
-    fusing_efficiency = 0.62      # Độ chặt đi sơ đồ keo an toàn dôi dư thương mại
+    # 🚨 3. ĐIỀU CHỈNH RIÊNG CHO KEO LÓT / MÉC KEO: 
+    # Nâng mạnh hao hụt lên 18% và hạ hiệu suất sơ đồ keo xuống hẳn 55% để ép định mức keo nhảy cao hẳn lên
+    fusing_wastage_factor = 1.18  
+    fusing_efficiency = 0.55      
 
     # ⚙️ BỘ ĐIỀU PHỐI (ROUTER): Phân bổ định mức tính toán trực tiếp cho từng dòng chi tiết
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
-        comp_name = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
         
         if any(k in mat_class for k in ["ACCESSORY", "THREAD", "PHỤ LIỆU", "CHI", "BUTTON", "ZIPPER"]): 
             return 0.0
@@ -1586,18 +1607,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         
-        # Luồng phân bổ Vải chính (FABRIC) -> Giữ nguyên logic chia tỷ lệ hình học phẳng rất chuẩn của bạn
+        # Luồng phân bổ Vải chính (FABRIC)
         if any(k in mat_class for k in fabric_keywords):
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * ((net_a * pcs) / total_fabric_net_area), 4)
                 
-        # 🚨 ĐÃ SỬA TẬN GỐC LUỒNG MÉC KEO / KEO LÓT RIB (FUSING ENGINE): 
-        # Tính toán trực tiếp dựa trên diện tích chiếm chỗ thực tế chia khổ keo, giải phóng khỏi lỗi chia tỉ lệ vòng tròn
+        # 🚨 Luồng MÉC KEO / KEO LÓT RIB (FUSING ENGINE): Tính trực tiếp, kích số liệu độc lập
         elif any(k in mat_class for k in fusing_keywords):
-            # Lấy diện tích tịnh thực tế nhân số mảnh mảnh rập keo
             piece_total_area = net_a * pcs
             if fusing_width > 0:
-                # Công thức toán học trực tiếp: (Diện tích / Khổ rộng keo / Độ chặt sơ đồ keo) / 36 inch đổi ra Yards
                 direct_fusing_sim_length = piece_total_area / fusing_width / fusing_efficiency
                 line_gross_yds = (direct_fusing_sim_length / 36.0) * fusing_wastage_factor
                 return round(line_gross_yds, 4)
@@ -1616,7 +1634,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Thực thi giải toán xuất bản giá trị định mức tổng dòng hoàn chỉnh sạch lỗi
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
-    # Đóng gói đồng bộ ngược chiều rộng khổ nguyên liệu thực tế cho từng dòng chi tiết phục vụ hiển thị
+    # Đóng gói đồng bộ ngược chiều rộng khổ nguyên liệu thực tế phục vụ hiển thị
     df_bom["calculated_material_width"] = fabric_width
     
     is_fusing_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in fusing_keywords))
@@ -1624,6 +1642,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     is_lining_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in lining_keywords))
     df_bom.loc[is_lining_row, "calculated_material_width"] = lining_width
+
 
 
 
