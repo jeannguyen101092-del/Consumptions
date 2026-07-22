@@ -1399,9 +1399,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU QUYẾT ĐỊNH HIỆU SUẤT CAD (ĐÃ SỬA LỖI KEYERROR)
     # =====================================================================
     PRODUCT_KNOWLEDGE_BASE = {
-        "JEAN_LONG": {"body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.85}, "packing_density": {"SIMPLE": 0.85, "NORMAL": 0.82, "COMPLEX": 0.78}}, 
-        "SHORT":     {"body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.86, "COMPLEX": 0.83}, "packing_density": {"SIMPLE": 0.86, "NORMAL": 0.83, "COMPLEX": 0.80}},
-        "JACKET":    {"body_ratio": {"SIMPLE": 0.65, "NORMAL": 0.60, "COMPLEX": 0.52}, "packing_density": {"SIMPLE": 0.76, "NORMAL": 0.72, "COMPLEX": 0.690}}
+        "JEAN_LONG": {"body_ratio": {"SIMPLE": 0.90, "NORMAL": 0.88, "COMPLEX": 0.87}, "packing_density": {"SIMPLE": 0.87, "NORMAL": 0.88, "COMPLEX": 0.88}}, 
+        "SHORT":     {"body_ratio": {"SIMPLE": 0.88, "NORMAL": 0.88, "COMPLEX": 0.89}, "packing_density": {"SIMPLE": 0.885, "NORMAL": 0.89, "COMPLEX": 0.89}},
+        "JACKET":    {"body_ratio": {"SIMPLE": 0.84, "NORMAL": 0.86, "COMPLEX": 0.85}, "packing_density": {"SIMPLE": 0.87, "NORMAL": 0.875, "COMPLEX": 0.88}}
     }
     SHAPE_LIBRARY = {"CURVED_PANEL": 0.82, "LONG_RECTANGLE": 0.94, "DEFAULT": 0.78}
     CUTTING_RULES = {"BELT_LOOP": {"width": 1.5, "length": 30.0}}
