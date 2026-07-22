@@ -1575,7 +1575,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-        # =====================================================================
+          # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
@@ -1617,6 +1617,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột Tiêu đề
                 if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
@@ -1638,6 +1639,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột dữ liệu căn giữa
                 if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
@@ -1664,9 +1666,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                if c_idx in:
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột căn lề bảng chi tiết
+                if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif c_idx in:
+                elif c_idx == 4 or c_idx == 5 or c_idx == 6:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -1682,7 +1685,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         workbook.save(output_stream)
         output_stream.seek(0)
         return output_stream
-
     # =====================================================================
     # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE)
     # =====================================================================
@@ -1709,11 +1711,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # Cấu trúc ma trận hiển thị chi tiết lưới rập và gán nhãn Size mẫu chuẩn xác 34x33
+    # Cấu trúc ma trận hiển thị chi tiết lưới rập và gán tên chữ tiếng Việt cho cột Số lượng
     df_bom_display = df_bom.copy()
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
     
-    # 🚨 ĐỒNG BỘ ĐỘNG: Đưa trực tiếp biến bóc size mẫu chuẩn xác từ Techpack lên giao diện
+    # Đồng bộ nhãn Size may mẫu chuẩn xác 34x33 từ tài liệu gốc Kenpark
     df_bom_display["Size tính toán"] = detected_size_code
     
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
@@ -1728,7 +1730,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     with col_t2:
         try:
-            # Gọi trực tiếp hàm xuất Excel nội bộ được khai báo từ Đoạn 6
             excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
