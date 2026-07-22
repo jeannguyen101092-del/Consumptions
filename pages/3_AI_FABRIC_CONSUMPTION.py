@@ -1655,6 +1655,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
+       # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY ĐỘNG - HIỆU CHỈNH TIÊU HAO JACKET CHUẨN XƯỞNG
+    # =====================================================================
+
     # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO THƯ VIỆN ĐỘNG
     def calculate_geometry_piece_area(row):
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
@@ -1672,7 +1676,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động
         sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
         if "PANEL" in piece_class or "BODY" in piece_class:
-            sf = KB_SHAPES.get("CURVED_PANEL", 0.82)
+            sf = 0.84  # Nâng hệ số lấp đầy nền tảng cho thân áo để bảo toàn diện tích rập thật
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
@@ -1691,15 +1695,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         product_rules = KB_PRODUCTS.get(ai_product_type, KB_PRODUCTS["JEAN_LONG"])
         fixed_density = product_rules["packing_density"].get(ai_complexity, target_density)
         
-        # 📐 CHỮA LỖI KHỔ VẢI: Sử dụng trực tiếp biến fabric_width động bóc tách từ Chat để thực hiện phép chia hình học
+        # 🎯 ĐÃ ĐIỀU CHỈNH: Nhân hệ số bù khoảng trống lọt khe vật lý (Gap Fill Factor) lên 1.24 
+        # đối với dòng hàng JACKET để mô phỏng chính xác độ lãng phí vải khi đi sơ đồ áo khoác cồng kềnh
+        if "JACKET" in ai_product_type:
+            total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.24
+            
+        # Chiều dài sơ đồ mô phỏng tính bằng inch
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
-        total_gross_yds_after_shrink = (simulated_length / 36.0) * target_wastage
         
-        # Khấu trừ co rút dọc/ngang lớn phi tuyến tính bảo vệ hệ thống tránh vọt số định mức mua hàng
-        if weft_shrink > 10.0 or warp_shrink > 10.0:
-            total_gross_yds_after_shrink = total_gross_yds_after_shrink * 0.935
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp nhà máy (đóng gói ở mức 1.05 - hao hụt 5%)
+        total_gross_yds_after_shrink = (simulated_length / 36.0) * 1.05
+        
+        # TRẢ TỰ DO TOÁN HỌC: Xóa bỏ vĩnh viễn bộ giảm trừ 0.935 cũ để giải phóng định mức dâng cao động tự do 100% [INDEX]
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.41))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.85))
 
     # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
@@ -1726,17 +1735,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             return 0.0
         elif "LINING" in mat_class:
             if net_a > 0 and lining_width > 0:
-                # Tính độc lập lót túi tích lũy theo số lớp mảnh (May 2 túi trước = x4 lá rập lót đơn)
                 return round(((net_a * pcs) / lining_width) / 36.0 / 0.80, 4)
             return 0.0
         return 0.0
-
-    df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v10, axis=1)
-
-
-
-    # Đẩy thông số khổ đồng bộ động từ Chat xuống cấu hình hệ thống bảng rập chi tiết
-
 
     df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v10, axis=1)
 
