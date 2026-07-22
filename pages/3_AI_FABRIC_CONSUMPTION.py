@@ -1655,11 +1655,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
-     # =====================================================================
-    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC TÍCH LŨY ĐỘNG - CỘNG TỔNG DIỆN TÍCH THỰC TẾ 100%
+       # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): TOÁN HỌC HÌNH HỌC TÍCH LŨY THUẦN TÚY TUYỆT ĐỐI (SẠCH LỖI)
     # =====================================================================
 
-    # 🎯 ĐÃ ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
+    # 🎯 ĐỒNG BỘ ĐẢO NGƯỢC LÊN ĐẦU: Ép nạp ngay lập tức dữ liệu sửa đổi chất liệu từ người dùng
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
         
@@ -1672,9 +1672,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
         shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
         
-        # Áp dụng Quy tắc Sản xuất từ Thư viện động cho đỉa quần/đỉa áo
-        if piece_class in CUTTING_RULES and CUTTING_RULES[piece_class].get("method") == "strip":
-            rule = CUTTING_RULES[piece_class]
+        # ĐÃ SỬA: Đổi toàn bộ CUTTING_RULES thành biến thư viện động KB_RULES sạch lỗi NameError
+        if piece_class in KB_RULES and KB_RULES[piece_class].get("method") == "strip":
+            rule = KB_RULES[piece_class]
             return round(rule["width"] * rule["length"], 2)
 
         l_val = float(row["Dài sản xuất (L-inch)"])
@@ -1682,42 +1682,41 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if l_val <= 0 or w_val <= 0: return 0.0
         
         # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library động
-        sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
+        sf = KB_SHAPES.get(shape_type, KB_SHAPES.get(piece_class, KB_SHAPES["DEFAULT"]))
         if "PANEL" in piece_class or "BODY" in piece_class:
             sf = 0.84  # Bảo toàn diện tích rập thật lớn cho thân áo khoác Jacket
         return round(l_val * w_val * sf, 2)
 
     df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
 
-    # 📊 LEVEL 5: CONSUMPTION ENGINE - CỘNG TỔNG LŨY KẾ TUYỆT ĐỐI 100% DIỆN TÍCH VẢI CHÍNH [INDEX]
+    # 📊 LEVEL 5: CONSUMPTION ENGINE - CỘNG TỔNG LŨY KẾ TUYỆT ĐỐI 100% DIỆN TÍCH VẢI CHÍNH (BỎ PHẦN TRĂM CHIA NGƯỢC)
     total_fabric_net_area_accumulated = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
-    # 🎯 THAY ĐỔI LỚN: Quét qua toàn bộ bảng và cộng dồn diện tích của MỌI chi tiết vải chính có trong sơ đồ [INDEX]
+    # Quét toàn bộ bảng rập và cộng dồn diện tích tích lũy của MỌI chi tiết vải chính (Thân + Tay + Cổ + Túi + Nẹp)
     for _, row in df_fabric_only.iterrows():
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         total_fabric_net_area_accumulated += net_a * pcs
 
     if total_fabric_net_area_accumulated > 0:
-        # Tra cứu mật độ nén sơ đồ từ Thư viện động DB dựa trên loại hàng
-        product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
+        # Tra cứu trực tiếp mật độ nén sơ đồ từ Thư viện động dựa trên loại hàng và phân loại độ phức tạp
+        product_rules = KB_PRODUCTS.get(ai_product_type, KB_PRODUCTS["JEAN_LONG"])
         fixed_density = product_rules["packing_density"].get(ai_complexity, target_density)
         
-        # 🎯 HIỆU CHỈNH KẼ HỞ: Áo khoác Jacket có nách, cổ cong lớn tạo ra nhiều khoảng trống lọt khe lãng phí vải
-        # Nhân thêm hệ số lọt khe vật lý 1.18 (bù 18% vải hao hụt kẽ hở giữa các chi tiết) [INDEX]
+        # HIỆU CHỈNH KẼ HỞ: Bù hao hụt khoảng trống lọt khe vật lý 1.18 (18%) cho riêng phom áo khoác Jacket cong lớn
         if "JACKET" in ai_product_type:
             total_fabric_net_area_accumulated = total_fabric_net_area_accumulated * 1.18
             
-        # Chiều dài sơ đồ mô phỏng thực tế (inch) = Tổng diện tích tích lũy toàn bộ rập FABRIC / (Khổ vải * Mật độ nén) [INDEX]
+        # Chiều dài sơ đồ mô phỏng thực tế (inch) = Tổng diện tích tích lũy toàn bộ rập FABRIC / (Khổ vải * Mật độ nén)
         simulated_length = (total_fabric_net_area_accumulated / fabric_width) / fixed_density
         
-        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp đầu tấm (hao hụt vải 5% an toàn sản xuất) [INDEX]
+        # Quy đổi inch sang Yards và nhân hệ số hao hụt công nghiệp đầu tấm (hao hụt vải 5% an toàn sản xuất)
         total_gross_yds_after_shrink = (simulated_length / 36.0) * 1.05
     else:
         total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.85))
 
-    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary [INDEX]
+    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
     # 📊 BỘ ENGINE GIẢI TOÁN PHÂN BỔ ĐỘC LẬP TỪNG CHẤT LIỆU CHUẨN XƯỞNG CẮT PPJ
@@ -1753,6 +1752,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+
 
    
 
