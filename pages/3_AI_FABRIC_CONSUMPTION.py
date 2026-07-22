@@ -1452,9 +1452,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
         # =====================================================================
       # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER GIẢI TOÁN ĐỊNH MỨC SƠ ĐỒ CAD THƯƠNG MẠI (SỬA LỖI NAMEERROR)
+    #    # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE GIẢI TOÁN ĐỊNH MỨC SƠ ĐỒ CAD (TỐI ƯU CHO DATA TIẾNG ANH TỪ AI PDF)
     # =====================================================================
-    # Trích xuất tham số AI Expert chỉ định động từ ngữ cảnh hệ thống
     ai_decision = ctx.get("ai_expert_decision", {})
     ai_product_type = "JACKET" if any(k in str(prod).upper() for k in ["JACKET", "SAFARI"]) else ("JEAN_LONG" if any(k in str(prod).upper() for k in ["JEAN", "PANT", "CHINO"]) else str(prod).upper())
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
@@ -1462,11 +1462,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     target_density = float(ai_decision.get("assigned_marker_density", 0.865)) if float(ai_decision.get("assigned_marker_density", 0.865)) > 0 else 0.865
     target_wastage = float(ai_decision.get("wastage_factor", 1.02)) if float(ai_decision.get("wastage_factor", 1.02)) > 0 else 1.02
 
+    # 📊 BỘ TỪ KHÓA TIẾNG ANH TOÀN DIỆN ĐÓN ĐẦU AI OCR (Tránh lọt lưới các cụm từ dài)
+    # Vải chính: AI hay quét ra Main Fabric, Shell Fabric, Self Fabric, Denim, Khaki...
+    fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "BODY", "PRIMARY"]
+    
+    # Méc/Keo/Rib: AI hay quét ra Interlining, Fusing, Pocket Fusing, Collar Fusing, Rib Bonded, Tape...
+    fusing_keywords = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF"]
+    
+    # Vải lót: AI hay quét ra Lining, Pocket Lining, Mesh...
+    lining_keywords = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA"]
+
     # 1. 📊 PIPELINE GIẢI TOÁN VẢI CHÍNH TỔNG THỂ (FABRIC MARKER ENGINE)
-    # CÔ LẬP TUYỆT ĐỐI: Chỉ tích lũy diện tích của các miếng rập thuộc VẢI CHÍNH (FABRIC)
     total_fabric_net_area = 0.0
     for _, r in df_bom.iterrows():
-        if "FABRIC" in str(r[m_col]).upper():
+        mat_str = str(r[m_col]).upper().strip()
+        if any(k in mat_str for k in fabric_keywords):
             total_fabric_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
 
     if total_fabric_net_area > 0 and fabric_width > 0 and target_density > 0:
@@ -1475,29 +1485,41 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         total_fabric_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.38))
 
-    # 2. 📊 PIPELINE GIẢI TOÁN MÉC KEO ĐỘC LẬP (FUSING MARKER ENGINE)
-    total_fusing_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FUSING" in str(r[m_col]).upper() or "KEO" in str(r[m_col]).upper())
+    # 2. 📊 PIPELINE GIẢI TOÁN MÉC KEO ĐỘC LẬP (FUSING MARKER ENGINE - CHO CẢ KEO LÓT RIB)
+    total_fusing_net_area = sum(
+        float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
+        for _, r in df_bom.iterrows() 
+        if any(k in str(r[m_col]).upper() for k in fusing_keywords)
+    )
+    # Sơ đồ dán ép keo/rib thường chặt hơn sơ đồ vải chính thân áo (nên để tầm 0.72 - 0.75)
+    fusing_density = 0.72 
+
     if total_fusing_net_area > 0 and fusing_width > 0:
-        fusing_sim_length = total_fusing_net_area / fusing_width / 0.64
+        fusing_sim_length = total_fusing_net_area / fusing_width / fusing_density
         total_fusing_gross_yds = (fusing_sim_length / 36.0) * target_wastage
     else:
         total_fusing_gross_yds = 0.0
 
     # 3. 📊 PIPELINE GIẢI TOÁN VẢI LÓT TÚI ĐỘC LẬP (LINING MARKER ENGINE)
-    total_lining_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "LINING" in str(r[m_col]).upper() or "LÓT" in str(r[m_col]).upper())
+    total_lining_net_area = sum(
+        float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
+        for _, r in df_bom.iterrows() 
+        if any(k in str(r[m_col]).upper() for k in lining_keywords)
+    )
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.68
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
 
-    # ⚙️ BỘ ĐIỀU PHỐI (ROUTER): Định tuyến phân bổ định mức dựa trên tỷ trọng không gian chiếm chỗ của tổng dòng
+    # ⚙️ BỘ ĐIỀU PHỐI (ROUTER)
     def core_engine_router(row):
         mat_class = str(row[m_col]).upper().strip()
-        if "ACCESSORY" in mat_class or "THREAD" in mat_class or "PHỤ LIỆU" in mat_class: 
+        
+        # Loại bỏ nhóm phụ liệu không tính bằng sơ đồ CAD diện tích
+        if any(k in mat_class for k in ["ACCESSORY", "THREAD", "BUTTON", "ZIPPER", "PHU LIEU", "LABEL"]): 
             return 0.0
         
-        # 🚨 ĐÃ SỬA LỖI NÀY: Trích xuất trực tiếp biến lock từ session_state ở ngay trong lõi hàm con để triệt tiêu NameError
         local_lock_original_techpack = st.session_state.get("lock_original_techpack", False)
         if local_lock_original_techpack:
             if "original_raw_gross" in df_bom.columns and float(row.get("original_raw_gross", 0.0)) > 0:
@@ -1506,34 +1528,38 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = float(row["pcs_numeric"])
         net_a = float(row["polygon_net_area"])
         
-        # Luồng phân bổ Vải chính (FABRIC)
-        if "FABRIC" in mat_class:
+        # Luồng phân bổ Vải chính (FABRIC / SHELL / MAIN)
+        if any(k in mat_class for k in fabric_keywords):
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * ((net_a * pcs) / total_fabric_net_area), 4)
                 
-        # Luồng phân bổ Méc Keo độc lập (FUSING)
-        elif "FUSING" in mat_class or "INTERLINING" in mat_class:
+        # Luồng phân bổ Méc Keo độc lập (FUSING / INTERLINING / RIB BOND)
+        elif any(k in mat_class for k in fusing_keywords):
             if total_fusing_net_area > 0:
                 return round(total_fusing_gross_yds * ((net_a * pcs) / total_fusing_net_area), 4)
             else:
-                return round((((net_a * pcs) / fusing_width) / 36.0 / 0.64) * target_wastage, 4)
+                return round((((net_a * pcs) / fusing_width) / 36.0 / fusing_density) * target_wastage, 4)
                 
-        # Luồng phân bổ Vải lót bao túi độc lập (LINING)
-        elif "LINING" in mat_class:
-            if total_lining_net_area > 0:
+        # Luồng phân bổ Vải lót (LINING / POCKETING)
+        elif any(k in mat_class for k in lining_keywords):
+            if total_fabric_net_area > 0: # Sửa logic: Nếu lót rỗng thì ăn theo tổng diện tích lót
                 return round(total_lining_gross_yds * ((net_a * pcs) / total_lining_net_area), 4)
             else:
                 return round((((net_a * pcs) / lining_width) / 36.0 / 0.68) * target_wastage, 4)
                 
         return 0.0
 
-    # Thực thi giải toán xuất bản giá trị định mức tổng dòng hoàn chỉnh sạch lỗi
+    # Thực thi giải toán
     df_bom["Gross Consumption"] = df_bom.apply(core_engine_router, axis=1)
     
-    # Đóng gói đồng bộ ngược chiều rộng khổ nguyên liệu thực tế cho từng dòng chi tiết phục vụ hiển thị
+    # Gán đồng bộ khổ rộng hiển thị
     df_bom["calculated_material_width"] = fabric_width
-    df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
-    df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+    
+    is_fusing_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in fusing_keywords))
+    df_bom.loc[is_fusing_row, "calculated_material_width"] = fusing_width
+    
+    is_lining_row = df_bom[m_col].astype(str).str.upper().apply(lambda x: any(k in x for k in lining_keywords))
+    df_bom.loc[is_lining_row, "calculated_material_width"] = lining_width
 
 
           # =====================================================================
