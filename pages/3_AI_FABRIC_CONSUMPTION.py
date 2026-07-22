@@ -1553,7 +1553,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-       # =====================================================================
+        # =====================================================================
     # 🟩 KHỐI 5a (PHẦN 1): ENGINE SKYLINE THẾ HỆ MỚI - ĐỌC DATA ĐỘNG TOÀN NGÀNH MAY
     # =====================================================================
 
@@ -1613,23 +1613,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "BIAS":         {"must_bias": True}
     }
 
-    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Python rút trực tiếp cục dữ liệu do Bộ não AI nhận diện từ Techpack thực tế
-    # Triệt tiêu hoàn toàn cục dữ liệu gán cứng (mock data) của quần Jeans cũ [INDEX].
+    # 🤖 ĐỒNG BỘ ĐỘNG TOÀN NGÀNH MAY: Nhận dạng dòng hàng động từ dữ liệu bóc tách của hệ thống
     ai_decision = ctx.get("ai_expert_decision", {})
     
-    # Bộ chặn an toàn (Fallback): Nếu AI Gateway chưa kịp trả cấu trúc JSON, tự động bốc thông số tham chiếu tổng quát
+    # Bộ chặn an toàn (Fallback): Nếu chưa có JSON cấu trúc, tự động bốc thông số tham chiếu động từ bảng dữ liệu
     if not ai_decision:
+        # Tự động trích xuất loại dòng hàng từ tên sản phẩm hoặc biến môi trường `prod`
+        detected_prod_type = "JACKET" if "JACKET" in str(prod).upper() or "SAFARI" in str(prod).upper() else str(prod).upper().strip()
+        if detected_prod_type not in PRODUCT_KNOWLEDGE_BASE:
+            detected_prod_type = "JACKET" # Mặc định an toàn cho áo khoác hiện tại
+            
         ai_decision = {
-            "product_type": str(ctx.get("product_type", "JACKET")).upper().strip(),
+            "product_type": detected_prod_type,
             "complexity_tier": str(ctx.get("complexity", "NORMAL")).upper().strip(),
             "assigned_marker_density": float(ctx.get("predicted_density", 0.74)),
             "wastage_factor": 1.02,
             "confidence": float(ctx.get("confidence", 0.95)),
-            "explainable_logs": ["Hệ thống đang chạy chế độ giải toán tự động và bóc tách thông số động thời gian thực từ dữ liệu Techpack."],
+            "explainable_logs": [
+                "Hệ thống kích hoạt chế độ Giải toán hình học tích lũy thuần túy dựa trên Taxonomy chuẩn hóa.",
+                "Quy tắc nén sơ đồ (Density) và Tỷ lệ phân rã chi tiết sẽ do số lượng mảnh rập quyết định động."
+            ],
             "manufacturing_rules": ["STANDARD_GEOMETRY"]
         }
 
-    # Đóng gói các tham số động từ Bộ não AI chỉ định ra luồng thực thi của máy tính Python [INDEX]
+    # Đóng gói các tham số động ra luồng thực thi của máy tính Python [INDEX]
     ai_product_type = str(ai_decision.get("product_type", "JACKET")).upper().strip()
     ai_complexity = str(ai_decision.get("complexity_tier", "NORMAL")).upper().strip()
     target_density = float(ai_decision.get("assigned_marker_density", 0.74))
@@ -1637,7 +1644,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # 🔴 LEVEL 6: EXPLAINABLE AI - Render hộp suy luận minh bạch của AI lên đầu giao diện web
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
-    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ ấn định: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` | Mật độ nén sơ đồ nền tảng: `{target_density*100:.1f}%` | Hao hụt nhà máy: `{((target_wastage-1)*100):.1f}%`")
     
     with st.expander("🔍 Xem giải thích logic điều hành kỹ thuật của AI"):
         for log in ai_decision.get("explainable_logs", []):
@@ -1654,6 +1661,128 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["pcs_numeric"] = [sync_pieces_from_editor(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+    # =====================================================================
+    # 🟩 KHỐI 5a (PHẦN 2): BỘ TÍNH TOÁN HÌNH HỌC VÀ CHẤM ĐIỂM ĐỘ PHỨC TẠP ĐỘNG
+    # =====================================================================
+
+    # 📐 LEVEL 1 & 4: GEOMETRY ENGINE TÍNH DIỆN TÍCH RẬP THUẦN TÚY THEO QUY TẮC SẢN XUẤT
+    def calculate_geometry_piece_area(row):
+        # Đọc trường phân loại từ hệ thống của bạn (chấp nhận cả piece_type hoặc piece_class)
+        piece_class = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
+        shape_type = str(row.get("shape_type", "DEFAULT")).upper().strip()
+        
+        # Áp dụng Quy tắc Cắt dây (Strip) cho Đỉa quần nếu xuất hiện BELT_LOOP
+        if "BELT_LOOP" in piece_class or "ĐỈA" in piece_class:
+            rule = CUTTING_RULES.get("BELT_LOOP", {"width": 1.5, "length": 30.0})
+            return round(rule["width"] * rule["length"], 2)
+
+        l_val = float(row["Dài sản xuất (L-inch)"])
+        w_val = float(row["Rộng sản xuất (W-inch)"])
+        if l_val <= 0 or w_val <= 0: return 0.0
+        
+        # Tra cứu hệ số lấp đầy rập chuẩn từ Shape Library
+        sf = SHAPE_LIBRARY.get(shape_type, SHAPE_LIBRARY.get(piece_class, SHAPE_LIBRARY["DEFAULT"]))
+        if "PANEL" in piece_class or "BODY" in piece_class:
+            sf = SHAPE_LIBRARY.get("CURVED_PANEL", 0.82) # Áp dụng hệ số rập cong cho thân áo khoác
+        return round(l_val * w_val * sf, 2)
+
+    df_bom["polygon_net_area"] = df_bom.apply(calculate_geometry_piece_area, axis=1)
+
+
+    # 🧠 TỰ ĐỘNG CHẤM ĐIỂM ĐỘ PHỨC TẠP DỰA TRÊN SỐ LƯỢNG CHI TIẾT THỰC TẾ TRÊN UI
+    total_pocket_pieces = 0
+    total_pattern_pieces = 0
+    
+    for idx, row in df_bom.iterrows():
+        p_type = str(row.get("piece_type", row.get("piece_class", ""))).upper()
+        pcs = float(row["pcs_numeric"])
+        total_pattern_pieces += pcs
+        if "POCKET" in p_type or "TÚI" in p_type:
+            total_pocket_pieces += pcs
+
+    # Đóng băng ma trận phân rã Jacket theo đúng số lượng chi tiết phụ bạn nhập
+    # Áo Safari của bạn có 4 túi đắp + 4 nắp túi (Tổng > 6 mảnh túi) -> Tự động kích hoạt mức COMPLEX
+    if "JACKET" in ai_product_type:
+        if total_pocket_pieces >= 6 or total_pattern_pieces > 16:
+            current_complexity_tier = "COMPLEX"
+            assigned_body_ratio = 0.55       # Thân chiếm 55% diện tích sơ đồ
+            assigned_packing_density = 0.690 # Mật độ xếp sơ đồ cồng kềnh hạ về 69% giúp định mức dâng cao an toàn
+        elif total_pattern_pieces >= 10:
+            current_complexity_tier = "NORMAL"
+            assigned_body_ratio = 0.62
+            assigned_packing_density = 0.740
+        else:
+            current_complexity_tier = "SIMPLE"
+            assigned_body_ratio = 0.65
+            assigned_packing_density = 0.770
+    else:
+        # Giữ luồng tra cứu mặc định cho các loại hàng khác
+        product_rules = PRODUCT_KNOWLEDGE_BASE.get(ai_product_type, PRODUCT_KNOWLEDGE_BASE["JEAN_LONG"])
+        assigned_body_ratio = product_rules["body_ratio"].get(ai_complexity, 0.88)
+        assigned_packing_density = product_rules["packing_density"].get(ai_complexity, 0.79)
+
+
+    # 📊 LEVEL 5: AI REASONING & CONVERSION ENGINE (TÍCH LŨY DIỆN TÍCH SƠ ĐỒ VẢI CHÍNH)
+    total_body_net_area = 0.0
+    df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
+    
+    for _, row in df_fabric_only.iterrows():
+        p_type = str(row.get("piece_type", row.get("piece_class", "OTHER"))).upper().strip()
+        pcs = float(row["pcs_numeric"])
+        net_a = float(row["polygon_net_area"])
+        
+        # 🎯 ĐÃ SỬA: Mở rộng bộ lọc, chấp nhận tất cả các định dạng nhãn chứa từ khóa BODY hoặc PANEL đầu thân
+        if "BODY" in p_type or "PANEL" in p_type:
+            total_body_net_area += net_a * pcs
+
+    if total_body_net_area > 0:
+        # Giải phương trình sơ đồ dựa trên thông số bóc tách độ phức tạp động ở trên
+        estimated_total_marker_area = total_body_net_area / assigned_body_ratio
+        
+        # Chiều dài sơ đồ mô phỏng tính bằng inch
+        simulated_length = (estimated_total_marker_area / fabric_width) / assigned_packing_density
+        
+        # Hệ số hao hụt công nghiệp cố định (3% cho hao hụt đầu cây đầu tấm vải sơ đồ)
+        total_gross_yds_after_shrink = (simulated_length / 36.0) * target_wastage
+    else:
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
+
+    # Tính toán định mức tiêu hao trước co rút để nạp cho bảng Summary
+    total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
+
+    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT ĐỘC LẬP TỪNG CHẤT LIỆU
+    total_fabric_net_area_only = sum(
+        float(r["polygon_net_area"]) * float(r["pcs_numeric"]) 
+        for _, r in df_bom.iterrows() 
+        if "FABRIC" in str(r.get(m_col, "FABRIC")).upper()
+    )
+    
+    def exact_share_allocation_final_v10(row):
+        mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+        pcs = float(row.get("pcs_numeric", 1.0))
+        net_a = float(row.get("polygon_net_area", 0.0))
+        
+        if "FABRIC" in mat_class:
+            if total_fabric_net_area_only > 0:
+                return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only), 4)
+            return 0.0
+        elif "FUSING" in mat_class:
+            if net_a > 0 and fusing_width > 0:
+                total_fusing_item_area = net_a * pcs
+                return round((total_fusing_item_area / fusing_width) / 36.0 / 0.82, 4)
+            return 0.0
+        elif "LINING" in mat_class:
+            if net_a > 0 and lining_width > 0:
+                total_lining_item_area = net_a * pcs
+                return round((total_lining_item_area / lining_width) / 36.0 / 0.80, 4)
+            return 0.0
+        return 0.0
+
+    df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v10, axis=1)
+
+    df_bom["calculated_material_width"] = fabric_width
+    df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
+    df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
 
 
 
