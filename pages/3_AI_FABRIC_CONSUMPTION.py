@@ -1453,7 +1453,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
         # =====================================================================
-       # =====================================================================
+          # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
@@ -1496,7 +1496,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
-                if c_idx in:
+                # CHÚ Ý: Đã điền đầy đủ mảng [1, 3] cho cột Tiêu đề bên trái
+                if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
                     cell.font = f_normal; cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -1517,7 +1518,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
-                if c_idx in: 
+                # CHÚ Ý: Đã điền đầy đủ mảng [2, 4] để căn giữa cột mã và đơn vị
+                if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
 
@@ -1542,9 +1544,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                if c_idx in:
+                # CHÚ Ý: Viết tường minh điều kiện căn lề để triệt tiêu SyntaxError
+                if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif c_idx in:
+                elif c_idx == 4 or c_idx == 5 or c_idx == 6:
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
                     cell.alignment = Alignment(horizontal="right", vertical="center")
@@ -1595,13 +1598,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # Chia cột chức năng kết xuất UI (Sửa dứt điểm lỗi trống ngoặc)
+    # Chia cột chức năng kết xuất UI
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
     with col_t2:
         try:
-            # Gọi trực tiếp hàm xuất Excel nội bộ được khai báo từ Đoạn 6
             excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
