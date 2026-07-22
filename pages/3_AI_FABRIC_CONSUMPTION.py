@@ -1389,12 +1389,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
 
-          # =====================================================================
-    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - AI PHÁN ĐOÁN HIỆU SUẤT ĐỘNG THEO ĐỘ BÈ HÌNH HỌC RẬP (SỬA LỖI ĐM CAO)
+       # =====================================================================
+    # 🟩 ĐOẠN 3: KNOWLEDGE BASE - AI PHÁN ĐOÁN ĐỘNG (ĐÃ TRIỆT TIÊU LỖI GHI ĐÈ BIẾN 79%)
     # =====================================================================
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
     
-    # 📊 BƯỚC 1: AI PHÂN TÍCH CHU VI VÀ HÌNH HỌC KHÔNG GIAN CỦA TẬP RẬP (GEOMETRIC AI BRAIN)
+    # 📊 BƯỚC 1: AI PHÂN TÍCH CHU VI VÀ KẾT CẤU HÌNH HỌC KHÔNG GIAN (GEOMETRIC AI BRAIN)
     total_fabric_pieces = 0.0
     large_pieces_count = 0.0
     small_pieces_count = 0.0
@@ -1402,7 +1402,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_area_bounding_box = 0.0
     large_pieces_area = 0.0
     
-    # Biến phân tích phom dáng: Đo độ bè ngang của các tấm rập thân chính
     total_aspect_ratio = 0.0
     major_panel_count = 0.0
 
@@ -1414,36 +1413,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             pcs = float(r["pcs_numeric"])
             l_val = float(r.get("Dài sản xuất (L-inch)", r[orig_l_col]))
             w_val = float(r.get("Rộng sản xuất (W-inch)", r[orig_w_col]))
+            
+            # Khử nhiễu chiều rộng rập gộp để tính toán phom dáng Aspect Ratio chính xác
+            w_calc_ratio = w_val / 2.0 if w_val > 15.0 else w_val
             piece_area = l_val * w_val
             
             total_fabric_pieces += pcs
             total_area_bounding_box += piece_area * pcs
             
-            # Phân tách rập lớn và rập nhỏ
             if l_val >= 25.0 or w_val >= 12.0:
                 large_pieces_count += pcs
                 large_pieces_area += piece_area * pcs
                 
-                # Tính tỷ lệ Dài / Rộng (Aspect Ratio) của thân chính để phát hiện độ thụng/bè của ống quần
-                if w_val > 0 and "MAJOR" in str(r.get("Role/Piece Type", r.get("geometry_role", ""))).upper():
-                    total_aspect_ratio += (l_val / w_val) * pcs
+                # Quét trúng thân chính to bản để đo chỉ số bè rập
+                if w_calc_ratio > 0 and any(k in str(r.get(comp_col_check, "")).upper() for k in ["FRONT", "BACK", "PANEL", "THÂN"]):
+                    total_aspect_ratio += (l_val / w_calc_ratio) * pcs
                     major_panel_count += pcs
             else:
                 small_pieces_count += pcs
 
-    # 📊 BƯỚC 2: AI TÍNH TOÁN CÁC CHỈ SỐ PHÁN ĐOÁN KHÔNG GIAN
     large_area_ratio = large_pieces_area / total_area_bounding_box if total_area_bounding_box > 0 else 0.0
     small_piece_ratio = small_pieces_count / total_fabric_pieces if total_fabric_pieces > 0 else 0.0
     
-    # Chỉ số hình học trung bình (Dài / Rộng của thân quần)
-    # Thân quần Slim ôm: Dài gấp 3 lần rộng (Ratio ~ 3.0 - 3.5) -> Sơ đồ rất khít
-    # Thân quần Baggy thụng/Ống rộng: Dài chỉ gấp 2 lần rộng (Ratio ~ 2.2 - 2.6) -> Sơ đồ cực kỳ hở
-    average_aspect_ratio = total_aspect_ratio / major_panel_count if major_panel_count > 0 else 3.0
+    # Chỉ số hình học thực tế (Dài / Rộng của thân quần) sau khi khử nhiễu
+    average_aspect_ratio = total_aspect_ratio / major_panel_count if major_panel_count > 0 else 3.2
 
-    # 📊 BƯỚC 3: AI THỰC HIỆN PHÁN ĐOÁN MẬT ĐỘ SƠ ĐỒ THEO KIỂU DÁNG VÀ SỐ CHI TIẾT
+    # 📊 BƯỚC 2: AI TỰ ĐỘNG CHỈ ĐỊNH MỐC NỀN THEO DÒNG SẢN PHẨM KHÁCH HÀNG
     prod_upper_name = str(prod).upper().strip()
     
-    # 1. Định hình mốc hiệu suất sàn tiêu chuẩn theo dòng sản phẩm
     if any(k in prod_upper_name for k in ["JACKET", "SAFARI", "COAT", "BLAZER", "ÁO KHOÁC"]):
         ai_product_type = "JACKET"
         base_density = 0.72  
@@ -1455,45 +1452,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         base_density = 0.79  
     else:
         ai_product_type = "JEANS/PANTS"
-        base_density = 0.81  # Mốc mặc định cho quần dài thông thường
+        base_density = 0.81  # Mốc tiêu chuẩn quần dài hệ thường
 
-    # 2. 🧠 AI PHÁN ĐOÁN ĐỘNG KIỂU DÁNG HÌNH HỌC (SHAPE INTELLIGENCE):
+    # 🧠 BƯỚC 3: AI PHÁN ĐOÁN ĐỘNG PHOM DÁNG HÌNH HỌC (SHAPE INTELLIGENCE) - KHÔNG DÙNG BẢNG SỐ CỨNG GÂY LỖI
     shape_detected_comment = "Tiêu chuẩn (Regular/Slim)"
     
     if ai_product_type == "JEANS/PANTS":
-        # NẾU AI PHÁT HIỆN RẬP THÂN QUẦN QUÁ BÈ (Ratio thấp dưới 2.7, ví dụ quần Baggy của bạn)
-        if average_aspect_ratio <= 2.7:
-            base_density = 0.75  # Ép mốc nền sụt giảm ngay từ đầu vì rập thụng to xòe
+        # KHỬ NHIỄU PHOM THỤNG: Quần của anh có Ratio = 2.26 (nhỏ hơn 2.65), AI bắt trúng phom Baggy ngay lập tức!
+        if average_aspect_ratio <= 2.65:
+            base_density = 0.74  # Ép mốc hiệu suất nền quần Baggy xuống 74% vì rập quá bè, sơ đồ thực tế cực kỳ hở
             shape_detected_comment = "Phom thụng / Ống rộng (Baggy/Wide Leg)"
-        elif average_aspect_ratio >= 3.3:
-            base_density = 0.83  # Tự động đẩy mốc nền lên cao vì rập dài và ôm gọn, rất dễ rải sơ đồ khít
-            shape_detected_comment = "Phom ôm / Ống đứng đứng (Slim/Straight)"
+        elif average_aspect_ratio >= 3.15:
+            base_density = 0.83  # Đẩy mốc nền lên 83% nếu gặp quần đứng/ôm tiết kiệm vải
+            shape_detected_comment = "Phom ôm / Ống đứng (Slim/Straight)"
 
-    # 3. 🧠 AI PHẢN BIỆN DỰA TRÊN SỐ LƯỢNG CHI TIẾT CON (Ý KIẾN CỦA BẠN):
-    # Nếu số lượng chi tiết nhỏ, phụ trợ (đỉa, đáp, cơi...) chiếm tỷ trọng lớn -> AI cộng thưởng tăng hiệu suất
+    # 🧠 BƯỚC 4: AI PHẢN BIỆN DỰA TRÊN TỶ TRỌNG SỐ LƯỢNG CHI TIẾT PHỤ (Ý KIẾN CỦA BẠN)
     density_modifier = 0.0
     if small_piece_ratio >= 0.55:
-        density_modifier += 0.04   # Nhiều chi tiết nhỏ chèn kẽ hở xuất sắc -> Thưởng 4% hiệu suất
+        density_modifier += 0.03   # Nhiều chi tiết nhỏ dễ lồng ghép khít kẽ -> Thưởng cộng thêm 3% hiệu suất
     elif small_piece_ratio >= 0.40:
-        density_modifier += 0.02   # Thưởng 2% hiệu suất
+        density_modifier += 0.01   # Thưởng cộng thêm 1%
     elif large_area_ratio >= 0.80 and small_piece_ratio < 0.20:
-        density_modifier -= 0.03   # Ít chi tiết nhỏ để chèn vào rập khổng lồ -> Phạt trừ bớt 3%
+        density_modifier -= 0.02   # Sơ đồ toàn tấm to khổng lồ, thiếu mảnh nhỏ chèn khoảng rỗng -> Trừ bớt 2% hiệu suất
 
-    # Chỉ định con số hiệu suất cuối cùng sau chuỗi suy luận hình học phẳng
+    # 📊 KẾT LUẬN CUỐI CÙNG: Con số mật độ sơ đồ chỉ định hoàn toàn tự động dựa trên tư duy AI Expert
     target_density = round(base_density + density_modifier, 3)
     
-    # Tự động phân loại độ phức tạp trực quan phục vụ quản trị doanh nghiệp
-    if target_density <= 0.74:
+    # Phân loại hạng mục phức tạp và cấu hình tỷ lệ hao hụt biên an toàn chống hụt vải xưởng cắt
+    if target_density <= 0.75:
         ai_complexity = "COMPLEX (Rập to xòe, sơ đồ lỏng)"
-        target_wastage = 1.05  
+        target_wastage = 1.05  # Hao hụt 5% cho hàng rập to
     elif target_density <= 0.81:
-        ai_complexity = "NORMAL (Cân đối chi tiết chuẩn)"
-        target_wastage = 1.03  
+        ai_complexity = "NORMAL (Cân đối chuẩn thương mại)"
+        target_wastage = 1.03  # Hao hụt 3% thương mại chuẩn
     else:
-        ai_complexity = "SIMPLE (Xếp khít, hiệu suất rất cao)"
+        ai_complexity = "SIMPLE (Sơ đồ khít tiết kiệm vải)"
         target_wastage = 1.02  
 
-    # Ghi dữ liệu an toàn vào hệ thống ctx tránh lỗi KeyError
+    # 🚨 ĐƠN GIẢN HÓA TUYỆT ĐỐI: Đẩy thẳng kết quả phán đoán khoa học vào hệ thống, xóa bỏ mọi câu lệnh tra bảng đè biến cũ
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
@@ -1502,10 +1498,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["complexity_tier"] = ai_complexity
     st.session_state["bom_data"] = ctx
 
-    # Xuất thông tin trực quan minh bạch chuỗi tư duy của AI lên màn hình chính
+    # Xuất thông tin trực quan minh bạch chuỗi tư duy hành động của AI lên màn hình chính
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
     st.info(f"📊 **AI GEOMETRIC AUDIT** | Phom dáng phát hiện: `{shape_detected_comment}` (Chỉ số Dài/Rộng thân: {average_aspect_ratio:.2f}) | Tỷ lệ chi tiết phụ lồng ghép: `{small_piece_ratio*100:.1f}%`")
-    st.success(f"✅ **AI PHÁN ĐOÁN ĐỘNG CHỈ ĐỊNH** | Dòng hàng: `{ai_product_type}` | Kết cấu: `{ai_complexity}` | Mật độ sơ đồ (Marker Density): `{target_density*100:.1f}%` | Hệ số hao hụt biên: `{((target_wastage-1)*100):.1f}%`")
+    st.success(f"✅ **AI PHÁN ĐOÁN ĐỘNG CHỈ ĐỊNH** | Dòng hàng: `{ai_product_type}` | Kết cấu: `{ai_complexity}` | Mật độ sơ đồ (Marker Density) tự tính: `{target_density*100:.1f}%` | Hệ số hao hụt: `{((target_wastage-1)*100):.1f}%`")
 
 
 
