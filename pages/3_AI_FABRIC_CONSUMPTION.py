@@ -1458,7 +1458,10 @@ else:
     weft_shrink = float(st.session_state.get("weft_shrinkage", 0.0))
 
 # 2. ĐỌC DỮ LIỆU ĐẦU VÀO TỪ CON TRỎ GỐC SẠCH HỆ THỐNG
-ctx = st.session_state.get("bom_data", {})
+ctx_raw = st.session_state.get("bom_data", {})
+# Đảm bảo ctx luôn luôn là một dict (Từ điển), tránh lỗi AttributeError khi giá trị trong session_state bị None
+ctx = ctx_raw if isinstance(ctx_raw, dict) else {}
+
 rows = ctx.get("bom_rows", [])
 if not rows or len(rows) == 0:
     rows = st.session_state.get("processed_display_rows", [])
@@ -1508,7 +1511,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if match_lin_width: lining_width = float(match_lin_width.group(1))
         
     # 🔴 ĐỘT PHÁ SỬA LỖI CHIỀU RỘNG ẢO: Tự động điều chỉnh chiều rộng rập theo phom dáng quần công nghiệp thực tế.
-    # Lấy thông số rộng đùi thô nhân dãn co rút từ chat, sau đó biến đổi hình học đưa về chiều rộng ống quần thực chất lọt sơ đồ.
     def calculate_precise_jeans_production_width(row):
         w_orig = float(row[orig_w_col])
         l_orig = float(row[orig_l_col])
