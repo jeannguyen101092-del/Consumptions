@@ -912,6 +912,7 @@ def export_excel_ppj_format(df_summary, df_details, product_type, bom_ctx, densi
             ws.column_dimensions[get_column_letter(col.column)].width = max(max_len + 3, 12)
     wb.save(output); output.seek(0)
     return output
+
 # Gọi khối điều phối đồng bộ luồng chính
 bom_ctx, chat_input_text = initialize_and_sync_parameters()
 
