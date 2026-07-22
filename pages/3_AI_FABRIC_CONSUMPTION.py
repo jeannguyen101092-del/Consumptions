@@ -1454,6 +1454,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
         # =====================================================================
           # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
@@ -1496,7 +1497,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
-                # CHÚ Ý: Đã điền đầy đủ mảng [1, 3] cho cột Tiêu đề bên trái
                 if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
@@ -1518,14 +1518,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
-                # CHÚ Ý: Đã điền đầy đủ mảng [2, 4] để căn giữa cột mã và đơn vị
                 if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
 
-        for col in w_s1.columns:
+        # 🚨 ĐÃ SỬA LỖI AUTO-FIT TAB 1: Thay thế col.column thành chỉ số đếm số nguyên chuẩn xác
+        for col_idx, col in enumerate(w_s1.columns, start=1):
             m_len = max(len(str(cell.value or '')) for cell in col)
-            w_s1.column_dimensions[get_column_letter(col.column)].width = max(m_len + 3, 12)
+            col_letter = get_column_letter(col_idx)
+            w_s1.column_dimensions[col_letter].width = max(m_len + 3, 12)
 
         # --- TAB 2: DETAILED CAD PIECES ---
         w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
@@ -1544,7 +1545,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                # CHÚ Ý: Viết tường minh điều kiện căn lề để triệt tiêu SyntaxError
                 if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
                 elif c_idx == 4 or c_idx == 5 or c_idx == 6:
@@ -1555,13 +1555,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
             c_row += 1
 
-        for col in w_s2.columns:
+        # 🚨 ĐÃ SỬA LỖI AUTO-FIT TAB 2: Thay thế col.column thành chỉ số đếm số nguyên chuẩn xác
+        for col_idx, col in enumerate(w_s2.columns, start=1):
             m_len = max(len(str(cell.value or '')) for cell in col)
-            w_s2.column_dimensions[get_column_letter(col.column)].width = max(m_len + 3, 12)
+            col_letter = get_column_letter(col_idx)
+            w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
 
         workbook.save(output_stream)
         output_stream.seek(0)
         return output_stream
+
     # =====================================================================
     # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE)
     # =====================================================================
