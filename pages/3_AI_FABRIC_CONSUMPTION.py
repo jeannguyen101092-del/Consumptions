@@ -1738,7 +1738,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
        
          # =====================================================================
-    # =====================================================================
+       # =====================================================================
     # 🟩 KHỐI 5b: KẾT XUẤT ĐỒ HỌA ĐỒNG BỘ ĐỘNG THEO TOÁN HỌC THỰC TẾ 100%
     # =====================================================================
 
@@ -1896,7 +1896,3 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     disp_warp = warp_shrink
     disp_weft = weft_shrink
     st.caption(f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập từ Chat: {fabric_width} inch | Co rút dọc/ngang: {disp_warp:+.1f}% / {disp_weft:+.1f}% | Mật độ nén hình học sơ đồ CAD dự đoán: {ai_predicted_density*100:.1f}% | Tổng định mức giải toán động thực chất (Mua vải): {fabric_detail_sum_actual:.4f} YDS")
-else:
-    # Đoạn else cuối cùng được đưa về đúng phân cấp dòng lề chuẩn xác
-else:
-    st.info("💡 Hệ thống trống dữ liệu. Vui lòng kéo thả file PDF Techpack đại trà vào bộ uploader để bắt đầu tự động tính định mức.")
