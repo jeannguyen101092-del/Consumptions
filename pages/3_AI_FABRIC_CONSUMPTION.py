@@ -1452,8 +1452,114 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
+        # =====================================================================
+    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
-    # 🟩 ĐOẠN 6: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (AI AUDIT REPORT)
+    def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
+        output_stream = io.BytesIO()
+        workbook = Workbook()
+        
+        f_family = "Segoe UI"
+        f_normal = Font(name=f_family, size=10)
+        f_bold = Font(name=f_family, size=10, bold=True)
+        f_title = Font(name=f_family, size=14, bold=True, color="0E6251")
+        f_header = Font(name=f_family, size=10, bold=True, color="FFFFFF")
+        
+        fill_header = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
+        fill_meta = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
+        
+        bd_side = Side(style='thin', color='BDC3C7')
+        bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
+        
+        # --- TAB 1: BOM SUMMARY ---
+        w_s1 = workbook.active
+        w_s1.title = "BOM Summary"
+        w_s1.sheet_view.showGridLines = True
+        
+        w_s1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
+        w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
+        w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
+        
+        st_code = str(bom_ctx.get("style_code", "N/A")).upper()
+        cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
+        sz_sample = str(bom_ctx.get("size_code", "29")).upper()
+        
+        m_data = [
+            ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
+            ("Size may mẫu (Sample Size):", sz_sample, "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
+            ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
+            ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
+        ]
+        
+        for r_idx, row_data in enumerate(m_data, start=5):
+            for c_idx, val in enumerate(row_data, start=1):
+                cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
+                cell.border = bd_thin
+                if c_idx in:
+                    cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
+                else:
+                    cell.font = f_normal; cell.alignment = Alignment(horizontal="center", vertical="center")
+                    
+        w_s1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=f_family, size=11, bold=True)
+        sum_hd = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
+        for c_idx, h_text in enumerate(sum_hd, start=1):
+            cell = w_s1.cell(row=11, column=c_idx, value=h_text)
+            cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = bd_thin
+            
+        c_row = 12
+        for _, r in df_sum.iterrows():
+            w_s1.cell(row=c_row, column=1, value=r.get("Phân loại vật tư", "VẬT TƯ"))
+            w_s1.cell(row=c_row, column=2, value=r.get("Material Class", "FABRIC"))
+            w_s1.cell(row=c_row, column=3, value=float(r.get("Gross Consumption", 0.0)))
+            w_s1.cell(row=c_row, column=4, value=r.get("UOM", "YDS"))
+            w_s1.cell(row=c_row, column=3).number_format = '#,##0.0000'
+            for c_idx in range(1, 5):
+                cell = w_s1.cell(row=c_row, column=c_idx)
+                cell.font = f_normal; cell.border = bd_thin
+                if c_idx in: 
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+            c_row += 1
+
+        for col in w_s1.columns:
+            m_len = max(len(str(cell.value or '')) for cell in col)
+            w_s1.column_dimensions[get_column_letter(col.column)].width = max(m_len + 3, 12)
+
+        # --- TAB 2: DETAILED CAD PIECES ---
+        w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
+        w_s2.sheet_view.showGridLines = True
+        w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
+        
+        det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+        for c_idx, h_text in enumerate(det_hd, start=1):
+            cell = w_s2.cell(row=3, column=c_idx, value=h_text)
+            cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
+
+        c_row = 4
+        for _, r in df_det.iterrows():
+            for c_idx, h_col in enumerate(det_hd, start=1):
+                val = r.get(h_col, "")
+                cell = w_s2.cell(row=c_row, column=c_idx, value=val)
+                cell.font = f_normal; cell.border = bd_thin
+                
+                if c_idx in:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                elif c_idx in:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    if isinstance(val, (int, float)):
+                        cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
+            c_row += 1
+
+        for col in w_s2.columns:
+            m_len = max(len(str(cell.value or '')) for cell in col)
+            w_s2.column_dimensions[get_column_letter(col.column)].width = max(m_len + 3, 12)
+
+        workbook.save(output_stream)
+        output_stream.seek(0)
+        return output_stream
+    # =====================================================================
+    # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
@@ -1488,13 +1594,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
-    # 🚨 ĐÃ SỬA DỨT ĐIỂM: Điền số 2 chỉ định tạo 2 cột cân đối phom dáng, loại bỏ hoàn toàn lỗi TypeError sập trang
+    # Chia cột chức năng kết xuất UI (Sửa dứt điểm lỗi trống ngoặc)
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
     with col_t2:
         try:
-            excel_file = export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
+            # Gọi trực tiếp hàm xuất Excel nội bộ được khai báo từ Đoạn 6
+            excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: 
