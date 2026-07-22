@@ -1537,8 +1537,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
-         # =====================================================================
-    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - CHUẨN HOÁ ĐỊNH MỨC THƯƠNG MẠI (CHỐNG VỌT XÔNG RI)
+        # =====================================================================
+    # 🟩 ĐOẠN 5: PIPELINE CÁC SOLVER - CHUẨN HOÁ ĐỊNH MỨC THƯƠNG MẠI CHUẨN BAREM XƯỞNG
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision, dict):
@@ -1561,7 +1561,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
 
     # 📊 1. FABRIC MARKER ENGINE: THUẬT TOÁN CHIỀU DÀI LÕI SƠ ĐỒ THƯƠNG MẠI (CORE LENGTH SOLVER)
-    # Tìm chi tiết rập vải chính dài nhất (Thân sau quần / Thân sau áo) làm chiều dài lõi sơ đồ nền tảng
     max_fabric_length = 0.0
     total_fabric_net_area = 0.0
     
@@ -1572,20 +1571,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if l_val > max_fabric_length:
                 max_fabric_length = l_val
 
-    # Bản chất sơ đồ quần Jeans đại trà: Định mức vải chính bằng Chiều dài thân lớn nhất + Phần bù lồng ghép chi tiết phụ dựa trên hiệu suất
+    # Tính toán chiều dài sơ đồ dựa trên tổng diện tích tịnh
     if max_fabric_length > 0 and total_fabric_net_area > 0:
-        # Chiều dài sơ đồ thực tế mô phỏng theo diện tích tịnh và hiệu suất barem 87.5%
         fabric_sim_length = total_fabric_net_area / current_fabric_width / target_density
         
-        # 🚨 BỘ LỌC CHỐNG VỌT SỐ: Chiều dài sơ đồ thương mại 1 quần không được phép vượt quá 1.25 lần chiều dài của thân dài nhất.
-        # Nếu toán diện tích làm vọt xông ri, AI lập tức kéo khống chế về mốc an toàn dựa trên chiều dài rập thực tế.
-        max_allowed_length = max_fabric_length * 1.15
+        # 🚨 ĐÃ TINH CHỈNH CHỐNG CAO: Hạ mốc trần tối đa cho phép từ 1.15 xuống 1.08 (8% phần bù đầu tấm biên)
+        # Hệ số này ép chiều dài sơ đồ tính toán cho 1 quần không vượt quá: 49.66 * 1.08 = 53.6 inch
+        max_allowed_length = max_fabric_length * 1.08
         if fabric_sim_length > max_allowed_length:
             fabric_sim_length = max_allowed_length
             
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
-        total_fabric_gross_yds = 1.22 # Mốc cứu cánh thương mại cho Quần Jean lớn
+        total_fabric_gross_yds = 1.18 # Mốc cứu cánh an toàn mới
 
     # 📊 2. LINING MARKER ENGINE: VẢI LÓT TÚI
     total_lining_net_area = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if any(k in str(r[m_col]).upper() for k in lining_keywords))
@@ -1619,7 +1617,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * (line_net_area_sum / total_fabric_net_area), 4)
                 
-        # Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE): 
+        # Luồng giải toán MÉC KEO / KEO LÓT RIB (FUSING ENGINE)
         elif any(k in mat_class for k in fusing_keywords):
             l_prod = float(row[l_prod_col])
             w_prod = float(row[w_prod_col])
