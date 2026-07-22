@@ -1554,107 +1554,128 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
        # =====================================================================
-    # 🟩 KHỐI 5a: GIẢI TOÁN ENGINE SKYLINE TỰ ĐỘNG KHÔNG HARDCODE
+    # 🟩 KHỐI 5a: ENGINE SKYLINE NÂNG CẤP - KNOWLEDGE BASE ĐỘ PHỨC TẠP QUẦN JEANS
     # =====================================================================
 
-    # 1. Tính toán diện tích phẳng Gerber tĩnh dựa trên kích thước rập
+    # 1. Tính diện tích phẳng Gerber (Sửa lại hệ số sf động để tránh vọt diện tích)
     def force_calculate_gerber_area_v7(row):
         l_val = float(row["Dài sản xuất (L-inch)"])
         w_val = float(row["Rộng sản xuất (W-inch)"])
         if l_val <= 0: return 0.0
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
-        sf = 0.84
-        if any(k in name for k in ["front", "back", "trouser", "pant", "leg", "thân"]): sf = 0.865
-        if any(k in name for k in ["band", "belt", "waistband", "cạp"]): sf = 0.94
-        return round((l_val + 0.88) * (w_val + 0.88) * sf, 2)
+        
+        # Hệ số lấp đầy rập chuẩn hóa (sf) thực tế theo CAD Lectra/Gerber
+        sf = 0.76  # Chi tiết phụ nhỏ, dạt góc dạt biên cực lớn
+        if any(k in name for k in ["front", "back", "trouser", "pant", "leg", "thân"]):
+            sf = 0.84  # Thân quần Jeans phom cong dạt góc
+        if any(k in name for k in ["band", "belt", "waistband", "cạp"]):
+            sf = 0.92  # Cạp quần thẳng hoặc cong nhẹ
+        return round(l_val * w_val * sf, 2)
         
     df_bom["polygon_net_area"] = df_bom.apply(force_calculate_gerber_area_v7, axis=1)
 
-    # Khởi tạo bộ nhớ đệm lưu trữ số lượng rập do người dùng chỉnh sửa
+    # Quản lý bộ nhớ đệm Session State cho sửa tay
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # 🤖 AI tự động đoán trước số lượng chuẩn nếu chưa từng chỉnh sửa tay
+    # AI tự động vá lỗi cấu trúc rập ban đầu trước khi người dùng can thiệp
     def ai_suggest_pieces(row, idx):
-        # Nếu người dùng đã từng sửa dòng này, ưu tiên lấy số lượng do người dùng nhập
         if idx in st.session_state["user_edited_pieces"]:
             return float(st.session_state["user_edited_pieces"][idx])
-            
         name = str(row.get("component_name", row.get("Component Name", ""))).lower()
         current_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
         if any(k in name for k in ["band", "waistband", "cạp", "lưng"]) and current_pcs < 2: return 2.0
-        if any(k in name for k in ["front panel", "back panel", "yoke", "thân trước", "thân sau", "đô sau"]) and current_pcs < 2: return 2.0
+        if any(k in name for k in ["front panel", "back panel", "yoke"]) and current_pcs < 2: return 2.0
         return current_pcs
 
     df_bom["pcs_numeric"] = [ai_suggest_pieces(row, idx) for idx, row in df_bom.iterrows()]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
-    # 🔴 LUỒNG GIẢI TOÁN ĐỘNG SKYLINE ENGINE CHI TIẾT (LUÔN CHẠY SAU KHI ĐÃ CẬP NHẬT SỐ LƯỢNG)
-    total_net_area, total_bbox_area, total_piece_count, all_expanded_pieces = 0.0, 0.0, 0.0, []
+    # 📊 ĐÁNH GIÁ ĐỘ PHỨC TẠP DỰA TRÊN THÔNG TIN RẬP SẢN XUẤT (KNOWLEDGE BASE ĐỘNG)
+    total_minor_pieces = 0
+    has_cargo_pocket = False
+    
+    for idx, row in df_bom.iterrows():
+        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
+        pcs = float(row["pcs_numeric"])
+        if any(k in name for k in ["loop", "đỉa"]): total_minor_pieces += pcs
+        if any(k in name for k in ["cargo", "hộp", "flap", "nắp túi"]): has_cargo_pocket = True
+
+    # Ma trận Loại hàng × Mức độ phức tạp (Áp dụng cho JEANS)
+    # Đơn giản: Thân 90% | Trung bình: Thân 88% | Phức tạp: Thân 85%
+    if has_cargo_pocket or total_minor_pieces > 6:
+        complexity_tier = "Phức tạp"
+        target_body_ratio = 0.85
+    elif total_minor_pieces >= 5:
+        complexity_tier = "Trung bình"
+        target_body_ratio = 0.88
+    else:
+        complexity_tier = "Đơn giản"
+        target_body_ratio = 0.90
+
+    # 🔴 TOÁN HỌC THỰC CHẤT ĐỘNG: GIẢI PHƯƠNG TRÌNH ĐỊNH MỨC THEO DIỆN TÍCH THÂN CHÍNH
+    # Tránh bẫy lỗi cộng dồn cơ học làm phình định mức.
+    total_body_net_area = 0.0
     df_fabric_only = df_bom[df_bom[m_col].astype(str).str.upper().str.contains("FABRIC")].copy()
     
     for _, row in df_fabric_only.iterrows():
+        name = str(row.get("component_name", row.get("Component Name", ""))).lower()
         pcs = float(row["pcs_numeric"])
-        l_inch = float(row["Dài sản xuất (L-inch)"])
-        w_inch = float(row["Rộng sản xuất (W-inch)"])
         net_a = float(row["polygon_net_area"])
         
-        total_net_area += net_a * pcs
-        total_bbox_area += (l_inch * w_inch) * pcs if (l_inch * w_inch) > 0 else net_a * pcs
-        total_piece_count += pcs
-        for _ in range(int(max(1, pcs))): 
-            all_expanded_pieces.append({"net_area": net_a, "length": l_inch, "width": w_inch})
+        # Chỉ gom diện tích của Thân Trước và Thân Sau (Hạng mục chiếm đại đa số diện tích sơ đồ)
+        if any(k in name for k in ["front", "back", "leg", "thân trước", "thân sau"]):
+            total_body_net_area += net_a * pcs
 
-    if total_net_area > 0 and all_expanded_pieces:
-        major_threshold = total_net_area * 0.08
-        major_list = [p for p in all_expanded_pieces if p["net_area"] > major_threshold]
-        minor_list = [p for p in all_expanded_pieces if p["net_area"] <= major_threshold]
-        fragmentation = len(minor_list) / total_piece_count
-        bbox_fill = total_net_area / max(total_bbox_area, 0.1)
+    if total_body_net_area > 0:
+        # Suy ngược ra tổng diện tích sơ đồ thực tế dựa trên Ma trận Kiến thức nhóm chi tiết
+        estimated_total_ sơđồ_area = total_body_net_area / target_body_ratio
         
-        if major_list:
-            avg_aspect = sum(max(p["length"], p["width"]) / max(min(p["length"], p["width"]), 0.1) for p in major_list) / len(major_list)
-            width_ratio = (sum(p["width"] for p in major_list) / len(major_list)) / fabric_width
-        else:
-            avg_aspect, width_ratio = 1.8, 0.28
-            
-        compactness = max(min(1.0 - (abs(avg_aspect - 1.0) * 0.05), 1.0), 0.60)
-        small_ratio = sum(p["net_area"] for p in minor_list) / total_net_area
-        width_penalty_logistic = 0.08 / (1.0 + np.exp(-18.0 * (width_ratio - 0.32)))
-
-        dens = max(min(0.60 + (bbox_fill * 0.08) + (compactness * 0.04) + (small_ratio * 0.03) - width_penalty_logistic, 0.86), 0.725)
-        if any(k in prod for k in ["JEANS", "PANTS", "TROUSERS", "SKIRT"]):
-            dens = max(min(dens, 0.742), 0.728) 
-            
-        simulated_length = ((total_net_area / fabric_width) / dens) * (1.0 + ((1.0 - bbox_fill) * 0.04))
-        wastage_curve = 0.01 + (0.15 / (1.0 + np.exp(0.08 * (simulated_length - 45.0))))
-        total_gross_yds_after_shrink = (simulated_length / 36.0) * (1.148 + wastage_curve) + (1.65 / 36.0)
+        # Hiệu suất đi sơ đồ thực tế trong phòng CAD Lectra (dao động từ 72.8% đến 74.2%)
+        dens = 0.735 
+        if complexity_tier == "Đơn giản": dens = 0.742
+        if complexity_tier == "Phức tạp": dens = 0.728
+        
+        # Chiều dài sơ đồ mô phỏng thực tế (inch)
+        simulated_length = (estimated_total_sơđồ_area / fabric_width) / dens
+        
+        # Hệ số hao hụt đầu cây, dạt biên đầu tấm vải đại trà
+        wastage_factor = 1.05  # Hao hụt 5%
+        
+        # Tính tổng số yards vải thực tế cần mua (sau co rút dọc/ngang)
+        total_gross_yds_after_shrink = (simulated_length / 36.0) * wastage_factor
+        
+        # Bẫy lỗi an toàn cho khung định mức quần Jeans dài tiêu chuẩn
+        total_gross_yds_after_shrink = max(min(total_gross_yds_after_shrink, 1.65), 1.15)
     else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", ctx.get("global_gross_fabric", 1.4580)))
+        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.35))
 
+    # Tính định mức thô trước co rút phục vụ bảng Summary
     total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)) if (warp_shrink > 0 or weft_shrink > 0) else total_gross_yds_after_shrink
 
-    raw_gross_col = next((c for c in ["Gross Consumption", "gross_consumption"] if c in df_bom.columns), "gross_consumption")
-    df_bom["allocated_gross"] = pd.to_numeric(df_bom[raw_gross_col], errors='coerce').fillna(0.0)
-
-    if total_net_area > 0 and total_gross_yds_after_shrink > 0:
+    # 📊 PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO SƠ ĐỒ CHI TIẾT PHÂN RÃ CHUẨN KỸ THUẬT
+    # Thân lớn ăn tỷ lệ lớn, chi tiết nhỏ chia đều dựa trên tổng Yards thực chất thu được.
+    total_net_area_all = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows())
+    
+    if total_net_area_all > 0:
         def exact_share_allocation_final_v8(row):
             mat_class = str(row.get(m_col, "FABRIC")).upper().strip()
+            pcs = float(row.get("pcs_numeric", 1.0))
+            net_a = float(row.get("polygon_net_area", 0.0))
+            
             if "FABRIC" in mat_class:
-                item_area_total = float(row.get("polygon_net_area", 0.0)) * float(row.get("pcs_numeric", 1.0))
-                return round(total_gross_yds_after_shrink * (item_area_total / total_net_area), 4)
+                # Phân rã Yards dựa trên tỷ trọng diện rập thực tế
+                return round(total_gross_yds_after_shrink * ((net_a * pcs) / total_net_area_all), 4)
             elif "FUSING" in mat_class:
-                return round(((float(row.get("polygon_net_area", 0.0)) / fusing_width) / 36.0 / 0.82) * float(row.get("pcs_numeric", 1.0)), 4)
+                return round(((net_a / fusing_width) / 36.0 / 0.82) * pcs, 4)
             elif "LINING" in mat_class:
-                return round(((float(row.get("polygon_net_area", 0.0)) / lining_width) / 36.0 / 0.80) * float(row.get("pcs_numeric", 1.0)), 4)
+                return round(((net_a / lining_width) / 36.0 / 0.80) * pcs, 4)
             return 0.0
         df_bom["allocated_gross"] = df_bom.apply(exact_share_allocation_final_v8, axis=1)
 
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
-
-
 
 
        
