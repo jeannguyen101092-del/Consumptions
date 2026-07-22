@@ -1329,19 +1329,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     
-    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP: TỰ ĐỘNG X4 CHO TÚI LÓT TRƯỚC/SAU
+    # 🚨 BẢO VỆ ĐỊNH MỨC GỐC: Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học
+    target_orig_gross_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
+    if target_orig_gross_col:
+        df_bom["original_raw_gross"] = pd.to_numeric(df_bom[target_orig_gross_col], errors='coerce').fillna(0.0)
+    else:
+        df_bom["original_raw_gross"] = 0.0
+
+    # Thuật toán tự động x4 cho lót túi trước/sau
     def clean_precise_piece_count(row):
         comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper()
         l_val = float(row[orig_l_col])
         
-        # 🚨 QUY TẮC ĐẶC CÁCH ĐẠI TRÀ: Nếu là lót túi trước/sau (Pocket Bag) bắt buộc gán thẳng bằng 4.0
         if "POCKET BAG" in comp_name or "TÚI LÓT" in comp_name or "LÓT TÚI" in comp_name:
             return 4.0
             
         pcs_extracted = re.search(r'(\d+)', str(row[pcs_col]))
         pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
         
-        # Chỉ khóa về 1 đối với các chi tiết thân chính siêu dài tránh lỗi kẹt số lượng gộp file CAD
         if l_val >= 35.0 and pcs_val >= 2.0 and "FABRIC" in str(row[m_col]).upper():
             return 1.0
         return pcs_val
@@ -1349,12 +1354,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # Đóng gói chuỗi số lượng rập sạch phục vụ giải toán định mức đại trà
     df_bom["pcs_numeric"] = [
         float(st.session_state["user_edited_pieces"][idx]) if idx in st.session_state["user_edited_pieces"]
         else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
     ]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+
     # =====================================================================
     # 🟩 ĐOẠN 3: KNOWLEDGE BASE - MA TRẬN TRI THỨC ĐA CHIỀU QUYẾT ĐỊNH HIỆU SUẤT CAD
     # =====================================================================
@@ -1415,54 +1420,141 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["polygon_net_area"] = df_bom.apply(calc_piece_net_area, axis=1)
     # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5: GIẢI PHƯƠNG TRÌNH KHÔNG GIAN SƠ ĐỒ VÀ PHÂN BỔ ĐỊNH MỨC CHI TIẾT
+        # =====================================================================
+    # 🟩 ĐOẠN 5: KIẾN TRÚC MATERIAL SOLVER ĐỘC LẬP CHUẨN CAD/CAM MAY MẶC
     # =====================================================================
-    # 🚨 ĐÃ SỬA BỘ LỌC CHI TIẾT THÂN CHÍNH: Quét diện tích rập bao gồm cả LEG PANEL, FRONT, BACK của vải chính để gom đủ diện tích gốc
-    total_body_net_area = 0.0
-    for _, r in df_bom.iterrows():
-        m_class = str(r[m_col]).upper().strip()
-        comp_name = str(r.get("component_name", r.get("Component Name", ""))).upper().strip()
-        p_class = str(r.get("piece_type", r.get("piece_class", "OTHER"))).upper().strip()
-        
-        # Chỉ gom nhóm các chi tiết thuộc VẢI CHÍNH (FABRIC) và là các tấm rập thân quần/áo chính
-        if "FABRIC" in m_class:
-            if any(k in comp_name or k in p_class for k in ["BODY", "PANEL", "LEG", "THÂN", "ỐNG"]):
-                # Loại trừ các chi tiết nắp túi đắp hoặc chi tiết mép keo phụ lọt vào vải chính
-                if "FACING" not in comp_name and "WELT" not in comp_name:
-                    total_body_net_area += float(r["polygon_net_area"]) * float(r["pcs_numeric"])
+    
+    # Kiểm tra xem người dùng có kích hoạt cờ Khóa định mức Techpack gốc hay không
+    lock_original_techpack = st.session_state.get("lock_original_techpack", False)
+    
+    # Kiểm tra xem rập đầu vào đã bao gồm co rút sản xuất hay chưa
+    pattern_has_shrink = st.session_state.get("pattern_has_shrink", False)
+    
+    # Xác định hệ số co rút áp dụng dựa trên tình trạng của rập
+    current_warp_factor = (1 + warp_shrink / 100.0) if not pattern_has_shrink else 1.0
+    current_weft_factor = (1 + weft_shrink / 100.0) if not pattern_has_shrink else 1.0
 
-    total_fabric_net_area_only = sum(float(r["polygon_net_area"]) * float(r["pcs_numeric"]) for _, r in df_bom.iterrows() if "FABRIC" in str(r.get(m_col, "FABRIC")).upper())
+    # -----------------------------------------------------------------
+    # PIPELINE 1: BỘ GIẢI TOÁN VẢI CHÍNH (FABRIC SOLVER)
+    # -----------------------------------------------------------------
+    class FabricSolver:
+        def __init__(self, df, body_ratio, marker_width, density, wastage):
+            self.df = df
+            self.body_ratio = body_ratio
+            self.marker_width = marker_width
+            self.density = density
+            self.wastage = wastage
+            self.total_gross_yds = 0.0
+            self.total_fabric_net_area = 0.0
+            self._execute_marker_simulation()
 
-    if total_body_net_area > 0:
-        simulated_length = (total_body_net_area / assigned_body_ratio / fabric_width) / target_density
-        simulated_length_with_shrink = simulated_length * (1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0)
-        total_gross_yds_after_shrink = (simulated_length_with_shrink / 36.0) * target_wastage
-        total_gross_yds_before_shrink = total_gross_yds_after_shrink / ((1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0))
-    else:
-        total_gross_yds_after_shrink = float(ctx.get("global_gross_fabric_yds", 1.45))
-        total_gross_yds_before_shrink = total_gross_yds_after_shrink
-
-    # Hàm phân bổ định mức chi tiết dựa trên khổ và hiệu suất thực tế từng chất liệu
-    def allocate_gross_consumption(row):
-        mat_class = str(row[m_col]).upper().strip()
-        pcs, net_a = float(row["pcs_numeric"]), float(row["polygon_net_area"])
-        if pcs <= 0: return 0.0
-        
-        # 1. Định mức Vải chính (Main Fabric) rải lồng ghép theo tỷ trọng sơ đồ tổng thể
-        if "FABRIC" in mat_class:
-            if total_fabric_net_area_only > 0:
-                return round((total_gross_yds_after_shrink * ((net_a * pcs) / total_fabric_net_area_only)) / pcs, 4)
-                
-        # 2. Định mức Keo méc dựng giải theo khổ dựng độc lập (Hiệu suất 72% dâng ĐM an toàn)
-        elif "FUSING" in mat_class and fusing_width > 0:
-            return round((((net_a * (1 + warp_shrink/100.0) * (1 + weft_shrink/100.0)) / fusing_width) / 36.0 / 0.72) * target_wastage, 4)
+        def _execute_marker_simulation(self):
+            # Tích lũy diện tích phẳng của các chi tiết Thân lớn để giải phương trình sơ đồ
+            total_body_area = 0.0
+            for _, r in self.df.iterrows():
+                if "FABRIC" in str(r[m_col]).upper():
+                    pcs = float(r["pcs_numeric"])
+                    net_a = float(r["polygon_net_area"])
+                    comp_name = str(r.get("Component Name", r.get("component_name", ""))).upper()
+                    p_class = str(r.get("piece_type", r.get("piece_class", ""))).upper()
+                    
+                    self.total_fabric_net_area += net_a * pcs
+                    if any(k in comp_name or k in p_class for k in ["BODY", "PANEL", "LEG", "THÂN", "ỐNG"]):
+                        if "FACING" not in comp_name and "WELT" not in comp_name:
+                            total_body_area += net_a * pcs
             
-        # 3. Định mức Vải lót giải theo khổ lót độc lập (Hiệu suất lót túi 70% dâng ĐM an toàn)
-        elif "LINING" in mat_class and lining_width > 0:
-            return round((((net_a * (1 + warp_shrink/100.0) * (1 + weft_shrink/100.0)) / lining_width) / 36.0 / 0.70) * target_wastage, 4)
+            # Giải phương trình không gian sơ đồ mô phỏng (Tích hợp co rút dọc + ngang chuẩn xác)
+            if total_body_area > 0 and self.marker_width > 0 and self.density > 0:
+                simulated_marker_area = total_body_area / self.body_ratio
+                sim_length = simulated_marker_area / self.marker_width / self.density
+                # Áp dụng chính sách co rút an toàn một lần duy nhất lên tổng chiều dài sơ đồ
+                sim_length_with_shrink = sim_length * current_warp_factor * current_weft_factor
+                self.total_gross_yds = (sim_length_with_shrink / 36.0) * self.wastage
+            else:
+                self.total_gross_yds = float(ctx.get("global_gross_fabric_yds", 1.45))
+
+        def calculate_row_gross(self, row):
+            # Trích xuất định mức tổng dòng (Lưu giá trị tổng, KHÔNG chia ngược cho pcs làm méo số liệu)
+            if lock_original_techpack:
+                orig_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in self.df.columns), None)
+                if orig_col and float(row.get(orig_col, 0.0)) > 0:
+                    return round(float(row[orig_col]), 4)
+
+            net_a = float(row["polygon_net_area"])
+            pcs = float(row["pcs_numeric"])
+            if self.total_fabric_net_area > 0:
+                # Trả về Định mức tổng dòng chuẩn xác (Phân bổ diện tích tỷ trọng thực tế)
+                return round(self.total_gross_yds * ((net_a * pcs) / self.total_fabric_net_area), 4)
+            return 0.0
+
+    # -----------------------------------------------------------------
+    # PIPELINE 2: BỘ GIẢI TOÁN KEO DỰNG (FUSING SOLVER)
+    # -----------------------------------------------------------------
+    class FusingSolver:
+        def __init__(self, marker_width, density, wastage):
+            self.marker_width = marker_width
+            self.density = density  # Ép mật độ nén keo thực tế 72%
+            self.wastage = wastage
+
+        def calculate_row_gross(self, row):
+            net_a = float(row["polygon_net_area"])
+            pcs = float(row["pcs_numeric"])
+            if net_a <= 0 or self.marker_width <= 0 or self.density <= 0: 
+                return 0.0
+            
+            # SỬA LỖI 1: Tích lũy tổng diện tích dòng thực tế (total_area = net_a * pcs) trước khi chia khổ sơ đồ dựng
+            total_fusing_area = net_a * pcs
+            # Áp dụng chính sách co rút theo cờ rập sản xuất
+            fusing_length = total_fusing_area * current_warp_factor * current_weft_factor
+            
+            gross_yds = (fusing_length / self.marker_width / self.density / 36.0) * self.wastage
+            return round(gross_yds, 4)
+
+    # -----------------------------------------------------------------
+    # PIPELINE 3: BỘ GIẢI TOÁN VẢI LÓT BAO TÚI (LINING SOLVER)
+    # -----------------------------------------------------------------
+    class LiningSolver:
+        def __init__(self, marker_width, density, wastage):
+            self.marker_width = marker_width
+            self.density = density  # Ép mật độ nén lót túi lọt khe thực tế 70%
+            self.wastage = wastage
+
+        def calculate_row_gross(self, row):
+            net_a = float(row["polygon_net_area"])
+            pcs = float(row["pcs_numeric"])
+            if net_a <= 0 or self.marker_width <= 0 or self.density <= 0: 
+                return 0.0
+            
+            # SỬA LỖI 1: Tích lũy tổng diện tích dòng thực tế (total_area = net_a * pcs) trước khi chia khổ sơ đồ lót
+            total_lining_area = net_a * pcs
+            # Áp dụng chính sách co rút theo cờ rập sản xuất
+            lining_length = total_lining_area * current_warp_factor * current_weft_factor
+            
+            gross_yds = (lining_length / self.marker_width / self.density / 36.0) * self.wastage
+            return round(gross_yds, 4)
+
+    # -----------------------------------------------------------------
+    # THỰC THI ĐIỀU PHỐI ĐA PIPELINE (SOLVER COORDINATOR CHẠY ĐỘC LẬP)
+    # -----------------------------------------------------------------
+    # Khởi tạo các Engine giải toán vật tư với cấu hình tham số đặc trưng
+    fabric_engine = FabricSolver(df_bom, assigned_body_ratio, fabric_width, target_density, target_wastage)
+    fusing_engine = FusingSolver(fusing_width, density=0.72, wastage=target_wastage)
+    lining_engine = LiningSolver(lining_width, density=0.70, wastage=target_wastage)
+
+    def route_to_material_solver(row):
+        mat_class = str(row[m_col]).upper().strip()
+        
+        if "FABRIC" in mat_class:
+            return fabric_engine.calculate_row_gross(row)
+        elif "FUSING" in mat_class or "INTERLINING" in mat_class:
+            return fusing_engine.calculate_row_gross(row)
+        elif "LINING" in mat_class:
+            return lining_engine.calculate_row_gross(row)
         return 0.0
 
-    df_bom["Gross Consumption"] = df_bom.apply(allocate_gross_consumption, axis=1)
+    # Phân phối luồng giải toán độc lập trả trực tiếp về cột Gross Consumption tổng dòng sạch
+    df_bom["Gross Consumption"] = df_bom.apply(route_to_material_solver, axis=1)
+    
     df_bom["calculated_material_width"] = fabric_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("FUSING"), "calculated_material_width"] = fusing_width
     df_bom.loc[df_bom[m_col].astype(str).str.upper().str.contains("LINING"), "calculated_material_width"] = lining_width
