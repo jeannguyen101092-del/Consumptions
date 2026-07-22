@@ -1687,10 +1687,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
        
          # =====================================================================
-       # =====================================================================
-    # 🟩 KHỐI 5b: KẾT XUẤT ĐỒ HỌA ĐỒNG BỘ ĐỘNG THEO TOÁN HỌC THỰC TẾ 100%
+      # =====================================================================
+    # 🟩 KHỐI 5b (PHẦN 1): AI AUDIT REPORT DASHBOARD & GOM NHÓM VẬT TƯ INDEPENDENT
     # =====================================================================
-
     df_bom_display_sum = df_bom.copy()
     
     # Khóa bẫy lỗi an toàn ô nhớ ngăn chặn NameError cục bộ
@@ -1701,13 +1700,48 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'lining_width' not in locals(): lining_width = 57.0
     if 'warp_shrink' not in locals(): warp_shrink = float(ctx.get('warp_shrinkage', ctx.get('warp_shrink', 0.0)))
     if 'weft_shrink' not in locals(): weft_shrink = float(ctx.get('weft_shrinkage', ctx.get('weft_shrink', 0.0)))
-    if 'ai_predicted_density' not in locals(): ai_predicted_density = 0.792
+    if 'target_density' not in locals(): target_density = 0.792
+    if 'target_wastage' not in locals(): target_wastage = 1.03
+    if 'ai_decision' not in locals(): 
+        ai_decision = {"product_type": "JEAN_LONG", "complexity_tier": "NORMAL", "explainable_logs": [], "manufacturing_rules": []}
 
+    # Extract thông số phục vụ hiển thị báo cáo kiểm toán trực quan
+    audit_prod_type = str(ai_decision.get("product_type", "JEAN_LONG"))
+    audit_complexity = str(ai_decision.get("complexity_tier", "NORMAL"))
+    audit_confidence = float(ai_decision.get("confidence", 0.95))
+
+    # ---------------------------------------------------------------------
+    # 📊 TẦNG 1: AI AUDIT REPORT - BẢNG ĐIỀU KHIỂN CHỈ SỐ VÀ QUY TẮC SẢN XUẤT
+    # ---------------------------------------------------------------------
+    st.markdown("---")
+    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+    st.caption("Trạm giám sát minh bạch hóa thuật toán (Explainable AI) dành cho Trưởng phòng Sơ đồ CAD và Quản lý Sản xuất.")
+
+    # Render Thẻ KPI kiểm toán chỉ số kỹ thuật thông minh
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric(label="🤖 Loại Hàng Nhận Diện", value=audit_prod_type, help="AI phân tích Sketch và BOM để định hình dòng sản phẩm nền tảng.")
+    with m2:
+        color_badge = "🔴" if audit_complexity == "COMPLEX" else "🟡" if audit_complexity == "NORMAL" else "🟢"
+        st.metric(label=f"{color_badge} Mức Độ Phức Tạp", value=audit_complexity, help="Quyết định ma trận phân rã không gian rập chi tiết phụ.")
+    with m3:
+        st.metric(label="📐 Mật Độ Sơ Đồ Chỉ Định", value=f"{target_density*100:.1f}%", help="Mật độ nén lấp đầy hình học lọt khe dự đoán (Marker Efficiency).")
+    with m4:
+        conf_status = "Đạt Chuẩn" if audit_confidence >= 0.85 else "Rủi Ro Cao"
+        st.metric(label="🎯 Độ Tin Cậy AI (Confidence)", value=f"{audit_confidence*100:.1f}%", delta=conf_status, delta_color="normal" if audit_confidence >= 0.85 else "inverse")
+
+    st.markdown("##### 🏭 Các quy tắc sản xuất (Manufacturing Rules) đã được áp dụng:")
+    applied_rules = ai_decision.get("manufacturing_rules", ["STANDARD_GEOMETRY"])
+    rule_badges = " ".join([f"`{rule}`" for rule in applied_rules])
+    st.markdown(rule_badges)
+
+    # ---------------------------------------------------------------------
+    # 📊 TẦNG 2: GOM NHÓM ĐỊNH MỨC VẬT TƯ ĐẦU RA (BOM SUMMARY)
+    # ---------------------------------------------------------------------
     if "allocated_gross" not in df_bom_display_sum.columns:
         df_bom_display_sum["allocated_gross"] = 0.0
     df_bom_display_sum["allocated_gross"] = pd.to_numeric(df_bom_display_sum["allocated_gross"], errors='coerce').fillna(0.0)
 
-    # Gom nhóm sum định mức của các chất liệu thực tế từ bảng chi tiết sạch
     df_sum_all_materials = df_bom_display_sum.groupby([m_col], as_index=False).agg({"allocated_gross": "sum"})
     df_sum_all_materials.columns = ["Material Class", "Gross Consumption"]
     
@@ -1719,7 +1753,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     }
     summary_rows_final = []
     
-    # 1. Hiển thị thông số cấu hình khổ và co rút lên bảng Summary tổng hợp đầu ra
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải chính (Chat)", "Gross Consumption": f"{fabric_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Keo/Dựng (Chat)", "Gross Consumption": f"{fusing_width:.1f} inch", "UOM": "Khổ sơ đồ"})
     summary_rows_final.append({"Phân loại vật tư": "Khổ vải Vải lót (Chat)", "Gross Consumption": f"{lining_width:.1f} inch", "UOM": "Khổ sơ đồ"})
@@ -1727,12 +1760,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_rows_final.append({"Phân loại vật tư": "Tỷ lệ co rút ngang (Weft Shrinkage)", "Gross Consumption": f"{weft_shrink:+.1f}%", "UOM": "% từ Chat"})
     summary_rows_final.append({"Phân loại vật tư": "VẢI CHÍNH (Định mức sơ đồ thô trước co rút)", "Gross Consumption": round(total_gross_yds_before_shrink, 4), "UOM": "YDS"})
     
-    # Bốc nguyên vẹn số tổng Fabric thực chất từ kết quả giải toán Khối 5a lên Summary, không gán cứng!
     fabric_detail_sum_actual = df_bom_display_sum[df_bom_display_sum[m_col].astype(str).str.upper().str.contains("FABRIC")]["allocated_gross"].sum()
-    
     df_sum_for_excel = df_sum_all_materials.copy()
 
-    # 2. Đẩy toàn bộ mảng gom nhóm đa chất liệu lên Summary (Cam kết khớp khít 100% với cột chi tiết bên dưới)
     for idx, r_sum in df_sum_all_materials.iterrows():
         m_class = str(r_sum["Material Class"]).upper().strip()
         display_label = cls_map.get(m_class, f"VẬT TƯ KHÁC ({m_class})")
@@ -1746,72 +1776,88 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_sum_for_excel.loc[idx, "Gross Consumption"] = consumption_val
 
     df_sum_clean = pd.DataFrame(summary_rows_final)
+    # =====================================================================
+    # 🟩 KHỐI 5b (PHẦN 2): ĐỒNG BỘ SIZE RẬP, BIÊN TẬP ĐỘNG & KẾT XUẤT DOWNLOAD EXCEL
+    # =====================================================================
 
-    # Trích xuất bản sao bảo vệ trước khi dọn dẹp cột trùng tên phục vụ render UI chi tiết sạch
+    # ---------------------------------------------------------------------
+    # 📊 TẦNG 3: TRÍCH XUẤT VÀ BẢO VỆ CHUỒI DỮ LIỆU ĐẦU RA (TÍCH HỢP ĐỒNG BỘ SIZE)
+    # ---------------------------------------------------------------------
     saved_pcs_series = df_bom_display_sum["pcs_numeric"].copy()
     saved_orig_l_series = df_bom_display_sum[orig_l_col].copy()
     saved_orig_w_series = df_bom_display_sum[orig_w_col].copy()
     saved_allocated_gross = df_bom_display_sum["allocated_gross"].copy()
 
+    # 🔍 BẪY TỰ ĐỘNG SIZE CỦA RẬP: Tìm kiếm trường kích cỡ trong bảng dữ liệu gốc
+    raw_size_col = next((c for c in ["size", "Size", "SZ", "Kích cỡ", "Cỡ size"] if c in df_bom_display_sum.columns), None)
+    if raw_size_col:
+        saved_size_series = df_bom_display_sum[raw_size_col].astype(str).copy()
+    else:
+        # Nếu file gốc trống trường size, mặc định bốc size cơ sở từ context hoặc ghi size '29' mặc định của quần Jeans mẫu
+        saved_size_series = pd.Series([str(ctx.get("size_code", ctx.get("size", "29")))] * len(df_bom_display_sum))
+
     columns_to_drop = [
         "Gross Consumption", "gross_consumption", "Số lượng rập", "piece_count", 
         "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", "allocated_gross", 
-        "pcs_numeric", "fabric_width_inch", "fabric_width"
+        "pcs_numeric", "fabric_width_inch", "fabric_width", "size", "Size", "SZ"
     ]
     df_bom_display = df_bom_display_sum.copy()
     for col in columns_to_drop:
         if col in df_bom_display.columns: df_bom_display = df_bom_display.drop(columns=[col])
 
-    # Ép đồng bộ hiển thị khổ động từng chất liệu xuống bảng chi tiết thành phẩm công nghiệp
+    # Ghép đồng bộ lại các cột dữ liệu hoàn chỉnh sạch sẽ phục vụ kết xuất UI
     df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display_sum["calculated_material_width"].round(1) if "calculated_material_width" in df_bom_display_sum.columns else round(fabric_width, 1)
-
-    df_bom_display["Gross Consumption"] = saved_allocated_gross
+    df_bom_display["Size tính toán"] = saved_size_series
     df_bom_display["Số lượng rập"] = saved_pcs_series
+    df_bom_display["Gross Consumption"] = saved_allocated_gross
     df_bom_display["Dài gốc Techpack (inch)"] = saved_orig_l_series
     df_bom_display["Rộng gốc Techpack (inch)"] = saved_orig_w_series
 
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display = df_bom_display.loc[:, ~df_bom_display.columns.duplicated()].copy()
     
+    # Đưa cột 'Size tính toán' lên đứng ngay trước cột 'Số lượng rập' cực kỳ trực quan
     ordered_cols = [
-        "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Số lượng rập", 
+        "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
+        "Size tính toán", "Số lượng rập", 
         "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "Dài gốc Techpack (inch)", "Rộng gốc Techpack (inch)", 
         "polygon_net_area", "Gross Consumption"
     ]
     display_cols_final = [c for c in ordered_cols if c in df_bom_display.columns] + [c for c in df_bom_display.columns if c not in ordered_cols]
     df_bom_display = df_bom_display[display_cols_final]
     
-    # Kết xuất UI Giao diện và Nút Download file Excel PPJ Thương mại
+    # Render giao diện nút Xuất Excel đại trà
     col1, col2 = st.columns(2)
-    with col1: st.subheader("Bảng tổng hợp định mức (BOM Summary)")
+    with col1: st.subheader("📊 Bảng Tổng Hợp Định Mức (BOM Summary)")
     with col2:
         try:
             ctx["warp_shrinkage"] = warp_shrink
             ctx["weft_shrinkage"] = weft_shrink
             ctx["global_gross_fabric_yds"] = fabric_detail_sum_actual
 
-            excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, ai_predicted_density, fabric_pattern_raw)
-            
+            excel_file = export_excel_ppj_format(df_sum_for_excel, df_bom_display, prod, ctx, target_density, fabric_pattern_raw)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             if not style_name_clean or style_name_clean.lower() == "none": style_name_clean = "Style"
-            final_excel_filename = f"PPJ_BOM_{prod}_{style_name_clean}.xlsx"
+            final_excel_filename = f"PPJ_AUDIT_BOM_{prod}_{style_name_clean}.xlsx"
             
             st.download_button(
-                label="🟢 XUẤT EXCEL PPJ", 
+                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
                 file_name=final_excel_filename, 
                 key="btn_download_excel_ppj_final_v56"
             )
-        except Exception as e: st.error(f"Lỗi tạo Excel: {e}")
+        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
             
-    # Hiển thị bảng Summary tổng hợp định mức mua hàng lên trước
     st.dataframe(df_sum_clean, use_container_width=True, hide_index=True)
     
-    # 🎯 BIẾN CHÍNH BẢNG CHI TIẾT CUỐI TRANG THÀNH TRÌNH CHỈNH SỬA SỐ LƯỢNG ĐỘNG RERUN
-    st.subheader(f"Kết quả phân bổ định mức rập chi tiết sau tính toán ({prod})")
-    st.info("💡 Bạn có thể click đúp chuột trực tiếp vào các ô số ở cột **'Số lượng rập'** của bảng dưới đây để sửa tay. Hệ thống 6 tầng sẽ tự động giải toán và cập nhật định mức tổng phía trên ngay lập tức!")
+    # ---------------------------------------------------------------------
+    # 📊 TẦNG 4: TRÌNH BIÊN TẬP CẤU TRÚC RẬP ĐỒNG BỘ ĐỘNG (BẢO VỆ CỘT SIZE)
+    # ---------------------------------------------------------------------
+    st.subheader(f"⚙️ Trình Kiểm Toán & Hiệu Chỉnh Cấu Trúc Rập Chi Tiết ({prod})")
+    st.info("💡 Bạn có thể click đúp chuột trực tiếp vào các ô ở cột **'Số lượng rập'** bên dưới để thay đổi số lớp chi tiết. Bộ toán 6 tầng sẽ tự động giải toán lại và làm mới bảng BOM Summary phía trên tức thì!")
 
+    # Chuyển đổi từ st.dataframe sang st.data_editor và cấu hình khóa cột Size tính toán (Chỉ xem, tránh ghi đè lỗi)
     edited_df_final = st.data_editor(
         df_bom_display,
         column_config={
@@ -1819,6 +1865,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Material Class": st.column_config.TextColumn("Material Class", disabled=True),
             "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", disabled=True),
+            "Size tính toán": st.column_config.TextColumn("Size tính toán", disabled=True, help="Kích cỡ rập được bóc tách"),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=20.0, step=1.0, required=True),
             "Dài sản xuất (L-inch)": st.column_config.NumberColumn("Dài sản xuất (L-inch)", disabled=True),
             "Rộng sản xuất (W-inch)": st.column_config.NumberColumn("Rộng sản xuất (W-inch)", disabled=True),
@@ -1826,10 +1873,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", disabled=True)
         },
         disabled=False,
-        key="bom_final_interactive_view_editor_v12"
+        key="bom_final_interactive_view_editor_v13"
     )
 
-    # 🔄 BỘ KÍCH HOẠT ĐỒNG BỘ: Kiểm tra nếu bạn gõ số mới -> Ghi vào bộ đệm và ép trang Rerun lại
+    # TRIGGER SYNCHRONIZATION: Bắt sự kiện tương tác sửa đổi số lượng
     has_changed = False
     for idx, row in edited_df_final.iterrows():
         new_val = float(row["Số lượng rập"])
@@ -1841,7 +1888,4 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if has_changed:
         st.rerun()
     
-    # Định cấu hình hiển thị an toàn cho dòng chú thích dưới chân trang
-    disp_warp = warp_shrink
-    disp_weft = weft_shrink
-    st.caption(f"🤖 AI Dòng hàng: {prod} | Khổ vải thiết lập từ Chat: {fabric_width} inch | Co rút dọc/ngang: {disp_warp:+.1f}% / {disp_weft:+.1f}% | Mật độ nén hình học sơ đồ CAD dự đoán: {ai_predicted_density*100:.1f}% | Tổng định mức giải toán động thực chất (Mua vải): {fabric_detail_sum_actual:.4f} YDS")
+    st.caption(f"🤖 AI Audit Engine: {prod} | Khổ vải thiết lập: {fabric_width} inch | Co rút dọc/ngang: {warp_shrink:+.1f}% / {weft_shrink:+.1f}% | Hiệu suất sơ đồ CAD áp dụng: {target_density*100:.1f}% | Tổng định mức mua hàng (Khớp sơ đồ): {fabric_detail_sum_actual:.4f} YDS")
