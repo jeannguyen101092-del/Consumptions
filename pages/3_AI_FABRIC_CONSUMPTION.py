@@ -1462,12 +1462,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.subheader("🧠 Trực Quan Chuỗi Suy Luận Của AI CAD Engine (Explainable AI)")
     st.success(f"✅ **AI REASONING CHỈ ĐỊNH TỰ ĐỘNG** | Dòng hàng: `{ai_product_type}` ({ai_complexity}) | Mật độ sơ đồ: `{target_density*100:.1f}%` | Hao hụt vải chính: `{((target_wastage-1)*100):.1f}%`")
 
-     # =====================================================================
-    # 🟩 ĐOẠN 4: RULE ENGINE - ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN HÌNH HỌC PHẲNG (ĐÃ SỬA LỖI DIỆN TÍCH)
+         # =====================================================================
+    # 🟩 ĐOẠN 4: RULE ENGINE - ĐỊNH TUYẾF PHƯƠNG PHÁP GIẢI TOÁN HÌNH HỌC PHẲNG (SỬA LỖI KEO THẤP)
     # =====================================================================
-    pattern_has_shrink = True  # Mặc định rập đầu vào đã xử lý co rút hình học
-    
-    # Lấy chính xác tên cột Component Name từ bảng dữ liệu thực tế
+    pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
 
     # 1. Thuật toán nắn kích thước sản xuất (Giữ nguyên logic phẳng quần công nghiệp)
@@ -1475,14 +1473,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_orig, l_orig = float(row[orig_w_col]), float(row[orig_l_col])
         w_expanded = w_orig * (1 + weft_shrink / 100.0)
         
-        # 🚨 ĐÃ SỬA LỖI: Hạ điều kiện chiều rộng xuống >= 10.0 để nhận diện đúng Thân trước (12.36) và Thân sau (13.40)
         if l_orig >= 32.0 and w_orig >= 10.0:
             name = str(row.get(comp_col_check, "")).lower()
-            if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) # Điều chỉnh hệ số nắn biên thực tế
+            if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) 
             if "back" in name or "sau" in name: return round(w_expanded * 0.98, 3)
         return round(w_expanded, 3)
 
-    # Tính chiều dài và chiều rộng sản xuất thực tế có tính tỷ lệ co rút vải (Shrinkage)
     fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "VAI CHINH", "VC"]
     
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(
@@ -1492,18 +1488,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     )
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_geometry, axis=1)
 
-    # Tra cứu hệ số hình học lấp đầy nền tảng (Shape Factor)
+    # 🚨 ĐÃ SỬA LỖI ĐỂ TĂNG ĐỊNH MỨC KEO: Tra cứu hệ số hình học lấp đầy (Shape Factor)
     def get_shape_factor(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
+        mat_class = str(row.get(m_col, "")).upper().strip()
         
-        # 🚨 ĐÃ SỬA LỖI: Quét từ khóa trực tiếp trên cột Component Name thực tế của UI
+        # 1. ƯU TIÊN TUYỆT ĐỐI CHO KEO LÓT RIB / MÉC KEO: 
+        # Các miếng dán keo phôi rib là hình chữ nhật thẳng, độ chiếm chỗ trong khung bao đạt gần như 100%
+        if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name:
+            return 0.98  # Kéo hệ số lấp đầy diện tích keo lên tối đa (Từ 0.78 lên 0.98)
+            
+        # 2. Đối với các chi tiết vải chính thân lớn
         if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]):
-            return 0.88 # Thân quần dài, diện tích phẳng chiếm chỗ lớn trong hình chữ nhật bao quanh
+            return 0.88 
         elif any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP"]):
-            return 0.92 # Cạp quần dạng dải dài thẳng, độ lấp đầy rất cao
-        return 0.78 # Mặc định cho các chi tiết nhỏ, cong tròn (túi, đáp túi...)
+            return 0.92 
+            
+        return 0.78 # Mặc định cho các chi tiết nhỏ cong tròn khác
 
-    # 🚨 ĐÃ SỬA LỖI CHÍ MẠNG: Tính diện tích tịnh dựa trên "Kích thước sản xuất" đã tính co rút co giãn
+    # Tính diện tích tịnh dựa trên hệ số shape factor mới đã được kích tối đa cho keo
     df_bom["polygon_net_area"] = df_bom.apply(
         lambda r: round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_shape_factor(r), 2), 
         axis=1
@@ -1512,17 +1515,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 📊 TRẠM ĐIỀU PHỐI (RULE ENGINE): Phân phối loại Solver dựa trên kết cấu cắt rải thực tế
     def rule_engine_coordinator(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
-        m_class = str(row.get(m_col, "FABRIC")).upper().strip()
         
-        # Quy tắc 1: Nhóm tiêu hao tuyến tính (Chun, Dây luồn, Băng dệt...) -> LengthSolver
         if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]):
             return "LengthSolver"
-            
-        # Quy tắc 2: Nhóm cắt băng dọc, cắt dây thẳng (Đỉa quần, Cạp thẳng, Viền cuộn...) -> StripSolver
         if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]):
             return "StripSolver"
             
-        # Quy tắc 3: Nhóm rải sơ đồ lồng ghép đa giác phẳng (Thân, Ống, Túi, Cạp cong, Keo...) -> AreaSolver
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
