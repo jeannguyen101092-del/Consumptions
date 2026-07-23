@@ -102,9 +102,9 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 # =====================================================================
 st.markdown("""
 <style>
-    /* Làm sạch nền và khoảng cách thân trang bên phải */
-    .stApp { background-color: #f8fafc !important; }
-    header[data-testid="stHeader"] { background-color: #f8fafc !important; }
+    /* 🌟 ĐÃ SỬA: Đổi sang tone màu Xanh Sương Mù Dịu mắt chuẩn phần mềm ERP văn phòng 🌟 */
+    .stApp { background-color: #f0f4f8 !important; }
+    header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
     div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
@@ -142,13 +142,13 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* 🌟 FIX DỨT ĐIỂM: LÀM TIÊU ĐỀ NỔI BẬT LÊN MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM 🌟 */
+    /* FIX DỨT ĐIỂM: LÀM TIÊU ĐỀ NỔI BẬT LÊN MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
-        font-weight: 800 !important; /* Tăng độ dày chữ tối đa */
-        color: #fde047 !important; /* Đổi hẳn sang màu Vàng Chanh rực rỡ cực rõ trên nền tối */
-        text-shadow: 0px 1px 2px rgba(0,0,0,0.4) !important; /* Đổ bóng nhẹ tạo độ nổi 3D */
+        font-weight: 800 !important; 
+        color: #fde047 !important; 
+        text-shadow: 0px 1px 2px rgba(0,0,0,0.4) !important; 
         text-transform: uppercase !important; 
         letter-spacing: 0.8px !important; 
         margin-bottom: 6px !important;
@@ -206,42 +206,56 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
+# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs MÀU SẮC ĐỘNG & KHÓA ĐỈNH XANH SƯƠNG MÙ
 # =====================================================================
 
-# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
+# 🌟 Đ_ ĐỔI: background-color sang #f0f4f8 để khít màu với nền chính khi cuộn chuột 🌟
 st.markdown(
-    """
-    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
-        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
-        </h2>
+    f"""
+    <div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f0f4f8; padding: 15px 20px 10px 0px; box-sizing: border-box;">
+        
+        <!-- 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp -->
+        <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
+            <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
+                🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
+            </h2>
+        </div>
+
+        <!-- 2. Lưới Flexbox chứa đúng 4 ô KPIs độc lập ghim đỉnh -->
+        <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
+            
+            <!-- Ô KPIs 1: Mã hàng -->
+            <div style="flex: 1; min-width: 0;">
+                <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{{kpi_style_id}}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
+                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👕</span></div>
+            </div>
+
+            <!-- Ô KPIs 2: Tổng vật tư -->
+            <div style="flex: 1; min-width: 0;">
+                <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{{total_materials}} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
+                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👖</span></div>
+            </div>
+
+            <!-- Ô KPIs 3: Định mức vải -->
+            <div style="flex: 1; min-width: 0;">
+                <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{{main_fabric_cons}}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
+                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">✂️</span></div>
+            </div>
+
+            <!-- Ô KPIs 4: Cỡ hạt -->
+            <div style="flex: 1; min-width: 0;">
+                <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{{active_size_kpi}}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
+                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">🧵</span></div>
+            </div>
+
+        </div>
     </div>
-    """, 
+
+    <!-- 3. KHỐI ĐỆM: Đẩy khung Uploader ở dưới xuống không bị đè mất chữ -->
+    <div style="height: 245px; width: 100%;"></div>
+    """.format(kpi_style_id=kpi_style_id, total_materials=total_materials, main_fabric_cons=main_fabric_cons, active_size_kpi=active_size_kpi), 
     unsafe_allow_html=True
 )
-
-# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
-k_col1, k_col2, k_col3, k_col4 = st.columns(4)
-
-# Cấu hình chung cho hiệu ứng Emoji: To rõ (70px), có đổ bóng mờ tạo độ nổi khối 3D cực đẹp
-emoji_style = "font-size: 70px; display: inline-block; filter: drop-shadow(0px 4px 6px rgba(0, 0, 0, 0.15)); transform: scale(1); transition: all 0.2s ease-in-out;"
-
-with k_col1: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
-
-with k_col2: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
-
-with k_col3: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
-
-with k_col4: 
-    st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU XANH NGỌC LAM SÁNG RÕ) ---
