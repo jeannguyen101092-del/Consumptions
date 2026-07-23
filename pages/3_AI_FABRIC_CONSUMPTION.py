@@ -1324,96 +1324,113 @@ lining_width = extract_param(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ
 if lining_width <= 0: lining_width = 57.0
 ctx["lining_width_inch"] = lining_width
 
-# =====================================================================
-# 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
-# =====================================================================
-import re
-import pandas as pd
-
-rows = ctx.get("bom_rows", [])
-if not rows:
-    rows = st.session_state.get("processed_display_rows", [])
-
-if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(rows, pd.DataFrame) and not rows.empty):
-    df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
-    df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
-    
-    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper().strip()
-    fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
-    
-    m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
-    pcs_col = next((c for c in ["Số lượng rập", "piece_count"] if c in df_bom.columns), "piece_count")
-    orig_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
-    orig_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
-    
-    df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
-    df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
-    
-    # Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học
-    target_orig_gross_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
-    if target_orig_gross_col:
-        df_bom["original_raw_gross"] = pd.to_numeric(df_bom[target_orig_gross_col], errors='coerce').fillna(0.0)
-    else:
-        df_bom["original_raw_gross"] = 0.0
-
-    # Khởi tạo bộ đệm lưu trữ chỉnh sửa loại vật liệu của người dùng
-    if "user_edited_materials" not in st.session_state:
-        st.session_state["user_edited_materials"] = {}
-    if "user_edited_pieces" not in st.session_state:
-        st.session_state["user_edited_pieces"] = {}
-
-    # Ghi đè loại vật tư nếu người dùng tự sửa tay trên lưới UI
-    for idx, row in df_bom.iterrows():
-        if idx in st.session_state["user_edited_materials"]:
-            df_bom.at[idx, m_col] = st.session_state["user_edited_materials"][idx]
-
-    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP
-    def clean_precise_piece_count(row):
-        comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
-        pcs_raw_str = str(row.get(pcs_col, "1"))
-        pcs_extracted = re.search(r'(\d+)', pcs_raw_str)
-        pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
+    # =====================================================================
+    # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & MAXIMUM BOUNDING SOLVER
+    # =====================================================================
+    # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút sản xuất
+    def _internal_material_classify(row, idx):
+        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
+            return str(st.session_state["user_edited_materials"][idx]).upper().strip()
+        mat_str = str(row[m_col]).upper().strip()
+        comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
-        if any(k in comp_name for k in ["POCKET BAG", "TÚI LÓT", "LÓT TÚI"]):
-            return max(pcs_val, 4.0)
-        return pcs_val
+        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
+        lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
+        
+        if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
+        if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): return "LINING"
+        
+        if 'FUSING_STRICT_RULES' in globals() and current_prod_cat in FUSING_STRICT_RULES:
+            if any(k in comp_str for k in FUSING_STRICT_RULES[current_prod_cat]):
+                if not any(x in mat_str for x in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
+                    return "FUSING"
+        return "FABRIC"
 
-    df_bom["pcs_numeric"] = [
-        float(st.session_state["user_edited_pieces"][idx]) if idx in st.session_state["user_edited_pieces"]
-        else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
-    ]
-    df_bom[pcs_col] = df_bom["pcs_numeric"]
+    # THUẬT TOÁN AI DÒ TÌM ĐIỂM RỘNG NHẤT KHÓA BIÊN THEO CHỦNG LOẠI (TROUSER SAFENET)
+    def calc_production_width(row):
+        w_orig = float(row.get(actual_w_col, 0.0))
+        l_orig = float(row.get(actual_l_col, 0.0))
+        mat_class = _internal_material_classify(row, row.name)
+        comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        
+        # Kiểm tra xem có phải là sản phẩm Quần hay không dựa trên từ khóa hệ thống
+        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN"])
+        
+        # CHỈ KÍCH HOẠT TÍNH NĂNG BAO CẢNH CHO ÁO / ĐẦM XÒE, TUYỆT ĐỐI KHÔNG ÁP DỤNG CHO QUẦN
+        if mat_class == "FABRIC" and not is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "BODY", "PANEL", "THÂN"]):
+            net_area_check = float(row.get("polygon_net_area", l_orig * w_orig * 0.78))
+            bbox_area_check = l_orig * w_orig
+            void_ratio_check = (bbox_area_check - net_area_check) / bbox_area_check if bbox_area_check > 0 else 0.0
+            
+            if void_ratio_check > 0.18:
+                # Ép thông số chiều rộng vọt lên điểm rộng cực đại thực tế cho áo tùng xòe
+                w_orig = w_orig * round(1.12 + (void_ratio_check * 0.15), 3)
 
-    # =====================================================================
-    # 🚨 ĐÃ ĐỒNG BỘ: NATURAL LANGUAGE PARSER ENGINE (BẮT KHỚP MÃ KHÓA CHAT V8)
-    # =====================================================================
-    if "fabric_width_inch" not in st.session_state: st.session_state["fabric_width_inch"] = 58.0
-    if "warp_shrink" not in st.session_state: st.session_state["warp_shrink"] = 0.0
-    if "weft_shrink" not in st.session_state: st.session_state["weft_shrink"] = 0.0
+        # Áp thông số co rút sợi sản xuất từ UI (Lệnh chat "ngang 14") lên chiều rộng gốc sạch
+        if mat_class == "FABRIC":
+            w_expanded = w_orig * (1 + weft_shrink / 100.0)
+        elif mat_class == "FUSING":
+            w_expanded = w_orig * (1 + st.session_state.get("_fusing_weft_shrink", 0.0) / 100.0)
+        elif mat_class == "LINING":
+            w_expanded = w_orig * (1 + st.session_state.get("_lining_weft_shrink", 0.0) / 100.0)
+        else:
+            w_expanded = w_orig
 
-    # Đọc trực tiếp thớ văn bản thô từ ô lệnh st.chat_input của Đoạn 1 gửi sang
-    user_command = str(st.session_state.get("last_submitted_query", "")).lower().strip()
+        # Logic phẳng sản phẩm công nghiệp khóa biên thân lớn (Chỉ dành cho các chi tiết siêu dài)
+        if l_orig >= 32.0 and w_orig >= 10.0 and not is_trouser_item:
+            name = str(row.get(comp_col_check, row.get("component_name", ""))).lower()
+            if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) 
+            if "back" in name or "sau" in name: return round(w_expanded * 0.98, 3)
+            
+        return round(w_expanded, 3)
 
-    if user_command:
-        # A. Quét tìm cấu hình khổ vải chính
-        width_match = re.search(r'(?:kh\s*ổ|kho)\s*(\d+(?:\.\d+)?)', user_command)
-        if width_match:
-            st.session_state["fabric_width_inch"] = float(width_match.group(1))
+    def calc_production_length(row):
+        l_orig = float(row.get(actual_l_col, 0.0))
+        mat_class = _internal_material_classify(row, row.name)
+        
+        # Áp độ co rút dọc (Lệnh chat "dọc 3")
+        if mat_class == "FABRIC":
+            return round(l_orig * (1 + warp_shrink / 100.0), 3)
+        elif mat_class == "FUSING":
+            return round(l_orig * (1 + st.session_state.get("_fusing_warp_shrink", 0.0) / 100.0), 3)
+        elif mat_class == "LINING":
+            return round(l_orig * (1 + st.session_state.get("_lining_warp_shrink", 0.0) / 100.0), 3)
+            
+        return round(l_orig, 3)
 
-        # B. Quét tìm độ co rút sợi dọc (Chấp nhận cả cụm từ "dọc 3" hay "co rút dọc 3")
-        warp_match = re.search(r'(?:d\s*ọc|doc)\s*(\d+(?:\.\d+)?)', user_command)
-        if warp_match:
-            st.session_state["warp_shrink"] = float(warp_match.group(1))
+    # Thực thi xuất bản kích thước sản xuất thực nghiệm ra bảng tính hệ thống
+    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
+    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
 
-        # C. Quét tìm độ co rút sợi ngang (Chấp nhận cụm từ "ngang 14")
-        weft_match = re.search(r'(?:ngang)\s*(\d+(?:\.\d+)?)', user_command)
-        if weft_match:
-            st.session_state["weft_shrink"] = float(weft_match.group(1))
+    # Hệ số hình học lấp đầy thực tế (Shape Factor) ban đầu của anh
+    def get_dynamic_shape_factor(row):
+        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        mat_class = str(row.get(m_col, "")).upper().strip()
+        if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]): return 0.85 
+        if any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP", "CẠP"]): return 0.92 
+        if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name: return 0.78 
+        return 0.76
 
-    # Xuất bản đồng bộ giá trị ra ngoài cho hệ thống pipeline Đoạn 3, 4, 5
-    fabric_width = float(st.session_state["fabric_width_inch"])
-    warp_shrink = float(st.session_state["warp_shrink"])
-    weft_shrink = float(st.session_state["weft_shrink"])
+    # polygon_net_area ăn khớp theo đúng thông số hình học sau khi chặn bảo vệ Quần
+    df_bom["polygon_net_area"] = df_bom.apply(
+        lambda r: round(float(r["polygon_net_area"]), 2) if "polygon_net_area" in df_bom.columns and float(r.get("polygon_net_area", 0.0)) > 1.0 and not any(k in str(r.get(comp_col_check, "")).upper() for k in ["TROUSER", "FRONT", "BACK"])
+        else round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_dynamic_shape_factor(r), 2), axis=1
+    )
+
+    # Cập nhật ngược mảng diện tích tịnh vừa cứu viện vào lớp mảnh ảo chạy ngầm trong RAM
+    for idx in df_bom.index:
+        if idx in virtual_pieces_layer:
+            virtual_pieces_layer[idx]["production_l"] = df_bom.at[idx, "Dài sản xuất (L-inch)"]
+            virtual_pieces_layer[idx]["production_w"] = df_bom.at[idx, "Rộng sản xuất (W-inch)"]
+            virtual_pieces_layer[idx]["production_net_area"] = df_bom.at[idx, "polygon_net_area"]
+
+    def rule_engine_coordinator(row):
+        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]): return "LengthSolver"
+        if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]): return "StripSolver"
+        return "AreaSolver"
+    df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
 
 
        # =====================================================================
