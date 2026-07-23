@@ -1958,7 +1958,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     #    # =====================================================================
         # =====================================================================
        # =====================================================================
-      # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -1990,14 +1990,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
         if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): return "LINING"
         if any(k in mat_str or k in comp_str for k in ["ACCESSORY", "THREAD", "CHI", "BUTTON", "ZIPPER", "RIVET"]): return "ACCESSORY"
-        
-        if 'FUSING_STRICT_RULES' in globals() and prod_cat_ui in FUSING_STRICT_RULES:
-            if any(k in comp_str for k in FUSING_STRICT_RULES[prod_cat_ui]):
-                if not any(x in mat_str for x in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
-                    return "FUSING"
         return "FABRIC"
 
     df_bom["_temp_class"] = [ui_layer_material_classify(r, idx) for idx, r in df_bom.iterrows()]
+    
+    # Chống sập ứng dụng nếu Đoạn 5.2 bị sót cột dữ liệu
+    if "Gross Consumption" not in df_bom.columns:
+        df_bom["Gross Consumption"] = 0.0
+
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
     
@@ -2013,21 +2013,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom_display = df_bom.copy()
     
-    # 🚨 ĐÃ SỬA BIẾN HIỂN THỊ UI: Ép lưới đọc trực tiếp cột Calculated Width từ Đoạn 5.2 để tự động nhảy từ 58 về 56 theo lệnh chat
     if "Calculated Width (Inch)" in df_bom_display.columns:
         df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
-    elif "Calculated Width (Inch)" in df_bom.columns:
-        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Calculated Width (Inch)"].round(1)
     else:
         df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("fabric_width_inch", 58.0))
         
-    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "1X"
+    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
     df_bom_display["material_class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Định cấu hình các cột hiển thị thực tế
     ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
@@ -2041,10 +2037,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, ui_display_density)
                 style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
                 st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
-        except Exception as e: 
-            st.error(f"Lỗi kết xuất Excel: {e}")
+        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # Gọi data_editor hiển thị lưới dữ liệu tương tác thông minh chống Infinite Loop
+    # 🚨 ĐÃ SỬA KEY ĐỊNH DANH MỚI TINH CHỐNG KẸT BUFF CACHE TRÌNH DUYỆT:
+    # Đổi tên key để Streamlit bắt buộc giải phóng hoàn toàn con số 1.6468 cũ
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
@@ -2054,21 +2050,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
                 options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
             )
-        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v10_chat_synced" 
+        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v11_forced_flush" 
     )
 
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
-        
-        # 1. Đồng bộ sửa đổi số lượng rập
         old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
         new_pcs = float(row["Số lượng rập"])
         if old_pcs != new_pcs:
             st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
-            
-        # 2. Đồng bộ sửa đổi loại chất liệu
         old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip()
         new_mat = str(row["Material Class"]).upper().strip()
         if old_mat != new_mat:
