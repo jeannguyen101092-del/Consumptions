@@ -1382,7 +1382,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
        # =====================================================================
-    # 🟩 ĐOẠN 3: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING
+        # =====================================================================
+    # 🟩 ĐOẠN 3: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING (ĐÃ VÁ LỖI UI)
     # =====================================================================
     import numpy as np
     import pandas as pd
@@ -1480,14 +1481,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Xác định danh mục sản phẩm (Prior Category) từ chuỗi văn bản
     prod_upper_name = str(prod).upper().strip()
     product_category = "JEAN_LONG"
-    ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)" # Khởi tạo chuỗi mặc định phục vụ UI
     
     for k in COMPANY_DENSITY_PRIOR.keys():
         if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE"])):
             product_category = k
             break
             
-    # Đồng bộ tên hiển thị chi tiết sang biến cũ ai_product_type để nuôi dòng mã 1141
+    # ⚙️ ĐỒNG BỘ ĐỒNG LOẠT BIẾN CHUỖI GIAO DIỆN CŨ ĐỂ KHỬ SẠCH LỖI NAMEERROR
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
     elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm xòe/Thời trang)"
@@ -1495,6 +1495,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "TOPS_KNIT": ai_product_type = "TOPS_KNIT (Áo thun/Polo)"
     elif product_category == "SHIRT": ai_product_type = "SHIRT (Áo sơ mi)"
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
+    else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
     base_prior = COMPANY_DENSITY_PRIOR[product_category]
 
@@ -1508,6 +1509,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         - (features["width_utilization"] * 0.015)
     )
     estimated_density = max(0.50, min(0.94, base_prior + density_delta))
+
+    # Bộ giải toán toán tính điểm phức tạp liên tục (Complexity Score)
+    complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.2) + (features["avg_void_ratio"] * 80) + (total_pocket_pieces * 2.0)))
+    
+    # Đồng bộ biến tier cũ từ điểm số phức tạp phục vụ dòng mã giao diện 1151
+    ai_complexity = "COMPLEX" if complexity_score >= 50 else "NORMAL"
 
     # Bộ giải toán hao hụt sản xuất thực tế (Đầu cây, nối cây, co rút nghỉ vải, canh sọc)
     base_waste = 1.015 # Hao hụt đầu bàn cắt cố định 1.5%
@@ -1540,6 +1547,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3:
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
+
     # =====================================================================
     # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
     # =====================================================================
