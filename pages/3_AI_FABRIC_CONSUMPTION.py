@@ -1327,6 +1327,10 @@ ctx["lining_width_inch"] = lining_width
 # =====================================================================
 # 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
 # =====================================================================
+# 🚨 BỔ SUNG LỆNH IMPORT THƯ VIỆN REGEX PHỤC VỤ CHO BỘ THÔNG DỊCH LỆNH CHAT VÀ QUÉT SỐ LƯỢNG
+import re
+import pandas as pd
+
 rows = ctx.get("bom_rows", [])
 if not rows:
     rows = st.session_state.get("processed_display_rows", [])
@@ -1380,6 +1384,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else clean_precise_piece_count(row) for idx, row in df_bom.iterrows()
     ]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
+
+    # =====================================================================
+    # 🚨 TÍCH HỢP MỚI: NATURAL LANGUAGE PARSER ENGINE (BỘ THÔNG DỊCH LỆNH CHAT)
+    # =====================================================================
+    # Khởi tạo giá trị mặc định an toàn cho hệ thống trên session_state nếu chưa có
+    if "fabric_width_inch" not in st.session_state:
+        st.session_state["fabric_width_inch"] = 58.0
+    if "warp_shrink" not in st.session_state:
+        st.session_state["warp_shrink"] = 0.0
+    if "weft_shrink" not in st.session_state:
+        st.session_state["weft_shrink"] = 0.0
+
+    # Đọc thớ văn bản trực tiếp từ ô nhập lệnh chat (Yêu cầu ô chat gán key="chat_input_command_box")
+    user_command = str(st.session_state.get("chat_input_command_box", "")).lower().strip()
+
+    if user_command:
+        # A. Quét tìm và bóc tách KHỔ VẢI CHÍNH (Ví dụ bắt trúng: "khổ 56", "kho 56")
+        width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_command)
+        if width_match:
+            parsed_width = float(width_match.group(1))
+            st.session_state["fabric_width_inch"] = parsed_width
+
+        # B. Quét tìm và bóc tách ĐỘ CO RÚT SỢI DỌC (Ví dụ bắt trúng: "dọc 3", "doc 3", "co rút dọc 3")
+        warp_match = re.search(r'(?:dọc|doc)\s*(\d+(?:\.\d+)?)', user_command)
+        if warp_match:
+            parsed_warp = float(warp_match.group(1))
+            st.session_state["warp_shrink"] = parsed_warp
+
+        # C. Quét tìm và bóc tách ĐỘ CO RÚT SỢI NGANG (Ví dụ bắt trúng: "ngang 14", "co rút ngang 14")
+        weft_match = re.search(r'(?:ngang)\s*(\d+(?:\.\d+)?)', user_command)
+        if weft_match:
+            parsed_weft = float(weft_match.group(1))
+            st.session_state["weft_shrink"] = parsed_weft
+
+    # Giải phóng giá trị sau thông dịch ra ngoài để các Đoạn 3, 4, 5 phía sau sử dụng đồng bộ
+    fabric_width = float(st.session_state["fabric_width_inch"])
+    warp_shrink = float(st.session_state["warp_shrink"])
+    weft_shrink = float(st.session_state["weft_shrink"])
 
        # =====================================================================
         # =====================================================================
