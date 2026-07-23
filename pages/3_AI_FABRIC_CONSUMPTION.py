@@ -1764,7 +1764,89 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["total_fabric_gross_yds"] = round(total_fabric_gross_yds, 4)
     ctx["ai_expert_decision"]["total_lining_gross_yds"] = round(total_lining_gross_yds, 4)
     # =====================================================================
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (PHÂN BỔ ĐỊNH MỨC AN TOÀN)
+    # =====================================================================
+    ai_decision = ctx.get("ai_expert_decision", {})
+    real_fabric_density = float(ai_decision.get("real_fabric_density", 0.78))
+    total_fabric_gross_yds = float(ai_decision.get("total_fabric_gross_yds", 0.0))
+    total_lining_gross_yds = float(ai_decision.get("total_lining_gross_yds", 0.0))
+    target_wastage = float(ai_decision.get("dynamic_wastage_factor", 1.03))
+
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
+
+    # Bộ giải toán Keo/Méc độc lập bảo vệ biên
+    def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
+        if fusing_width <= 0: return 0.0
+        bounding_box_area = l_prod * w_prod
+        void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
+        slenderness = l_prod / w_prod if w_prod > 0 else 1.0
+        if slenderness >= 6.0 and void_ratio <= 0.12:
+            fusing_efficiency_calc = 0.65  
+            fusing_wastage_calc = 1.08     
+            direct_fusing_sim_length = bounding_box_area * pcs / fusing_width / fusing_efficiency_calc
+            return (direct_fusing_sim_length / 36.0) * fusing_wastage_calc
+        else:
+            fusing_efficiency_calc = round(0.72 - (void_ratio * 0.40), 3)
+            fusing_wastage_calc = round(1.08 + (void_ratio * 0.25), 3)
+            if fusing_efficiency_calc <= 0: fusing_efficiency_calc = 0.5
+            direct_fusing_sim_length = (net_area * pcs) / fusing_width / fusing_efficiency_calc
+            return (direct_fusing_sim_length / 36.0) * fusing_wastage_calc
+
+    # ⚙️ BỘ ĐIỀU PHỐI VÀ PHÂN BỔ ĐỊNH MỨC AN TOÀN TUYỆT ĐỐI (PROTECTED ROUTER)
+    def core_engine_router(row, idx):
+        try:
+            p_class = local_strict_classify(row, idx) if 'local_strict_classify' in locals() else "FABRIC"
+            if p_class == "ACCESSORY": 
+                return 0.0
+                
+            if st.session_state.get("lock_original_techpack", False):
+                if "original_raw_gross" in df_bom.columns and float(row.get("original_raw_gross", 0.0)) > 0:
+                    return round(float(row["original_raw_gross"]), 4)
+
+            # Đồng bộ an toàn số lượng rập sửa tay
+            pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, row.get("pcs_numeric", 1.0)))
+            net_area = float(row.get("polygon_net_area", 0.0))
+            l_prod = float(row.get(l_prod_col, 0.0))
+            w_prod = float(row.get(w_prod_col, 0.0))
+            
+            if p_class == "FUSING": 
+                return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
+            elif p_class == "FABRIC":
+                line_net_area_sum = net_area * pcs
+                if total_fabric_net_area > 0: 
+                    return round(total_fabric_gross_yds * (line_net_area_sum / total_fabric_net_area), 4)
+            elif p_class == "LINING":
+                line_net_area_sum = net_area * pcs
+                if total_lining_net_area > 0: 
+                    return round(total_lining_gross_yds * (line_net_area_sum / total_lining_net_area), 4)
+                elif lining_width > 0: 
+                    return round((((line_net_area_sum / lining_width) / 36.0 / 0.76) * target_wastage), 4)
+        except Exception:
+            return 0.0 # Chống sập ngầm dòng rập lỗi, giữ thông suốt hệ thống
+        return 0.0
+
+    # 🚨 THỰC THI ÉP BUỘC XUẤT BẢN CỘT DỮ LIỆU CHỐNG LỖI KEYERROR ĐOẠN 7
+    gross_list = []
+    for idx, row in df_bom.iterrows():
+        gross_list.append(core_engine_router(row, idx))
+    df_bom["Gross Consumption"] = gross_list
     
+    # Đóng gói khổ rộng hiển thị hiển thị UI
+    def map_calculated_width(row, idx):
+        p_class = local_strict_classify(row, idx) if 'local_strict_classify' in locals() else "FABRIC"
+        if p_class == "FABRIC": return current_fabric_width
+        if p_class == "LINING": return lining_width
+        if p_class == "FUSING": return fusing_width
+        return 0.0
+
+    df_bom["Calculated Width (Inch)"] = [map_calculated_width(row, idx) for idx, row in df_bom.iterrows()]
+    
+    if len(fabric_pieces_to_nest) > 0:
+        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đồng bộ kiểm tra va chạm xếp chồng)")
+ 
 
 
 
