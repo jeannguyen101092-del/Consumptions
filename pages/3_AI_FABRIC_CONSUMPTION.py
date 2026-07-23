@@ -1556,8 +1556,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-    # =====================================================================
-    # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
+        # =====================================================================
+    # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SMART PATTERN PCS CORRECTOR
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
@@ -1568,7 +1568,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút
+    # Khởi tạo session_state lưu trữ số lượng sửa tay nếu chưa tồn tại
+    if "user_edited_pieces" not in st.session_state:
+        st.session_state["user_edited_pieces"] = {}
+
+    # 🚨 BỘ LỌC TỰ ĐỘNG HIỆU CHỈNH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP (VÁ LỖI TAY 1 MẢNH / THÂN SAU 2 MẢNH)
+    for idx, row in df_bom.iterrows():
+        # Chỉ can thiệp sửa lỗi tự động nếu dòng này người dùng chưa từng chủ động sửa tay trên lưới Grid
+        if idx not in st.session_state["user_edited_pieces"]:
+            comp_name_upper = str(row.get(comp_col_check, "")).upper().strip()
+            
+            # 1. Tự động ép Thân sau về 1 mảnh nếu file gốc khai báo trùng (Trừ trường hợp rã sống lưng SPLIT)
+            if any(k in comp_name_upper for k in ["BACK BODY", "BACK PANEL", "THÂN SAU", "SỐNG LƯNG"]):
+                if float(row.get("pcs_numeric", 0)) == 2.0 and "SPLIT" not in comp_name_upper:
+                    st.session_state["user_edited_pieces"][idx] = 1.0
+                    
+            # 2. Tự động kích Tay áo lên 2 mảnh độc lập nếu file gốc khai báo thiếu hụt
+            elif any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
+                if float(row.get("pcs_numeric", 0)) == 1.0:
+                    st.session_state["user_edited_pieces"][idx] = 2.0
+
+    # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút sản xuất
     def _internal_material_classify(row, idx):
         fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
         lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
@@ -1578,11 +1598,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
         return "FABRIC"
 
-    # 1. Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
+    # Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
     def calc_production_width(row):
         w_orig, l_orig = float(row[orig_w_col]), float(row[orig_l_col])
         mat_class = _internal_material_classify(row, row.name)
         
+        # Áp độ co rút sợi ngang tùy theo loại vật liệu thực tế
         if mat_class == "FABRIC":
             w_expanded = w_orig * (1 + weft_shrink / 100.0)
         elif mat_class == "FUSING":
@@ -1592,7 +1613,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_expanded = w_orig
 
-        # Logic phẳng quần công nghiệp cho các chi tiết thân lớn
+        # Logic phẳng sản phẩm công nghiệp cho các chi tiết thân lớn
         if l_orig >= 32.0 and w_orig >= 10.0:
             name = str(row.get(comp_col_check, "")).lower()
             if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) 
@@ -1604,6 +1625,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         l_orig = float(row[orig_l_col])
         mat_class = _internal_material_classify(row, row.name)
         
+        # Áp độ co rút sợi dọc tùy theo loại vật liệu thực tế
         if mat_class == "FABRIC":
             return round(l_orig * (1 + warp_shrink / 100.0), 3)
         elif mat_class == "FUSING":
@@ -1617,7 +1639,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
 
-    # Định nghĩa hệ số hình học lấp đầy thực tế
+    # Định nghĩa hệ số hình học lấp đầy thực tế (Shape Factor)
     def get_dynamic_shape_factor(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
         mat_class = str(row.get(m_col, "")).upper().strip()
@@ -1631,13 +1653,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         return 0.76
 
-    # Diện tích tịnh (polygon_net_area) phản ánh chính xác thớ vải sau co rút
+    # Diện tích tịnh (polygon_net_area) phản ánh chính xác thớ vải sau co rút hình học
     df_bom["polygon_net_area"] = df_bom.apply(
         lambda r: round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_dynamic_shape_factor(r), 2), 
         axis=1
     )
 
-    # 📊 BỘ ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN (SOLVER ROUTER)
+    # 📊 BỘ ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN SƠ SỬA RẢI BÀN CẮT (SOLVER ROUTER)
     def rule_engine_coordinator(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
         if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]):
