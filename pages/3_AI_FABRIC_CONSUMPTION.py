@@ -1627,8 +1627,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
     # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FLAT CODE)
+    # =====================================================================
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FIX QUẦN X2 THÂN)
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
@@ -1659,7 +1659,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
 
-    # Duyệt vòng lặp tuyến tính tính toán đồng bộ phẳng hoàn toàn
+    # Duyệt vòng lặp tuyến tính phẳng tuyệt đối, gỡ lỗi thụt lề dứt điểm
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1695,7 +1695,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 p_class, class_confidence = ("FABRIC", 0.95) if net_area_raw > 200.0 else ("FABRIC", 0.70)
 
         # Kiểm tra xem có phải là mặt hàng Quần tây / Quần Jeans hay không
-        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN"])
+        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG"])
 
         # Bước B: Khống chế điểm rộng cực đại bao cảnh (Chỉ áp dụng cho Áo/Đầm tùng xòe, KHÓA CHẶT CHO QUẦN)
         if p_class == "FABRIC" and not is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "BODY", "PANEL", "THÂN"]):
@@ -1715,11 +1715,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        # Logic phẳng sản phẩm công nghiệp (Chỉ áp dụng cho Áo dài)
-        if l_orig >= 32.0 and w_orig >= 10.0 and not is_trouser_item:
-            if "FRONT" in comp_name_upper or "TRƯỚC" in comp_name_upper: w_prod = w_prod * 0.95
-            if "BACK" in comp_name_upper or "SAU" in comp_name_upper: w_prod = w_prod * 0.98
-
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
@@ -1730,17 +1725,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         l_orig_safe = l_orig if l_orig > 0 else 1.0
         w_orig_safe = w_orig if w_orig > 0 else 1.0
-        is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe)) > 450.0 and (l_prod / (w_prod if w_prod > 0 else 1.0)) < 1.8)
+        is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod*w_prod) / (l_orig_safe*w_orig_safe)) > 450.0 and (l_prod / (w_prod if w_prod > 0 else 1.0)) < 1.8)
         
-        has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
-        has_back = any(k in comp_name_upper for k in ["BACK", "SAU"])
+        # 🚨 MỞ RỘNG TỪ KHÓA BẮT CHUỖI KHÔNG GIAN QUẦN CÔNG NGHIỆP: Chấp nhận cả LEG, PANEL, FRONT, BACK
+        has_front_kw = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
+        has_back_kw = any(k in comp_name_upper for k in ["BACK", "SAU"])
         
         if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 150.0:
-            if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
-                if has_front: inferred_pcs, qty_confidence = (1.0 if is_wide_piece else 2.0), 0.95
-                elif has_back: inferred_pcs, qty_confidence = (2.0 if w_prod < 16.0 else 1.0), 0.90
-            elif is_trouser_item:
-                if has_front or has_back: inferred_pcs = 2.0
+            if is_trouser_item:
+                # 🚨 CƯỠNG BỨC QUẦN LUÔN ĐI THEO CẶP: Thân trước hay thân sau quần đều bắt buộc phải là 2 mảnh chẵn thớ cắt
+                if has_front_kw or has_back_kw or "LEG" in comp_name_upper:
+                    inferred_pcs = 2.0
+                    qty_confidence = 0.99
+            else:
+                if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
+                    if has_front_kw: inferred_pcs, qty_confidence = (1.0 if is_wide_piece else 2.0), 0.95
+                    elif has_back_kw: inferred_pcs, qty_confidence = (2.0 if w_prod < 16.0 else 1.0), 0.90
+                    
         if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE"]): inferred_pcs = 2.0
 
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
@@ -1765,6 +1766,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Rộng sản xuất (W-inch)"] = p_width_list
     df_bom["polygon_net_area"] = p_area_list
     df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
+
 
 
     # =====================================================================
