@@ -1583,6 +1583,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
+    # 🚨 ĐÃ VÁ LỖI CÚ PHÁP: Đảo thớ khai báo hai biến này lên đầu khối lệnh để nuôi các hàm phía sau
+    ai_decision_d4 = ctx.get("ai_expert_decision", {})
+    current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
+    prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
+
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
@@ -1595,8 +1600,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             # Lấy thông số hình học thô ban đầu từ file CAD
             raw_pcs = float(row.get("pcs_numeric", 1.0))
-            l_orig = float(row.get(orig_l_col, 0.0))
-            w_orig = float(row.get(orig_w_col, 0.0))
+            l_orig = float(row.get(orig_l_col, 0.0)) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
+            w_orig = float(row.get(orig_w_col, 0.0)) if 'orig_w_col' in locals() and orig_w_col in row else float(row.get("width", 0.0))
             net_area = float(row.get("polygon_net_area", 0.0))
             
             # Chỉ xử lý suy luận cho các chi tiết thân lớn (MAJOR_PANEL), bỏ qua phụ liệu nhỏ
@@ -1604,9 +1609,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             if is_major_panel:
                 # Bước A: Nhận diện cấu trúc Đối xứng/Cặp (Symmetry Detection)
-                # Nếu chi tiết có bề rộng W rất lớn (gần bằng nửa vòng thắt lưng/ngực), khả năng cao đây là mảnh liền trục đơn
-                # Nếu chi tiết hẹp và dài dọc, có xu hướng là mảnh đối xứng Cặp (Trái + Phải)
-                is_wide_piece = (w_orig > 20.0) or (net_area > 500.0 and (l_orig / w_orig) < 1.5)
+                is_wide_piece = (w_orig > 20.0) or (net_area > 500.0 and w_orig > 0 and (l_orig / w_orig) < 1.5)
                 
                 # Bước B: Đối soát từ khóa hướng để khóa cấu trúc
                 has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
@@ -1669,7 +1672,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
     def calc_production_width(row):
-        w_orig, l_orig = float(row[orig_w_col]), float(row[orig_l_col])
+        w_orig = float(row[orig_w_col]) if 'orig_w_col' in locals() and orig_w_col in row else float(row.get("width", 0.0))
+        l_orig = float(row[orig_l_col]) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
         mat_class = _internal_material_classify(row, row.name)
         
         if mat_class == "FABRIC":
@@ -1689,7 +1693,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return round(w_expanded, 3)
 
     def calc_production_length(row):
-        l_orig = float(row[orig_l_col])
+        l_orig = float(row[orig_l_col]) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
         mat_class = _internal_material_classify(row, row.name)
         
         if mat_class == "FABRIC":
@@ -1727,6 +1731,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+
 
 
 
