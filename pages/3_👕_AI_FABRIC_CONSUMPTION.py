@@ -209,7 +209,7 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 # ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs MÀU SẮC ĐỘNG & KHÓA ĐỈNH XANH SƯƠNG MÙ
 # =====================================================================
 
-# 🌟 Đ_ ĐỔI: background-color sang #f0f4f8 để khít màu với nền chính khi cuộn chuột 🌟
+# 🌟 FIX TRIỆT ĐỂ: Dùng chuỗi f-string chuẩn mã hóa biến để không bao giờ bị lộ chữ mã nguồn 🌟
 st.markdown(
     f"""
     <div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f0f4f8; padding: 15px 20px 10px 0px; box-sizing: border-box;">
@@ -226,25 +226,25 @@ st.markdown(
             
             <!-- Ô KPIs 1: Mã hàng -->
             <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{{kpi_style_id}}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
+                <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
                 <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👕</span></div>
             </div>
 
             <!-- Ô KPIs 2: Tổng vật tư -->
             <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{{total_materials}} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
+                <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
                 <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👖</span></div>
             </div>
 
             <!-- Ô KPIs 3: Định mức vải -->
             <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{{main_fabric_cons}}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
+                <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
                 <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">✂️</span></div>
             </div>
 
             <!-- Ô KPIs 4: Cỡ hạt -->
             <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{{active_size_kpi}}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
+                <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
                 <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">🧵</span></div>
             </div>
 
@@ -253,9 +253,10 @@ st.markdown(
 
     <!-- 3. KHỐI ĐỆM: Đẩy khung Uploader ở dưới xuống không bị đè mất chữ -->
     <div style="height: 245px; width: 100%;"></div>
-    """.format(kpi_style_id=kpi_style_id, total_materials=total_materials, main_fabric_cons=main_fabric_cons, active_size_kpi=active_size_kpi), 
+    """, 
     unsafe_allow_html=True
 )
+
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU XANH NGỌC LAM SÁNG RÕ) ---
