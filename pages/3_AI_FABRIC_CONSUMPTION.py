@@ -1571,26 +1571,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & AI STRUCTURE ANALYTICS
+           # =====================================================================
+    # 🟩 ĐOẠN 4.1: AI PATTERN SPLITTER ENGINE (BỘ TỰ ĐỘNG BÓC TÁCH DÒNG THÂN)
     # =====================================================================
-    pattern_has_shrink = True  
+    import pandas as pd
+
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 🚨 BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT CHIỀU DÀI / CHIỀU RỘNG GỐC CỦA FILE CAD
+    # Bộ sniffer dò tìm chính xác cột chiều dài / chiều rộng gốc của file CAD
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
-    
-    # Nếu bộ dò tìm tự động bắt trúng, gán thẳng thớ biên, nếu không mới dùng biến toàn cục dự phòng
     actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
     actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
 
-    # Đọc thông số co rút thớ vải từ UI
-    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
-    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
-    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
-    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
-
+    # Kế thừa Product Category đã quét được từ bộ não tri thức Đoạn 3
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
@@ -1598,58 +1592,72 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # 🧠 AI STRUCTURE ANALYTICS ENGINE (TỰ SUY LUẬN SỐ LƯỢNG THEO CẤU TRÚC HÌNH HỌC PHẲNG)
+    # Thuật toán quét và rã dòng thân lớn bị viết gộp chung chung
+    split_rows = []
+    has_performed_split = False
+
+    for idx, row in df_bom.iterrows():
+        comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        role_type_upper = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
+        
+        is_major_panel = any(k in role_type_upper or k in comp_name_upper for k in ["MAJOR_PANEL", "THÂN CHÍNH", "BODY"])
+        has_direction = any(k in comp_name_upper for k in ["FRONT", "BACK", "TRƯỚC", "SAU"])
+        
+        # Phát hiện lỗi dòng gộp vô định danh (Tên chỉ ghi BODY/PANEL chung chung mà rộng > 18 inch hoặc số lượng bằng 2)
+        if is_major_panel and not has_direction:
+            has_performed_split = True
+            
+            # Tạo bản sao bẻ đôi dòng 1: Ép thành THÂN TRƯỚC RIÊNG BIỆT
+            row_front = row.copy()
+            row_front[comp_col_check] = "AI_SPLIT - BODY FRONT PANEL (Thân Trước)"
+            row_front["pcs_numeric"] = 1.0 if "DRESS" in current_prod_cat or "SHIRT" in current_prod_cat else 2.0
+            
+            # Tạo bản sao bẻ đôi dòng 2: Ép thành THÂN SAU RIÊNG BIỆT
+            row_back = row.copy()
+            row_back[comp_col_check] = "AI_SPLIT - BODY BACK PANEL (Thân Sau)"
+            row_back["pcs_numeric"] = 2.0 if "DRESS" in current_prod_cat or "JEAN" in current_prod_cat else 1.0
+            
+            # Đai nẹp thớ rộng thân sau thường hẹp hơn thân trước một chút để khít cơ thể thực tế
+            if actual_w_col in row_back:
+                row_back[actual_w_col] = round(float(row.get(actual_w_col, 0.0)) * 0.96, 2)
+            
+            split_rows.append(row_front)
+            split_rows.append(row_back)
+        else:
+            split_rows.append(row)
+
+    # Nếu có thớ gộp, cập nhật lại cấu hình DataFrame mới cho toàn hệ thống pipeline phía sau thông suốt
+    if has_performed_split:
+        df_bom = pd.DataFrame(split_rows).reset_index(drop=True)
+
+    # 🧠 AI SUY LUẬN SỐ LƯỢNG MẢNH RẬP CHUẨN KỸ THUẬT (ĐẠT CHUẨN BIỆT LẬP TT / TS)
     for idx, row in df_bom.iterrows():
         if idx not in st.session_state["user_edited_pieces"]:
             comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-            role_type_upper = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
-            
-            # Trích xuất an toàn thông số hình học phẳng từ cột đã dò tìm thấy
             raw_pcs = float(row.get("pcs_numeric", 1.0))
-            l_orig = float(row.get(actual_l_col, 0.0))
             w_orig = float(row.get(actual_w_col, 0.0))
-            net_area = float(row.get("polygon_net_area", 0.0))
             
-            is_major_panel = any(k in role_type_upper or k in comp_name_upper for k in ["MAJOR_PANEL", "THÂN CHÍNH", "BODY"])
-            
-            if is_major_panel:
-                # Bước A: Nhận diện cấu trúc Đối xứng/Cặp (Symmetry Detection)
-                is_wide_piece = (w_orig > 20.0) or (net_area > 500.0 and w_orig > 0 and (l_orig / w_orig) < 1.5)
-                
-                # Bước B: Đối soát từ khóa hướng để khóa cấu trúc
-                has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
-                has_back = any(k in comp_name_upper for k in ["BACK", "SAU"])
-                has_split = any(k in comp_name_upper for k in ["SPLIT", "RÃ", "MỔ", "CENTER", "SỐNG"])
-                
-                # Bước C: Thực thi suy luận số lượng mảnh rập thực tế rải bàn cắt
-                if "SKIRT" in current_prod_cat or "VÁY" in prod_upper_name:
-                    if not has_front and not has_back and not is_wide_piece:
-                        st.session_state["user_edited_pieces"][idx] = 4.0
-                    else:
-                        st.session_state["user_edited_pieces"][idx] = raw_pcs
-                        
-                elif "DRESS" in current_prod_cat or "ĐẦM" in prod_upper_name:
-                    if has_front and is_wide_piece:
-                        st.session_state["user_edited_pieces"][idx] = 1.0
-                    elif has_back and (has_split or not is_wide_piece):
-                        st.session_state["user_edited_pieces"][idx] = 2.0
-                    else:
-                        st.session_state["user_edited_pieces"][idx] = raw_pcs
-                        
-                elif "JACKET" in current_prod_cat or "VEST" in current_prod_cat:
-                    if has_front:
-                        st.session_state["user_edited_pieces"][idx] = 2.0
-                    elif has_back:
-                        st.session_state["user_edited_pieces"][idx] = 2.0 if has_split else 1.0
-                    else:
-                        st.session_state["user_edited_pieces"][idx] = raw_pcs
-                else:
-                    st.session_state["user_edited_pieces"][idx] = raw_pcs
+            # 1. Nhóm cấu trúc ĐẦM / VÁY / ÁO SƠ MI / JACKET / VEST
+            if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
+                if any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"]):
+                    st.session_state["user_edited_pieces"][idx] = 1.0 if w_orig > 18.0 else 2.0
+                elif any(k in comp_name_upper for k in ["BACK", "SAU"]):
+                    st.session_state["user_edited_pieces"][idx] = 2.0 if w_orig < 16.0 else 1.0
+                    
+            # 2. Nhóm cấu trúc QUẦN DÀI / QUẦN SHORT
+            elif "JEAN" in current_prod_cat or "SHORT" in current_prod_cat or "PANTS" in prod_upper_name:
+                if any(k in comp_name_upper for k in ["FRONT", "BACK", "TRƯỚC", "SAU"]):
+                    st.session_state["user_edited_pieces"][idx] = 2.0 
+            else:
+                st.session_state["user_edited_pieces"][idx] = raw_pcs
 
+            # 🚨 LUÔN LUÔN ÉP TAY ÁO (SLEEVE) VỀ ĐÚNG 2 MẢNH ĐỘC LẬP CHỐNG LỖI FILE GỐC GHI THIẾU
             if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
                 if raw_pcs == 1.0:
                     st.session_state["user_edited_pieces"][idx] = 2.0
-
+    # =====================================================================
+    # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
+    # =====================================================================
     # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút sản xuất
     def _internal_material_classify(row, idx):
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
@@ -1731,6 +1739,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+
 
 
 
