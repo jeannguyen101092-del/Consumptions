@@ -288,30 +288,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- 4 CHUỖI SVG ĐÃ MÃ HÓA URL CHUẨN ĐỂ ĐỔI HÌNH ÁO QUẦN ---
-encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M6%206h12%27%2F%3E%3Cpath%20d%3D%27M12%206v14%27%2F%3E%3C%2Fsvg%3E"
-encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12v4l1%2014H13l-1-7-1%207H5l1-14V2z%27%2F%3E%3Cpath%20d%3D%27M6%205h12%27%2F%3E%3Cpath%20d%3D%27M10%202v3%27%2F%3E%3Cpath%20d%3D%27M14%202v3%27%2F%3E%3C%2Fsvg%3E"
-encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16v7l-2%2013H6L4%209V2z%27%2F%3E%3Cpath%20d%3D%27M4%202l8%206 8-6%27%2F%3E%3Cpath%20d%3D%27M12%208v14%27%2F%3E%3Cpath%20d%27M7%2012h3%27%2F%3E%3Cpath%20d%3D%27M14%2012h3%27%2F%3E%3C%2Fsvg%3E"
-encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9%202h6l2%205-4%2015H11L7%207l2-5z%27%2F%3E%3Cpath%20d%3D%27M7%207h10%27%2F%3E%3Cpath%20d%3D%27M9%2012h6%27%2F%3E%3Cpath%20d%3D%27M8%2017h8%27%2F%3E%3C%2Fsvg%3E"
+# 🌐 THAY THẾ BẰNG ĐƯỜNG LINK ẢNH TRỰC TUYẾN (URL HOSTING) 🌐
+# Các icon áo, quần, vest, váy được thiết kế tinh giản, sắc nét
+encoded_ao = "https://ibb.co"
+encoded_quan = "https://ibb.co"
+encoded_vest = "https://ibb.co"
+encoded_vay = "https://ibb.co"
 
 # Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_ao}" alt="Ao"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_ao}" alt="Ao" width="65"></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_quan}" alt="Quan"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_quan}" alt="Quan" width="65"></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vest}" alt="Vest"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_vest}" alt="Vest" width="65"></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_vay}" alt="Vay" width="65"></div>', unsafe_allow_html=True)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
