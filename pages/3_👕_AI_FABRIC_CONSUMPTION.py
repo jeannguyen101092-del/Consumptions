@@ -226,23 +226,45 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GHIM CỐ ĐỊNH TRÊN ĐỈNH
 # =====================================================================
 
+# 🌟 BẮT ĐẦU MỞ KHỐI ĐỂ GHIM CỐ ĐỊNH TIÊU ĐỀ VÀ KPIs TRÊN ĐỈNH BÊN PHẢI 🌟
 st.markdown(
     """
-    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
-        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
-        </h2>
+    <div style="position: -webkit-sticky; position: sticky; top: 0; z-index: 999; background-color: #f1f5f9; padding-top: 10px; padding-bottom: 15px; margin-bottom: 10px;">
+        <!-- Thanh tiêu đề ERP màu xanh ngọc -->
+        <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
+            <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
+                🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
+            </h2>
+        </div>
     </div>
     """, 
     unsafe_allow_html=True
 )
 
-k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+# 🌟 ÉP 4 Ô KPIs NATIVE CỦA STREAMLIT GHIM THEO TIÊU ĐỀ 🌟
+# Thiết lập container bao quanh 4 cột để ép dính theo thanh tiêu đề phía trên
+st.markdown(
+    """
+    <style>
+        /* Khóa chết hàng chứa 4 ô KPIs khi cuộn màn hình */
+        div[data-testid="stHorizontalBlock"]:has(.kpi-box-flat-matrix) {
+            position: -webkit-sticky !important;
+            position: sticky !important;
+            top: 75px !important; /* Đứng ngay sát dưới thanh tiêu đề xanh */
+            z-index: 998 !important;
+            background-color: #f1f5f9 !important; /* Khớp màu nền để không bị đè chữ phía dưới */
+            padding-bottom: 15px !important;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-# Cấu hình kích thước icon cực lớn (85px) kèm đổ bóng sâu ban đầu mờ nhẹ
+# Phân bổ lưới 4 ô KPIs gốc của bạn (Giữ nguyên logic của hệ thống)
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 emoji_style = "font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.12));"
 
 with k_col1: 
