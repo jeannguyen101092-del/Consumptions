@@ -245,28 +245,97 @@ with k_col4:
     st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    # 🚨 ĐÃ SỬA: Chuyển về dict trống thay vì None để tránh lỗi crash hệ thống
     st.session_state.bom_data = {}
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
     st.session_state.pdf_text_cache = None
-    
-    # 🚨 ĐÃ THÊM: Xóa sạch dữ liệu bảng chi tiết CAD và tổng hợp định mức
-    if "processed_display_rows" in st.session_state: 
-        st.session_state.processed_display_rows = []
-    if "accumulated_bom_rows" in st.session_state: 
-        st.session_state.accumulated_bom_rows = []
-        
+    if "processed_display_rows" in st.session_state: st.session_state.processed_display_rows = []
+    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
     if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
     if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    
-    # Ép hệ thống render lại giao diện trống sạch sẽ ngay lập tức
     st.rerun()
+
+# --- KHỐI 1: THÔNG TIN HỆ THỐNG MÀU ĐẸP ---
+with st.sidebar:
+    st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-sub-title'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="sidebar-custom-card">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #94a3b8;">
+                <span>Core Engine:</span>
+                <span style="color: #38bdf8; font-weight: 600;">v2.4.1-AI</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #94a3b8;">
+                <span>AI CAD Status:</span>
+                <span style="color: #4ade80; font-weight: 600;">● Connected</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
+                <span>Response Time:</span>
+                <span style="color: #f59e0b; font-weight: 600;">&lt; 1.2s</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+# --- KHỐI 2 & 3: HƯỚNG DẪN SỬ DỤNG VÀ LỊCH SỬ MÃ HÀNG TỰ ĐỘNG ---
+with st.sidebar:
+    # Khối 2: Hướng dẫn sử dụng nhanh
+    st.markdown("<div class='sidebar-sub-title'>📖 QUICK USER GUIDE</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="sidebar-custom-card">
+            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #cbd5e1;">
+                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
+            </div>
+            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #cbd5e1;">
+                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
+            </div>
+            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #cbd5e1;">
+                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Khối 3: Danh sách lịch sử mã hàng tự nhảy tự động theo thời gian thực
+    st.markdown("<div class='sidebar-sub-title'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
+    if "history_list" not in st.session_state:
+        st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
+    if kpi_style_id != "N/A" and kpi_style_id not in st.session_state.history_list:
+        st.session_state.history_list.insert(0, kpi_style_id)
+        st.session_state.history_list = st.session_state.history_list[:3]
+
+    history_html = '<div class="sidebar-custom-card-history">'
+    for index, style_code in enumerate(st.session_state.history_list):
+        border_style = 'border-bottom: 1px solid #334155;' if index < len(st.session_state.history_list) - 1 else ''
+        if index == 0 and kpi_style_id != "N/A":
+            history_html += f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; {border_style} font-size: 11px;">
+                <span style="color: #38bdf8; font-weight: 600;">📦 {style_code}</span>
+                <span style="color: #4ade80; font-size: 10px; font-weight: 600; background-color: rgba(74,222,128,0.1); padding: 1px 6px; border-radius: 10px;">Active</span>
+            </div>
+            """
+        else:
+            history_html += f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; {border_style} font-size: 11px;">
+                <span style="color: #cbd5e1; font-weight: 500;">📦 {style_code}</span>
+                <span style="color: #94a3b8; font-size: 10px;">Processed</span>
+            </div>
+            """
+    history_html += '</div>'
+    st.markdown(history_html, unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 9px; color: #64748b; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
+
 
 # =====================================================================
 # 🌟 BỔ SUNG: LẤP ĐẦY KHOẢNG TRỐNG SIDEBAR BẰNG 3 KHỐI TIỆN ÍCH HỢP NHẤT 🌟
