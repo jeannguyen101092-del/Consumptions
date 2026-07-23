@@ -1846,15 +1846,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"].update({"real_fabric_density": round(real_fabric_density, 4), "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), "total_lining_gross_yds": round(total_lining_gross_yds, 4)})
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (CHỐNG TÍNH CAO THÂN SAU)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐÃ VÁ LỖI ZERO DIVISION)
     # =====================================================================
     # Giải toán Keo/Méc độc lập bảo vệ biên
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-        if l_prod / w_prod >= 6.0 and void_ratio <= 0.12:
+        
+        # 🚨 ĐÃ SỬA VÁ LỖI CHÍNH XÁC: Chặn biên w_prod > 0 để triệt tiêu hoàn toàn lỗi ZeroDivisionError
+        slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
+        
+        if slenderness >= 6.0 and void_ratio <= 0.12:
             return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
 
@@ -1873,19 +1877,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
             
         elif p_class == "FABRIC":
-            # 🚨 THUẬT TOÁN KHỬ LỖI KHÔNG GIAN TRỐNG ÁO JACKET:
-            # Nếu chi tiết thân sau độc lập (1 mảnh) rộng > 25 inch, tính toán hiệu suất chia sẻ khổ rộng thực tế
+            # Thuật toán khử lỗi khoảng trống gánh thừa cho thân sau
             comp_name_upper = str(v_piece.get("component_name", "")).upper().strip()
             adjusted_share_area = net_area * pcs
             
             if "BACK" in comp_name_upper and pcs == 1.0 and w_prod > 25.0 and current_fabric_width > 0:
-                # Tính toán tỷ lệ chiếm dụng thực tế ngang thảm cắt
-                width_occupancy_ratio = w_prod / current_fabric_width # Ví dụ: 30.21 / 58 = 52%
-                # Nếu chiếm khổ rộng một mình dưới 65% khổ vải, tự động giảm trừ 20% trọng số diện tích trống ảo gánh thừa
+                width_occupancy_ratio = w_prod / current_fabric_width
                 if width_occupancy_ratio < 0.65:
-                    adjusted_share_area = adjusted_share_area * 0.76 # Khấu trừ vùng trống ảo bàn cắt
+                    adjusted_share_area = adjusted_share_area * 0.76 
             
-            # Cập nhật lại phép chia tỷ lệ đóng góp tiêu hao vải chính sạch
             if total_fabric_net_area > 0:
                 # Tính toán lại tổng thớ diện tích vải chính sau khi đã tối ưu hóa chia sẻ khoảng trống
                 total_fabric_net_area_adjusted = sum([vp["production_net_area"] * vp["inferred_pieces"] * (0.76 if "BACK" in vp["component_name"].upper() and vp["inferred_pieces"] == 1.0 and vp["production_w"] > 25.0 else 1.0) for vp in virtual_pieces_layer.values() if vp["inferred_class"] == "FABRIC"])
@@ -1905,6 +1905,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đồng bộ khử lỗi khoảng trống thân sau)")
+
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
