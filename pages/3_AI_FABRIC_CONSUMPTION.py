@@ -1571,7 +1571,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-           # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 4.1: AI PATTERN SPLITTER ENGINE (BỘ TỰ ĐỘNG BÓC TÁCH DÒNG THÂN)
     # =====================================================================
     import pandas as pd
@@ -1583,6 +1583,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
     actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
     actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+
+    # Khóa an toàn thông số co rút vào bộ nhớ hệ thống làm cầu nối vùng nhớ cho Đoạn 4.2
+    st.session_state["_fusing_warp_shrink"] = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    st.session_state["_fusing_weft_shrink"] = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    st.session_state["_lining_warp_shrink"] = float(st.session_state.get("lining_warp_shrink", 0.0))
+    st.session_state["_lining_weft_shrink"] = float(st.session_state.get("lining_weft_shrink", 0.0))
 
     # Kế thừa Product Category đã quét được từ bộ não tri thức Đoạn 3
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
@@ -1603,7 +1609,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         is_major_panel = any(k in role_type_upper or k in comp_name_upper for k in ["MAJOR_PANEL", "THÂN CHÍNH", "BODY"])
         has_direction = any(k in comp_name_upper for k in ["FRONT", "BACK", "TRƯỚC", "SAU"])
         
-        # Phát hiện lỗi dòng gộp vô định danh (Tên chỉ ghi BODY/PANEL chung chung mà rộng > 18 inch hoặc số lượng bằng 2)
         if is_major_panel and not has_direction:
             has_performed_split = True
             
@@ -1617,7 +1622,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             row_back[comp_col_check] = "AI_SPLIT - BODY BACK PANEL (Thân Sau)"
             row_back["pcs_numeric"] = 2.0 if "DRESS" in current_prod_cat or "JEAN" in current_prod_cat else 1.0
             
-            # Đai nẹp thớ rộng thân sau thường hẹp hơn thân trước một chút để khít cơ thể thực tế
             if actual_w_col in row_back:
                 row_back[actual_w_col] = round(float(row.get(actual_w_col, 0.0)) * 0.96, 2)
             
@@ -1626,35 +1630,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             split_rows.append(row)
 
-    # Nếu có thớ gộp, cập nhật lại cấu hình DataFrame mới cho toàn hệ thống pipeline phía sau thông suốt
     if has_performed_split:
         df_bom = pd.DataFrame(split_rows).reset_index(drop=True)
 
-    # 🧠 AI SUY LUẬN SỐ LƯỢNG MẢNH RẬP CHUẨN KỸ THUẬT (ĐẠT CHUẨN BIỆT LẬP TT / TS)
+    # 🧠 AI SUY LUẬN SỐ LƯỢNG MẢNH RẬP CHUẨN KỸ THUẬT
     for idx, row in df_bom.iterrows():
         if idx not in st.session_state["user_edited_pieces"]:
             comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
             raw_pcs = float(row.get("pcs_numeric", 1.0))
             w_orig = float(row.get(actual_w_col, 0.0))
             
-            # 1. Nhóm cấu trúc ĐẦM / VÁY / ÁO SƠ MI / JACKET / VEST
             if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
                 if any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"]):
                     st.session_state["user_edited_pieces"][idx] = 1.0 if w_orig > 18.0 else 2.0
                 elif any(k in comp_name_upper for k in ["BACK", "SAU"]):
                     st.session_state["user_edited_pieces"][idx] = 2.0 if w_orig < 16.0 else 1.0
-                    
-            # 2. Nhóm cấu trúc QUẦN DÀI / QUẦN SHORT
             elif "JEAN" in current_prod_cat or "SHORT" in current_prod_cat or "PANTS" in prod_upper_name:
                 if any(k in comp_name_upper for k in ["FRONT", "BACK", "TRƯỚC", "SAU"]):
                     st.session_state["user_edited_pieces"][idx] = 2.0 
             else:
                 st.session_state["user_edited_pieces"][idx] = raw_pcs
 
-            # 🚨 LUÔN LUÔN ÉP TAY ÁO (SLEEVE) VỀ ĐÚNG 2 MẢNH ĐỘC LẬP CHỐNG LỖI FILE GỐC GHI THIẾU
             if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
-                if raw_pcs == 1.0:
-                    st.session_state["user_edited_pieces"][idx] = 2.0
+                if raw_pcs == 1.0: st.session_state["user_edited_pieces"][idx] = 2.0
     # =====================================================================
     # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
     # =====================================================================
@@ -1678,7 +1676,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return "FUSING"
         return "FABRIC"
 
-    # Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
+    # Thuật toán nắn kích thước sản xuất (Đọc an toàn từ bộ nhớ st.session_state)
     def calc_production_width(row):
         w_orig = float(row.get(actual_w_col, 0.0))
         l_orig = float(row.get(actual_l_col, 0.0))
@@ -1687,9 +1685,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if mat_class == "FABRIC":
             w_expanded = w_orig * (1 + weft_shrink / 100.0)
         elif mat_class == "FUSING":
-            w_expanded = w_orig * (1 + fusing_weft_shrink / 100.0)
+            w_expanded = w_orig * (1 + st.session_state.get("_fusing_weft_shrink", 0.0) / 100.0)
         elif mat_class == "LINING":
-            w_expanded = w_orig * (1 + lining_weft_shrink / 100.0)
+            w_expanded = w_orig * (1 + st.session_state.get("_lining_weft_shrink", 0.0) / 100.0)
         else:
             w_expanded = w_orig
 
@@ -1707,13 +1705,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if mat_class == "FABRIC":
             return round(l_orig * (1 + warp_shrink / 100.0), 3)
         elif mat_class == "FUSING":
-            return round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
+            return round(l_orig * (1 + st.session_state.get("_fusing_warp_shrink", 0.0) / 100.0), 3)
         elif mat_class == "LINING":
-            return round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
+            return round(l_orig * (1 + st.session_state.get("_lining_warp_shrink", 0.0) / 100.0), 3)
             
         return round(l_orig, 3)
 
-    # Thực thi nắn kích thước sản xuất L và W đồng bộ cho toàn bảng BOM
+    # Thực thi xuất bản thông số hình học phẳng sản xuất L và W đồng bộ cho DataFrame
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
 
