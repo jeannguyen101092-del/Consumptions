@@ -1381,8 +1381,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ]
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
-        # =====================================================================
-    #     # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 3: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING
     # =====================================================================
     import numpy as np
@@ -1481,10 +1480,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Xác định danh mục sản phẩm (Prior Category) từ chuỗi văn bản
     prod_upper_name = str(prod).upper().strip()
     product_category = "JEAN_LONG"
+    ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)" # Khởi tạo chuỗi mặc định phục vụ UI
+    
     for k in COMPANY_DENSITY_PRIOR.keys():
         if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE"])):
             product_category = k
             break
+            
+    # Đồng bộ tên hiển thị chi tiết sang biến cũ ai_product_type để nuôi dòng mã 1141
+    if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
+    elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
+    elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm xòe/Thời trang)"
+    elif product_category == "SKIRT": ai_product_type = "SKIRT (Chân váy)"
+    elif product_category == "TOPS_KNIT": ai_product_type = "TOPS_KNIT (Áo thun/Polo)"
+    elif product_category == "SHIRT": ai_product_type = "SHIRT (Áo sơ mi)"
+    elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     
     base_prior = COMPANY_DENSITY_PRIOR[product_category]
 
@@ -1521,7 +1531,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.session_state["bom_data"] = ctx
 
-    # Hiển thị giải trình UI trực quan dữ liệu đặc trưng hình học
+    # Xuất thông tin giải trình trực quan lên giao diện UI chính
     st.subheader("🧠 Hệ Thống Trích Xuất Đặc Trưng Hình Học AI CAD Engine")
     m1, m2, m3 = st.columns(3)
     with m1:
@@ -1530,11 +1540,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3:
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
-
-
-
-
-        # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
     # =====================================================================
     pattern_has_shrink = True  
@@ -1546,12 +1552,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
+    # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút
+    def _internal_material_classify(row, idx):
+        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
+        lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
+        mat_str = str(row[m_col]).upper().strip()
+        comp_str = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
+        if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
+        if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
+        return "FABRIC"
+
     # 1. Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
     def calc_production_width(row):
         w_orig, l_orig = float(row[orig_w_col]), float(row[orig_l_col])
-        mat_class = local_strict_classify(row, row.name) if 'local_strict_classify' in locals() else "FABRIC"
+        mat_class = _internal_material_classify(row, row.name)
         
-        # Áp độ co rút sợi ngang tùy theo loại vật liệu
         if mat_class == "FABRIC":
             w_expanded = w_orig * (1 + weft_shrink / 100.0)
         elif mat_class == "FUSING":
@@ -1571,9 +1586,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     def calc_production_length(row):
         l_orig = float(row[orig_l_col])
-        mat_class = local_strict_classify(row, row.name) if 'local_strict_classify' in locals() else "FABRIC"
+        mat_class = _internal_material_classify(row, row.name)
         
-        # Áp độ co rút sợi dọc tùy theo loại vật liệu
         if mat_class == "FABRIC":
             return round(l_orig * (1 + warp_shrink / 100.0), 3)
         elif mat_class == "FUSING":
@@ -1587,20 +1601,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
     df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
 
-    # 🚨 SỬA LỖI DIỆN TÍCH TỊNH (NET AREA SOLVER):
-    # Tránh bẫy toán học làm sập định mức keo, diện tích tịnh tăng tỉ lệ thuận với độ co rút sản xuất
-    # Không dùng Shape Factor ghim cứng 0.98 cho Keo nữa vì sẽ làm Void Ratio triệt tiêu về 0
+    # Định nghĩa hệ số hình học lấp đầy thực tế
     def get_dynamic_shape_factor(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
         mat_class = str(row.get(m_col, "")).upper().strip()
         
         if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]):
-            return 0.85 # Tỷ lệ lấp đầy thực tế của thân quần/áo cong
+            return 0.85 
         if any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP", "CẠP"]):
-            return 0.92 # Chi tiết thẳng dài
+            return 0.92 
         if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name:
-            # Đối với Keo/Méc, giữ hệ số thực tế hình học phẳng (0.75 - 0.80). 
-            # Việc tăng định mức keo sẽ do bộ giải toán hao hụt dynamic_fusing_solver ở Đoạn 5.2 xử lý bằng thớ vải/khổ rộng!
             return 0.78 
             
         return 0.76
@@ -1614,15 +1624,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 📊 BỘ ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN (SOLVER ROUTER)
     def rule_engine_coordinator(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
-        
         if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]):
             return "LengthSolver"
         if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]):
             return "StripSolver"
-            
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+
 
       # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
