@@ -1697,24 +1697,40 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]): return "StripSolver"
         return "AreaSolver"
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
-    # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
     # =====================================================================
+    ai_decision_d5 = ctx.get("ai_expert_decision", {})
+    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+        
+    # 🚨 ĐÃ VÁ LỖI CÚ PHÁP: Ép hệ thống đọc chính xác biến từ context trung gian để nuôi lệnh dòng 1735
+    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.78))
+    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
+    features = ai_decision_d5.get("geometry_features", {})
+    max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
+    
+    # Đọc lớp mảnh ảo từ context chuyển giao từ Đoạn 4 sang
+    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
+
+    l_prod_col = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else orig_l_col
+    w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
+
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
+    # 📊 LUỒNG VẢI CHÍNH (FABRIC) - Khảo sát xếp sơ đồ hình học phôi ảo
     total_fabric_net_area = 0.0
     fabric_pieces_to_nest = []
 
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {})
         if v_piece.get("inferred_class", "FABRIC") == "FABRIC":
-            current_pcs = v_piece["inferred_pieces"]
-            net_area = v_piece["production_net_area"]
+            current_pcs = v_piece.get("inferred_pieces", r["pcs_numeric"])
+            net_area = v_piece.get("production_net_area", 0.0)
             total_fabric_net_area += net_area * current_pcs
             for _ in range(int(current_pcs)):
-                fabric_pieces_to_nest.append({"l": v_piece["production_l"], "w": v_piece["production_w"], "area": net_area})
+                fabric_pieces_to_nest.append({"l": v_piece.get("production_l", 0.0), "w": v_piece.get("production_w", 0.0), "area": net_area})
 
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
@@ -1736,21 +1752,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
-        real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
+        real_fabric_density = estimated_density_prior
+        total_fabric_gross_yds = 0.0
 
+    # 📊 LUỒNG VẢI LÓT (LINING)
     total_lining_net_area = 0.0
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {})
         if v_piece.get("inferred_class") == "LINING":
-            total_lining_net_area += v_piece["production_net_area"] * v_piece["inferred_pieces"]
+            total_lining_net_area += v_piece.get("production_net_area", 0.0) * v_piece.get("inferred_pieces", 1.0)
 
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.76
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
-    else: total_lining_gross_yds = 0.0
+    else: 
+        total_lining_gross_yds = 0.0
 
     ctx["ai_expert_decision"].update({"real_fabric_density": round(real_fabric_density, 4), "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), "total_lining_gross_yds": round(total_lining_gross_yds, 4)})
-    # =====================================================================
+
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING
     # =====================================================================
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
