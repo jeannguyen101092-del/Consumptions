@@ -285,11 +285,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Chuỗi mã hóa hình ảnh vector đồ họa gốc của 4 ô trang phục
-encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M12%205v16%27%2F%3E%3Cpath%20d%3D%27M4%2010h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16l-2%2020H6L4%202z%27%2F%3E%3Cpath%20d%3D%27M12%202v20%27%2F%3E%3Cpath%20d%3D%27M5%208h14%27%2F%3E%3C%2Fsvg%3E"
-encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202v20l8-4%208%204V2l-8%204-8-4z%27%2F%3E%3Cpath%20d%3D%27M12%206v12%27%2F%3E%3Cpath%20d%3D%27M4%208h16%27%2F%3E%3C%2Fsvg%3E"
-encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.25%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12l3%207-9%2013-9-7%203-7z%27%2F%3E%3Cpath%20d%3D%27M6%209h12%27%2F%3E%3Cpath%20d%3D%27M12%202v7%27%2F%3E%3C%2Fsvg%3E"
+# --- THAY THẾ 4 CHUỖI SVG SƠ ĐỒ PHẲNG THÀNH ICON QUẦN ÁO VECTOR MÀU ĐẸP HƠN ---
+encoded_ao = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2z'/><path d='M6 6h12'/><path d='M12 6v14'/></svg>"
+encoded_quan = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2h12v4l1 14H13l-1-7-1 7H5l1-14V2z'/><path d='M6 5h12'/><path d='M10 2v3'/><path d='M14 2v3'/></svg>"
+encoded_vest = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23c2410c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 2h16v7l-2 13H6L4 9V2z'/><path d='M4 2l8 6 8-6'/><path d='M12 8v14'/><path d='M7 12h3'/><path d='M14 12h3'/></svg>"
+encoded_vay = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2315803d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 2h6l2 5-4 15H11L7 7l2-5z'/><path d='M7 7h10'/><path d='M9 12h6'/><path d='M8 17h8'/></svg>"
 
 # Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
@@ -309,6 +309,7 @@ with k_col3:
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box-flat"><img src="{encoded_vay}" alt="Vay"></div>', unsafe_allow_html=True)
+
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
