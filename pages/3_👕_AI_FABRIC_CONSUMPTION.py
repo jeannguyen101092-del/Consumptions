@@ -98,11 +98,15 @@ if st.session_state.pdf_bytes is not None and (st.session_state.pdf_text_cache i
     try:
         import fitz
         doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+        
+        # Trích xuất văn bản chữ
         if st.session_state.pdf_text_cache is None:
             full_text_extract = ""
             for page_num in range(len(doc)):
                 full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
             st.session_state.pdf_text_cache = full_text_extract
+            
+        # Trích xuất hình ảnh trang đầu tiên làm Sketch bản vẽ
         if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
             if len(doc) > 0:
                 page = doc.load_page(0)
@@ -129,84 +133,125 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# =====================================================================
-# SỬA LỖI ĐOẠN 6a: BỘ CẤU HÌNH MÀU SLATE BLUE DỊU MẮT, CHỐNG MỎI MẮT
-# =====================================================================
+# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
 st.markdown("""
 <style>
-    .stApp { background-color: #f1f5f9 !important; }
-    header[data-testid="stHeader"] { background-color: #f1f5f9 !important; }
-    .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
-    div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
-
-    /* 🌟 ĐỔI NỀN MENU SANG MÀU XANH XÁM TRUNG TÍNH DỊU MẮT 🌟 */
-    [data-testid="stSidebar"] {
-        background-color: #334155 !important; /* Muted Slate Blue */
-        color: #ffffff !important;
+    /* Trả màu nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng */
+    .stApp {
+        background-color: #f8fafc !important;
+    }
+    header[data-testid="stHeader"] {
+        background-color: #f8fafc !important;
     }
     
-    /* Tiêu đề ENGINE CONTROLS màu trắng rõ nét */
-    [data-testid="stSidebar"] .stMarkdown h3 {
+    /* Ép khoảng đệm trần Streamlit về mặc định, triệt tiêu vĩnh viễn khoảng hở */
+    .block-container {
+        padding-top: 1.5rem !important; 
+        margin-top: 0px !important;
+        max-width: 100% !important;
+    }
+    
+    /* Ép tất cả các hàng chia cột mặc định phải co khít sát lên trên cùng */
+    div[data-testid="stHorizontalBlock"] {
+        margin-top: 0px !important;
+        padding-top: 0px !important;
+    }
+
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
+    .kpi-box-flat-matrix {
+        border-radius: 6px 6px 0 0 !important;
+        padding: 10px 12px !important;
+        text-align: center !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+        box-sizing: border-box !important;
+    }
+    .kpi-num-flat-matrix {
+        font-size: 16px !important;
+        font-weight: 700 !important;
         color: #ffffff !important; 
-        font-size: 13px !important;
-        letter-spacing: 0.5px !important;
-        margin-top: 15px !important;
+        font-family: 'Segoe UI', sans-serif !important;
+        line-height: 1.2 !important;
     }
-
-    /* Định dạng nút bấm xóa bộ nhớ tinh tế, không bị chói */
-    [data-testid="stSidebar"] button {
-        background-color: #475569 !important;
-        color: #fca5a5 !important; /* Đỏ pastel dịu nhẹ */
-        border: 1px solid #475569 !important;
+    .kpi-lbl-flat-matrix {
+        font-size: 9px !important;
         font-weight: 600 !important;
-        transition: all 0.2s ease !important;
-    }
-    [data-testid="stSidebar"] button:hover {
-        background-color: #ef4444 !important;
         color: #ffffff !important;
+        opacity: 0.95 !important;
+        text-transform: uppercase !important;
+        margin-top: 2px !important;
     }
 
-    /* Định dạng tiêu đề chữ của 3 khối tiện ích */
-    .sidebar-sub-title {
-        font-family: "Segoe UI", sans-serif !important; 
-        font-size: 11px !important; 
-        font-weight: 700 !important; 
-        color: #cbd5e1 !important; /* Trắng xám dịu */
-        text-transform: uppercase !important; 
-        letter-spacing: 0.8px !important; 
-        margin-bottom: 8px !important;
-        margin-top: 18px !important;
-    }
-
-    /* 🌟 CÁC HỘP THÔNG TIN ĐỔI SANG MÀU SLATE ĐẬM HƠN MỘT CHÚT ĐỂ NỔI KHỐI 🌟 */
-    .sidebar-custom-card, .sidebar-custom-card-history {
-        background-color: #1e293b !important;
-        border: 1px solid #475569 !important;
-        border-radius: 6px !important; 
-        padding: 12px !important; 
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1) !important;
-        margin-bottom: 15px !important;
-    }
-    .sidebar-custom-card-history { padding: 6px 12px !important; }
-    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #475569 !important; }
-
-    /* Thẻ chỉ số KPIs màu sắc rực rỡ trần trang chính */
-    .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
-    .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
-    .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
+    /* Đóng gói dải màu phân hệ động sắc nét */
     .bg-style-erp { background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important; }
     .bg-items-erp { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important; }
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    /* Hộp trắng bao bọc hình vẽ rập vector hình học */
-    .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
-    .garment-emoji-container { display: inline-block !important; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important; cursor: pointer !important; }
-    .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
-    div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
-    .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
+    /* Hộp trắng bao bọc hình vẽ gọn gàng 140px */
+    .image-placeholder-box-flat {
+        border: 1px solid #cbd5e1 !important;
+        border-top: none !important; 
+        border-radius: 0 0 6px 6px !important;
+        padding: 10px 5px !important;
+        height: 140px !important; 
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+        margin-bottom: 25px !important;
+        background-color: #ffffff !important;
+    }
+    
+    /* 🌟 THAY ĐỔI CSS ĐỂ ĐẢM BẢO CHẤP NHẬN ẢNH MỚI HOÀN TOÀN 🌟 */
+    .image-placeholder-box-flat img {
+        max-height: 70px !important;
+        width: auto !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: auto !important;
+    }
+
+    /* FIX TRIỆT ĐỂ: SỬA LỖI ẨN ẢNH VÀ TRẢ LẠI HIỂN THỊ TỰ ĐỘNG CHO SKETCH */
+    div[data-testid="stImage"] img {
+        width: 100% !important;
+        height: auto !important;
+    }
+    
+    .cad-header-text-flat {
+        font-family: 'Segoe UI', sans-serif !important;
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        color: #0369a1 !important; 
+        margin-bottom: 15px !important;
+        padding-bottom: 6px !important;
+        border-bottom: 2px solid #e2e8f0 !important;
+    }
+
+    .meta-box-light-flat {
+        background-color: #f8fafc !important; 
+        border-left: 4px solid #0284c7 !important;
+        padding: 8px 12px !important;
+        margin-bottom: 8px !important;
+        border-radius: 0 6px 6px 0 !important;
+    }
+    .meta-label-flat { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; text-transform: uppercase !important; }
+    .meta-value-flat { font-size: 13px !important; font-weight: 600 !important; color: #0f172a !important; margin-top: 1px !important; }
+
+    /* Khóa chết và ép ẩn toàn diện mọi class ghim đỉnh hoặc hàng rỗng cũ bị dính đệm */
+    .main-body-spacer, 
+    .sticky-top-container, 
+    div[smart-fixed-container], 
+    div[data-testid="stHorizontalBlock"]:empty {
+        display: none !important;
+        height: 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+
+
 
 
 import streamlit as st
@@ -226,146 +271,66 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & KHÓA CHẾT CỐ ĐỊNH CHUẨN XÁC
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
 
-# 🌟 FIX DỨT ĐIỂM: KHÓA RIÊNG BIỆT CỦ M TIÊU ĐỀ VÀ KPIs (KHÔNG KHÓA CÁC PHẦN DƯỚI) 🌟
+# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
 st.markdown(
-    f"""
-    <div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f1f5f9; padding: 15px 20px 10px 0px; box-sizing: border-box;">
-        
-        <!-- 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp -->
-        <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
-            <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-                🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
-            </h2>
-        </div>
-
-        <!-- 2. Lưới 4 ô KPIs đứng im vĩnh viễn tách biệt -->
-        <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
-            
-            <!-- Ô KPIs 1: Mã hàng -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👕</span></div>
-            </div>
-
-            <!-- Ô KPIs 2: Tổng vật tư -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👖</span></div>
-            </div>
-
-            <!-- Ô KPIs 3: Định mức vải -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">✂️</span></div>
-            </div>
-
-            <!-- Ô KPIs 4: Cỡ hạt -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">🧵</span></div>
-            </div>
-
-        </div>
+    """
+    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
+        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
+            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
+        </h2>
     </div>
-
-    <!-- 3. KHỐI ĐỆM GIẢI PHÓNG: Tạo khoảng trống đẩy phần Uploader và Sketch xuống dưới để cuộn thoải mái -->
-    <div style="height: 245px; width: 100%;"></div>
     """, 
     unsafe_allow_html=True
 )
 
+# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+
+# Cấu hình chung cho hiệu ứng Emoji: To rõ (70px), có đổ bóng mờ tạo độ nổi khối 3D cực đẹp
+emoji_style = "font-size: 70px; display: inline-block; filter: drop-shadow(0px 4px 6px rgba(0, 0, 0, 0.15)); transform: scale(1); transition: all 0.2s ease-in-out;"
+
+with k_col1: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
+
+with k_col2: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
+
+with k_col3: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
+
+with k_col4: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU SLATE DỊU MẮT) ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    # 🚨 ĐÃ SỬA: Chuyển về dict trống thay vì None để tránh lỗi crash hệ thống
     st.session_state.bom_data = {}
     st.session_state.chat_history = []
     st.session_state.pdf_bytes = None
     st.session_state.pdf_name = ""
     st.session_state.pdf_text_cache = None
-    if "processed_display_rows" in st.session_state: st.session_state.processed_display_rows = []
-    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+    
+    # 🚨 ĐÃ THÊM: Xóa sạch dữ liệu bảng chi tiết CAD và tổng hợp định mức
+    if "processed_display_rows" in st.session_state: 
+        st.session_state.processed_display_rows = []
+    if "accumulated_bom_rows" in st.session_state: 
+        st.session_state.accumulated_bom_rows = []
+        
     if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
     if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    
+    # Ép hệ thống render lại giao diện trống sạch sẽ ngay lập tức
     st.rerun()
-
-# --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR SYSTEM MEMORY ---
-with st.sidebar:
-    st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-sub-title'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="sidebar-custom-card">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
-                <span>Core Engine:</span>
-                <span style="color: #38bdf8; font-weight: 700;">v2.4.1-AI</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
-                <span>AI CAD Status:</span>
-                <span style="color: #4ade80; font-weight: 700;">● Connected</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
-                <span>Response Time:</span>
-                <span style="color: #fde047; font-weight: 700;">&lt; 1.2s</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<div class='sidebar-sub-title'>📖 QUICK USER GUIDE</div>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="sidebar-custom-card">
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
-            </div>
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
-            </div>
-            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<div class='sidebar-sub-title'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
-    if "history_list" not in st.session_state:
-        st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
-    if kpi_style_id != "N/A" and kpi_style_id not in st.session_state.history_list:
-        st.session_state.history_list.insert(0, kpi_style_id)
-        st.session_state.history_list = st.session_state.history_list[:3]
-
-    history_html = '<div class="sidebar-custom-card-history">'
-    for index, style_code in enumerate(st.session_state.history_list):
-        border_style = 'border-bottom: 1px solid #475569;' if index < len(st.session_state.history_list) - 1 else ''
-        if index == 0 and kpi_style_id != "N/A":
-            history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #38bdf8; font-weight: 700;">📦 ' + style_code + '</span>'
-                '    <span style="color: #ffffff; font-size: 10px; font-weight: 700; background-color: #0284c7; padding: 1px 8px; border-radius: 10px;">Active</span>'
-                '</div>'
-            )
-        else:
-            history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #cbd5e1; font-weight: 600;">📦 ' + style_code + '</span>'
-                '    <span style="color: #94a3b8; font-size: 10px;">Processed</span>'
-                '</div>'
-            )
-    history_html += '</div>'
-    st.markdown(history_html, unsafe_allow_html=True)
-    st.markdown("<div style='font-size: 9px; color: #94a3b8; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
 
 
 
