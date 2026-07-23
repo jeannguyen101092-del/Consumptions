@@ -1571,11 +1571,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-         # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & AI STRUCTURE ANALYTICS
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+
+    # 🚨 BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT CHIỀU DÀI / CHIỀU RỘNG GỐC CỦA FILE CAD
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    
+    # Nếu bộ dò tìm tự động bắt trúng, gán thẳng thớ biên, nếu không mới dùng biến toàn cục dự phòng
+    actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+    actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
 
     # Đọc thông số co rút thớ vải từ UI
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
@@ -1583,7 +1591,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # 🚨 ĐÃ VÁ LỖI CÚ PHÁP: Đảo thớ khai báo hai biến này lên đầu khối lệnh để nuôi các hàm phía sau
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
@@ -1593,18 +1600,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # 🧠 AI STRUCTURE ANALYTICS ENGINE (TỰ SUY LUẬN SỐ LƯỢNG THEO CẤU TRÚC HÌNH HỌC PHẲNG)
     for idx, row in df_bom.iterrows():
-        # Chỉ can thiệp nếu người dùng chưa sửa tay trên lưới Grid để tôn trọng quyết định của con người
         if idx not in st.session_state["user_edited_pieces"]:
             comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
             role_type_upper = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
             
-            # Lấy thông số hình học thô ban đầu từ file CAD
+            # Trích xuất an toàn thông số hình học phẳng từ cột đã dò tìm thấy
             raw_pcs = float(row.get("pcs_numeric", 1.0))
-            l_orig = float(row.get(orig_l_col, 0.0)) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
-            w_orig = float(row.get(orig_w_col, 0.0)) if 'orig_w_col' in locals() and orig_w_col in row else float(row.get("width", 0.0))
+            l_orig = float(row.get(actual_l_col, 0.0))
+            w_orig = float(row.get(actual_w_col, 0.0))
             net_area = float(row.get("polygon_net_area", 0.0))
             
-            # Chỉ xử lý suy luận cho các chi tiết thân lớn (MAJOR_PANEL), bỏ qua phụ liệu nhỏ
             is_major_panel = any(k in role_type_upper or k in comp_name_upper for k in ["MAJOR_PANEL", "THÂN CHÍNH", "BODY"])
             
             if is_major_panel:
@@ -1618,14 +1623,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
                 # Bước C: Thực thi suy luận số lượng mảnh rập thực tế rải bàn cắt
                 if "SKIRT" in current_prod_cat or "VÁY" in prod_upper_name:
-                    # Chân váy: Nếu là thớ gộp chung (không rõ front/back) và rập nhỏ gầy => Nhân 4 (Váy múi/Xếp ly)
                     if not has_front and not has_back and not is_wide_piece:
                         st.session_state["user_edited_pieces"][idx] = 4.0
                     else:
                         st.session_state["user_edited_pieces"][idx] = raw_pcs
                         
                 elif "DRESS" in current_prod_cat or "ĐẦM" in prod_upper_name:
-                    # Đầm suông: Thân trước liền trục to đùng (is_wide_piece) => 1 mảnh; Thân sau tra khóa xẻ sống => 2 mảnh
                     if has_front and is_wide_piece:
                         st.session_state["user_edited_pieces"][idx] = 1.0
                     elif has_back and (has_split or not is_wide_piece):
@@ -1634,7 +1637,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         st.session_state["user_edited_pieces"][idx] = raw_pcs
                         
                 elif "JACKET" in current_prod_cat or "VEST" in current_prod_cat:
-                    # Áo khoác/Vest: Thân trước xẻ ngực tra khóa => 2 mảnh. Thân sau liền trục => 1 mảnh, rã sống lưng => 2 mảnh
                     if has_front:
                         st.session_state["user_edited_pieces"][idx] = 2.0
                     elif has_back:
@@ -1642,10 +1644,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     else:
                         st.session_state["user_edited_pieces"][idx] = raw_pcs
                 else:
-                    # Quần dài / Các mặt hàng khác giữ nguyên theo khai báo rập gốc của file CAD
                     st.session_state["user_edited_pieces"][idx] = raw_pcs
 
-            # 🚨 LUÔN LUÔN ÉP TAY ÁO (SLEEVE) VỀ ĐÚNG 2 MẢNH ĐỘC LẬP CHỐNG LỖI FILE GỐC GHI THIẾU
             if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
                 if raw_pcs == 1.0:
                     st.session_state["user_edited_pieces"][idx] = 2.0
@@ -1672,8 +1672,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
     def calc_production_width(row):
-        w_orig = float(row[orig_w_col]) if 'orig_w_col' in locals() and orig_w_col in row else float(row.get("width", 0.0))
-        l_orig = float(row[orig_l_col]) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
+        w_orig = float(row.get(actual_w_col, 0.0))
+        l_orig = float(row.get(actual_l_col, 0.0))
         mat_class = _internal_material_classify(row, row.name)
         
         if mat_class == "FABRIC":
@@ -1693,7 +1693,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return round(w_expanded, 3)
 
     def calc_production_length(row):
-        l_orig = float(row[orig_l_col]) if 'orig_l_col' in locals() and orig_l_col in row else float(row.get("length", 0.0))
+        l_orig = float(row.get(actual_l_col, 0.0))
         mat_class = _internal_material_classify(row, row.name)
         
         if mat_class == "FABRIC":
