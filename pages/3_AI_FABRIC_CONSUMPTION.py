@@ -1792,22 +1792,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"].update({"real_fabric_density": round(real_fabric_density, 4), "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), "total_lining_gross_yds": round(total_lining_gross_yds, 4)})
 
        # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐÃ VÁ LỖI ZERO DIVISION)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP KHÍT KHAO ĐỊNH MỨC TỔNG)
     # =====================================================================
     # Giải toán Keo/Méc độc lập bảo vệ biên
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-        
-        # 🚨 ĐÃ SỬA VÁ LỖI CHÍNH XÁC: Chặn biên w_prod > 0 để triệt tiêu hoàn toàn lỗi ZeroDivisionError
         slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
-        
         if slenderness >= 6.0 and void_ratio <= 0.12:
             return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
 
-    # ⚙️ BỘ ĐIỀU PHỐI ĐỊNH MỨC THƯƠNG MẠI KHỬ SAI LỆCH KHỔ RỘNG THỪA (SMART SHARING ROUTER)
+    # 🚨 BỘ ĐIỀU PHỐI ĐỊNH MỨC KHÉP KÍN CHUẨN TOÁN CAD (CLOSED-LOOP DISTRIBUTION SOLVER)
+    # Tính toán trước tổng diện tích tịnh thực tế của luồng vải chính để làm mẫu số chia tỷ lệ chẵn thớ
+    calculated_total_fabric_net_area = sum([vp["production_net_area"] * vp["inferred_pieces"] for vp in virtual_pieces_layer.values() if vp["inferred_class"] == "FABRIC"])
+
     def core_engine_router(row, idx):
         v_piece = virtual_pieces_layer.get(idx, {})
         p_class = v_piece.get("inferred_class", "FABRIC")
@@ -1815,41 +1815,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         pcs = v_piece.get("inferred_pieces", 1.0)
         net_area = v_piece.get("production_net_area", 0.0)
-        l_prod = v_piece.get("production_l", 0.0)
-        w_prod = v_piece.get("production_w", 0.0)
         
         if p_class == "FUSING": 
-            return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
+            return round(dynamic_fusing_solver(v_piece["production_l"], v_piece["production_w"], net_area, pcs), 4)
             
         elif p_class == "FABRIC":
-            # Thuật toán khử lỗi khoảng trống gánh thừa cho thân sau
-            comp_name_upper = str(v_piece.get("component_name", "")).upper().strip()
-            adjusted_share_area = net_area * pcs
-            
-            if "BACK" in comp_name_upper and pcs == 1.0 and w_prod > 25.0 and current_fabric_width > 0:
-                width_occupancy_ratio = w_prod / current_fabric_width
-                if width_occupancy_ratio < 0.65:
-                    adjusted_share_area = adjusted_share_area * 0.76 
-            
-            if total_fabric_net_area > 0:
-                # Tính toán lại tổng thớ diện tích vải chính sau khi đã tối ưu hóa chia sẻ khoảng trống
-                total_fabric_net_area_adjusted = sum([vp["production_net_area"] * vp["inferred_pieces"] * (0.76 if "BACK" in vp["component_name"].upper() and vp["inferred_pieces"] == 1.0 and vp["production_w"] > 25.0 else 1.0) for vp in virtual_pieces_layer.values() if vp["inferred_class"] == "FABRIC"])
-                
-                if total_fabric_net_area_adjusted > 0:
-                    return round(total_fabric_gross_yds * (adjusted_share_area / total_fabric_net_area_adjusted), 4)
-                return round(total_fabric_gross_yds * ((net_area * pcs) / total_fabric_net_area), 4)
+            # 🚨 ĐÃ SỬA DỨT ĐIỂM LỆCH SỐ: Phân bổ khép kín tuyến tính. Lấy định mức tổng 1.862 làm gốc nhân tỷ lệ diện tích dòng.
+            # Không nhân hệ số giảm trừ ảo, đảm bảo tổng các dòng chi tiết cộng lại bắt buộc phải bằng chính xác định mức tổng sơ đồ.
+            if calculated_total_fabric_net_area > 0:
+                line_share_ratio = (net_area * pcs) / calculated_total_fabric_net_area
+                return round(total_fabric_gross_yds * line_share_ratio, 4)
+            return 0.0
                 
         elif p_class == "LINING":
-            if total_lining_net_area > 0: return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
-            elif lining_width > 0: return round(((((net_area * pcs) / lining_width) / 36.0 / 0.76) * target_wastage), 4)
+            if total_lining_net_area > 0: 
+                return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
+            elif lining_width > 0: 
+                return round(((((net_area * pcs) / lining_width) / 36.0 / 0.76) * target_wastage), 4)
         return 0.0
 
-    # Thực thi xuất bản dữ liệu thương mại sạch lỗi lên dataframe hiển thị
+    # Xuất bản dữ liệu thương mại sạch sai lệch lên dataframe hệ thống
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if virtual_pieces_layer[idx]["inferred_class"] == "FABRIC" else (lining_width if virtual_pieces_layer[idx]["inferred_class"] == "LINING" else fusing_width) for idx in df_bom.index]
     
     if len(fabric_pieces_to_nest) > 0:
-        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đồng bộ khử lỗi khoảng trống thân sau)")
+        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đóng gói khớp khít khao luồng phân bổ dòng)")
 
 
           # =====================================================================
