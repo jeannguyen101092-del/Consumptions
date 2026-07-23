@@ -1571,29 +1571,35 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-    # =====================================================================
-    # 🟩 ĐOẠN 4: VIRTUAL PIECE INFERENCE ENGINE & GEOMETRIC CLASSIFIER
+      # =====================================================================
+    # 🟩 ĐOẠN 4: VIRTUAL PIECE INFERENCE ENGINE & GEOMETRIC CLASSIFIER (ĐÃ SỬA LỖI M_COL & CO RÚT)
     # =====================================================================
     import pandas as pd
     import numpy as np
 
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     
+    # 🔍 SỬA LỖI: Tự động dò tìm cột Chất liệu (Material Class / Material Type)
+    m_col = next((c for c in ["Material Class", "material_class", "Material Type", "Chất liệu", "Material"] if c in df_bom.columns), None)
+
     # Bộ sniffer dò tìm chính xác cột chiều dài / chiều rộng gốc của file CAD
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
     actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
     actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
 
-    # Đọc thông số co rút thớ vải từ UI
+    # 🔍 SỬA LỖI: Đọc thông số co rút thớ vải (Thêm Vải chính Fabric gạt lỗi NameError)
+    warp_shrink = float(st.session_state.get("fabric_warp_shrink", st.session_state.get("warp_shrink", 0.0)))
+    weft_shrink = float(st.session_state.get("fabric_weft_shrink", st.session_state.get("weft_shrink", 0.0)))
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
     fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
     # Kế thừa dữ liệu tiên nghiệm từ bộ não tri thức Đoạn 3
-    ai_decision_d4 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d4, dict): ai_decision_d4 = {}
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ai_decision_d4 = ctx["ai_expert_decision"]
+    
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
 
@@ -1605,8 +1611,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     def geometric_material_classifier(row, net_area, bbox_area, slenderness, void_ratio):
         if "user_edited_materials" in st.session_state and row.name in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][row.name]).upper().strip(), 1.0
-        mat_str = str(row[m_col]).upper().strip()
+        
+        # SỬA LỖI TRÁNH KHAI BÁO THIẾU M_COL
+        mat_str = str(row[m_col]).upper().strip() if m_col and m_col in row else ""
         comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        
         if slenderness >= 5.0 and void_ratio <= 0.15:
             if not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]): return "FUSING", 0.92
         if net_area < 150.0 and any(k in comp_str for k in ["POCKET", "TÚI", "WELT", "BAG"]):
@@ -1624,8 +1633,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
         
-        l_orig = float(row.get(actual_l_col, 0.0))
-        w_orig = float(row.get(actual_w_col, 0.0))
+        # Đọc ép kiểu an toàn tránh chuỗi rỗng / lỗi dữ liệu CAD
+        try:
+            l_orig = float(row.get(actual_l_col, 0.0))
+            w_orig = float(row.get(actual_w_col, 0.0))
+        except:
+            l_orig, w_orig = 0.0, 0.0
+            
         net_area_raw = float(row.get("polygon_net_area", l_orig * w_orig * 0.78))
         bbox_area_raw = l_orig * w_orig
         
@@ -1649,14 +1663,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         bbox_area_prod = l_prod * w_prod
         net_area_prod = round(net_area_raw * (bbox_area_prod / bbox_area_raw) if bbox_area_raw > 0 else net_area_raw, 2)
 
-        raw_pcs = float(row.get("pcs_numeric", 1.0))
+        # Xử lý số lượng chi tiết an toàn
+        try:
+            raw_pcs = float(row.get("pcs_numeric", 1.0))
+        except:
+            raw_pcs = 1.0
+            
         inferred_pcs = raw_pcs
         qty_confidence = 1.0
         is_wide_piece = (w_prod > 18.0) or (net_area_prod > 450.0 and (l_prod / w_prod) < 1.8)
         
         has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
         has_back = any(k in comp_name_upper for k in ["BACK", "SAU"])
-        has_split = any(k in comp_name_upper for k in ["SPLIT", "RÃ", "MỔ", "CENTER", "SỐNG"])
         
         if p_class in ["FABRIC", "LINING"] and net_area_prod > 150.0:
             if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
@@ -1678,11 +1696,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs
         }
 
-    # 🚨 KHÓA AN TOÀN VÀO CONTEXT VÀ SƠ ĐỒ ĐỂ CHUYỂN GIAO LÊN ĐOẠN 5 KHÔNG BỊ TRỐNG BIẾN
+    # 🚨 AN TOÀN TUYỆT ĐỐI: Khóa chặt vào lớp context
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    st.session_state["bom_data"] = ctx
+    
+    # Tránh ghi đè trực tiếp session_state dạng hỗn hợp nếu không cần thiết
+    if "bom_context" not in st.session_state: st.session_state["bom_context"] = {}
+    st.session_state["bom_context"] = ctx
 
-    # Đồng bộ thớ cột tĩnh tạm thời để lưới Grid Đoạn 7 bắt khớp giao diện
+    # Đồng bộ thớ cột tĩnh đảm bảo lưới Grid hiển thị không lỗi dữ liệu
     df_bom["Dài sản xuất (L-inch)"] = [virtual_pieces_layer[idx]["production_l"] for idx in df_bom.index]
     df_bom["Rộng sản xuất (W-inch)"] = [virtual_pieces_layer[idx]["production_w"] for idx in df_bom.index]
     df_bom["polygon_net_area"] = [virtual_pieces_layer[idx]["production_net_area"] for idx in df_bom.index]
@@ -1693,7 +1714,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]): return "StripSolver"
         return "AreaSolver"
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
-
 
 
     # =====================================================================
