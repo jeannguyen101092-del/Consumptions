@@ -272,9 +272,6 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 # =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
-# =====================================================================
-# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
-# =====================================================================
 
 # 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
 st.markdown(
@@ -288,8 +285,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 🌐 THAY THẾ BẰNG ĐƯỜNG LINK ẢNH TRỰC TUYẾN (URL HOSTING) 🌐
-# Các icon áo, quần, vest, váy được thiết kế tinh giản, sắc nét
+# 🌐 ĐƯỜNG LINK ẢNH TRỰC TUYẾN 🌐
 encoded_ao = "https://ibb.co"
 encoded_quan = "https://ibb.co"
 encoded_vest = "https://ibb.co"
@@ -300,19 +296,20 @@ k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_ao}" alt="Ao" width="65"></div>', unsafe_allow_html=True)
+    # Dùng st.image để ép trình duyệt nhận ảnh mới, không bị CSS cũ chặn
+    st.image(encoded_ao, width=75)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_quan}" alt="Quan" width="65"></div>', unsafe_allow_html=True)
+    st.image(encoded_quan, width=75)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_vest}" alt="Vest" width="65"></div>', unsafe_allow_html=True)
+    st.image(encoded_vest, width=75)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat" style="text-align:center; padding:10px;"><img src="{encoded_vay}" alt="Vay" width="65"></div>', unsafe_allow_html=True)
+    st.image(encoded_vay, width=75)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
