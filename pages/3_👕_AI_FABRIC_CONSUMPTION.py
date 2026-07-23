@@ -133,7 +133,6 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-
 # 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
 st.markdown("""
 <style>
@@ -188,7 +187,7 @@ st.markdown("""
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    /* Hộp trắng bao bọc hình vẽ rập vector hình học gọn gàng 140px */
+    /* Hộp trắng bao bọc hình vẽ gọn gàng 140px */
     .image-placeholder-box-flat {
         border: 1px solid #cbd5e1 !important;
         border-top: none !important; 
@@ -202,15 +201,17 @@ st.markdown("""
         margin-bottom: 25px !important;
         background-color: #ffffff !important;
     }
+    
+    /* 🌟 THAY ĐỔI CSS ĐỂ ĐẢM BẢO CHẤP NHẬN ẢNH MỚI HOÀN TOÀN 🌟 */
     .image-placeholder-box-flat img {
-        max-height: 110px !important;
+        max-height: 70px !important;
         width: auto !important;
         object-fit: contain !important;
         display: block !important;
         margin: auto !important;
     }
 
-    /* 🌟 FIX TRIỆT ĐỂ: SỬA LỖI ẨN ẢNH VÀ TRẢ LẠI HIỂN THỊ TỰ ĐỘNG CHO SKETCH 🌟 */
+    /* FIX TRIỆT ĐỂ: SỬA LỖI ẨN ẢNH VÀ TRẢ LẠI HIỂN THỊ TỰ ĐỘNG CHO SKETCH */
     div[data-testid="stImage"] img {
         width: 100% !important;
         height: auto !important;
