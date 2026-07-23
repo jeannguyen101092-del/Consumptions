@@ -1481,6 +1481,111 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     piece_void_ratios.append((bbox_area - net_area) / bbox_area)
                     piece_convex_hull_ratios.append(sim_convex_ratio)
 
+    # =====================================================================
+    # 🟩 ĐOẠN 3.1: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING (QUÉT CAD)
+    # =====================================================================
+    import numpy as np
+    import pandas as pd
+
+    # 🧠 1. MA TRẬN TRI THỨC ÉP KEO CHUẨN CÔNG TY (KNOWLEDGE BASE)
+    FUSING_STRICT_RULES = {
+        "SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"],
+        "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], 
+        "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"],
+        "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"],
+        "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"],
+        "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"],
+        "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"],
+        "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]
+    }
+
+    # Barem mật độ cơ sở của công ty đóng vai trò là "Prior" (Khoảng kỳ vọng ban đầu)
+    COMPANY_DENSITY_PRIOR = {
+        "SHIRT": 0.83, "JEAN_LONG": 0.875, "SHORT": 0.88, 
+        "JACKET": 0.68, "VEST": 0.87, "TOPS_KNIT": 0.80, 
+        "SKIRT": 0.87, "DRESS_FLARE": 0.74
+    }
+
+    # Định vị các cột dữ liệu hệ thống
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    l_prod_col_check = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else (orig_l_col if 'orig_l_col' in locals() else "")
+    w_prod_col_check = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else (orig_w_col if 'orig_w_col' in locals() else "")
+    
+    # 🔍 VÁ LỖI AN TOÀN: Tự động dò tìm cột Chất liệu (Material Class) để gạt bỏ lỗi NameError của m_col
+    m_col = next((c for c in ["Material Class", "material_class", "Material Type", "Chất liệu", "Material"] if c in df_bom.columns), None)
+
+    # Đọc cấu hình sản xuất từ Streamlit UI
+    fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    rotation_freedom = st.session_state.get("allow_rotation_90", True)      # Cho phép xoay 90°
+    one_way_flag = st.session_state.get("is_one_way_fabric", False)          # Vải tuyết / Vải 1 chiều
+    stripe_plaid_flag = st.session_state.get("is_stripe_plaid", False)       # Vải canh sọc / caro
+    fabric_type = st.session_state.get("fabric_material_type", "WOVEN")       # WOVEN, KNIT...
+
+    # 🧠 BƯỚC QUÉT TRƯỚC DANH MỤC SẢN PHẨM ĐỂ PHỤC VỤ SÀNG LỌC ÉP KEO HÌNH HỌC
+    prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
+    product_category = "JEAN_LONG"
+    for k in COMPANY_DENSITY_PRIOR.keys():
+        if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE"])):
+            product_category = k
+            break
+
+    # Khởi tạo mảng thu thập đặc trưng hình học cấp chi tiết (Piece-Level Features)
+    piece_areas = []
+    piece_aspect_ratios = []
+    piece_void_ratios = []
+    piece_convex_hull_ratios = [] 
+    
+    total_pattern_pieces = 0.0
+    total_pocket_pieces = 0.0
+    max_piece_length = 0.0
+    symmetry_pieces_count = 0.0
+
+    # VÒNG LẶP QUÉT DỮ LIỆU ĐẦU VÀO TỪ FILE CAD/BOM
+    for idx, r in df_bom.iterrows():
+        mat_class_clean = str(r[m_col]).upper().strip() if m_col and m_col in r else ""
+        comp_name_clean = str(r.get(comp_col_check, "")).upper().strip()
+        
+        try:
+            pcs_num = float(r.get("pcs_numeric", 1.0))
+        except:
+            pcs_num = 1.0
+
+        if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT"]):
+            weight = 2.0 if "WELT" in comp_name_clean else 1.0
+            total_pocket_pieces += pcs_num * weight
+
+        is_fusing_by_rule = False
+        if product_category in FUSING_STRICT_RULES and any(k in comp_name_clean for k in FUSING_STRICT_RULES[product_category]):
+            is_fusing_by_rule = True
+
+        if not any(k in mat_class_clean for k in ["THREAD", "CHI", "ACCESSORY", "PHU LIEU", "BUTTON", "ZIPPER", "LABEL", "FUSING", "MEC", "KEO"]) and not is_fusing_by_rule:
+            current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, pcs_num))
+            total_pattern_pieces += current_pcs
+            
+            net_area = float(r.get("polygon_net_area", 0.0))
+            l_val = float(r.get(l_prod_col_check, 0.0)) if l_prod_col_check else 0.0
+            w_val = float(r.get(w_prod_col_check, 0.0)) if w_prod_col_check else 0.0
+            bbox_area = l_val * w_val
+            
+            if current_pcs >= 2:
+                symmetry_pieces_count += current_pcs
+
+            if l_val > max_piece_length:
+                max_piece_length = l_val
+
+            if net_area > 0 and bbox_area > 0:
+                raw_ratio = l_val / w_val if w_val > 0 else 1.0
+                best_ratio = min(raw_ratio, 1.0 / raw_ratio) if rotation_freedom else raw_ratio
+                sim_convex_ratio = min(1.0, round(net_area / (bbox_area * 0.95), 4))
+
+                for _ in range(int(current_pcs)):
+                    piece_areas.append(net_area)
+                    piece_aspect_ratios.append(best_ratio)
+                    piece_void_ratios.append((bbox_area - net_area) / bbox_area)
+                    piece_convex_hull_ratios.append(sim_convex_ratio)
+    # =====================================================================
+    # 🟩 ĐOẠN 3.2: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING (AI MATRIX & UI)
+    # =====================================================================
     # Tổng hợp ma trận 15 đặc trưng cốt lõi nuôi AI
     features = {}
     if len(piece_areas) > 0:
@@ -1492,9 +1597,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         features["max_aspect_ratio"] = float(max(piece_aspect_ratios))
         features["avg_void_ratio"] = float(np.mean(piece_void_ratios))
         features["convex_hull_ratio"] = float(np.mean(piece_convex_hull_ratios))
-        features["width_utilization"] = float(max_piece_length / fabric_width)
+        features["width_utilization"] = float(max_piece_length / fabric_width) if fabric_width > 0 else 0.0
         features["rotation_freedom"] = 1.0 if rotation_freedom else 0.0
-        features["symmetry_ratio"] = float(symmetry_pieces_count / total_pattern_pieces)
+        features["symmetry_ratio"] = float(symmetry_pieces_count / total_pattern_pieces) if total_pattern_pieces > 0 else 0.0
         features["fabric_width"] = float(fabric_width)
         features["one_way_flag"] = 1.0 if one_way_flag else 0.0
         features["stripe_plaid_flag"] = 1.0 if stripe_plaid_flag else 0.0
@@ -1502,7 +1607,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         features = {k: 0.0 for k in ["total_pieces", "largest_piece_area", "mean_piece_area", "std_piece_area", "avg_aspect_ratio", "max_aspect_ratio", "avg_void_ratio", "convex_hull_ratio", "width_utilization", "rotation_freedom", "symmetry_ratio", "fabric_width", "one_way_flag", "stripe_plaid_flag", "pocket_complexity"]}
 
-    # ĐỒNG BỘ ĐỒNG LOẠT BIẾN CHUỖI GIAO DIỆN CŨ ĐỂ KHỬ SẠCH LỖI NAMEERROR
+    # ĐỒNG BỘ ĐỒNG LOẠT BIẾN CHUỒI GIAO DIỆN CŨ ĐỂ KHỬ SẠCH LỖI NAMEERROR
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
     elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm xòe/Thời trang)"
@@ -1512,7 +1617,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
-    base_prior = COMPANY_DENSITY_PRIOR[product_category]
+    base_prior = COMPANY_DENSITY_PRIOR.get(product_category, 0.78)
 
     # Hàm hồi quy tinh chỉnh mật độ kỳ vọng ban đầu (Regression Matrix)
     density_delta = (
@@ -1544,6 +1649,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     target_wastage = calculated_wastage
 
     # Lưu trữ thông tin an toàn vào hệ thống ctx dưới dạng ƯỚC TÍNH (ESTIMATED)
+    if "ctx" not in locals() or ctx is None: ctx = {}
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
@@ -1557,18 +1663,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.session_state["bom_data"] = ctx
 
-    # Xuất thông tin giải trình trực quan lên giao diện UI chính
+    # Xuất thông tin giải trình trực quan lên giao diện UI chính (CĂN LỀ CHUẨN KHÔNG LỖI)
     st.subheader("🧠 Hệ Thống Trích Xuất Đặc Trưng Hình Học AI CAD Engine")
     m1, m2, m3 = st.columns(3)
-    with m1:
-
-
     
-        st.metric(label="📊 Ước lượng Mật độ Tiên nghiệm (Regression)", value=f"{estimated_density*100:.2f}%", delta=f"{(estimated_density - base_prior)*100:+.2f}% vs Barem")
+    with m1:
+        st.metric(
+            label="📊 Ước lượng Mật độ Tiên nghiệm (Regression)", 
+            value=f"{estimated_density*100:.2f}%", 
+            delta=f"{(estimated_density - base_prior)*100:+.2f}% vs Barem"
+        )
+        
     with m2:
-        st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
+        st.metric(
+            label="✂️ Định mức Hao hụt Sản xuất Động", 
+            value=f"{((calculated_wastage-1)*100):.2f}%"
+        )
+        
     with m3:
-        st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
+        st.metric(
+            label="🧩 Tổng số mảnh rập thực tế", 
+            value=f"{features['total_pieces']:.0f} Pcs"
+        )
+
 
 
       # =====================================================================
