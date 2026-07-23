@@ -282,35 +282,34 @@ st.markdown(
             🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
         </h2>
     </div>
+    <!-- Nhúng thư viện icon Bootstrap siêu nhẹ -->
+    <link rel="stylesheet" href="https://jsdelivr.net">
     """, 
     unsafe_allow_html=True
 )
-
-# 🌐 ĐƯỜNG LINK ẢNH TRỰC TUYẾN 🌐
-encoded_ao = "https://ibb.co"
-encoded_quan = "https://ibb.co"
-encoded_vest = "https://ibb.co"
-encoded_vay = "https://ibb.co"
 
 # Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
 with k_col1: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    # Dùng st.image để ép trình duyệt nhận ảnh mới, không bị CSS cũ chặn
-    st.image(encoded_ao, width=75)
+    # Khối 1: Dùng icon Thước đo / Thiết kế (Màu xám đậm #334155)
+    st.markdown('<div class="image-placeholder-box-flat"><i class="bi bi-rulers" style="font-size: 45px; color: #334155;"></i></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.image(encoded_quan, width=75)
+    # Khối 2: Dùng icon Hộp vật tư / Danh mục (Màu xanh ngọc #0f766e)
+    st.markdown('<div class="image-placeholder-box-flat"><i class="bi bi-box-seam" style="font-size: 45px; color: #0f766e;"></i></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.image(encoded_vest, width=75)
+    # Khối 3: Dùng icon Cuộn vải / Máy may (Màu cam #c2410c)
+    st.markdown('<div class="image-placeholder-box-flat"><i class="bi bi-scissors" style="font-size: 45px; color: #c2410c;"></i></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.image(encoded_vay, width=75)
+    # Khối 4: Dùng icon Tag size quần áo (Màu xanh lá #15803d)
+    st.markdown('<div class="image-placeholder-box-flat"><i class="bi bi-tags" style="font-size: 45px; color: #15803d;"></i></div>', unsafe_allow_html=True)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
