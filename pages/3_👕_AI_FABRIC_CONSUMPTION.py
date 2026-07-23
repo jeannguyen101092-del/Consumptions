@@ -130,69 +130,67 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 break
 
 # =====================================================================
-# SỬA LỖI ĐOẠN 6a: BỘ CẤU HÌNH SÁNG TOÀN DIỆN CHO CẢ HAI BÊN 
+# SỬA LỖI ĐOẠN 6a: BỘ CẤU HÌNH MÀU SLATE BLUE DỊU MẮT, CHỐNG MỎI MẮT
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🌟 LÀM SÁNG BÊN PHẢI (THÂN TRANG CHÍNH) 🌟 */
-    .stApp { background-color: #f8fafc !important; }
-    header[data-testid="stHeader"] { background-color: #f8fafc !important; }
+    .stApp { background-color: #f1f5f9 !important; }
+    header[data-testid="stHeader"] { background-color: #f1f5f9 !important; }
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
     div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
-    /* 🌟 LÀM SÁNG BÊN TRÁI (SIDEBAR) TRẮNG SẠCH SẼ 🌟 */
+    /* 🌟 ĐỔI NỀN MENU SANG MÀU XANH XÁM TRUNG TÍNH DỊU MẮT 🌟 */
     [data-testid="stSidebar"] {
-        background-color: #ffffff !important; 
-        color: #1e293b !important;
-        border-right: 1px solid #e2e8f0 !important;
+        background-color: #334155 !important; /* Muted Slate Blue */
+        color: #ffffff !important;
     }
     
-    /* Màu chữ các tiêu đề menu chính của Streamlit trên Sidebar */
+    /* Tiêu đề ENGINE CONTROLS màu trắng rõ nét */
     [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #0f766e !important; /* Xanh ngọc lam đậm rõ ràng */
+        color: #ffffff !important; 
         font-size: 13px !important;
         letter-spacing: 0.5px !important;
         margin-top: 15px !important;
     }
 
-    /* Định dạng nút bấm CLEAR SYSTEM MEMORY sáng sủa */
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế, không bị chói */
     [data-testid="stSidebar"] button {
-        background-color: #fef2f2 !important;
-        color: #dc2626 !important; /* Chữ đỏ đậm cực rõ */
-        border: 1px solid #fee2e2 !important;
+        background-color: #475569 !important;
+        color: #fca5a5 !important; /* Đỏ pastel dịu nhẹ */
+        border: 1px solid #475569 !important;
         font-weight: 600 !important;
         transition: all 0.2s ease !important;
     }
     [data-testid="stSidebar"] button:hover {
-        background-color: #dc2626 !important;
+        background-color: #ef4444 !important;
         color: #ffffff !important;
     }
 
-    /* Thẻ tiêu đề phụ của 3 khối tiện ích */
+    /* Định dạng tiêu đề chữ của 3 khối tiện ích */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 11px !important; 
         font-weight: 700 !important; 
-        color: #64748b !important; /* Xám đậm dễ đọc */
+        color: #cbd5e1 !important; /* Trắng xám dịu */
         text-transform: uppercase !important; 
         letter-spacing: 0.8px !important; 
         margin-bottom: 8px !important;
         margin-top: 18px !important;
     }
 
-    /* 🌟 BIẾN CÁC HỘP THÀNH MÀU TRẮNG XÁM PHẲNG SÁNG SỦA 🌟 */
+    /* 🌟 CÁC HỘP THÔNG TIN ĐỔI SANG MÀU SLATE ĐẬM HƠN MỘT CHÚT ĐỂ NỔI KHỐI 🌟 */
     .sidebar-custom-card, .sidebar-custom-card-history {
-        background-color: #f8fafc !important;
-        border: 1px solid #e2e8f0 !important;
+        background-color: #1e293b !important;
+        border: 1px solid #475569 !important;
         border-radius: 6px !important; 
         padding: 12px !important; 
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1) !important;
         margin-bottom: 15px !important;
     }
     .sidebar-custom-card-history { padding: 6px 12px !important; }
-    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #e2e8f0 !important; }
+    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #475569 !important; }
 
-    /* Thẻ chỉ số KPIs sắc màu trập trần chính */
+    /* Thẻ chỉ số KPIs màu sắc rực rỡ trần trang chính */
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
@@ -209,7 +207,6 @@ st.markdown("""
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
 
 
 import streamlit as st
@@ -264,8 +261,7 @@ with k_col4:
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
-
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (PHIÊN BẢN MÀU SÁNG RÕ) ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU SLATE DỊU MẮT) ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = {}
@@ -280,24 +276,24 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     st.rerun()
 
-# --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR SYSTEM MEMORY (BẢN MÀU SÁNG RÕ) ---
+# --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR SYSTEM MEMORY ---
 with st.sidebar:
     st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
     st.markdown("<div class='sidebar-sub-title'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
     st.markdown(
         """
         <div class="sidebar-custom-card">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #64748b; font-family: 'Segoe UI', sans-serif;">
-                <span style="font-weight: 500;">Core Engine:</span>
-                <span style="color: #0284c7; font-weight: 700;">v2.4.1-AI</span>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
+                <span>Core Engine:</span>
+                <span style="color: #38bdf8; font-weight: 700;">v2.4.1-AI</span>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #64748b; font-family: 'Segoe UI', sans-serif;">
-                <span style="font-weight: 500;">AI CAD Status:</span>
-                <span style="color: #16a34a; font-weight: 700;">● Connected</span>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
+                <span>AI CAD Status:</span>
+                <span style="color: #4ade80; font-weight: 700;">● Connected</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; font-family: 'Segoe UI', sans-serif;">
-                <span style="font-weight: 500;">Response Time:</span>
-                <span style="color: #ea580c; font-weight: 700;">&lt; 1.2s</span>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #cbd5e1; font-family: 'Segoe UI', sans-serif;">
+                <span>Response Time:</span>
+                <span style="color: #fde047; font-weight: 700;">&lt; 1.2s</span>
             </div>
         </div>
         """,
@@ -308,17 +304,17 @@ with st.sidebar:
     st.markdown(
         """
         <div class="sidebar-custom-card">
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #475569; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #e2e8f0; color: #0f766e; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #0f172a;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
+            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
             </div>
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #475569; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #e2e8f0; color: #0f766e; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #0f172a;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
+            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
             </div>
-            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #475569; font-family: 'Segoe UI', sans-serif;">
-                <div style="background-color: #e2e8f0; color: #0f766e; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #0f766e;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
+            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #e2e8f0; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #475569; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #ffffff;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
             </div>
         </div>
         """,
@@ -334,24 +330,25 @@ with st.sidebar:
 
     history_html = '<div class="sidebar-custom-card-history">'
     for index, style_code in enumerate(st.session_state.history_list):
-        border_style = 'border-bottom: 1px solid #e2e8f0;' if index < len(st.session_state.history_list) - 1 else ''
+        border_style = 'border-bottom: 1px solid #475569;' if index < len(st.session_state.history_list) - 1 else ''
         if index == 0 and kpi_style_id != "N/A":
             history_html += (
                 '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #0284c7; font-weight: 700;">📦 ' + style_code + '</span>'
-                '    <span style="color: #16a34a; font-size: 10px; font-weight: 700; background-color: #dcfce7; padding: 1px 8px; border-radius: 10px;">Active</span>'
+                '    <span style="color: #38bdf8; font-weight: 700;">📦 ' + style_code + '</span>'
+                '    <span style="color: #ffffff; font-size: 10px; font-weight: 700; background-color: #0284c7; padding: 1px 8px; border-radius: 10px;">Active</span>'
                 '</div>'
             )
         else:
             history_html += (
                 '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #334155; font-weight: 600;">📦 ' + style_code + '</span>'
-                '    <span style="color: #64748b; font-size: 10px;">Processed</span>'
+                '    <span style="color: #cbd5e1; font-weight: 600;">📦 ' + style_code + '</span>'
+                '    <span style="color: #94a3b8; font-size: 10px;">Processed</span>'
                 '</div>'
             )
     history_html += '</div>'
     st.markdown(history_html, unsafe_allow_html=True)
     st.markdown("<div style='font-size: 9px; color: #94a3b8; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
+
 
 
 # ------------------------------------------------------------------------------
