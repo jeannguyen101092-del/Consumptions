@@ -272,6 +272,9 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 # =====================================================================
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
+# =====================================================================
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
+# =====================================================================
 
 # 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
 st.markdown(
@@ -285,11 +288,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- THAY THẾ 4 CHUỖI SVG SƠ ĐỒ PHẲNG THÀNH ICON QUẦN ÁO VECTOR MÀU ĐẸP HƠN ---
-encoded_ao = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20.38 3.46L16 2a4 4 0 0 0-8 0l-4.38 1.46a2 2 0 0 0-1.37 2l.35 11.23a2 2 0 0 0 2 1.94h14.8a2 2 0 0 0 2-1.94l.35-11.23a2 2 0 0 0-1.37-2z'/><path d='M6 6h12'/><path d='M12 6v14'/></svg>"
-encoded_quan = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%230f766e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2h12v4l1 14H13l-1-7-1 7H5l1-14V2z'/><path d='M6 5h12'/><path d='M10 2v3'/><path d='M14 2v3'/></svg>"
-encoded_vest = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23c2410c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 2h16v7l-2 13H6L4 9V2z'/><path d='M4 2l8 6 8-6'/><path d='M12 8v14'/><path d='M7 12h3'/><path d='M14 12h3'/></svg>"
-encoded_vay = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2315803d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 2h6l2 5-4 15H11L7 7l2-5z'/><path d='M7 7h10'/><path d='M9 12h6'/><path d='M8 17h8'/></svg>"
+# --- 4 CHUỖI SVG ĐÃ MÃ HÓA URL CHUẨN ĐỂ ĐỔI HÌNH ÁO QUẦN ---
+encoded_ao = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23334155%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M20.38%203.46L16%202a4%204%200%200%200-8%200l-4.38%201.46a2%202%200%200%200-1.37%202l.35%2011.23a2%202%200%200%200%202%201.94h14.8a2%202%200%200%200%202-1.94l.35-11.23a2%202%200%200%200-1.37-2z%27%2F%3E%3Cpath%20d%3D%27M6%206h12%27%2F%3E%3Cpath%20d%3D%27M12%206v14%27%2F%3E%3C%2Fsvg%3E"
+encoded_quan = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%230f766e%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M6%202h12v4l1%2014H13l-1-7-1%207H5l1-14V2z%27%2F%3E%3Cpath%20d%3D%27M6%205h12%27%2F%3E%3Cpath%20d%3D%27M10%202v3%27%2F%3E%3Cpath%20d%3D%27M14%202v3%27%2F%3E%3C%2Fsvg%3E"
+encoded_vest = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%23c2410c%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M4%202h16v7l-2%2013H6L4%209V2z%27%2F%3E%3Cpath%20d%3D%27M4%202l8%206 8-6%27%2F%3E%3Cpath%20d%3D%27M12%208v14%27%2F%3E%3Cpath%20d%27M7%2012h3%27%2F%3E%3Cpath%20d%3D%27M14%2012h3%27%2F%3E%3C%2Fsvg%3E"
+encoded_vay = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27100%27%20height%3D%27100%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27%2315803d%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpath%20d%3D%27M9%202h6l2%205-4%2015H11L7%207l2-5z%27%2F%3E%3Cpath%20d%3D%27M7%207h10%27%2F%3E%3Cpath%20d%3D%27M9%2012h6%27%2F%3E%3Cpath%20d%3D%27M8%2017h8%27%2F%3E%3C%2Fsvg%3E"
 
 # Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
