@@ -1597,13 +1597,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
     # =====================================================================
-    # 🟩 ĐOẠN 4.1: VIRTUAL PIECE INFERENCE ENGINE
+        # =====================================================================
+    # 🟩 ĐOẠN 4.1: VIRTUAL PIECE ENGINE (BỘ SUY LUẬN CHẤT LIỆU & SỐ LƯỢNG MẢNH ẢO)
     # =====================================================================
+    import pandas as pd
+    import numpy as np
+
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+
+    # Bộ sniffer dò tìm chính xác cột chiều dài / chiều rộng gốc của file CAD
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+    actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+
     # Khóa các hèm co rút vào vùng nhớ an toàn cấp session
     st.session_state["_fusing_warp_shrink"] = float(st.session_state.get("fusing_warp_shrink", 0.0))
     st.session_state["_fusing_weft_shrink"] = float(st.session_state.get("fusing_weft_shrink", 0.0))
     st.session_state["_lining_warp_shrink"] = float(st.session_state.get("lining_warp_shrink", 0.0))
     st.session_state["_lining_weft_shrink"] = float(st.session_state.get("lining_weft_shrink", 0.0))
+
+    # Kế thừa Product Category đã quét được từ bộ não tri thức Đoạn 3
+    ai_decision_d4 = ctx.get("ai_expert_decision", {})
+    if not isinstance(ai_decision_d4, dict): ai_decision_d4 = {}
+    current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
+    prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
 
     FUSING_STRICT_RULES = {"SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]}
 
@@ -1624,7 +1642,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     for idx, row in df_bom.iterrows():
         comp_name_raw, comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))), str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        l_orig, w_orig = float(row.get(actual_l_col, 0.0)), float(row.get(actual_w_col, 0.0))
+        
+        # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP: Tách biệt hoàn toàn thành 2 dòng độc lập, chống lỗi unpacking
+        l_orig = float(row.get(actual_l_col, 0.0))
+        w_orig = float(row.get(actual_w_col, 0.0))
+        
         net_area_raw, bbox_area_raw = float(row.get("polygon_net_area", l_orig * w_orig * 0.78)), l_orig * w_orig
         
         slenderness = l_orig / w_orig if w_orig > 0 else 1.0
@@ -1660,6 +1682,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
+
     # =====================================================================
     # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
     # =====================================================================
