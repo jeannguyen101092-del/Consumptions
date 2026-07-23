@@ -289,28 +289,28 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.rerun()
 
 # =====================================================================
-# 🌟 TOÀN BỘ 3 KHỐI TIỆN ÍCH DƯỚI NÚT CLEAR ĐÃ ĐƯỢC CHUẨN HÓA DẤU NHÁY 🌟
+# 🌟 THAY ĐỔI: ĐỔI SANG MÀU XANH NGỌC LAM SÁNG RÕ, CHỮ TRẮNG TINH 100% 🌟
 # =====================================================================
 with st.sidebar:
     # -----------------------------------------------------------------
     # KHỐI 1: THÔNG TIN HỆ THỐNG (SYSTEM STATUS)
     # -----------------------------------------------------------------
-    st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-sub-title'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 20px 0 12px 0; border: 0; border-top: 1px solid #115e59;'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-family:\"Segoe UI\", sans-serif; font-size: 12px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
     st.markdown(
         """
-        <div class="sidebar-custom-card">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #94a3b8;">
+        <div style="background: linear-gradient(135deg, #115e59 0%, #134e4a 100%); border: 1px solid #14b8a6; border-radius: 6px; padding: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #ccfbf1; font-family: 'Segoe UI', sans-serif;">
                 <span>Core Engine:</span>
-                <span style="color: #38bdf8; font-weight: 600;">v2.4.1-AI</span>
+                <span style="color: #ffffff; font-weight: 700;">v2.4.1-AI</span>
             </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #94a3b8;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #ccfbf1; font-family: 'Segoe UI', sans-serif;">
                 <span>AI CAD Status:</span>
-                <span style="color: #4ade80; font-weight: 600;">● Connected</span>
+                <span style="color: #4ade80; font-weight: 700;">● Connected</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #ccfbf1; font-family: 'Segoe UI', sans-serif;">
                 <span>Response Time:</span>
-                <span style="color: #f59e0b; font-weight: 600;">&lt; 1.2s</span>
+                <span style="color: #fde047; font-weight: 700;">&lt; 1.2s</span>
             </div>
         </div>
         """,
@@ -320,21 +320,21 @@ with st.sidebar:
     # -----------------------------------------------------------------
     # KHỐI 2: HƯỚNG DẪN SỬ DỤNG NHANH (QUICK USER GUIDE)
     # -----------------------------------------------------------------
-    st.markdown("<div class='sidebar-sub-title'>📖 QUICK USER GUIDE</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-family:\"Segoe UI\", sans-serif; font-size: 12px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>📖 QUICK USER GUIDE</div>", unsafe_allow_html=True)
     st.markdown(
         """
-        <div class="sidebar-custom-card">
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #cbd5e1;">
-                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
+        <div style="background: linear-gradient(135deg, #115e59 0%, #134e4a 100%); border: 1px solid #14b8a6; border-radius: 6px; padding: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 15px;">
+            <div style="display: flex; align-items: flex-start; margin-bottom: 10px; font-size: 11px; color: #ffffff; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #14b8a6; color: #ffffff; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">1</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #2dd4bf;">Tải tài liệu:</span> Upload file Techpack PDF.</div>
             </div>
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; font-size: 11px; color: #cbd5e1;">
-                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
+            <div style="display: flex; align-items: flex-start; margin-bottom: 10px; font-size: 11px; color: #ffffff; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #14b8a6; color: #ffffff; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">2</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #2dd4bf;">Định mức:</span> Xem dữ liệu tại 4 ô KPIs trần.</div>
             </div>
-            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #cbd5e1;">
-                <div style="background-color: #334155; color: #38bdf8; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
-                <div style="line-height: 1.4;"><span style="font-weight: 600; color: #ffffff;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
+            <div style="display: flex; align-items: flex-start; font-size: 11px; color: #ffffff; font-family: 'Segoe UI', sans-serif;">
+                <div style="background-color: #14b8a6; color: #ffffff; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 8px; flex-shrink: 0;">3</div>
+                <div style="line-height: 1.4;"><span style="font-weight: 700; color: #2dd4bf;">Xuất bảng:</span> Lưu bảng BOM Matrix.</div>
             </div>
         </div>
         """,
@@ -344,34 +344,34 @@ with st.sidebar:
     # -----------------------------------------------------------------
     # KHỐI 3: DANH SÁCH LỊCH SỬ MÃ HÀNG ĐỘNG (RECENT CODE HISTORY)
     # -----------------------------------------------------------------
-    st.markdown("<div class='sidebar-sub-title'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-family:\"Segoe UI\", sans-serif; font-size: 12px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
     if "history_list" not in st.session_state:
         st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
     if kpi_style_id != "N/A" and kpi_style_id not in st.session_state.history_list:
         st.session_state.history_list.insert(0, kpi_style_id)
         st.session_state.history_list = st.session_state.history_list[:3]
 
-    history_html = '<div class="sidebar-custom-card-history">'
+    history_html = '<div style="background: linear-gradient(135deg, #115e59 0%, #134e4a 100%); border: 1px solid #14b8a6; border-radius: 6px; padding: 6px 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 15px;">'
     for index, style_code in enumerate(st.session_state.history_list):
-        border_style = 'border-bottom: 1px solid #334155;' if index < len(st.session_state.history_list) - 1 else ''
+        border_style = 'border-bottom: 1px solid #14b8a6;' if index < len(st.session_state.history_list) - 1 else ''
         if index == 0 and kpi_style_id != "N/A":
             history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px;">'
-                '    <span style="color: #38bdf8; font-weight: 600;">📦 ' + style_code + '</span>'
-                '    <span style="color: #4ade80; font-size: 10px; font-weight: 600; background-color: rgba(74,222,128,0.1); padding: 1px 6px; border-radius: 10px;">Active</span>'
+                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
+                '    <span style="color: #ffffff; font-weight: 700;">📦 ' + style_code + '</span>'
+                '    <span style="color: #ffffff; font-size: 10px; font-weight: 700; background-color: #14b8a6; padding: 2px 8px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">Active</span>'
                 '</div>'
             )
         else:
             history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px;">'
-                '    <span style="color: #cbd5e1; font-weight: 500;">📦 ' + style_code + '</span>'
-                '    <span style="color: #94a3b8; font-size: 10px;">Processed</span>'
+                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
+                '    <span style="color: #ccfbf1; font-weight: 600;">📦 ' + style_code + '</span>'
+                '    <span style="color: #5eead4; font-size: 10px;">Processed</span>'
                 '</div>'
             )
     history_html += '</div>'
     
     st.markdown(history_html, unsafe_allow_html=True)
-    st.markdown("<div style='font-size: 9px; color: #64748b; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 10px; color: #ccfbf1; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px; opacity: 0.8;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
 # LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (SỬ DỤNG HEIGHT NATIVE CỦA STREAMLIT)
