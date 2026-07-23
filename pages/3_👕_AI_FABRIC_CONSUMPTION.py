@@ -206,61 +206,62 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs SẠCH SẼ & KHÓA ĐỈNH XANH SƯƠNG MÙ
+# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs MÀU SẮC ĐỘNG NGOẠI HẠNG & KHÓA ĐỈNH
 # =====================================================================
 
-# 🌟 BƯỚC 1: CẤU HÌNH GHIM CỐ ĐỊNH PHẦN TIÊU ĐỀ VÀ KPIs LÊN TRẦN TRANG BÊN PHẢI 🌟
-st.markdown("""
-<style>
-    /* Ép container chứa Tiêu đề và 4 ô KPIs phải ghim chặt lên trần */
-    div[data-testid="stVerticalBlock"]:has(div.safe-header-marker) {
-        position: fixed !important;
-        top: 0 !important;
-        right: 0 !important;
-        width: calc(100% - 304px) !important;
-        z-index: 99999 !important;
-        background-color: #f0f4f8 !important; /* Màu xanh sương mù dịu mắt */
-        padding: 15px 20px 10px 0px !important;
-        box-sizing: border-box !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# 🌟 BƯỚC 2: RENDER GIAO DIỆN BẰNG LỆNH THUẦN TÚY CỦA STREAMLIT (AN TOÀN TUYỆT ĐỐI) 🌟
-with st.container():
-    # Thẻ đánh dấu để CSS tìm và khóa cứng khối này lại trên đỉnh đầu
-    st.markdown('<div class="safe-header-marker"></div>', unsafe_allow_html=True)
+# 🌟 BƯỚC 1: KHỞI TẠO CHUỖI HTML PHẲNG (KHÔNG DÙNG F-STRING, KHÔNG LO LỖI DẤU NGOẶC) 🌟
+html_kpi_layout = """
+<div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f0f4f8; padding: 15px 20px 10px 0px; box-sizing: border-box;">
     
-    # 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp (Dùng HTML đơn giản nhất)
-    st.markdown(
-        """
-        <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center;">
-            <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-                🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
-            </h2>
+    <!-- 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp -->
+    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
+        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
+            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
+        </h2>
+    </div>
+
+    <!-- 2. Lưới 4 ô KPIs màu sắc rực rỡ, icon to rõ có hiệu ứng nhúc nhích khi di chuột -->
+    <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
+        
+        <!-- Ô KPIs 1: Mã hàng (Màu xám đen) -->
+        <div style="flex: 1; min-width: 0;">
+            <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">__DATA1__</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
+            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">👕</span></div>
         </div>
-        """, 
-        unsafe_allow_html=True
-    )
 
-    # 2. Sử dụng lưới 4 cột của Streamlit để hiển thị 4 ô số thông số định mức cốt lõi
-    k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+        <!-- Ô KPIs 2: Tổng vật tư (Màu xanh ngọc) -->
+        <div style="flex: 1; min-width: 0;">
+            <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">__DATA2__ Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
+            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">👖</span></div>
+        </div>
 
-    with k_col1:
-        st.metric(label="👕 Mã hàng đang xử lý", value=str(kpi_style_id))
+        <!-- Ô KPIs 3: Định mức vải (Màu cam) -->
+        <div style="flex: 1; min-width: 0;">
+            <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">__DATA3__</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
+            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">✂️</span></div>
+        </div>
 
-    with k_col2:
-        st.metric(label="👖 Tổng số vật tư kết xuất", value=f"{total_materials} Item(s)")
+        <!-- Ô KPIs 4: Cỡ hạt (Màu xanh lá) -->
+        <div style="flex: 1; min-width: 0;">
+            <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">__DATA4__</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
+            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">🧵</span></div>
+        </div>
 
-    with k_col3:
-        st.metric(label="✂️ Định mức vải chính dự kiến", value=str(main_fabric_cons))
+    </div>
+</div>
 
-    with k_col4:
-        st.metric(label="🧵 Cỡ hạt tính định mức", value=str(active_size_kpi))
+<!-- 3. KHỐI ĐỆM GIẢI PHÓNG: Tạo khoảng trống đẩy phần Uploader và Sketch cuộn tự do -->
+<div style="height: 245px; width: 100%;"></div>
+"""
 
-# 🌟 BƯỚC 3: TẠO KHỐI ĐỆM GIẢI PHÓNG KHUNG KÉO THẢ VÀ WORKSPACE PHÍA DƯỚI 🌟
-st.markdown('<div style="height: 160px; width: 100%;"></div>', unsafe_allow_html=True)
+# 🌟 BƯỚC 2: TRUYỀN DỮ LIỆU VÀO CHUỖI AN TOÀN TUYỆT ĐỐI BẰNG HÀM REPLACE CỦA PYTHON 🌟
+html_kpi_layout = html_kpi_layout.replace("__DATA1__", str(kpi_style_id))
+html_kpi_layout = html_kpi_layout.replace("__DATA2__", str(total_materials))
+html_kpi_layout = html_kpi_layout.replace("__DATA3__", str(main_fabric_cons))
+html_kpi_layout = html_kpi_layout.replace("__DATA4__", str(active_size_kpi))
 
+# Hiển thị dải trần cố định siêu đẹp lên trang web
+st.markdown(html_kpi_layout, unsafe_allow_html=True)
 
 
 
