@@ -1327,7 +1327,6 @@ ctx["lining_width_inch"] = lining_width
 # =====================================================================
 # 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT
 # =====================================================================
-# 🚨 BỔ SUNG LỆNH IMPORT THƯ VIỆN REGEX PHỤC VỤ CHO BỘ THÔNG DỊCH LỆNH CHAT VÀ QUÉT SỐ LƯỢNG
 import re
 import pandas as pd
 
@@ -1386,42 +1385,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
     # =====================================================================
-    # 🚨 TÍCH HỢP MỚI: NATURAL LANGUAGE PARSER ENGINE (BỘ THÔNG DỊCH LỆNH CHAT)
+    # 🚨 ĐÃ ĐỒNG BỘ: NATURAL LANGUAGE PARSER ENGINE (BẮT KHỚP MÃ KHÓA CHAT V8)
     # =====================================================================
-    # Khởi tạo giá trị mặc định an toàn cho hệ thống trên session_state nếu chưa có
-    if "fabric_width_inch" not in st.session_state:
-        st.session_state["fabric_width_inch"] = 58.0
-    if "warp_shrink" not in st.session_state:
-        st.session_state["warp_shrink"] = 0.0
-    if "weft_shrink" not in st.session_state:
-        st.session_state["weft_shrink"] = 0.0
+    if "fabric_width_inch" not in st.session_state: st.session_state["fabric_width_inch"] = 58.0
+    if "warp_shrink" not in st.session_state: st.session_state["warp_shrink"] = 0.0
+    if "weft_shrink" not in st.session_state: st.session_state["weft_shrink"] = 0.0
 
-    # Đọc thớ văn bản trực tiếp từ ô nhập lệnh chat (Yêu cầu ô chat gán key="chat_input_command_box")
-    user_command = str(st.session_state.get("chat_input_command_box", "")).lower().strip()
+    # Đọc trực tiếp thớ văn bản thô từ ô lệnh st.chat_input của Đoạn 1 gửi sang
+    user_command = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 
     if user_command:
-        # A. Quét tìm và bóc tách KHỔ VẢI CHÍNH (Ví dụ bắt trúng: "khổ 56", "kho 56")
-        width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_command)
+        # A. Quét tìm cấu hình khổ vải chính
+        width_match = re.search(r'(?:kh\s*ổ|kho)\s*(\d+(?:\.\d+)?)', user_command)
         if width_match:
-            parsed_width = float(width_match.group(1))
-            st.session_state["fabric_width_inch"] = parsed_width
+            st.session_state["fabric_width_inch"] = float(width_match.group(1))
 
-        # B. Quét tìm và bóc tách ĐỘ CO RÚT SỢI DỌC (Ví dụ bắt trúng: "dọc 3", "doc 3", "co rút dọc 3")
-        warp_match = re.search(r'(?:dọc|doc)\s*(\d+(?:\.\d+)?)', user_command)
+        # B. Quét tìm độ co rút sợi dọc (Chấp nhận cả cụm từ "dọc 3" hay "co rút dọc 3")
+        warp_match = re.search(r'(?:d\s*ọc|doc)\s*(\d+(?:\.\d+)?)', user_command)
         if warp_match:
-            parsed_warp = float(warp_match.group(1))
-            st.session_state["warp_shrink"] = parsed_warp
+            st.session_state["warp_shrink"] = float(warp_match.group(1))
 
-        # C. Quét tìm và bóc tách ĐỘ CO RÚT SỢI NGANG (Ví dụ bắt trúng: "ngang 14", "co rút ngang 14")
+        # C. Quét tìm độ co rút sợi ngang (Chấp nhận cụm từ "ngang 14")
         weft_match = re.search(r'(?:ngang)\s*(\d+(?:\.\d+)?)', user_command)
         if weft_match:
-            parsed_weft = float(weft_match.group(1))
-            st.session_state["weft_shrink"] = parsed_weft
+            st.session_state["weft_shrink"] = float(weft_match.group(1))
 
-    # Giải phóng giá trị sau thông dịch ra ngoài để các Đoạn 3, 4, 5 phía sau sử dụng đồng bộ
+    # Xuất bản đồng bộ giá trị ra ngoài cho hệ thống pipeline Đoạn 3, 4, 5
     fabric_width = float(st.session_state["fabric_width_inch"])
     warp_shrink = float(st.session_state["warp_shrink"])
     weft_shrink = float(st.session_state["weft_shrink"])
+
 
        # =====================================================================
         # =====================================================================
@@ -2065,6 +2058,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     #    # =====================================================================
         # =====================================================================
        # =====================================================================
+      # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2087,7 +2081,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][idx]).upper().strip()
         mat_str = str(row[m_col]).upper().strip()
-        comp_str = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
+        comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
         role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
         fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
@@ -2103,13 +2097,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return "FUSING"
         return "FABRIC"
 
-    # Gán nhãn tạm thời cho cột phân loại vật tư
     df_bom["_temp_class"] = [ui_layer_material_classify(r, idx) for idx, r in df_bom.iterrows()]
-    
-    # 🚨 BỘ PHÒNG VỆ CHỐNG SẬP APP: Nếu chưa có cột định mức thương mại, tự động tạo giá trị bằng 0 để không bị lỗi KeyError
-    if "Gross Consumption" not in df_bom.columns:
-        df_bom["Gross Consumption"] = 0.0
-
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
     
@@ -2124,17 +2112,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
     df_bom_display = df_bom.copy()
+    
+    # 🚨 ĐÃ SỬA BIẾN HIỂN THỊ UI: Ép lưới đọc trực tiếp cột Calculated Width từ Đoạn 5.2 để tự động nhảy từ 58 về 56 theo lệnh chat
     if "Calculated Width (Inch)" in df_bom_display.columns:
         df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
+    elif "Calculated Width (Inch)" in df_bom.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Calculated Width (Inch)"].round(1)
     else:
-        df_bom_display["Khổ vải sản xuất (inch)"] = current_fabric_width if 'current_fabric_width' in locals() else 58.0
+        df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("fabric_width_inch", 58.0))
         
-    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "M"
+    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "1X"
     df_bom_display["material_class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
     df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
+    # Định cấu hình các cột hiển thị thực tế
     ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
@@ -2148,8 +2141,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, ui_display_density)
                 style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
                 st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
-        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
+        except Exception as e: 
+            st.error(f"Lỗi kết xuất Excel: {e}")
 
+    # Gọi data_editor hiển thị lưới dữ liệu tương tác thông minh chống Infinite Loop
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
@@ -2159,17 +2154,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
                 options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
             )
-        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v8" 
+        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v10_chat_synced" 
     )
 
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
+        
+        # 1. Đồng bộ sửa đổi số lượng rập
         old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
         new_pcs = float(row["Số lượng rập"])
         if old_pcs != new_pcs:
             st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
+            
+        # 2. Đồng bộ sửa đổi loại chất liệu
         old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip()
         new_mat = str(row["Material Class"]).upper().strip()
         if old_mat != new_mat:
