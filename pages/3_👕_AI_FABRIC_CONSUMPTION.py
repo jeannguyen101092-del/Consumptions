@@ -206,62 +206,42 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs MÀU SẮC ĐỘNG NGOẠI HẠNG & KHÓA ĐỈNH
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
 
-# 🌟 BƯỚC 1: KHỞI TẠO CHUỖI HTML PHẲNG (KHÔNG DÙNG F-STRING, KHÔNG LO LỖI DẤU NGOẶC) 🌟
-html_kpi_layout = """
-<div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f0f4f8; padding: 15px 20px 10px 0px; box-sizing: border-box;">
-    
-    <!-- 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp -->
-    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
+# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
+st.markdown(
+    """
+    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
         <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
             🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
         </h2>
     </div>
+    """, 
+    unsafe_allow_html=True
+)
 
-    <!-- 2. Lưới 4 ô KPIs màu sắc rực rỡ, icon to rõ có hiệu ứng nhúc nhích khi di chuột -->
-    <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
-        
-        <!-- Ô KPIs 1: Mã hàng (Màu xám đen) -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">__DATA1__</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">👕</span></div>
-        </div>
+# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
+k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-        <!-- Ô KPIs 2: Tổng vật tư (Màu xanh ngọc) -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">__DATA2__ Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">👖</span></div>
-        </div>
+# Cấu hình chung cho hiệu ứng Emoji: To rõ (70px), có đổ bóng mờ tạo độ nổi khối 3D cực đẹp
+emoji_style = "font-size: 70px; display: inline-block; filter: drop-shadow(0px 4px 6px rgba(0, 0, 0, 0.15)); transform: scale(1); transition: all 0.2s ease-in-out;"
 
-        <!-- Ô KPIs 3: Định mức vải (Màu cam) -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">__DATA3__</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">✂️</span></div>
-        </div>
+with k_col1: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
 
-        <!-- Ô KPIs 4: Cỡ hạt (Màu xanh lá) -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">__DATA4__</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.15));">🧵</span></div>
-        </div>
+with k_col2: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
 
-    </div>
-</div>
+with k_col3: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
 
-<!-- 3. KHỐI ĐỆM GIẢI PHÓNG: Tạo khoảng trống đẩy phần Uploader và Sketch cuộn tự do -->
-<div style="height: 245px; width: 100%;"></div>
-"""
-
-# 🌟 BƯỚC 2: TRUYỀN DỮ LIỆU VÀO CHUỖI AN TOÀN TUYỆT ĐỐI BẰNG HÀM REPLACE CỦA PYTHON 🌟
-html_kpi_layout = html_kpi_layout.replace("__DATA1__", str(kpi_style_id))
-html_kpi_layout = html_kpi_layout.replace("__DATA2__", str(total_materials))
-html_kpi_layout = html_kpi_layout.replace("__DATA3__", str(main_fabric_cons))
-html_kpi_layout = html_kpi_layout.replace("__DATA4__", str(active_size_kpi))
-
-# Hiển thị dải trần cố định siêu đẹp lên trang web
-st.markdown(html_kpi_layout, unsafe_allow_html=True)
+with k_col4: 
+    st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
 
