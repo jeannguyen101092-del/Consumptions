@@ -129,61 +129,89 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
                 main_fabric_cons = f"{val_gross:.3f} Yds"
                 break
 
-# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
+# =====================================================================
+# SỬA LỖI ĐOẠN 6a: BỘ CẤU HÌNH CSS MAU TỐI SANG TRỌNG CHO SIDEBAR
+# =====================================================================
 st.markdown("""
 <style>
+    /* Trả màu nền ứng dụng chính về màu xám trắng dịu mắt chuẩn văn phòng */
     .stApp { background-color: #f8fafc !important; }
     header[data-testid="stHeader"] { background-color: #f8fafc !important; }
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
     div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
-    .kpi-box-flat-matrix {
-        border-radius: 6px 6px 0 0 !important;
-        padding: 10px 12px !important;
-        text-align: center !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
-        box-sizing: border-box !important;
+    /* 🌟 ÉP MÀU NỀN SIDEBAR SANG TONE LUXURY NAVY ĐẬM SIÊU ĐẸP 🌟 */
+    [data-testid="stSidebar"] {
+        background-color: #0f172a !important; 
+        color: #f1f5f9 !important;
     }
+    
+    /* Màu chữ tiêu đề ENGINE CONTROLS */
+    [data-testid="stSidebar"] .stMarkdown h3 {
+        color: #38bdf8 !important; 
+        font-size: 13px !important;
+        letter-spacing: 0.5px !important;
+        margin-top: 15px !important;
+    }
+
+    /* Định dạng lại nút bấm xóa bộ nhớ nổi bật trên nền tối */
+    [data-testid="stSidebar"] button {
+        background-color: #1e293b !important;
+        color: #ef4444 !important;
+        border: 1px solid #334155 !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+    }
+    [data-testid="stSidebar"] button:hover {
+        background-color: #ef4444 !important;
+        color: #ffffff !important;
+        border-color: #ef4444 !important;
+    }
+
+    /* Định dạng tiêu đề chữ của 3 khối tiện ích */
+    .sidebar-sub-title {
+        font-family: "Segoe UI", sans-serif !important; 
+        font-size: 11px !important; 
+        font-weight: 700 !important; 
+        color: #94a3b8 !important;
+        text-transform: uppercase !important; 
+        letter-spacing: 0.8px !important; 
+        margin-bottom: 8px !important;
+        margin-top: 18px !important;
+    }
+
+    /* Các hộp thông tin đổi sang màu hộp tối mờ chuyển sắc cực sang */
+    .sidebar-custom-card, .sidebar-custom-card-history {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+        border: 1px solid #334155 !important;
+        border-radius: 6px !important; 
+        padding: 12px !important; 
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2) !important;
+        margin-bottom: 15px !important;
+    }
+    .sidebar-custom-card-history {
+        padding: 6px 12px !important;
+    }
+    .sidebar-divider {
+        margin: 20px 0 12px 0 !important; 
+        border: 0 !important; 
+        border-top: 1px solid #334155 !important;
+    }
+
+    /* Thẻ chỉ số KPIs màu sắc rực rỡ trần trang chính */
+    .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
-
     .bg-style-erp { background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important; }
     .bg-items-erp { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important; }
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    .image-placeholder-box-flat {
-        border: 1px solid #cbd5e1 !important;
-        border-top: none !important; 
-        border-radius: 0 0 6px 6px !important;
-        padding: 10px 5px !important;
-        height: 140px !important; 
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        box-sizing: border-box !important;
-        margin-bottom: 25px !important;
-        background-color: #ffffff !important;
-        overflow: hidden !important;
-    }
-
-    /* 🌟 HIỆU ỨNG DI CHUỘT (HOVER EFFECT) DÀNH CHO ICON ĐƯỢC THÊM TẠI ĐÂY 🌟 */
-    .garment-emoji-container {
-        display: inline-block !important;
-        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important;
-        cursor: pointer !important;
-    }
-    /* Khi rê chuột vào ô trắng chứa ảnh, icon sẽ nhúc nhích phóng to nhẹ lên và bóng đổ rõ hơn */
-    .image-placeholder-box-flat:hover .garment-emoji-container {
-        transform: scale(1.18) translateY(-4px) !important;
-        filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.25)) !important;
-    }
-
+    /* Hộp trắng bao bọc hình vẽ rập vector hình học */
+    .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
+    .garment-emoji-container { display: inline-block !important; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important; cursor: pointer !important; }
+    .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.25)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
-    .cad-header-text-flat { font-family: 'Segoe UI', sans-serif !important; font-size: 14px !important; font-weight: 700 !important; color: #0369a1 !important; margin-bottom: 15px !important; padding-bottom: 6px !important; border-bottom: 2px solid #e2e8f0 !important; }
-    .meta-box-light-flat { background-color: #f8fafc !important; border-left: 4px solid #0284c7 !important; padding: 8px 12px !important; margin-bottom: 8px !important; border-radius: 0 6px 6px 0 !important; }
-    .meta-label-flat { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; text-transform: uppercase !important; }
-    .meta-value-flat { font-size: 13px !important; font-weight: 600 !important; color: #0f172a !important; margin-top: 1px !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
