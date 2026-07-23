@@ -335,7 +335,7 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # Khối 3: Danh sách lịch sử mã hàng tự nhảy tự động theo thời gian thực
+    # Khối 3: Danh sách lịch sử mã hàng tự nhảy tự động theo thời gian thực (Đã sửa lỗi dấu nháy)
     st.markdown("<div class='sidebar-sub-title'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
     if "history_list" not in st.session_state:
         st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
@@ -347,23 +347,23 @@ with st.sidebar:
     for index, style_code in enumerate(st.session_state.history_list):
         border_style = 'border-bottom: 1px solid #334155;' if index < len(st.session_state.history_list) - 1 else ''
         if index == 0 and kpi_style_id != "N/A":
-            history_html += f"""
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; {border_style} font-size: 11px;">
-                <span style="color: #38bdf8; font-weight: 600;">📦 {style_code}</span>
-                <span style="color: #4ade80; font-size: 10px; font-weight: 600; background-color: rgba(74,222,128,0.1); padding: 1px 6px; border-radius: 10px;">Active</span>
-            </div>
-            """
+            history_html += (
+                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px;">'
+                '    <span style="color: #38bdf8; font-weight: 600;">📦 ' + style_code + '</span>'
+                '    <span style="color: #4ade80; font-size: 10px; font-weight: 600; background-color: rgba(74,222,128,0.1); padding: 1px 6px; border-radius: 10px;">Active</span>'
+                '</div>'
+            )
         else:
-            history_html += f"""
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; {border_style} font-size: 11px;">
-                <span style="color: #cbd5e1; font-weight: 500;">📦 {style_code}</span>
-                <span style="color: #94a3b8; font-size: 10px;">Processed</span>
-            </div>
-            """
+            history_html += (
+                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px;">'
+                '    <span style="color: #cbd5e1; font-weight: 500;">📦 ' + style_code + '</span>'
+                '    <span style="color: #94a3b8; font-size: 10px;">Processed</span>'
+                '</div>'
+            )
     history_html += '</div>'
+    
     st.markdown(history_html, unsafe_allow_html=True)
     st.markdown("<div style='font-size: 9px; color: #64748b; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
-
 
 
 # ------------------------------------------------------------------------------
