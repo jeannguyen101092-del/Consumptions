@@ -1534,57 +1534,84 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-         # =====================================================================
-    # 🟩 ĐOẠN 4: RULE ENGINE - ĐỊNH TUYẾF PHƯƠNG PHÁP GIẢI TOÁN HÌNH HỌC PHẲNG (SỬA LỖI KEO THẤP)
+        # =====================================================================
+    # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
 
-    # 1. Thuật toán nắn kích thước sản xuất (Giữ nguyên logic phẳng quần công nghiệp)
-    def calc_production_geometry(row):
+    # Đọc thêm độ co rút riêng của Keo và Lót từ session_state (Mặc định bằng 0 nếu user không nhập)
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+
+    # 1. Thuật toán nắn kích thước sản xuất (Bao gồm độ co rút cho từng loại chất liệu)
+    def calc_production_width(row):
         w_orig, l_orig = float(row[orig_w_col]), float(row[orig_l_col])
-        w_expanded = w_orig * (1 + weft_shrink / 100.0)
+        mat_class = local_strict_classify(row, row.name) if 'local_strict_classify' in locals() else "FABRIC"
         
+        # Áp độ co rút sợi ngang tùy theo loại vật liệu
+        if mat_class == "FABRIC":
+            w_expanded = w_orig * (1 + weft_shrink / 100.0)
+        elif mat_class == "FUSING":
+            w_expanded = w_orig * (1 + fusing_weft_shrink / 100.0)
+        elif mat_class == "LINING":
+            w_expanded = w_orig * (1 + lining_weft_shrink / 100.0)
+        else:
+            w_expanded = w_orig
+
+        # Logic phẳng quần công nghiệp cho các chi tiết thân lớn
         if l_orig >= 32.0 and w_orig >= 10.0:
             name = str(row.get(comp_col_check, "")).lower()
             if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) 
             if "back" in name or "sau" in name: return round(w_expanded * 0.98, 3)
+            
         return round(w_expanded, 3)
 
-    fabric_keywords = ["FABRIC", "SHELL", "MAIN", "SELF", "VAI CHINH", "VC"]
-    
-    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(
-        lambda r: round(float(r[orig_l_col]) * (1 + warp_shrink / 100.0), 3) 
-        if any(k in str(r[m_col]).upper() for k in fabric_keywords) 
-        else round(float(r[orig_l_col]), 2), axis=1
-    )
-    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_geometry, axis=1)
+    def calc_production_length(row):
+        l_orig = float(row[orig_l_col])
+        mat_class = local_strict_classify(row, row.name) if 'local_strict_classify' in locals() else "FABRIC"
+        
+        # Áp độ co rút sợi dọc tùy theo loại vật liệu
+        if mat_class == "FABRIC":
+            return round(l_orig * (1 + warp_shrink / 100.0), 3)
+        elif mat_class == "FUSING":
+            return round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
+        elif mat_class == "LINING":
+            return round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
+            
+        return round(l_orig, 3)
 
-    # 🚨 ĐÃ SỬA LỖI ĐỂ TĂNG ĐỊNH MỨC KEO: Tra cứu hệ số hình học lấp đầy (Shape Factor)
-    def get_shape_factor(row):
+    # Thực thi nắn kích thước sản xuất L và W đồng bộ cho toàn bảng BOM
+    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
+    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
+
+    # 🚨 SỬA LỖI DIỆN TÍCH TỊNH (NET AREA SOLVER):
+    # Tránh bẫy toán học làm sập định mức keo, diện tích tịnh tăng tỉ lệ thuận với độ co rút sản xuất
+    # Không dùng Shape Factor ghim cứng 0.98 cho Keo nữa vì sẽ làm Void Ratio triệt tiêu về 0
+    def get_dynamic_shape_factor(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
         mat_class = str(row.get(m_col, "")).upper().strip()
         
-        # 1. ƯU TIÊN TUYỆT ĐỐI CHO KEO LÓT RIB / MÉC KEO: 
-        # Các miếng dán keo phôi rib là hình chữ nhật thẳng, độ chiếm chỗ trong khung bao đạt gần như 100%
-        if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name:
-            return 0.98  # Kéo hệ số lấp đầy diện tích keo lên tối đa (Từ 0.78 lên 0.98)
-            
-        # 2. Đối với các chi tiết vải chính thân lớn
         if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]):
-            return 0.88 
-        elif any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP"]):
-            return 0.92 
+            return 0.85 # Tỷ lệ lấp đầy thực tế của thân quần/áo cong
+        if any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP", "CẠP"]):
+            return 0.92 # Chi tiết thẳng dài
+        if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name:
+            # Đối với Keo/Méc, giữ hệ số thực tế hình học phẳng (0.75 - 0.80). 
+            # Việc tăng định mức keo sẽ do bộ giải toán hao hụt dynamic_fusing_solver ở Đoạn 5.2 xử lý bằng thớ vải/khổ rộng!
+            return 0.78 
             
-        return 0.78 # Mặc định cho các chi tiết nhỏ cong tròn khác
+        return 0.76
 
-    # Tính diện tích tịnh dựa trên hệ số shape factor mới đã được kích tối đa cho keo
+    # Diện tích tịnh (polygon_net_area) phản ánh chính xác thớ vải sau co rút
     df_bom["polygon_net_area"] = df_bom.apply(
-        lambda r: round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_shape_factor(r), 2), 
+        lambda r: round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_dynamic_shape_factor(r), 2), 
         axis=1
     )
 
-    # 📊 TRẠM ĐIỀU PHỐI (RULE ENGINE): Phân phối loại Solver dựa trên kết cấu cắt rải thực tế
+    # 📊 BỘ ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN (SOLVER ROUTER)
     def rule_engine_coordinator(row):
         comp_name = str(row.get(comp_col_check, "")).upper().strip()
         
@@ -1596,6 +1623,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+
       # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
     # =====================================================================
