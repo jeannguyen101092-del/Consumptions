@@ -206,62 +206,61 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs MÀU SẮC ĐỘNG & KHÓA ĐỈNH XANH SƯƠNG MÙ
+# ĐOẠN 6b (ĐOẠN B): GIAO DIỆN KPIs SẠCH SẼ & KHÓA ĐỈNH XANH SƯƠNG MÙ
 # =====================================================================
 
-# 🌟 FIX CHUẨN XÁC 100%: Dùng hàm .replace() thay cho f-string để triệt tiêu vĩnh viễn lỗi lộ chữ mã nguồn 🌟
-kpis_html_code = """
-<div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f0f4f8; padding: 15px 20px 10px 0px; box-sizing: border-box;">
+# 🌟 BƯỚC 1: CẤU HÌNH GHIM CỐ ĐỊNH PHẦN TIÊU ĐỀ VÀ KPIs LÊN TRẦN TRANG BÊN PHẢI 🌟
+st.markdown("""
+<style>
+    /* Ép container chứa Tiêu đề và 4 ô KPIs phải ghim chặt lên trần */
+    div[data-testid="stVerticalBlock"]:has(div.safe-header-marker) {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: calc(100% - 304px) !important;
+        z-index: 99999 !important;
+        background-color: #f0f4f8 !important; /* Màu xanh sương mù dịu mắt */
+        padding: 15px 20px 10px 0px !important;
+        box-sizing: border-box !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 🌟 BƯỚC 2: RENDER GIAO DIỆN BẰNG LỆNH THUẦN TÚY CỦA STREAMLIT (AN TOÀN TUYỆT ĐỐI) 🌟
+with st.container():
+    # Thẻ đánh dấu để CSS tìm và khóa cứng khối này lại trên đỉnh đầu
+    st.markdown('<div class="safe-header-marker"></div>', unsafe_allow_html=True)
     
-    <!-- 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp -->
-    <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
-        <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
-            🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
-        </h2>
-    </div>
-
-    <!-- 2. Lưới Flexbox chứa đúng 4 ô KPIs độc lập ghim đỉnh -->
-    <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
-        
-        <!-- Ô KPIs 1: Mã hàng -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">__VAL1__</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👕</span></div>
+    # 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp (Dùng HTML đơn giản nhất)
+    st.markdown(
+        """
+        <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center;">
+            <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
+                🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
+            </h2>
         </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
-        <!-- Ô KPIs 2: Tổng vật tư -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">__VAL2__ Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👖</span></div>
-        </div>
+    # 2. Sử dụng lưới 4 cột của Streamlit để hiển thị 4 ô số thông số định mức cốt lõi
+    k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-        <!-- Ô KPIs 3: Định mức vải -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">__VAL3__</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">✂️</span></div>
-        </div>
+    with k_col1:
+        st.metric(label="👕 Mã hàng đang xử lý", value=str(kpi_style_id))
 
-        <!-- Ô KPIs 4: Cỡ hạt -->
-        <div style="flex: 1; min-width: 0;">
-            <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">__VAL4__</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
-            <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">🧵</span></div>
-        </div>
+    with k_col2:
+        st.metric(label="👖 Tổng số vật tư kết xuất", value=f"{total_materials} Item(s)")
 
-    </div>
-</div>
+    with k_col3:
+        st.metric(label="✂️ Định mức vải chính dự kiến", value=str(main_fabric_cons))
 
-<!-- 3. KHỐI ĐỆM: Đẩy khung Uploader ở dưới xuống không bị đè mất chữ -->
-<div style="height: 245px; width: 100%;"></div>
-"""
+    with k_col4:
+        st.metric(label="🧵 Cỡ hạt tính định mức", value=str(active_size_kpi))
 
-# Truyền dữ liệu vào chuỗi HTML bằng hàm replace an toàn, không lo vỡ ngoặc nhọn
-kpis_html_code = kpis_html_code.replace("__VAL1__", str(kpi_style_id))
-kpis_html_code = kpis_html_code.replace("__VAL2__", str(total_materials))
-kpis_html_code = kpis_html_code.replace("__VAL3__", str(main_fabric_cons))
-kpis_html_code = kpis_html_code.replace("__VAL4__", str(active_size_kpi))
+# 🌟 BƯỚC 3: TẠO KHỐI ĐỆM GIẢI PHÓNG KHUNG KÉO THẢ VÀ WORKSPACE PHÍA DƯỚI 🌟
+st.markdown('<div style="height: 160px; width: 100%;"></div>', unsafe_allow_html=True)
 
-# Hiển thị lên giao diện Streamlit công nghiệp
-st.markdown(kpis_html_code, unsafe_allow_html=True)
 
 
 
