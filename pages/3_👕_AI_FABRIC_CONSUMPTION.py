@@ -98,15 +98,11 @@ if st.session_state.pdf_bytes is not None and (st.session_state.pdf_text_cache i
     try:
         import fitz
         doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-        
-        # Trích xuất văn bản chữ
         if st.session_state.pdf_text_cache is None:
             full_text_extract = ""
             for page_num in range(len(doc)):
                 full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
             st.session_state.pdf_text_cache = full_text_extract
-            
-        # Trích xuất hình ảnh trang đầu tiên làm Sketch bản vẽ
         if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
             if len(doc) > 0:
                 page = doc.load_page(0)
@@ -136,28 +132,11 @@ if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
 # 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
 st.markdown("""
 <style>
-    /* Trả màu nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng */
-    .stApp {
-        background-color: #f8fafc !important;
-    }
-    header[data-testid="stHeader"] {
-        background-color: #f8fafc !important;
-    }
-    
-    /* Ép khoảng đệm trần Streamlit về mặc định, triệt tiêu vĩnh viễn khoảng hở */
-    .block-container {
-        padding-top: 1.5rem !important; 
-        margin-top: 0px !important;
-        max-width: 100% !important;
-    }
-    
-    /* Ép tất cả các hàng chia cột mặc định phải co khít sát lên trên cùng */
-    div[data-testid="stHorizontalBlock"] {
-        margin-top: 0px !important;
-        padding-top: 0px !important;
-    }
+    .stApp { background-color: #f8fafc !important; }
+    header[data-testid="stHeader"] { background-color: #f8fafc !important; }
+    .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
+    div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ chữ trắng hiển thị rõ nét vĩnh viễn */
     .kpi-box-flat-matrix {
         border-radius: 6px 6px 0 0 !important;
         padding: 10px 12px !important;
@@ -165,29 +144,14 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
         box-sizing: border-box !important;
     }
-    .kpi-num-flat-matrix {
-        font-size: 16px !important;
-        font-weight: 700 !important;
-        color: #ffffff !important; 
-        font-family: 'Segoe UI', sans-serif !important;
-        line-height: 1.2 !important;
-    }
-    .kpi-lbl-flat-matrix {
-        font-size: 9px !important;
-        font-weight: 600 !important;
-        color: #ffffff !important;
-        opacity: 0.95 !important;
-        text-transform: uppercase !important;
-        margin-top: 2px !important;
-    }
+    .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
+    .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
 
-    /* Đóng gói dải màu phân hệ động sắc nét */
     .bg-style-erp { background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important; }
     .bg-items-erp { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important; }
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    /* Hộp trắng bao bọc hình vẽ gọn gàng 140px */
     .image-placeholder-box-flat {
         border: 1px solid #cbd5e1 !important;
         border-top: none !important; 
@@ -200,53 +164,27 @@ st.markdown("""
         box-sizing: border-box !important;
         margin-bottom: 25px !important;
         background-color: #ffffff !important;
-    }
-    
-    /* 🌟 THAY ĐỔI CSS ĐỂ ĐẢM BẢO CHẤP NHẬN ẢNH MỚI HOÀN TOÀN 🌟 */
-    .image-placeholder-box-flat img {
-        max-height: 70px !important;
-        width: auto !important;
-        object-fit: contain !important;
-        display: block !important;
-        margin: auto !important;
+        overflow: hidden !important;
     }
 
-    /* FIX TRIỆT ĐỂ: SỬA LỖI ẨN ẢNH VÀ TRẢ LẠI HIỂN THỊ TỰ ĐỘNG CHO SKETCH */
-    div[data-testid="stImage"] img {
-        width: 100% !important;
-        height: auto !important;
+    /* 🌟 HIỆU ỨNG DI CHUỘT (HOVER EFFECT) DÀNH CHO ICON ĐƯỢC THÊM TẠI ĐÂY 🌟 */
+    .garment-emoji-container {
+        display: inline-block !important;
+        transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important;
+        cursor: pointer !important;
     }
-    
-    .cad-header-text-flat {
-        font-family: 'Segoe UI', sans-serif !important;
-        font-size: 14px !important;
-        font-weight: 700 !important;
-        color: #0369a1 !important; 
-        margin-bottom: 15px !important;
-        padding-bottom: 6px !important;
-        border-bottom: 2px solid #e2e8f0 !important;
+    /* Khi rê chuột vào ô trắng chứa ảnh, icon sẽ nhúc nhích phóng to nhẹ lên và bóng đổ rõ hơn */
+    .image-placeholder-box-flat:hover .garment-emoji-container {
+        transform: scale(1.18) translateY(-4px) !important;
+        filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.25)) !important;
     }
 
-    .meta-box-light-flat {
-        background-color: #f8fafc !important; 
-        border-left: 4px solid #0284c7 !important;
-        padding: 8px 12px !important;
-        margin-bottom: 8px !important;
-        border-radius: 0 6px 6px 0 !important;
-    }
+    div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
+    .cad-header-text-flat { font-family: 'Segoe UI', sans-serif !important; font-size: 14px !important; font-weight: 700 !important; color: #0369a1 !important; margin-bottom: 15px !important; padding-bottom: 6px !important; border-bottom: 2px solid #e2e8f0 !important; }
+    .meta-box-light-flat { background-color: #f8fafc !important; border-left: 4px solid #0284c7 !important; padding: 8px 12px !important; margin-bottom: 8px !important; border-radius: 0 6px 6px 0 !important; }
     .meta-label-flat { font-size: 11px !important; font-weight: 700 !important; color: #64748b !important; text-transform: uppercase !important; }
     .meta-value-flat { font-size: 13px !important; font-weight: 600 !important; color: #0f172a !important; margin-top: 1px !important; }
-
-    /* Khóa chết và ép ẩn toàn diện mọi class ghim đỉnh hoặc hàng rỗng cũ bị dính đệm */
-    .main-body-spacer, 
-    .sticky-top-container, 
-    div[smart-fixed-container], 
-    div[data-testid="stHorizontalBlock"]:empty {
-        display: none !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
+    .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -274,7 +212,6 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & GRID THÂN TRANG HỢP NHẤT
 # =====================================================================
 
-# 🌟 TIÊU ĐỀ ĐÃ ĐỔI SANG MÀU XANH THEME ERP SANG TRỌNG 🌟
 st.markdown(
     """
     <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1), 0 2px 4px -1px rgba(15, 118, 110, 0.06); text-align: center;">
@@ -286,27 +223,26 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Phân bổ lưới 4 ô KPIs Native gốc của Streamlit
 k_col1, k_col2, k_col3, k_col4 = st.columns(4)
 
-# Cấu hình chung cho hiệu ứng Emoji: To rõ (70px), có đổ bóng mờ tạo độ nổi khối 3D cực đẹp
-emoji_style = "font-size: 70px; display: inline-block; filter: drop-shadow(0px 4px 6px rgba(0, 0, 0, 0.15)); transform: scale(1); transition: all 0.2s ease-in-out;"
+# Cấu hình kích thước icon cực lớn (85px) kèm đổ bóng sâu ban đầu mờ nhẹ
+emoji_style = "font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.12));"
 
 with k_col1: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
 
 with k_col2: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
 
 with k_col3: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
 
 with k_col4: 
     st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ ---
