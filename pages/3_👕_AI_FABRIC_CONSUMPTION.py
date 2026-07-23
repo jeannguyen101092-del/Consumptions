@@ -288,8 +288,13 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     st.rerun()
 
-# --- KHỐI 1: THÔNG TIN HỆ THỐNG MÀU ĐẸP ---
+# =====================================================================
+# 🌟 TOÀN BỘ 3 KHỐI TIỆN ÍCH DƯỚI NÚT CLEAR ĐÃ ĐƯỢC CHUẨN HÓA DẤU NHÁY 🌟
+# =====================================================================
 with st.sidebar:
+    # -----------------------------------------------------------------
+    # KHỐI 1: THÔNG TIN HỆ THỐNG (SYSTEM STATUS)
+    # -----------------------------------------------------------------
     st.markdown("<div class='sidebar-divider'></div>", unsafe_allow_html=True)
     st.markdown("<div class='sidebar-sub-title'>⚙️ SYSTEM STATUS</div>", unsafe_allow_html=True)
     st.markdown(
@@ -311,9 +316,10 @@ with st.sidebar:
         """,
         unsafe_allow_html=True
     )
-# --- KHỐI 2 & 3: HƯỚNG DẪN SỬ DỤNG VÀ LỊCH SỬ MÃ HÀNG TỰ ĐỘNG ---
-with st.sidebar:
-    # Khối 2: Hướng dẫn sử dụng nhanh
+
+    # -----------------------------------------------------------------
+    # KHỐI 2: HƯỚNG DẪN SỬ DỤNG NHANH (QUICK USER GUIDE)
+    # -----------------------------------------------------------------
     st.markdown("<div class='sidebar-sub-title'>📖 QUICK USER GUIDE</div>", unsafe_allow_html=True)
     st.markdown(
         """
@@ -335,7 +341,9 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # Khối 3: Danh sách lịch sử mã hàng tự nhảy tự động theo thời gian thực (Đã sửa lỗi dấu nháy)
+    # -----------------------------------------------------------------
+    # KHỐI 3: DANH SÁCH LỊCH SỬ MÃ HÀNG ĐỘNG (RECENT CODE HISTORY)
+    # -----------------------------------------------------------------
     st.markdown("<div class='sidebar-sub-title'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
     if "history_list" not in st.session_state:
         st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
@@ -364,7 +372,6 @@ with st.sidebar:
     
     st.markdown(history_html, unsafe_allow_html=True)
     st.markdown("<div style='font-size: 9px; color: #64748b; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
-
 
 # ------------------------------------------------------------------------------
 # LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (SỬ DỤNG HEIGHT NATIVE CỦA STREAMLIT)
