@@ -80,14 +80,14 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a: KHỞI TẠO BỘ NHỚ STATE & CẤU HÌNH CSS PHẲNG NATIVE CHUẨN ERP
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
 # Ghim cố định logo PPJ GROUP lên đỉnh góc trái của Menu điều hướng
-logo_ppj_base64 = "data:image/png;base64,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"
+logo_ppj_base64 = "data:image/png;base64,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"
 st.sidebar.image(logo_ppj_base64, use_container_width=True)
 
 # 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ hệ thống (Session State)
@@ -97,79 +97,43 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
-
-# 3. Tự động phân tách trích xuất văn bản và hình ảnh trang đầu từ tài liệu PDF
-if st.session_state.pdf_bytes is not None and (st.session_state.pdf_text_cache is None or st.session_state.get("pdf_page_one_image") is None):
-    try:
-        import fitz
-        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-        if st.session_state.pdf_text_cache is None:
-            full_text_extract = ""
-            for page_num in range(len(doc)):
-                full_text_extract += f"\n--- TRANG THỨ {page_num + 1} ---\n" + doc.load_page(page_num).get_text("text")
-            st.session_state.pdf_text_cache = full_text_extract
-        if "pdf_page_one_image" not in st.session_state or st.session_state.pdf_page_one_image is None:
-            if len(doc) > 0:
-                page = doc.load_page(0)
-                pix = page.get_pixmap(dpi=150)
-                st.session_state.pdf_page_one_image = pix.tobytes("png")
-    except Exception: 
-        pass
-
-# 4. Engine đồng bộ dữ liệu KPIs động biến thiên theo thời gian thực trên đỉnh trần
-kpi_style_id = "N/A"
-total_materials = len(st.session_state.accumulated_bom_rows) if st.session_state.accumulated_bom_rows else 0
-main_fabric_cons = "0.00"
-active_size_kpi = "M"
-
-if st.session_state.get("bom_data") and "bom_rows" in st.session_state.bom_data:
-    kpi_style_id = str(st.session_state.bom_data.get("style_code", "R09-500778")).upper()
-    active_size_kpi = str(st.session_state.bom_data.get("calculated_on_size", "MEDIAN")).upper()
-    if total_materials == 0: total_materials = len(st.session_state.bom_data["bom_rows"])
-    for row in st.session_state.bom_data["bom_rows"]:
-        if not row: continue
-        if "MAIN" in str(row.get("material_class", "")).upper() or "FABRIC" in str(row.get("material_class", "")).upper():
-            val_gross = row.get("gross_consumption", 0.0)
-            if val_gross > 0.0:
-                main_fabric_cons = f"{val_gross:.2f}"
-                break
-
-# 5. Bộ cấu hình định dạng CSS phẳng triệt tiêu vĩnh viễn mọi ô trống khổng lồ
+# =====================================================================
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & TIÊU ĐỀ SIDEBAR NỔI BẬT
+# =====================================================================
 st.markdown("""
 <style>
-    /* Trả màu nền ứng dụng về màu xám trắng dịu mắt chuẩn văn phòng */
+    /* Làm sạch nền và khoảng cách thân trang bên phải */
     .stApp { background-color: #f8fafc !important; }
     header[data-testid="stHeader"] { background-color: #f8fafc !important; }
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
     div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
-    /* 🌟 GIỮ NỀN TRẮNG SÁNG GỐC CỦA SIDEBAR THEO YÊU CẦU 🌟 */
+    /* GIỮ NỀN XANH NGỌC LAM ĐẬM GỐC CỦA SIDEBAR QUEN THUỘC */
     [data-testid="stSidebar"] {
-        background-color: #ffffff !important; 
-        color: #1e293b !important;
-        border-right: 1px solid #e2e8f0 !important;
+        background-color: #0f766e !important; 
+        color: #ffffff !important;
     }
     [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #0f766e !important; 
+        color: #ffffff !important; 
         font-size: 13px !important;
         letter-spacing: 0.5px !important;
         margin-top: 15px !important;
     }
 
-    /* Ghim cố định menu chính của Streamlit Nav */
+    /* Ghim cố định logo và menu lựa chọn của Streamlit Nav trên đỉnh Sidebar */
     [data-testid="stSidebarNav"] {
         position: sticky !important;
         top: 0 !important;
         z-index: 999 !important;
-        background-color: #ffffff !important;
+        background-color: #0f766e !important;
         padding-bottom: 10px !important;
     }
 
-    /* Định dạng nút bấm xóa bộ nhớ tinh tế, sáng sủa */
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế, dễ nhìn */
     [data-testid="stSidebar"] button {
-        background-color: #fef2f2 !important;
-        color: #dc2626 !important;
-        border: 1px solid #fee2e2 !important;
+        background-color: #115e59 !important;
+        color: #fca5a5 !important;
+        border: 1px solid #115e59 !important;
         font-weight: 600 !important;
         transition: all 0.2s ease !important;
     }
@@ -178,31 +142,32 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* 🌟 FIX QUAN TRỌNG: LÀM TIÊU ĐỀ NỔI BẬT LÊN MÀU XANH NGỌC ĐẬM RÕ NÉT, KHÔNG BÌ CHÌM 🌟 */
+    /* 🌟 FIX DỨT ĐIỂM: LÀM TIÊU ĐỀ NỔI BẬT LÊN MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM 🌟 */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
         font-weight: 800 !important; /* Tăng độ dày chữ tối đa */
-        color: #0f766e !important; /* Đổi sang màu Xanh Ngọc Lam đậm cực kỳ rõ ràng trên nền trắng */
+        color: #fde047 !important; /* Đổi hẳn sang màu Vàng Chanh rực rỡ cực rõ trên nền tối */
+        text-shadow: 0px 1px 2px rgba(0,0,0,0.4) !important; /* Đổ bóng nhẹ tạo độ nổi 3D */
         text-transform: uppercase !important; 
         letter-spacing: 0.8px !important; 
         margin-bottom: 6px !important;
         margin-top: 18px !important;
     }
 
-    /* Các hộp chứa thông tin màu xanh ngọc lam nhẹ mượt mà dịu mắt */
+    /* Các hộp thông tin đổi sang dải màu gradient tối dịu mắt */
     .sidebar-custom-card, .sidebar-custom-card-history {
-        background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%) !important; /* Nền Teal chuyển màu nhẹ */
-        border: 1px solid #99f6e4 !important;
+        background: linear-gradient(135deg, #115e59 0%, #134e4a 100%) !important; 
+        border: 1px solid #14b8a6 !important;
         border-radius: 6px !important; 
         padding: 12px !important; 
-        box-shadow: 0 2px 4px rgba(15,118,110,0.04) !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.15) !important;
         margin-bottom: 15px !important;
     }
     .sidebar-custom-card-history { padding: 6px 12px !important; }
-    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #e2e8f0 !important; }
+    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
 
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ trần trang chính */
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ trần trang chính bên phải */
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
@@ -212,6 +177,13 @@ st.markdown("""
     .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
     /* Hộp trắng bao bọc hình vẽ rập vector hình học */
+    .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
+    .garment-emoji-container { display: inline-block !important; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important; cursor: pointer !important; }
+    .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
+    div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
+    .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 
