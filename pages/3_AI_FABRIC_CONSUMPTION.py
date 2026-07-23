@@ -1959,7 +1959,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
        # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (UI ENGINE)
+        # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     ai_decision_final = ctx.get("ai_expert_decision", {})
@@ -1976,25 +1977,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # Hàm phân loại chất liệu layer hiển thị đồng bộ tri thức ép keo Đoạn 3
-    def ui_layer_material_classify(row, idx):
-        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
-            return str(st.session_state["user_edited_materials"][idx]).upper().strip()
-        mat_str = str(row[m_col]).upper().strip()
-        comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
-        
-        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
-        lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
-        
-        if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
-        if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): return "LINING"
-        if any(k in mat_str or k in comp_str for k in ["ACCESSORY", "THREAD", "CHI", "BUTTON", "ZIPPER", "RIVET"]): return "ACCESSORY"
-        return "FABRIC"
-
-    df_bom["_temp_class"] = [ui_layer_material_classify(r, idx) for idx, r in df_bom.iterrows()]
+    # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
+    # Triệt tiêu hoàn toàn lỗi nhận diện nhầm FUSING thành FABRIC làm lệch số 1.67 vs 1.63
+    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     
-    # Chống sập ứng dụng nếu Đoạn 5.2 bị sót cột dữ liệu
+    # Nạp nhãn chất liệu chuẩn từ lớp phôi ảo trực tiếp vào một danh sách đồng bộ với df_bom
+    clean_materials_list = []
+    for idx in df_bom.index:
+        v_piece = virtual_pieces_layer.get(idx, {})
+        clean_materials_list.append(v_piece.get("inferred_class", "FABRIC"))
+        
+    df_bom["_temp_class"] = clean_materials_list
+    
     if "Gross Consumption" not in df_bom.columns:
         df_bom["Gross Consumption"] = 0.0
 
@@ -2039,8 +2033,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # 🚨 ĐÃ SỬA KEY ĐỊNH DANH MỚI TINH CHỐNG KẸT BUFF CACHE TRÌNH DUYỆT:
-    # Đổi tên key để Streamlit bắt buộc giải phóng hoàn toàn con số 1.6468 cũ
+    # Đổi tên key cố định để Streamlit giải phóng hoàn toàn bộ đệm kẹt hiển thị cũ
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
@@ -2050,7 +2043,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
                 options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
             )
-        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v11_forced_flush" 
+        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v12_perfect_match" 
     )
 
     has_changed = False
