@@ -1735,8 +1735,8 @@ ctx["lining_width_inch"] = lining_width
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
 
-       # =====================================================================
-    # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & MAXIMUM BOUNDING SOLVER
+          # =====================================================================
+    # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & MAXIMUM BOUNDING SOLVER (ĐÃ SỬA THỤT LỀ)
     # =====================================================================
     def _internal_material_classify(row, idx):
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
