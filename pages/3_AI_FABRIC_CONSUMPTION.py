@@ -1631,8 +1631,7 @@ ctx["lining_width_inch"] = lining_width
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
     # =====================================================================
        # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠF 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FLAT CODE)
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FLAT CODE)
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
@@ -1663,7 +1662,7 @@ ctx["lining_width_inch"] = lining_width
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
 
-    # 🚨 TUYỆT ĐỐI PHẲNG HÓA: Duyệt vòng lặp tuyến tính tính toán đồng bộ, KHÔNG LỒNG HÀM DEF BIẾN NÀO
+    # Duyệt vòng lặp tuyến tính tính toán đồng bộ phẳng hoàn toàn
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1732,10 +1731,9 @@ ctx["lining_width_inch"] = lining_width
         inferred_pcs = raw_pcs
         qty_confidence = 1.0
         
-        # Sửa thớ an toàn chia cho 0
         l_orig_safe = l_orig if l_orig > 0 else 1.0
         w_orig_safe = w_orig if w_orig > 0 else 1.0
-        is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod*w_prod) / (l_orig_safe*w_orig_safe)) > 450.0 and (l_prod / (w_prod if w_prod > 0 else 1.0)) < 1.8)
+        is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe)) > 450.0 and (l_prod / (w_prod if w_prod > 0 else 1.0)) < 1.8)
         
         has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
         has_back = any(k in comp_name_upper for k in ["BACK", "SAU"])
