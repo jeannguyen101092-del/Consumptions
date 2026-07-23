@@ -1628,7 +1628,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
     # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (BẢO TOÀN KÍCH THƯỚC GỐC CAD)
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCED JACKET FIX)
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
@@ -1653,6 +1653,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
     if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
+
+    FUSING_STRICT_RULES = {"SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]}
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
@@ -1689,11 +1691,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class, class_confidence = ("FABRIC", 0.95) if net_area_raw > 200.0 else ("FABRIC", 0.70)
 
-        # Nhận diện mặt hàng Quần dựa trên metadata
+        # Nhận diện chủng loại hàng
         is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG"])
-
-        # 🚨 THAY ĐỔI CỐT LÕI: Đập tan hoàn toàn bộ lọc tự nhân kích phình chiều rộng ảo ở Bước B cũ.
-        # Chiều rộng sản xuất của mọi linh kiện từ nay chỉ được phép biến đổi tịnh tiến theo đúng tỉ lệ co rút thớ vải đại trà!
+        is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC"])
 
         # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat ("ngang 14", "dọc 3")
         if p_class == "FABRIC":
@@ -1724,21 +1724,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         has_back_kw = any(k in comp_name_upper for k in ["BACK", "SAU"])
         
         if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 150.0:
-            if is_trouser_item:
-                # Quần luôn đi theo cặp đối xứng chẵn thớ: 2 Thân trước, 2 Thân sau cho 2 chân Trái/Phải
+            # 🚨 1. CƯỞNG BỨC KHÓA LUẬT ÁO KHOÁC (JACKET / VEST GATE):
+            if is_jacket_item:
+                if has_front_kw:
+                    inferred_pcs = 2.0  # Thân trước mổ khóa kéo = 2 mảnh độc lập
+                    qty_confidence = 0.99
+                elif has_back_kw:
+                    # Nếu thân sau rất rộng (mở phẳng liền trục) -> 1 mảnh chẵn, nếu xẻ sống lưng -> 2 mảnh
+                    inferred_pcs = 1.0 if w_prod > 20.0 and "SPLIT" not in comp_name_upper else 2.0
+                    qty_confidence = 0.99
+            # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN
+            elif is_trouser_item:
                 if has_front_kw or has_back_kw or "LEG" in comp_name_upper:
                     inferred_pcs = 2.0
                     qty_confidence = 0.99
             else:
-                if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
+                if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "VÁY", "ĐẦM"]):
                     if has_front_kw: inferred_pcs, qty_confidence = (1.0 if is_wide_piece else 2.0), 0.95
                     elif has_back_kw: inferred_pcs, qty_confidence = (2.0 if w_prod < 16.0 else 1.0), 0.90
                     
-        if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE"]): inferred_pcs = 2.0
+        # 🚨 CƯỞNG BỨC LUÔN KHÓA TAY ÁO CHẴN 2 MẢNH CHO 2 BÊN
+        if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE"]): 
+            inferred_pcs = 2.0
+            qty_confidence = 0.99
 
+        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận cưỡng bức
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
 
-        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ lệ theo phôi gốc CAD
+        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD
         shape_factor = 0.92 if any(k in comp_name_upper for k in ["WAISTBAND", "BELT", "CAP"]) else (0.78 if p_class == "FUSING" else 0.85)
         net_area_prod = round(l_prod * w_prod * shape_factor, 2)
         p_area_list.append(net_area_prod)
