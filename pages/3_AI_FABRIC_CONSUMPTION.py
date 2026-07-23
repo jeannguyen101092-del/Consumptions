@@ -1556,11 +1556,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
 
-        # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SMART PATTERN PCS CORRECTOR
     # =====================================================================
     pattern_has_shrink = True  
-    comp_col_check = next((c for c in ["Component Name", "component_name"] if c in df_bom.columns), "component_name")
+    
+    # Định vị chính xác tuyệt đối cột tên linh kiện, chấp nhận cả viết hoa viết thường
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
     # Đọc thêm độ co rút riêng của Keo và Lót từ session_state (Mặc định bằng 0 nếu user không nhập)
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
@@ -1568,32 +1570,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # Khởi tạo session_state lưu trữ số lượng sửa tay nếu chưa tồn tại
+    # Khởi tạo hoặc xóa bỏ thớ nghẽn bộ nhớ cũ để ép AI cập nhật theo cấu trúc thuật toán mới
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # 🚨 BỘ LỌC TỰ ĐỘNG HIỆU CHỈNH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP (VÁ LỖI TAY 1 MẢNH / THÂN SAU 2 MẢNH)
+    # 🚨 BỘ LỌC CƯỠNG BỨC SỬA LỖI ĐẦU VÀO (CHẤP NHẬN CẢ TÊN CHỮ HOA/CHỮ THƯỜNG VÀ ĐẢO THỨ TỰ TỪ KHÓA)
     for idx, row in df_bom.iterrows():
-        # Chỉ can thiệp sửa lỗi tự động nếu dòng này người dùng chưa từng chủ động sửa tay trên lưới Grid
-        if idx not in st.session_state["user_edited_pieces"]:
-            comp_name_upper = str(row.get(comp_col_check, "")).upper().strip()
-            
-            # 1. Tự động ép Thân sau về 1 mảnh nếu file gốc khai báo trùng (Trừ trường hợp rã sống lưng SPLIT)
-            if any(k in comp_name_upper for k in ["BACK BODY", "BACK PANEL", "THÂN SAU", "SỐNG LƯNG"]):
-                if float(row.get("pcs_numeric", 0)) == 2.0 and "SPLIT" not in comp_name_upper:
-                    st.session_state["user_edited_pieces"][idx] = 1.0
-                    
-            # 2. Tự động kích Tay áo lên 2 mảnh độc lập nếu file gốc khai báo thiếu hụt
-            elif any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
-                if float(row.get("pcs_numeric", 0)) == 1.0:
-                    st.session_state["user_edited_pieces"][idx] = 2.0
+        comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        
+        # Chỉ can thiệp ép số lượng tự động nếu người dùng chưa sửa tay dòng này HOẶC dữ liệu trong session_state đang bị lệch chuẩn công nghiệp
+        current_saved_pcs = st.session_state["user_edited_pieces"].get(idx, float(row.get("pcs_numeric", 0)))
+        
+        # 1. Ép Thân sau (BODY BACK / BACK PANEL / THÂN SAU) về đúng 1 mảnh 
+        if any(k in comp_name_upper for k in ["BACK BODY", "BODY BACK", "BACK PANEL", "THÂN SAU", "SỐNG LƯNG"]):
+            if "SPLIT" not in comp_name_upper and current_saved_pcs == 2.0:
+                st.session_state["user_edited_pieces"][idx] = 1.0
+                
+        # 2. Ép Tay áo (SLEEVE / TAY / MAJOR_SLEEVE) lên đúng 2 mảnh độc lập
+        elif any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE", "MAJOR_SLEEVE"]):
+            if current_saved_pcs == 1.0:
+                st.session_state["user_edited_pieces"][idx] = 2.0
 
     # Hàm phân loại chất liệu cục bộ bổ trợ cho việc nắn thớ co rút sản xuất
     def _internal_material_classify(row, idx):
         fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
         lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
         mat_str = str(row[m_col]).upper().strip()
-        comp_str = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
+        comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
         if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
         if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
         return "FABRIC"
@@ -1615,7 +1618,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         # Logic phẳng sản phẩm công nghiệp cho các chi tiết thân lớn
         if l_orig >= 32.0 and w_orig >= 10.0:
-            name = str(row.get(comp_col_check, "")).lower()
+            name = str(row.get(comp_col_check, row.get("component_name", ""))).lower()
             if "front" in name or "trước" in name: return round(w_expanded * 0.95, 3) 
             if "back" in name or "sau" in name: return round(w_expanded * 0.98, 3)
             
@@ -1641,7 +1644,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Định nghĩa hệ số hình học lấp đầy thực tế (Shape Factor)
     def get_dynamic_shape_factor(row):
-        comp_name = str(row.get(comp_col_check, "")).upper().strip()
+        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
         mat_class = str(row.get(m_col, "")).upper().strip()
         
         if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]):
@@ -1661,7 +1664,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # 📊 BỘ ĐỊNH TUYẾN PHƯƠNG PHÁP GIẢI TOÁN SƠ SỬA RẢI BÀN CẮT (SOLVER ROUTER)
     def rule_engine_coordinator(row):
-        comp_name = str(row.get(comp_col_check, "")).upper().strip()
+        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
         if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]):
             return "LengthSolver"
         if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]):
@@ -1669,6 +1672,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return "AreaSolver"
 
     df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+
 
 
       # =====================================================================
