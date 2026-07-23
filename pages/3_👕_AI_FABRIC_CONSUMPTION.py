@@ -321,37 +321,54 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # -----------------------------------------------------------------
+       # -----------------------------------------------------------------
     # Ý TƯỞNG 3: DANH SÁCH MÃ HÀNG GẦN ĐÂY BIẾN THIÊN THEO THỜI GIAN THỰC
     # -----------------------------------------------------------------
     st.markdown("<div style='font-family:\"Segoe UI\", sans-serif; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
     
-    # Logic động: Nếu hệ thống đang xử lý mã hàng, tự động đưa mã đó lên đầu danh sách
-    current_style = kpi_style_id if kpi_style_id != "N/A" else "PPJ-R09-500778"
+    # 1. Khởi tạo bộ nhớ lưu trữ danh sách lịch sử mã hàng nếu chưa có
+    if "history_list" not in st.session_state:
+        # Mặc định tạo sẵn vài mã ảo ban đầu cho đẹp khung hình
+        st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
+        
+    # 2. Kiểm tra nếu hệ thống nhận diện được mã hàng mới từ file PDF
+    if kpi_style_id != "N/A":
+        # Nếu mã này chưa có trong danh sách lịch sử, đẩy nó lên đầu tiên
+        if kpi_style_id not in st.session_state.history_list:
+            st.session_state.history_list.insert(0, kpi_style_id)
+            # Giới hạn chỉ giữ lại tối đa 3 hoặc 4 mã gần nhất cho đỡ chật màn hình
+            st.session_state.history_list = st.session_state.history_list[:4]
+
+    # 3. Tạo chuỗi HTML động để render danh sách ra màn hình
+    history_html = '<div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.01); margin-bottom: 15px;">'
     
-    st.markdown(
-        f"""
-        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.01); margin-bottom: 15px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 11px; font-family: 'Segoe UI', sans-serif;">
-                <span style="color: #0284c7; font-weight: 600;">📦 {current_style}</span>
+    for index, style_code in enumerate(st.session_state.history_list):
+        # Đường kẻ phân cách giữa các dòng (trừ dòng cuối cùng)
+        border_style = 'border-bottom: 1px solid #f1f5f9;' if index < len(st.session_state.history_list) - 1 else ''
+        
+        # Dòng đầu tiên luôn là dòng đang kích hoạt xử lý (Active)
+        if index == 0 and kpi_style_id != "N/A":
+            history_html += f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; {border_style} font-size: 11px; font-family: 'Segoe UI', sans-serif;">
+                <span style="color: #0284c7; font-weight: 600;">📦 {style_code}</span>
                 <span style="color: #16a34a; font-size: 10px; font-weight: 600;">Active</span>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 11px; font-family: 'Segoe UI', sans-serif;">
-                <span style="color: #334155; font-weight: 500;">📦 PPJ-K12-200451</span>
-                <span style="color: #94a3b8; font-size: 10px;">10 mins ago</span>
+            """
+        else:
+            # Các dòng lịch sử cũ hơn phía dưới
+            history_html += f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; {border_style} font-size: 11px; font-family: 'Segoe UI', sans-serif;">
+                <span style="color: #334155; font-weight: 500;">📦 {style_code}</span>
+                <span style="color: #94a3b8; font-size: 10px;">Processed</span>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 11px; font-family: 'Segoe UI', sans-serif;">
-                <span style="color: #334155; font-weight: 500;">📦 PPJ-M04-330129</span>
-                <span style="color: #94a3b8; font-size: 10px;">1 hour ago</span>
-            </div>
-        </div>
-        <div style="font-size: 10px; color: #94a3b8; font-family: 'Segoe UI', sans-serif; text-align: center; margin-top: 15px;">
-            © 2026 PPJ Digital Transformation
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
+            """
+            
+    history_html += '</div>'
+    
+    # Hiển thị bảng danh sách động lên Sidebar
+    st.markdown(history_html, unsafe_allow_html=True)
+    
+    st.markdown("<div style='font-size: 10px; color: #94a3b8; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------------------
