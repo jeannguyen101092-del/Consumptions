@@ -1630,196 +1630,138 @@ ctx["lining_width_inch"] = lining_width
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
     # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 4.1: VIRTUAL PIECE ENGINE (BỘ SUY LUẬN CHẤT LIỆU & SỐ LƯỢNG MẢNH ẢO)
+       # =====================================================================
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FLAT CODE)
     # =====================================================================
-    import pandas as pd
-    import numpy as np
-
+    pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # Bộ sniffer dò tìm chính xác cột chiều dài / chiều rộng gốc của file CAD
+    # 1. BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT CHIỀU DÀI / CHIỀU RỘNG GỐC CỦA FILE CAD
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
     actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
     actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
 
-    # Khóa các hèm co rút vào vùng nhớ an toàn cấp session
-    st.session_state["_fusing_warp_shrink"] = float(st.session_state.get("fusing_warp_shrink", 0.0))
-    st.session_state["_fusing_weft_shrink"] = float(st.session_state.get("fusing_weft_shrink", 0.0))
-    st.session_state["_lining_warp_shrink"] = float(st.session_state.get("lining_warp_shrink", 0.0))
-    st.session_state["_lining_weft_shrink"] = float(st.session_state.get("lining_weft_shrink", 0.0))
+    # Đọc thông số co rút thớ vải từ UI phục vụ nắn kích thước phôi ảo
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # Kế thừa Product Category đã quét được từ bộ não tri thức Đoạn 3
+    # Kế thừa dữ liệu tiên nghiệm từ bộ não tri thức Đoạn 3
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d4, dict): ai_decision_d4 = {}
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
 
-    FUSING_STRICT_RULES = {"SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]}
-
-    def geometric_material_classifier(row, net_area, bbox_area, slenderness, void_ratio):
-        if "user_edited_materials" in st.session_state and row.name in st.session_state["user_edited_materials"]:
-            return str(st.session_state["user_edited_materials"][row.name]).upper().strip(), 1.0
-        mat_str, comp_str = str(row[m_col]).upper().strip(), str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        if slenderness >= 5.0 and void_ratio <= 0.15 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]): return "FUSING", 0.92
-        if net_area < 150.0 and any(k in comp_str for k in ["POCKET", "TÚI", "WELT", "BAG"]):
-            return ("LINING", 0.88) if "LINING" in mat_str or "LÓT" in comp_str else ("FABRIC", 0.75)
-        if any(k in mat_str or k in comp_str for k in ["FUSING", "MEC", "KEO", "INTERLINING"]): return "FUSING", 1.0
-        if any(k in mat_str or k in comp_str for k in ["LINING", "LOT", "POCKETING", "VAI LOT"]): return "LINING", 1.0
-        if any(k in mat_str or k in comp_str for k in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]): return "ACCESSORY", 1.0
-        if 'FUSING_STRICT_RULES' in globals() and current_prod_cat in FUSING_STRICT_RULES and any(k in comp_str for k in FUSING_STRICT_RULES[current_prod_cat]):
-            if not any(x in mat_str for x in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]): return "FUSING", 0.85
-        return ("FABRIC", 0.95) if net_area > 200.0 else ("FABRIC", 0.70)
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
     virtual_pieces_layer = {}
+    p_length_list, p_width_list, p_area_list = [], [], []
+
+    # 🚨 TUYỆT ĐỐI PHẲNG HÓA: Duyệt vòng lặp tuyến tính tính toán đồng bộ, KHÔNG LỒNG HÀM DEF
     for idx, row in df_bom.iterrows():
-        comp_name_raw, comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))), str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
+        comp_name_upper = comp_name_raw.upper().strip()
         
-        # 🚨 ĐÃ SỬA VÁ LỖI CÚ PHÁP: Tách biệt hoàn toàn thành 2 dòng độc lập, chống lỗi unpacking
         l_orig = float(row.get(actual_l_col, 0.0))
         w_orig = float(row.get(actual_w_col, 0.0))
-        
-        net_area_raw, bbox_area_raw = float(row.get("polygon_net_area", l_orig * w_orig * 0.78)), l_orig * w_orig
+        net_area_raw = float(row.get("polygon_net_area", l_orig * w_orig * 0.78))
+        bbox_area_raw = l_orig * w_orig
         
         slenderness = l_orig / w_orig if w_orig > 0 else 1.0
         void_ratio = (bbox_area_raw - net_area_raw) / bbox_area_raw if bbox_area_raw > 0 else 0.0
-        p_class, class_confidence = geometric_material_classifier(row, net_area_raw, bbox_area_raw, slenderness, void_ratio)
         
-        # Đồng bộ co rút thớ phôi ảo
+        # Bước A: Phân loại chất liệu thông minh (Geometric Layer Classifier)
+        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
+            p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
+            class_confidence = 1.0
+        else:
+            mat_str = str(row[m_col]).upper().strip()
+            if slenderness >= 5.0 and void_ratio <= 0.15 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]):
+                p_class, class_confidence = "FUSING", 0.92
+            elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
+                p_class, class_confidence = ("LINING", 0.88) if "LINING" in mat_str or "LÓT" in comp_name_upper else ("FABRIC", 0.75)
+            elif any(k in mat_str or k in comp_name_upper for k in ["FUSING", "MEC", "KEO", "INTERLINING"]):
+                p_class, class_confidence = "FUSING", 1.0
+            elif any(k in mat_str or k in comp_name_upper for k in ["LINING", "LOT", "POCKETING", "VAI LOT"]):
+                p_class, class_confidence = "LINING", 1.0
+            elif any(k in mat_str or k in comp_name_upper for k in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
+                p_class, class_confidence = "ACCESSORY", 1.0
+            elif 'FUSING_STRICT_RULES' in globals() and current_prod_cat in FUSING_STRICT_RULES and any(k in comp_name_upper for k in FUSING_STRICT_RULES[current_prod_cat]):
+                if not any(x in mat_str for x in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
+                    p_class, class_confidence = "FUSING", 0.85
+            else:
+                p_class, class_confidence = ("FABRIC", 0.95) if net_area_raw > 200.0 else ("FABRIC", 0.70)
+
+        # Kiểm tra xem có phải là mặt hàng Quần tây / Quần Jeans hay không
+        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN"])
+
+        # Bước B: Khống chế điểm rộng cực đại bao cảnh (Chỉ áp dụng cho Áo/Đầm tùng xòe, KHÓA CHẶT CHO QUẦN)
+        if p_class == "FABRIC" and not is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "BODY", "PANEL", "THÂN"]):
+            if void_ratio > 0.18:
+                w_orig = w_orig * round(1.12 + (void_ratio * 0.15), 3)
+
+        # Bước C: Áp thông số co rút sợi sản xuất từ UI điều khiển
         if p_class == "FABRIC":
-            w_prod, l_prod = round(w_orig * (1 + weft_shrink / 100.0), 3), round(l_orig * (1 + warp_shrink / 100.0), 3)
+            w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3)
         elif p_class == "FUSING":
-            w_prod, l_prod = round(w_orig * (1 + st.session_state["_fusing_weft_shrink"] / 100.0), 3), round(l_orig * (1 + st.session_state["_fusing_warp_shrink"] / 100.0), 3)
+            w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
         elif p_class == "LINING":
-            w_prod, l_prod = round(w_orig * (1 + st.session_state["_lining_weft_shrink"] / 100.0), 3), round(l_orig * (1 + st.session_state["_lining_warp_shrink"] / 100.0), 3)
-        else: w_prod, l_prod = w_orig, l_orig
+            w_prod = round(w_orig * (1 + lining_weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
+        else:
+            w_prod, l_prod = w_orig, l_orig
 
-        bbox_area_prod = l_prod * w_prod
-        net_area_prod = round(net_area_raw * (bbox_area_prod / bbox_area_raw) if bbox_area_raw > 0 else net_area_raw, 2)
+        # Logic phẳng sản phẩm công nghiệp (Chỉ áp dụng cho Áo dài)
+        if l_orig >= 32.0 and w_orig >= 10.0 and not is_trouser_item:
+            if "FRONT" in comp_name_upper or "TRƯỚC" in comp_name_upper: w_prod = w_prod * 0.95
+            if "BACK" in comp_name_upper or "SAU" in comp_name_upper: w_prod = w_prod * 0.98
 
-        raw_pcs, inferred_pcs, qty_confidence = float(row.get("pcs_numeric", 1.0)), float(row.get("pcs_numeric", 1.0)), 1.0
-        is_wide_piece = (w_prod > 18.0) or (net_area_prod > 450.0 and (l_prod / w_prod) < 1.8)
-        has_front, has_back = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"]), any(k in comp_name_upper for k in ["BACK", "SAU"])
+        p_width_list.append(w_prod)
+        p_length_list.append(l_prod)
+
+        # Bước D: Suy luận số lượng mảnh rập thực nghiệm rải bàn cắt
+        raw_pcs = float(row.get("pcs_numeric", 1.0))
+        inferred_pcs = raw_pcs
+        qty_confidence = 1.0
+        is_wide_piece = (w_prod > 18.0) or (net_area_raw * (l_prod*w_prod / (l_orig*w_orig if l_orig*w_orig > 0 else 1.0)) > 450.0 and (l_prod / w_prod) < 1.8)
+        has_front = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
+        has_back = any(k in comp_name_upper for k in ["BACK", "SAU"])
         
-        if p_class in ["FABRIC", "LINING"] and net_area_prod > 150.0:
+        if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 150.0:
             if any(k in current_prod_cat or k in prod_upper_name for k in ["DRESS", "SKIRT", "SHIRT", "JACKET", "VEST", "VÁY", "ĐẦM"]):
                 if has_front: inferred_pcs, qty_confidence = (1.0 if is_wide_piece else 2.0), 0.95
                 elif has_back: inferred_pcs, qty_confidence = (2.0 if w_prod < 16.0 else 1.0), 0.90
-            elif "JEAN" in current_prod_cat or "SHORT" in current_prod_cat or "PANTS" in prod_upper_name:
-                if any(k in comp_name_upper for k in ["FRONT", "BACK", "TRƯỚC", "SAU"]): inferred_pcs = 2.0
+            elif is_trouser_item:
+                if has_front or has_back: inferred_pcs = 2.0
         if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE"]): inferred_pcs = 2.0
 
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
-        virtual_pieces_layer[idx] = {"original_index": idx, "component_name": comp_name_raw, "inferred_class": p_class, "class_confidence": class_confidence, "qty_confidence": qty_confidence, "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs}
 
+        # Khởi tạo diện tích tịnh phình theo thớ co rút sản xuất
+        shape_factor = 0.92 if any(k in comp_name_upper for k in ["WAISTBAND", "BELT", "CAP"]) else (0.78 if p_class == "FUSING" else 0.85)
+        net_area_prod = round(l_prod * w_prod * shape_factor, 2)
+        p_area_list.append(net_area_prod)
+
+        virtual_pieces_layer[idx] = {
+            "original_index": idx, "component_name": comp_name_raw, "inferred_class": p_class,
+            "class_confidence": class_confidence, "qty_confidence": qty_confidence,
+            "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs
+        }
+
+    # Bàn giao lớp phôi ảo sang context an toàn cho Đoạn 5 giải toán
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
 
-          # =====================================================================
-    # 🟩 ĐOẠN 4.2: PRODUCTION GEOMETRY PREPROCESSOR & MAXIMUM BOUNDING SOLVER (ĐÃ SỬA THỤT LỀ)
-    # =====================================================================
-    def _internal_material_classify(row, idx):
-        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
-            return str(st.session_state["user_edited_materials"][idx]).upper().strip()
-        mat_str = str(row[m_col]).upper().strip()
-        comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
-        
-        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
-        lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
-        
-        if any(k in mat_str or k in comp_str for k in fusing_kws): 
-            return "FUSING"
-        if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): 
-            return "LINING"
-        
-        if 'FUSING_STRICT_RULES' in globals() and current_prod_cat in FUSING_STRICT_RULES:
-            if any(k in comp_str for k in FUSING_STRICT_RULES[current_prod_cat]):
-                if not any(x in mat_str for x in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
-                    return "FUSING"
-        return "FABRIC"
-
-    def calc_production_width(row):
-        w_orig = float(row.get(actual_w_col, 0.0))
-        l_orig = float(row.get(actual_l_col, 0.0))
-        mat_class = _internal_material_classify(row, row.name)
-        comp_name_upper = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        
-        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN"])
-        
-        if mat_class == "FABRIC" and not is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "BODY", "PANEL", "THÂN"]):
-            net_area_check = float(row.get("polygon_net_area", l_orig * w_orig * 0.78))
-            bbox_area_check = l_orig * w_orig
-            void_ratio_check = (bbox_area_check - net_area_check) / bbox_area_check if bbox_area_check > 0 else 0.0
-            
-            if void_ratio_check > 0.18:
-                w_orig = w_orig * round(1.12 + (void_ratio_check * 0.15), 3)
-
-        if mat_class == "FABRIC":
-            w_expanded = w_orig * (1 + weft_shrink / 100.0)
-        elif mat_class == "FUSING":
-            w_expanded = w_orig * (1 + fusing_weft_shrink / 100.0)
-        elif mat_class == "LINING":
-            w_expanded = w_orig * (1 + lining_weft_shrink / 100.0)
-        else:
-            w_expanded = w_orig
-
-        if l_orig >= 32.0 and w_orig >= 10.0 and not is_trouser_item:
-            name = str(row.get(comp_col_check, row.get("component_name", ""))).lower()
-            if "front" in name or "trước" in name: 
-                return round(w_expanded * 0.95, 3) 
-            if "back" in name or "sau" in name: 
-                return round(w_expanded * 0.98, 3)
-            
-        return round(w_expanded, 3)
-
-    def calc_production_length(row):
-        l_orig = float(row.get(actual_l_col, 0.0))
-        mat_class = _internal_material_classify(row, row.name)
-        
-        if mat_class == "FABRIC":
-            return round(l_orig * (1 + warp_shrink / 100.0), 3)
-        elif mat_class == "FUSING":
-            return round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
-        elif mat_class == "LINING":
-            return round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
-            
-        return round(l_orig, 3)
-
-    df_bom["Dài sản xuất (L-inch)"] = df_bom.apply(calc_production_length, axis=1)
-    df_bom["Rộng sản xuất (W-inch)"] = df_bom.apply(calc_production_width, axis=1)
-
-    def get_dynamic_shape_factor(row):
-        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        mat_class = str(row.get(m_col, "")).upper().strip()
-        if any(k in comp_name for k in ["FRONT", "BACK", "LEG", "PANEL", "THÂN"]): 
-            return 0.85 
-        if any(k in comp_name for k in ["WAISTBAND", "BELT", "CAP", "CẠP"]): 
-            return 0.92 
-        if any(k in mat_class for k in ["FUSING", "INTERLINING", "KEO", "MEC"]) or "RIB" in comp_name: 
-            return 0.78 
-        return 0.76
-
-    df_bom["polygon_net_area"] = df_bom.apply(
-        lambda r: round(float(r["polygon_net_area"]), 2) if "polygon_net_area" in df_bom.columns and float(r.get("polygon_net_area", 0.0)) > 1.0 and not any(k in str(r.get(comp_col_check, "")).upper() for k in ["TROUSER", "FRONT", "BACK"])
-        else round(float(r["Dài sản xuất (L-inch)"]) * float(r["Rộng sản xuất (W-inch)"]) * get_dynamic_shape_factor(r), 2), axis=1
-    )
-
-    for idx in df_bom.index:
-        if idx in virtual_pieces_layer:
-            virtual_pieces_layer[idx]["production_l"] = df_bom.at[idx, "Dài sản xuất (L-inch)"]
-            virtual_pieces_layer[idx]["production_w"] = df_bom.at[idx, "Rộng sản xuất (W-inch)"]
-            virtual_pieces_layer[idx]["production_net_area"] = df_bom.at[idx, "polygon_net_area"]
-
-    def rule_engine_coordinator(row):
-        comp_name = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
-        if any(k in comp_name for k in ["ELASTIC", "DRAWCORD", "WEBBING", "CHUN", "DÂY LUỒN"]): 
-            return "LengthSolver"
-        if any(k in comp_name for k in ["BELT_LOOP", "LOOP", "ĐỈA", "STRIP", "BINDING", "VIỀN"]): 
-            return "StripSolver"
-        return "AreaSolver"
-    df_bom["assigned_solver"] = df_bom.apply(rule_engine_coordinator, axis=1)
+    # Xuất bản dữ liệu phẳng đồng bộ ra bảng tính df_bom hệ thống
+    df_bom["Dài sản xuất (L-inch)"] = p_length_list
+    df_bom["Rộng sản xuất (W-inch)"] = p_width_list
+    df_bom["polygon_net_area"] = p_area_list
+    df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
 
     # =====================================================================
