@@ -1675,7 +1675,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-      # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
     # =====================================================================
     ai_decision = ctx.get("ai_expert_decision", {})
@@ -1695,9 +1695,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     l_prod_col = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else orig_l_col
     w_prod_col = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else orig_w_col
     
+    # 🚨 ĐÃ CẬP NHẬT KHỔ VẢI CHUẨN CỦA ANH VÀO GIÁ TRỊ DỰ PHÒNG HỆ THỐNG
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
-    lining_width = float(st.session_state.get("lining_width_inch", 58.0))
-    fusing_width = float(st.session_state.get("fusing_width_inch", 44.0))
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    # Cập nhật khổ lót 57 inch
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    # Cập nhật khổ keo 59 inch
 
     # Hàm đồng bộ phân loại chất liệu sửa tay động từ lưới chi tiết
     def local_strict_classify(row, idx):
@@ -1732,43 +1733,35 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # THUẬT TOÁN NESTING ENGINE MÔ PHỎNG KHÔNG GIAN BÀN CẮT (VẢI CHÍNH)
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
-        # Bước A: Sắp xếp các chi tiết từ LỚN đến NHỎ (Tránh rập lớn bị kẹt hàng biên)
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
         
-        # Bước B: Giải toán Bottom-Left / Row Packing lấp đầy khổ vải thực tế
-        simulated_marker_length = max_piece_length # Khởi tạo bằng chiều dài của mảnh lớn nhất
+        simulated_marker_length = max_piece_length 
         accumulated_width_used = 0.0
         
         for piece in fabric_pieces_to_nest:
-            # Xoay chi tiết theo Best Orientation dựa trên quyền tự do xoay 90 độ của thớ vải
             p_len = min(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["l"]
             p_wid = max(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["w"]
             
             if accumulated_width_used + p_wid <= current_fabric_width:
-                # Xếp song song chi tiết cạnh nhau theo chiều rộng (Không làm tăng chiều dài sơ đồ)
                 accumulated_width_used += p_wid
                 if p_len > simulated_marker_length:
                     simulated_marker_length = p_len
             else:
-                # Vượt quá giới hạn khổ vải, tự động nhảy dòng mới và kéo dài sơ đồ (Row Step)
                 simulated_marker_length += p_len
                 accumulated_width_used = p_wid
 
-        # Bước C: Suy ngược mật độ thực tế (Real Marker Density) từ kết quả xếp hình học thực tế
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
         
-        # Chặn biên bảo vệ bằng mô hình tiên nghiệm (Chênh lệch không vượt quá barem cho phép - tránh nhiễu rập biên)
         real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
         
-        # Kết xuất chiều dài sơ đồ vải chính và quy đổi sang đơn vị thương mại (Yard) kèm hao hụt sản xuất
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
     else:
         real_fabric_density = estimated_density_prior
         total_fabric_gross_yds = 1.18 if len(fabric_pieces_to_nest) > 0 else 0.0
 
-    # 📊 LUỒNG VẢI LÓT (LINING): Mô phỏng sơ đồ vải lót túi chuẩn động
+    # 📊 LUỒNG VẢI LÓT (LINING): Mô phỏng sơ đồ vải lót túi chuẩn động theo khổ vải lót 57"
     total_lining_net_area = 0.0
     for idx, r in df_bom.iterrows():
         current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"]))
@@ -1788,14 +1781,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (PHÂN BỔ ĐỊNH MỨC)
     # =====================================================================
-    # Kế thừa kết quả mô phỏng không gian sơ đồ từ Đoạn 5.1 thông qua context
     ai_decision = ctx.get("ai_expert_decision", {})
     real_fabric_density = float(ai_decision.get("real_fabric_density", 0.78))
     total_fabric_gross_yds = float(ai_decision.get("total_fabric_gross_yds", 0.0))
     total_lining_gross_yds = float(ai_decision.get("total_lining_gross_yds", 0.0))
     target_wastage = float(ai_decision.get("dynamic_wastage_factor", 1.03))
 
-    # 📊 LUỒNG KEO LÓT / MÉC KEO: Giải toán tự suy luận theo đặc trưng hình học chi tiết độc lập
+    # Đảm bảo khổ vải lót và keo đồng bộ tuyệt đối với Đoạn 5.1
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    # Đồng bộ khổ lót 57 inch
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    # Đồng bộ khổ keo 59 inch
+
+    # 📊 LUỒNG KEO LÓT / MÉC KEO: Giải toán tự suy luận theo khổ keo mới 59 inch
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -1820,7 +1817,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class == "ACCESSORY": 
             return 0.0
             
-        # Kiểm tra tính năng khóa định mức gốc Techpack từ người dùng
         if st.session_state.get("lock_original_techpack", False):
             if "original_raw_gross" in df_bom.columns and float(row.get("original_raw_gross", 0.0)) > 0:
                 return round(float(row["original_raw_gross"]), 4)
@@ -1830,17 +1826,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         l_prod = float(row[l_prod_col])
         w_prod = float(row[w_prod_col])
         
-        # Nhánh 1: Phân bổ định mức Keo mác (Fusing) theo Solver hình học độc lập
         if p_class == "FUSING":
             return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
                 
-        # Nhánh 2: Phân bổ định mức Vải chính (Fabric) dựa trên tỷ lệ đóng góp diện tích thực tế
         elif p_class == "FABRIC":
             line_net_area_sum = net_area * pcs
             if total_fabric_net_area > 0:
                 return round(total_fabric_gross_yds * (line_net_area_sum / total_fabric_net_area), 4)
                 
-        # Nhánh 3: Phân bổ định mức Vải lót (Lining) dựa trên tổng sơ đồ lót túi
         elif p_class == "LINING":
             line_net_area_sum = net_area * pcs
             if total_lining_net_area > 0:
@@ -1853,7 +1846,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Thực thi giải toán xuất bản định mức thương mại lên cột chính của BOM
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     
-    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết phục vụ người dùng đối soát trên UI
+    # Đóng gói khổ rộng hiển thị đồng bộ lên lưới chi tiết hiển thị UI
     def map_calculated_width(row, idx):
         p_class = local_strict_classify(row, idx)
         if p_class == "FABRIC": return current_fabric_width
@@ -1863,10 +1856,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Calculated Width (Inch)"] = [map_calculated_width(row, idx) for idx, row in df_bom.iterrows()]
     
-    # 📊 ĐẨY KẾT QUẢ THỰC NGHIỆM HÌNH HỌC LÊN GIAO DIỆN UI CHÍNH
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đồng bộ kiểm tra va chạm xếp chồng)")
-
 
 
 
