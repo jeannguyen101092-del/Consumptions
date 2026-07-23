@@ -1383,7 +1383,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
        # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 3: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING (ĐÃ VÁ LỖI UI)
+       # =====================================================================
+    # 🟩 ĐOẠN 3: STATISTICAL PRIOR ENGINE & PRODUCTION FEATURING (VÁ LỖI HIỂN THỊ UI)
     # =====================================================================
     import numpy as np
     import pandas as pd
@@ -1487,7 +1488,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             product_category = k
             break
             
-    # ⚙️ ĐỒNG BỘ ĐỒNG LOẠT BIẾN CHUỖI GIAO DIỆN CŨ ĐỂ KHỬ SẠCH LỖI NAMEERROR
+    # ĐỒNG BỘ ĐỒNG LOẠT BIẾN CHUỖI GIAO DIỆN CŨ ĐỂ KHỬ SẠCH LỖI NAMEERROR
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
     elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm xòe/Thời trang)"
@@ -1513,7 +1514,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Bộ giải toán toán tính điểm phức tạp liên tục (Complexity Score)
     complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.2) + (features["avg_void_ratio"] * 80) + (total_pocket_pieces * 2.0)))
     
-    # Đồng bộ biến tier cũ từ điểm số phức tạp phục vụ dòng mã giao diện 1151
+    # Đồng bộ biến tier phức tạp cũ phục vụ dòng mã giao diện 1151
     ai_complexity = "COMPLEX" if complexity_score >= 50 else "NORMAL"
 
     # Bộ giải toán hao hụt sản xuất thực tế (Đầu cây, nối cây, co rút nghỉ vải, canh sọc)
@@ -1526,13 +1527,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     )
     calculated_wastage = base_waste + production_penalties
 
+    # 🚨 ĐỒNG BỘ CÁC BIẾN SỐ TIÊU CHUẨN CŨ ĐỂ KHỬ SẠCH LỖI TRACEBACK DÒNG 1160
+    target_density = estimated_density
+    target_wastage = calculated_wastage
+
     # Lưu trữ thông tin an toàn vào hệ thống ctx dưới dạng ƯỚC TÍNH (ESTIMATED)
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
         ctx["ai_expert_decision"] = {}
 
     ctx["ai_expert_decision"]["product_category"] = product_category
+    ctx["ai_expert_decision"]["assigned_marker_density"] = round(estimated_density, 4) # Dự phòng cho Đoạn 5 cũ nếu gọi lại
     ctx["ai_expert_decision"]["estimated_density_prior"] = round(estimated_density, 4)
     ctx["ai_expert_decision"]["dynamic_wastage_factor"] = round(calculated_wastage, 4)
+    ctx["ai_expert_decision"]["wastage_factor"] = round(calculated_wastage, 4) # Dự phòng cho Đoạn 5 cũ nếu gọi lại
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = max_piece_length
     
@@ -1547,6 +1554,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3:
         st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
+
 
     # =====================================================================
     # 🟩 ĐOẠN 4: PRODUCTION GEOMETRY PREPROCESSOR & SOLVER ROUTING
@@ -1950,18 +1958,43 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return output_stream
        # =====================================================================
        # =====================================================================
-      # =====================================================================
-    # 🟩 ĐOẠN 7: GIAO DIỆN KIỂM TOÁN VÀ ĐIỀU HÀNH THỜI GIAN THỰC (UI ENGINE - ĐỒNG BỘ SỬA TAY VÀ TÍNH TỔNG)
+       # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (UI ENGINE)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+    
+    # Kế thừa an toàn các thông số kiểm toán đồng bộ từ Đoạn 3 & Đoạn 5
+    ai_decision_final = ctx.get("ai_expert_decision", {})
+    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
+    
+    # Điểm phức tạp liên tục phục vụ hiển thị Icon động trực quan
+    comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
+    ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
+    ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
+
+    # Hiển thị thanh Metric 4 cột điều hành thời gian thực
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type)
-    m2.metric(f"{'🔴' if ai_complexity=='COMPLEX' else '🟡'} Mức Độ Phức Tạp", ai_complexity)
-    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.1f}%")
+    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type if 'ai_product_type' in locals() else "JEAN_LONG")
+    m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
+    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{target_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 🚨 ĐÃ SỬA: Đồng bộ tính tổng nhóm dựa trên chỉ mục index và lựa chọn sửa tay của anh ở Đoạn 5
-    df_bom["_temp_class"] = [local_strict_classify(r, idx) for idx, r in df_bom.iterrows()]
+    # 🚨 VÁ LỖI LOCAL FUNCTION: Hàm phân loại nghiêm ngặt an toàn cấp luồng giao diện
+    def ui_layer_material_classify(row, idx):
+        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
+            return str(st.session_state["user_edited_materials"][idx]).upper().strip()
+        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "RIB", "BOND", "TAPE", "ADHESIVE", "COLLAR", "CUFF", "WAISTBAND", "LOT KEO", "TAPE"]
+        lining_kws = ["LINING", "LOT", "POCKETING", "MESH", "TAFFETA", "VAI LOT"]
+        mat_str = str(row[m_col]).upper().strip()
+        comp_str = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
+        role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
+        if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
+        if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): return "LINING"
+        if any(k in mat_str or k in comp_str for k in ["ACCESSORY", "THREAD", "CHI", "BUTTON", "ZIPPER", "RIVET"]): return "ACCESSORY"
+        return "FABRIC"
+
+    # Đồng bộ tính tổng nhóm dựa trên phân loại động thời gian thực
+    df_bom["_temp_class"] = [ui_layer_material_classify(r, idx) for idx, r in df_bom.iterrows()]
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
@@ -1977,12 +2010,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # Cấu trúc ma trận hiển thị chi tiết lưới rập
+    # 🚨 VÁ LỖI KEYERROR: Tạo bản sao hiển thị đồng bộ chính xác tên cột của Đoạn 5.2
     df_bom_display = df_bom.copy()
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["calculated_material_width"].round(1)
-    df_bom_display["Size tính toán"] = detected_size_code
     
-    # Đồng bộ hiển thị đúng cột Material Class dựa trên lựa chọn chỉnh sửa thực tế của anh
+    # Đồng bộ chính xác thớ rộng tính toán của Geometry Solver
+    if "Calculated Width (Inch)" in df_bom_display.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
+    else:
+        df_bom_display["Khổ vải sản xuất (inch)"] = current_fabric_width if 'current_fabric_width' in locals() else 58.0
+        
+    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "M"
     df_bom_display["material_class"] = df_bom_display["_temp_class"]
     
     df_bom_display = df_bom_display.rename(columns={
@@ -1990,29 +2027,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "material_class": "Material Class", 
         "geometry_role": "Role/Piece Type"
     })
-    df_bom_display["Số lượng rập"] = df_bom_display["pcs_numeric"]
     
-    ordered_cols = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+    # Trích xuất số lượng mảnh rập đồng bộ sửa tay hiển thị trực quan lên lưới Grid
+    df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
+    
+    # Lưu lại index gốc thành một cột tạm để chặn hoàn toàn lỗi lệch dòng khi người dùng sửa lưới dữ liệu
+    df_bom_display["_original_row_index"] = df_bom.index
+
+    ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
 
-    # Chia cột chức năng kết xuất UI chuẩn
+    # Chia cột chức năng kết xuất UI xuất bản định mức thương mại
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
     with col_t2:
         try:
-            excel_file = local_export_excel_ppj_format(df_summary, df_bom_display, prod, ctx, target_density)
-            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
+            if 'local_export_excel_ppj_format' in locals():
+                excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, target_density)
+                style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+                st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: 
             st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # Gọi data_editor hiển thị chỉnh sửa trực tiếp số lượng rập và chất liệu an toàn chống Infinite Loop
+    # Gọi data_editor hiển thị lưới dữ liệu tương tác thông minh chống Infinite Loop
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
-            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=20.0, step=1.0),
+            "_original_row_index": None, # Ẩn cột chỉ mục gốc với người dùng nhưng giữ thớ chạy ngầm cho Python
+            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
             "Material Class": st.column_config.SelectboxColumn(
                 "Material Class",
                 help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
@@ -2022,23 +2066,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }, 
         use_container_width=True, 
         hide_index=True,
-        key="bom_data_editor_grid_final_v3" 
+        key="bom_data_editor_grid_final_v4" 
     )
 
+    # 🚨 BỘ BẮT SỰ KIỆN SỬA TAY KHÔNG LỆCH DÒNG (INDEX PROTECTION SAFENET)
     has_changed = False
-    for idx, row in edited_df.iterrows():
-        # 1. Kiểm tra nếu người dùng đổi số lượng rập
-        old_pcs = float(df_bom.at[idx, "pcs_numeric"])
+    for _, row in edited_df.iterrows():
+        # Truy vết chính xác dòng dựa trên chỉ mục gốc được khóa ngầm
+        orig_idx = int(row["_original_row_index"])
+        
+        # 1. Đồng bộ nếu anh sửa số lượng rập của chi tiết
+        old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
         new_pcs = float(row["Số lượng rập"])
         if old_pcs != new_pcs:
-            st.session_state["user_edited_pieces"][idx] = new_pcs
+            st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
             
-        # 2. Kiểm tra nếu người dùng đổi loại chất liệu
-        old_mat = str(df_bom.at[idx, "_temp_class"]).upper().strip()
+        # 2. Đồng bộ nếu anh sửa lại nhóm phân loại vật liệu
+        old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip()
         new_mat = str(row["Material Class"]).upper().strip()
         if old_mat != new_mat:
-            st.session_state["user_edited_materials"][idx] = new_mat
+            st.session_state["user_edited_materials"][orig_idx] = new_mat
             has_changed = True
             
     if has_changed:
