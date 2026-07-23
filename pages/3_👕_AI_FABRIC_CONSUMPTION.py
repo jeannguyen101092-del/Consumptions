@@ -229,53 +229,62 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 # ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & KHÓA CHẾT CỐ ĐỊNH 100%
 # =====================================================================
 
-# 🌟 DÁN TẠI ĐÂY: KHÓA CHẾT CỦ M TIÊU ĐỀ VÀ KPIs TRÊN ĐỈNH SAU KHI ĐÃ CÓ CSS 🌟
-st.markdown(
-    f"""
-    <div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f1f5f9; padding: 15px 20px 15px 0px; box-sizing: border-box;">
-        
-        <!-- 1. Thanh tiêu đề màu xanh ngọc ERP -->
+# 🌟 BƯỚC 1: DÙNG CSS ĐỂ GHIM CỐ ĐỊNH CONTAINER NATIVE CỦA STREAMLIT 🌟
+st.markdown("""
+<style>
+    /* Ép container có class 'sticky-header-container' phải ghim chặt lên đỉnh bên phải */
+    div[data-testid="stVerticalBlock"]:has(div.sticky-header-marker) {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        width: calc(100% - 304px) !important; /* Tránh đè lên thanh Sidebar bên trái */
+        z-index: 99999 !important;
+        background-color: #f1f5f9 !important; /* Đổ nền xám xanh dịu mắt để không bị lộ chữ bảng cuộn phía dưới */
+        padding: 15px 20px 10px 0px !important;
+        box-sizing: border-box !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 🌟 BƯỚC 2: KHỞI TẠO KHUNG CONTAINER CHỨA TIÊU ĐỀ VÀ 4 Ô KPIs 🌟
+with st.container():
+    # Thẻ đánh dấu để CSS tìm và khóa cứng container này lên đỉnh đầu
+    st.markdown('<div class="sticky-header-marker"></div>', unsafe_allow_html=True)
+    
+    # 1. Thanh tiêu đề màu xanh ngọc ERP chuyên nghiệp
+    st.markdown(
+        """
         <div style="background: linear-gradient(135deg, #0f766e 0%, #115e59 100%); border-radius: 6px; padding: 14px 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.1); text-align: center;">
             <h2 style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 700; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.8px;">
                 🚀 AUTOMATED CAD CONSUMPTION & INDUSTRIAL COSTING ENGINE
             </h2>
         </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
-        <!-- 2. Lưới 4 ô KPIs đứng im vĩnh viễn không trôi khi cuộn chuột -->
-        <div style="display: flex; gap: 1rem; width: 100%; box-sizing: border-box;">
-            
-            <!-- Ô KPIs 1: Mã hàng -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👕</span></div>
-            </div>
+    # 2. Lưới 4 ô KPIs Native của Streamlit (Tự động đứng im theo tiêu đề)
+    k_col1, k_col2, k_col3, k_col4 = st.columns(4)
+    emoji_style = "font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0, 0, 0, 0.12));"
 
-            <!-- Ô KPIs 2: Tổng vật tư -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">👖</span></div>
-            </div>
+    with k_col1: 
+        st.markdown(f'<div class="kpi-box-flat-matrix bg-style-erp"><div class="kpi-num-flat-matrix">{kpi_style_id}</div><div class="kpi-lbl-flat-matrix">Mã hàng đang xử lý</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">👕</span></div>', unsafe_allow_html=True)
 
-            <!-- Ô KPIs 3: Định mức vải -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">✂️</span></div>
-            </div>
+    with k_col2: 
+        st.markdown(f'<div class="kpi-box-flat-matrix bg-items-erp"><div class="kpi-num-flat-matrix">{total_materials} Item(s)</div><div class="kpi-lbl-flat-matrix">Tổng số vật tư kết xuất</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">👖</span></div>', unsafe_allow_html=True)
 
-            <!-- Ô KPIs 4: Cỡ hạt -->
-            <div style="flex: 1; min-width: 0;">
-                <div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>
-                <div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="font-size: 85px; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.12));">🧵</span></div>
-            </div>
+    with k_col3: 
+        st.markdown(f'<div class="kpi-box-flat-matrix bg-cons-erp"><div class="kpi-num-flat-matrix">{main_fabric_cons}</div><div class="kpi-lbl-flat-matrix">Định mức vải chính dự kiến</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">✂️</span></div>', unsafe_allow_html=True)
 
-        </div>
-    </div>
+    with k_col4: 
+        st.markdown(f'<div class="kpi-box-flat-matrix bg-size-erp"><div class="kpi-num-flat-matrix">{active_size_kpi}</div><div class="kpi-lbl-flat-matrix">Cỡ hạt tính định mức</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="image-placeholder-box-flat"><span class="garment-emoji-container" style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
-    <!-- 3. KHỐI ĐỆM: Đẩy khung Uploader ở dưới xuống không bị đè mất chữ -->
-    <div style="height: 245px; width: 100%;"></div>
-    """, 
-    unsafe_allow_html=True
-)
+# 🌟 BƯỚC 3: TẠO KHỐI ĐỆM ĐỂ KHÔNG BỊ ĐÈ MẤT CHỮ CỦA PHẦN UPLOADER PHÍA DƯỚI 🌟
+st.markdown('<div style="height: 235px; width: 100%;"></div>', unsafe_allow_html=True)
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU SLATE DỊU MẮT) ---
