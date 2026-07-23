@@ -226,8 +226,10 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 
 # =====================================================================
-# 🌟 GHIM CỐ ĐỊNH TUYỆT ĐỐI TOÀN BỘ TIÊU ĐỀ VÀ 4 Ô KPIs TRÊN ĐỈNH 🌟
+# ĐOẠN B: GIAO DIỆN HIỂN THỊ KPIs MÀU SẮC ĐỘNG & KHÓA CHẾT CỐ ĐỊNH 100%
 # =====================================================================
+
+# 🌟 DÁN TẠI ĐÂY: KHÓA CHẾT CỦ M TIÊU ĐỀ VÀ KPIs TRÊN ĐỈNH SAU KHI ĐÃ CÓ CSS 🌟
 st.markdown(
     f"""
     <div style="position: fixed; top: 0; right: 0; width: calc(100% - 304px); z-index: 99999; background-color: #f1f5f9; padding: 15px 20px 15px 0px; box-sizing: border-box;">
@@ -274,7 +276,6 @@ st.markdown(
     """, 
     unsafe_allow_html=True
 )
-
 
 
 # --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU SLATE DỊU MẮT) ---
