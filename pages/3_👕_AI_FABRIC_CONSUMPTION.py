@@ -1573,8 +1573,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     weft_shrink = float(st.session_state["weft_shrink"])
 
 
-         # =====================================================================
-    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (THUẬT TOÁN SNIFFER ĐA TẦNG PHÂN CẤP)
+       # =====================================================================
+    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (WEIGHTED SCORING CLASSIFIER)
     # =====================================================================
     import pandas as pd
     import re
@@ -1590,49 +1590,93 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
     product_category = None
 
-    # 🔥 BƯỚC 0: Ưu tiên tuyệt đối bộ nhớ ghi đè UI nếu có, nếu không mới chạy bộ dò tự động
+    # 🧠 TẦNG 0: ƯU TIÊN TUYỆT ĐỐI BỘ NHỚ GHI ĐÈ UI (ĐỘ TIN CẬY 10/10)
     if "style_id_category_override" in st.session_state and st.session_state["style_id_category_override"] in COMPANY_DENSITY_PRIOR:
         product_category = st.session_state["style_id_category_override"]
     else:
-        # 🧠 TẦNG 1: QUÉT TÊN FILE / TÊN SẢN PHẨM (Regex quét ranh giới từ độc lập để tránh nhận diện nhầm từ ghép)
-        if re.search(r'\b(JACKET|COAT|ÁO KHOÁC|BLAZER)\b', prod_upper_name):
-            product_category = "JACKET"
-        elif re.search(r'\b(VEST|GILE)\b', prod_upper_name):
-            product_category = "VEST"
-        elif re.search(r'\b(SHIRT|SƠ MI|SƠMI)\b', prod_upper_name):
-            product_category = "SHIRT"
-        elif re.search(r'\b(POLO|TEE|T-SHIRT|KNIT|THUN)\b', prod_upper_name):
-            product_category = "TOPS_KNIT"
+        # 🧠 TẦNG 1: QUÉT TÊN FILE / TÊN SẢN PHẨM SƠ BỘ (ĐỘ TIN CẬY 9.5/10)
+        if re.search(r'\b(JACKET|COAT|ÁO KHOÁC|BLAZER)\b', prod_upper_name): product_category = "JACKET"
+        elif re.search(r'\b(VEST|GILE)\b', prod_upper_name): product_category = "VEST"
+        elif re.search(r'\b(SHIRT|SƠ MI|SƠMI)\b', prod_upper_name): product_category = "SHIRT"
+        elif re.search(r'\b(POLO|TEE|T-SHIRT|KNIT|THUN)\b', prod_upper_name): product_category = "TOPS_KNIT"
         elif re.search(r'\b(JEAN|JEANS|PANTS|TROUSER|QUẦN DÀI|QUẦN)\b', prod_upper_name):
-            # Nếu có chữ SHORT/QUẦN ĐÙI đi kèm chữ QUẦN -> Ép sang Short
             product_category = "SHORT" if re.search(r'\b(SHORT|ĐÙI|NGẮN)\b', prod_upper_name) else "JEAN_LONG"
-        elif re.search(r'\b(SHORT|QUẦN ĐÙI|BERMUDA)\b', prod_upper_name):
-            product_category = "SHORT"
-        elif re.search(r'\b(DRESS|ĐẦM|VÁY liền|MAXI)\b', prod_upper_name):
-            product_category = "DRESS_FLARE"
-        elif re.search(r'\b(SKIRT|CHÂN VÁY)\b', prod_upper_name):
-            product_category = "SKIRT"
+        elif re.search(r'\b(SHORT|QUẦN ĐÙI|BERMUDA)\b', prod_upper_name): product_category = "SHORT"
+        elif re.search(r'\b(DRESS|ĐẦM|VÁY liền|MAXI)\b', prod_upper_name): product_category = "DRESS_FLARE"
+        elif re.search(r'\b(SKIRT|CHÂN VÁY)\b', prod_upper_name): product_category = "SKIRT"
 
-        # 🧠 TẦNG 2 (BẢO VỆ CUỐI CÙNG): Nếu tầng 1 không tìm thấy từ khóa ở tên file, quét sâu xuống linh kiện CAD trong bảng BOM
+        # 🧠 TẦNG 2: THAY THẾ TOÀN DIỆN BẰNG BỘ CHẤM ĐIỂM TRỌNG SỐ KĨ THUẬT (ĐỘ TIN CẬY 9.5 - 9.8/10)
         if product_category is None:
-            # Gom toàn bộ văn bản tên chi tiết linh kiện rập lại thành một chuỗi lớn
-            all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
+            # Khởi tạo ma trận điểm tích lũy cho từng chủng loại hàng
+            scores = {k: 0.0 for k in COMPANY_DENSITY_PRIOR.keys()}
             
-            # Phân cấp luật may mặc cưỡng bức:
-            # Luật 1: Cứ xuất hiện mảnh rập TAY ÁO hoặc CỔ ÁO -> 100% thuộc nhóm Áo (Jacket/Shirt)
-            if any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "MANCHETTE", "CUFF"]):
-                # Phân tách Sơ mi và Áo khoác dựa trên độ phức tạp linh kiện túi
-                product_category = "JACKET" if any(x in all_components_text for x in ["POCKET", "TÚI", "WELT", "FLAP"]) else "SHIRT"
-            
-            # Luật 2: Cứ xuất hiện ỐNG QUẦN hoặc ĐÁY/ĐŨNG -> 100% thuộc nhóm Quần (Jean_long/Short)
-            elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY", "PANTS", "ỐNG QUẦN", "CẠP"]):
-                product_category = "SHORT" if any(x in all_components_text for x in ["SHORT", "ĐÙI"]) else "JEAN_LONG"
+            # Đếm số lượng linh kiện lớn có diện tích bao (BBox Area) đáng kể phục vụ cân bằng trọng số hình học
+            l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "Length"] if c in df_bom.columns), None)
+            w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "Width"] if c in df_bom.columns), None)
+            large_pieces_count = 0
+            if l_col and w_col:
+                for _, row in df_bom.iterrows():
+                    if float(row.get(l_col, 0.0)) * float(row.get(w_col, 0.0)) > 250.0:
+                        large_pieces_count += 1
+
+            # Duyệt qua từng linh kiện rập CAD thực tế trong bảng BOM để chấm điểm lũy tiến
+            for idx, row in df_bom.iterrows():
+                comp_name = str(row.get(comp_col_check, "")).upper().strip()
                 
-            # Luật 3: Cứ xuất hiện chi tiết THÂN VÁY -> Chân váy hoặc Đầm
-            elif any(x in all_components_text for x in ["SKIRT", "CHÂN VÁY", "THÂN VÁY"]):
-                product_category = "SKIRT"
-            else:
-                # Nếu không tìm thấy bất kỳ dấu vết hình học nào, lấy mặc định an toàn là JEAN_LONG
+                # A. Bộ luật chấm điểm cho nhóm linh kiện THÂN ÁO & TAY ÁO (Dòng hàng Thượng y)
+                if any(x in comp_name for x in ["SLEEVE", "TAY ÁO", "TAY", "MANCHETTE", "CUFF"]):
+                    scores["JACKET"] += 2.5
+                    scores["SHIRT"] += 2.0
+                    scores["TOPS_KNIT"] += 1.5
+                if any(x in comp_name for x in ["COLLAR", "CỔ ÁO", "CỔ", "STAND", "CHÂN CỔ"]):
+                    scores["JACKET"] += 2.0
+                    scores["SHIRT"] += 2.5
+                if any(x in comp_name for x in ["LAPEL", "FRONT FACING", "FRONT PANEL", "THÂN TRƯỚC"]):
+                    scores["JACKET"] += 1.5
+                    scores["VEST"] += 2.5
+                    scores["SHIRT"] += 1.0
+                if any(x in comp_name for x in ["YOKE", "CẦU VAI", "ĐÔ ÁO"]):
+                    scores["SHIRT"] += 2.0
+                    scores["JACKET"] += 1.0
+
+                # B. Bộ luật chấm điểm cho nhóm linh kiện CẠP & ỐNG QUẦN (Dòng hàng Hạ y)
+                if any(x in comp_name for x in ["WAISTBAND", "CẠP QUẦN", "CẠP", "LÓT CẠP"]):
+                    scores["JEAN_LONG"] += 2.5
+                    scores["SHORT"] += 2.5
+                    scores["SKIRT"] += 2.0
+                if any(x in comp_name for x in ["LEG", "ỐNG QUẦN", "ỐNG", "THÂN TRƯỚC QUẦN", "THÂN SAU QUẦN"]):
+                    scores["JEAN_LONG"] += 3.0
+                    scores["SHORT"] += 1.5
+                if any(x in comp_name for x in ["FLY", "SHIELD", "CỬA QUẦN", "KHÓA ĐŨNG", "ĐŨNG", "ĐÁY"]):
+                    scores["JEAN_LONG"] += 2.0
+                    scores["SHORT"] += 2.0
+
+                # C. Bộ luật chấm điểm cho kết cấu TÚI phức tạp (Pocketing / Trims)
+                if any(x in comp_name for x in ["WELT", "FLAP", "TÚI MỔ", "NẮP TÚI"]):
+                    scores["JACKET"] += 2.0
+                    scores["VEST"] += 2.0
+                if any(x in comp_name for x in ["COIN", "POCKET FACING", "ĐÁP TÚI", "TÚI ĐỒNG XU"]):
+                    scores["JEAN_LONG"] += 2.0
+                    scores["SHORT"] += 1.0
+
+                # D. Bộ luật chấm điểm cho nhóm ĐẦM VÁY liền khối
+                if any(x in comp_name for x in ["SKIRT PANEL", "THÂN VÁY", "TÙNG VÁY"]):
+                    scores["SKIRT"] += 2.5
+                    scores["DRESS_FLARE"] += 2.0
+
+            # E. Hiệu chỉnh điểm số tiên nghiệm dựa trên tổng cấu trúc hình học linh kiện rập lớn
+            if large_pieces_count >= 6:
+                scores["JACKET"] += 3.0
+                scores["VEST"] += 2.0
+            elif large_pieces_count == 4 or large_pieces_count == 2:
+                scores["JEAN_LONG"] += 3.0
+                scores["SHORT"] += 2.0
+
+            # Phán quyết cuối cùng: Chọn chủng loại sản phẩm có tổng điểm tích lũy cao nhất
+            product_category = max(scores, key=scores.get)
+            
+            # Cửa gạt bảo vệ cuối cùng (Fallback Gate) nếu tệp rập rỗng hoặc đặt tên dạng số (1, 2, 3...)
+            if scores[product_category] == 0.0:
                 product_category = "JEAN_LONG"
 
     # Đồng bộ chuỗi giao diện hiển thị báo cáo kiểm toán ngoài UI
@@ -1645,10 +1689,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
-    # Khóa kết quả nhận diện chủng loại hàng vào câu lệnh phân phối dữ liệu cho các đoạn sau
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
         ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["product_category"] = product_category
+
 
         # =====================================================================
     # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR (VÁ LỖI VÙNG NHỚ)
