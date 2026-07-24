@@ -2233,11 +2233,17 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
        # =====================================================================
        # =====================================================================
         # =====================================================================
-     # =====================================================================
-    # 🟩 KÍCH HOẠT ĐỘNG CƠ TÍNH TOÁN ĐỊNH MỨC AI TRƯỚC KHI XUẤT BÁO CÁO GIAO DIỆN
+        # =====================================================================
+    # 🟩 BỘ KÍCH HOẠT HỆ THỐNG ĐỊNH MỨC AI & TỰ ĐỘNG KHÔI PHỤC DỮ LIỆU NỀN
     # =====================================================================
-    nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
-    run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
+    # Đảm bảo df_bom không bị rỗng từ session_state trước khi chạy thuật toán sơ đồ
+    if ('df_bom' not in locals() or df_bom is None or df_bom.empty) and "processed_display_rows" in st.session_state:
+        df_bom = pd.DataFrame(st.session_state["processed_display_rows"])
+
+    # Chỉ kích hoạt tính toán khi ma trận dữ liệu rập đã sẵn sàng
+    if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
+        nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
+        run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
 
     # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
@@ -2258,10 +2264,8 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
     # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
-    # Triệt tiêu hoàn toàn lỗi nhận diện nhầm FUSING thành FABRIC làm lệch số 1.67 vs 1.63
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     
-    # Nạp nhãn chất liệu chuẩn từ lớp phôi ảo trực tiếp vào một danh sách đồng bộ với df_bom
     clean_materials_list = []
     for idx in df_bom.index:
         v_piece = virtual_pieces_layer.get(idx, {})
@@ -2313,7 +2317,7 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
                 st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # Đổi tên key cố định để Streamlit giải phóng hoàn toàn bộ đệm kẹt hiển thị cũ
+    # Cập nhật và hiển thị lưới dữ liệu định mức đại trà
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
