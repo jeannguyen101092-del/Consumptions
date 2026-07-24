@@ -2078,7 +2078,7 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
     return max(min(base_density, 0.84), 0.55)
     # ==============================================================================
 # ==============================================================================
-# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ TÍNH TOÁN ĐỊNH MỨC TỔNG (GROSS CONSUMPTION)
+# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ TÍNH TOÁN ĐỊNH MỨC TỔNG (BẢN CHUẨN KHÔNG LỖI)
 # ==============================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
@@ -2124,7 +2124,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         c_name_raw = str(c_name_origin).upper().strip()
         m_str_raw = str(r.get(m_col, "")).upper().strip()
         
-        # PHÂN LOẠI THUẦN TÚY THEO TỪ KHÓA TÊN CHI TIẾT
+        # PHÂN LOẠI THUẦN TÚY THEO TỪ KHÓA TÊN CHI TIẾT (Tránh bị cột Material nuốt chữ)
         inferred_class = None
         if any(k in c_name_raw for k in ["THREAD", "CHI ", "CHỈ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE", "PRICE", "TICKET", "BRAND"]):
             inferred_class = "ACCESSORY"
@@ -2174,8 +2174,10 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         if detected_net_col in df_bom.columns:
             val_net_check = r.get(detected_net_col)
             if pd.notna(val_net_check) and str(val_net_check).strip().lower() not in ['none', '']:
-                try: base_file_area = float(val_net_check)
-                except ValueError: base_file_area = 0.0
+                try: 
+                    base_file_area = float(val_net_check)
+                except ValueError: 
+                    base_file_area = 0.0
 
         if base_file_area <= 0.0: 
             base_file_area = raw_l * raw_w
@@ -2197,7 +2199,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "net_area_prod": raw_net_area
         }
 
-    # 🔥 KÍCH HOẠT ĐỘNG CƠ TÍNH TOÁN HIỆU SUẤT VÀ ĐỊNH MỨC TỔNG (GROSS CONSUMPTION)
+    # 🔥 KÍCH HOẠT ĐỘNG CƠ TÍNH TOÁN HIỆU SUẤT TRƯỚC KHI ĐỔ RA BẢNG CAD MATRIX
     computed_efficiency = predict_marker_density_pure_math(
         pieces_dict=current_virtual_pieces,
         marker_width=current_fabric_width,
@@ -2206,29 +2208,34 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         fabric_matching=fabric_matching
     )
 
-    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐÈ LÊN BIẾN DF_BOM GỐC ---
-    # Đồng bộ chính xác theo các tiêu đề cột trên UI của bạn
-    class_col_check = next((c for c in ["Nhóm vật tư (Class)", "Nhóm vật tư", "Material Class", "class"] if c in df_bom.columns), "Nhóm vật tư (Class)")
+    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐỂ ĐÈ SỐ LÊN BIẾN DF_BOM GỐC (CHỐNG LỖI VALUEERROR) ---
     gross_col_check = next((c for c in ["Gross Consumption", "Gross_Consumption", "Định mức tổng"] if c in df_bom.columns), "Gross Consumption")
 
     for idx, data in current_virtual_pieces.items():
         if idx in df_bom.index:
             df_bom.at[idx, 'polygon_net_area'] = data["net_area_prod"]
-            df_bom.at[idx, class_col_check] = data["piece_class"]
             
-            # 🌟 CÔNG THỨC VÁ LỖI CỘT GROSS CONSUMPTION:
-            # Định mức tổng (Yards) = (Diện tích tịnh / (Khổ vải * Hiệu suất sơ đồ)) * Hệ số hao hụt / 36 (đổi sang Yards)
+            # Đồng bộ toàn bộ các biến tên cột phân loại để khối hiển thị dòng 244 không bị vỡ Index
+            for col in ["Nhóm vật tư (Class)", "Material Class", "Nhóm vật tư", "class"]:
+                if col in df_bom.columns:
+                    df_bom.at[idx, col] = data["piece_class"]
+            
+            # Tính toán định mức tổng (Yards) đổ thẳng vào bảng CAD Matrix
             if computed_efficiency > 0 and current_fabric_width > 0 and data["piece_class"] == "FABRIC":
                 gross_value = (data["net_area_prod"] / (current_fabric_width * computed_efficiency)) * target_wastage / 36.0
                 df_bom.at[idx, gross_col_check] = round(gross_value * data["final_pcs"], 4)
             else:
-                # Nếu là phụ liệu (Accessory) hoặc không phải vải chính, định mức tính theo số lượng rập (Pcs) hoặc tạm để 0
                 df_bom.at[idx, gross_col_check] = 0.0
             
             if data["component_name_display"]:
                 df_bom.at[idx, comp_col_check] = data["component_name_display"]
             if detected_l_col: df_bom.at[idx, detected_l_col] = data["length_prod"]
             if detected_w_col: df_bom.at[idx, detected_w_col] = data["width_prod"]
+
+    # Làm sạch các cột trùng lặp nếu có để Pandas hoạt động ổn định nhất
+    df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
+    
+    # KHÔNG gọi st.dataframe(df_bom) ở đây để tránh bị nhân đôi bảng hiển thị tr
    
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
