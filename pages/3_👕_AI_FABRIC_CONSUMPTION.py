@@ -2160,7 +2160,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # 🔥 ĐIỀU CHỈNH ĐIỂM RƠI HIỆU SUẤT TRUNG HÒA (BALANCED NESTING SOLVER)
+    # 🔥 ĐIỀU CHỈNH ĐIỂM RƠI HIỆU SUẤT TRUNG HÒA CHO TỪNG DANH MỤC
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2168,17 +2168,31 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
         
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
-        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
         
-        if is_apparel_top:
-            # ÁO: Đưa trần hiệu suất tính toán về mốc cân bằng 79% giúp định mức hạ từ 3.11 YDS xuống vùng mốc an toàn
+        # ĐỊNH NGHĨA DANH MỤC SẢN PHẨM RÕ RÀNG
+        is_dress_skirt = any(k in prod_cat_ui for k in ["DRESS", "SKIRT", "VÁY", "VAY", "ĐẦM", "DAM"])
+        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"]) and not is_dress_skirt
+        is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"]) and not is_dress_skirt
+        
+        if is_dress_skirt:
+            # VÁY / ĐẦM: Tùng váy lớn, chi tiết bất đối xứng khó đi sơ đồ kín. 
+            # Hạ trần hiệu suất tính toán về mốc thực tế (72% - 74%) để đẩy định mức Gross YDS lên cao hơn, bù lượng vải hao hụt kẽ hở.
+            if "MAJOR_PANEL" in geo_role or any(k in str(row.get("component_name", "")).upper() for k in ["FRONT", "BACK", "THÂN"]):
+                predicted_density = round(0.70 + (void_ratio * 0.05) - (min(slenderness, 10.0) * 0.005), 3)
+            else:
+                predicted_density = round(0.75 + (void_ratio * 0.02), 3)
+            final_marker_efficiency = max(min(predicted_density, 0.74), 0.65)
+            
+        elif is_apparel_top:
+            # ÁO: Trần hiệu suất trung hòa vùng 79%
             if "MAJOR_PANEL" in geo_role:
                 predicted_density = round(0.76 + (void_ratio * 0.05) - (min(slenderness, 10.0) * 0.005), 3)
             else:
                 predicted_density = round(0.82 + (void_ratio * 0.02), 3)
             final_marker_efficiency = max(min(predicted_density, 0.79), 0.70)
+            
         else:
-            # QUẦN: Giữ nguyên mốc hiệu suất tối ưu cũ
+            # QUẦN: Giữ nguyên mốc hiệu suất tối ưu cũ (Trần 80%)
             if "MAJOR_PANEL" in geo_role:
                 predicted_density = round(0.74 + (void_ratio * 0.10) - (min(slenderness, 10.0) * 0.005), 3)
             else:
@@ -2242,6 +2256,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
