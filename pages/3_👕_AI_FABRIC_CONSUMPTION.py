@@ -2027,7 +2027,7 @@ import pandas as pd
 import streamlit as st
 
 # ==============================================================================
-# KHAI BÁO HÀM TOÁN HỌC THUẦN TÚY (DÁN SÁT LỀ TRÁI - 0 DẤU CÁCH)
+# ĐOẠN 1: KHAI BÁO HÀM TOÁN HỌC THUẦN TÚY (DÁN SÁT LỀ TRÁI)
 # ==============================================================================
 def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotation_allowed=True, fabric_matching="TWO_WAY"):
     if not pieces_dict or marker_width <= 0: 
@@ -2076,11 +2076,9 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         base_density = min(base_density, 0.65)
         
     return max(min(base_density, 0.84), 0.55)
-
+    # ==============================================================================
+# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ KHỞI TẠO RẬP ẢO
 # ==============================================================================
-# LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ KHỞI TẠO RẬP ẢO
-# ==============================================================================
-# Đảm bảo df_bom tồn tại trong phạm vi biến toàn cục hoặc cục bộ trước khi xử lý
 if 'df_bom' in locals() or 'df_bom' in globals():
     # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
     if "virtual_pieces_layer" in st.session_state:
@@ -2144,7 +2142,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             else:
                 inferred_class = "FABRIC"
                 
-        # PHÒNG VỆ NGHIÊM NGẶT: Bỏ qua chi tiết rác khuyết kích thước None (như ONS LABEL)
         try:
             val_l_check = r.get(d5_actual_l_col)
             val_w_check = r.get(d5_actual_w_col)
@@ -2154,7 +2151,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             raw_l, raw_w = 0.0, 0.0
             
         if raw_l <= 0 or raw_w <= 0: 
-            continue # Lọc bỏ ngay lập tức để bảo vệ lõi tính toán phía sau không bị gãy dữ liệu
+            continue
             
         raw_pcs = float(r.get("pcs_numeric", r.get("Số lượng rập", 1.0)))
         is_dress_skirt = any(k in prod_cat_ui for k in ["DRESS", "SKIRT", "VÁY", "VAY", "ĐẦM", "DAM"])
@@ -2167,16 +2164,50 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         if is_apparel_top and any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0: 
             raw_pcs = 2.0
 
-        # TỰ ĐỘNG BÙ DIỆN TÍCH BẰNG HÌNH HỘP BAO ĐỂ TRÁNH BẰNG 0
-        base_file_area = float(r.get("polygon_net_area", r.get("net_area", 0.0))) if pd.notna(r.get("polygon_net_area")) else 0.0
-        if base_file_area <= 0: 
+        # --- DÒ TÌM VÀ CHUẨN HÓA DIỆN TÍCH TỊNH (NET AREA) ---
+        detected_net_col = next((c for c in ["polygon_net_area", "net_area", "Diện tích", "Net Area"] if c in df_bom.columns), None)
+        
+        base_file_area = 0.0
+        if detected_net_col:
+            val_net_check = r.get(detected_net_col)
+            if pd.notna(val_net_check) and str(val_net_check).strip().lower() not in ['none', '']:
+                try:
+                    base_file_area = float(val_net_check)
+                except ValueError:
+                    base_file_area = 0.0
+
+        # PHÒNG VỆ: Nếu diện tích bằng 0, gán tự động bằng Dài x Rộng hình hộp bao
+        if base_file_area <= 0.0: 
             base_file_area = raw_l * raw_w
 
+        # --- TÍNH TOÁN DIỆN TÍCH TỊNH THỰC TẾ ---
         if is_dress_skirt:
-            # Sửa lỗi đoạn text bị đứt đoạn cuối: Đóng dấu ngoặc và gán giá trị hợp lệ
-            raw_net_area = round(base_file_area * 0.90, 4) if (is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"])) else round(base_file_area, 4)
+            if is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"]):
+                raw_net_area = round(base_file_area * 0.90, 4)
+            else:
+                raw_net_area = round(base_file_area, 4)
         else:
             raw_net_area = round(base_file_area, 4)
+
+        current_virtual_pieces[idx] = {
+            "component_name": c_name_raw,
+            "piece_class": inferred_class,
+            "length_prod": raw_l,
+            "width_prod": raw_w,
+            "final_pcs": raw_pcs,
+            "net_area_prod": raw_net_area
+        }
+
+    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐỂ ĐÈ SỐ LÊN BẢNG CAD MARKER MATRIX ---
+    for idx, data in current_virtual_pieces.items():
+        if idx in df_bom.index:
+            df_bom.at[idx, comp_col_check] = data["component_name"]
+            df_bom.at[idx, 'polygon_net_area'] = data["net_area_prod"]
+            if detected_l_col: df_bom.at[idx, detected_l_col] = data["length_prod"]
+            if detected_w_col: df_bom.at[idx, detected_w_col] = data["width_prod"]
+
+    # Đổ bảng dữ liệu cuối cùng lên ứng dụng Streamlit
+    st.dataframe(df_bom)
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
