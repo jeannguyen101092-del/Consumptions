@@ -2047,18 +2047,21 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     else:
         current_virtual_pieces = st.session_state.get("virtual_pieces_layer", ai_decision_d5.get("virtual_pieces_layer", {}))
 
+    # BỘ TỰ KHỞI TẠO NÂNG CAO (ADVANCED EXTRACTOR): Mở rộng ma trận từ khóa phụ liệu ngành may
     if not current_virtual_pieces:
         current_virtual_pieces = {}
         for idx, r in df_bom.iterrows():
             c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper()
             m_str_raw = str(r.get(m_col, "FABRIC")).upper() if m_col else "FABRIC"
             
+            # Giải toán phân loại luồng chất liệu thông minh đa điểm
             inferred_class = "FABRIC"
-            if any(k in c_name_raw or k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING"]):
+            if any(k in c_name_raw or k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
                 inferred_class = "FUSING"
-            elif any(k in c_name_raw or k in m_str_raw for k in ["LINING", "LOT", "POCKETING", "VAI LOT"]):
+            elif any(k in c_name_raw or k in m_str_raw for k in ["LINING", "LOT", "POCKETING", "VAI LOT", "BAG POCKET"]):
                 inferred_class = "LINING"
-            elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY"]):
+            # Mở rộng bộ từ khóa để bắt chính xác Nút kim loại, Đinh tán, Khóa kéo quần Jeans PPJ
+            elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY", "METAL", "RIVET", "SHANK", "ZIP", "NÚT", "ĐINH", "TAPE"]):
                 inferred_class = "ACCESSORY"
                 
             l_orig_val = float(r.get(d5_actual_l_col, 0.0))
@@ -2111,6 +2114,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             for _ in range(int(current_pcs)):
                 fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
 
+    # Mô phỏng sơ đồ cắt tiêu chuẩn (Nesting Simulation)
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
         simulated_marker_length = max_piece_length 
@@ -2156,8 +2160,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         "total_lining_gross_yds": round(total_lining_gross_yds, 4)
     })
     st.session_state["final_fabric_consumption_kpi"] = round(total_fabric_gross_yds, 4)
-else:
-    st.info("Hệ thống đang đợi tải lên tệp dữ liệu CAD hoặc Techpack...")
 # =====================================================================
 # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP PHÂN BỔ DÒNG CHI TIẾT)
 # =====================================================================
@@ -2171,7 +2173,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # 🔒 KHỞI TẠO PHÒNG THỦ: Đảm bảo tồn tại các biến diện tích tổng của vải lót và vải chính
     total_fabric_gross_yds = float(st.session_state.get("final_fabric_consumption_kpi", 0.0))
     total_lining_gross_yds = float(ai_decision_d52.get("total_lining_gross_yds", 0.0))
     
@@ -2216,9 +2217,14 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
     calculated_widths = []
+    updated_net_areas = []
+    
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
+        
+        # 🚨 ĐỒNG BỘ HIỂN THỊ: Ghi nhận diện tích cứu viện toán học ngược lại vào bảng dữ liệu lưới Grid
+        updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
         
         if p_class == "FABRIC":
             calculated_widths.append(current_fabric_width)
@@ -2229,10 +2235,14 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         else:
             calculated_widths.append(current_fabric_width)
             
+    df_bom["polygon_net_area"] = updated_net_areas
     df_bom["Calculated Width (Inch)"] = calculated_widths
 
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+
+    if len(fabric_pieces_to_nest) > 0:
+        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đóng gói khớp khít khao luồng phân bổ dòng)")
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
