@@ -346,27 +346,60 @@ with st.sidebar:
 
 
 
+import streamlit as st
+import re
+import fitz  # Thư viện PyMuPDF để trích xuất ảnh từ file PDF tự động
+
 # ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (SỬ DỤNG HEIGHT NATIVE CỦA STREAMLIT)
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ SỬA LỖI HIỂN THỊ HÌNH SKETCH)
 # ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÀU XANH ---
 with col_left:
-    # Ép chiều cao native bằng tham số height, tự động sinh thanh cuộn nếu tràn nội dung
     with st.container(border=True, height=520):
         st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
         
         uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
         
         if uploaded_file is not None:
+            # Nếu phát hiện tải lên một file hoàn toàn mới
             if st.session_state.pdf_name != uploaded_file.name:
                 st.session_state.pdf_text_cache = None
-                if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+                st.session_state.pdf_page_one_image = None
                 if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+                
             st.session_state.pdf_bytes = uploaded_file.read()
             st.session_state.pdf_name = uploaded_file.name
 
+            # 🔥 ĐÃ SỬA: Tự động bóc tách Văn Bản và chuyển đổi PDF thành hình ảnh Sketch ngay lập tức
+            if st.session_state.pdf_text_cache is None or st.session_state.pdf_page_one_image is None:
+                with st.spinner("🤖 AI đang đọc tài liệu và trích xuất hình ảnh phác thảo..."):
+                    try:
+                        # Mở file PDF trực tiếp từ bộ nhớ bytes
+                        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                        
+                        # 1. Trích xuất toàn bộ text từ tất cả các trang để phục vụ Regex tìm mã hàng
+                        full_text = ""
+                        for page in doc:
+                            full_text += page.get_text()
+                        st.session_state.pdf_text_cache = full_text
+                        
+                        # 2. Chuyển đổi trang đầu tiên (Trang 0) thành hình ảnh chất lượng cao làm Sketch
+                        if len(doc) > 0:
+                            page_one = doc[0]
+                            pix = page_one.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom x2 để ảnh nét hơn
+                            image_bytes = pix.tobytes("png") # Chuyển thành dạng dữ liệu ảnh PNG
+                            st.session_state.pdf_page_one_image = image_bytes
+                            
+                        doc.close()
+                    except Exception as e:
+                        st.error(f"Lỗi khi đọc file PDF kĩ thuật: {e}")
+                
+                # Khởi động lại luồng giao diện để cập nhật ngay lập tức dữ liệu mới lên màn hình
+                st.rerun()
+
+        # Hiển thị thông tin hồ sơ tóm tắt sau khi đã trích xuất văn bản thành công
         if st.session_state.pdf_text_cache is not None:
             st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
             txt = st.session_state.pdf_text_cache
@@ -375,11 +408,15 @@ with col_left:
                 m = re.search(pattern, txt, re.IGNORECASE)
                 return m.group(1).strip() if m else default
 
+            # Thực hiện quét thông tin kĩ thuật bằng biểu thức chính quy (Regex)
             style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
             short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE RUCHED MINI DRESS")
             customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
             season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "FALL Winter 2026")
             fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "POPLIN FABRIC COTTON - SP26")
+
+            # Ghim mã hàng vừa tìm thấy vào bộ nhớ toàn cục để đồng bộ lên các khối KPIs trần trang và Lịch sử
+            st.session_state.style_id = style_id
 
             m_col1, m_col2 = st.columns(2)
             with m_col1:
@@ -394,21 +431,16 @@ with col_left:
             if st.session_state.pdf_bytes is None:
                 st.markdown("<div style='margin-top: 20px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
 
-# --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ THÔNG TIN HÌNH ẢNH SKETCH ---
+# --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ HÌNH ẢNH SKETCH ---
 with col_right:
     with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-        # Hiển thị hình vẽ phác thảo nguyên bản mượt mà
+        # 🔥 ĐÃ SỬA BIẾN KIỂM TRA: Giờ đây hình ảnh dạng bytes sau khi trích xuất từ PDF sẽ hiển thị mượt mà tại đây
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-            st.image(st.session_state.pdf_page_one_image, use_container_width=True)
+            st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo trích xuất: {st.session_state.get('pdf_name', '')}", use_container_width=True)
         else:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
-
-
-
-
-
 
 
 
