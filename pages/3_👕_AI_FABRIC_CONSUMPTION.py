@@ -678,7 +678,7 @@ def execute_cached_gemini_scan(
                     str(row["component_name"]).upper().split()
                 )
             
-            # 🔥 VÁ LỒI PHÂN LOẠI VẬT TƯ CHUYÊN SÂU: Bảo toàn trường nhóm vật tư do AI trả về
+            # 🔥 VÁ LỖI PHÂN LOẠI VẬT TƯ CHUYÊN SÂU: Bảo toàn trường nhóm vật tư do AI trả về
             if "material_class" in row:
                 row["piece_class"] = str(row["material_class"]).upper().strip()
             elif "piece_class" in row:
@@ -729,6 +729,38 @@ def execute_cached_gemini_scan(
                 row["fabric_width_inch"] = float(active_width)
     return blueprint_worker
 
+
+# =====================================================================
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
+# =====================================================================
+
+# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "ai_processing" not in st.session_state:
+    st.session_state.ai_processing = False
+if "last_submitted_query" not in st.session_state:
+    st.session_state.last_submitted_query = ""
+
+# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
+chat_history_container = st.container()
+with chat_history_container:
+    st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
+    if st.session_state.get("chat_history"):
+        for msg in st.session_state.chat_history:
+            st.chat_message("user").write(msg["user"])
+            st.chat_message("assistant").write(msg["ai"])
+
+# Khung nhập lệnh tính toán động hệ _v8 mới tinh giải phóng hoàn toàn bộ nhớ đệm kẹt
+safe_user_prompt = st.chat_input(
+    "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
+)
+
+# 3. Kích hoạt cờ hiệu xử lý khi người dùng gửi thành công câu lệnh mới
+if safe_user_prompt:
+    st.session_state["last_submitted_query"] = safe_user_prompt
+    st.rerun()
 
 # =====================================================================
 # 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
