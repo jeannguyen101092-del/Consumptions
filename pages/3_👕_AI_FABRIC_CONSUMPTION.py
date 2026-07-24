@@ -2077,7 +2077,8 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         
     return max(min(base_density, 0.84), 0.55)
     # ==============================================================================
-# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ KHỞI TẠO RẬP ẢO
+# ==============================================================================
+# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ PHÂN LOẠI CHI TIẾT CHUẨN XÁC
 # ==============================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
@@ -2119,28 +2120,37 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     # --- VÒNG LẶP KHỞI TẠO RẬP ẢO CÓ MÀNG PHÒNG VỆ CHẶN CHI TIẾT LỖI ---
     for idx, r in df_bom.iterrows():
-        c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
+        c_name_origin = r.get(comp_col_check, "")
+        c_name_raw = str(c_name_origin).upper().strip()
         m_str_raw = str(r.get(m_col, "")).upper().strip()
         
+        # 🌟 THUẬT TOÁN MỚI: ƯU TIÊN PHÂN LOẠI THEO TÊN CHI TIẾT TRƯỚC ĐỂ TRÁNH BỊ "MAIN FABRIC" NUỐT CHỬNG
         inferred_class = None
-        if m_str_raw:
+        
+        # Bước 1: Quét từ khóa Phụ liệu rác (Accessory) dựa trên Tên chi tiết rập
+        if any(k in c_name_raw for k in ["THREAD", "CHI ", "CHỈ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE", "PRICE", "TICKET", "BRAND"]):
+            inferred_class = "ACCESSORY"
+        # Bước 2: Quét từ khóa Vải lót (Lining) dựa trên Tên chi tiết rập
+        elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "LOT", "VAI LOT"]):
+            inferred_class = "LINING"
+        # Bước 3: Quét từ khóa Mex/Keo (Fusing) dựa trên Tên chi tiết rập
+        elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
+            inferred_class = "FUSING"
+        # Bước 4: Quét từ khóa Bo phối (Rib) dựa trên Tên chi tiết rập
+        elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]):
+            inferred_class = "RIB"
+            
+        # Bước 5: Nếu tên chi tiết không chứa từ khóa đặc biệt, mới xét đến cột Chất liệu vải (Material)
+        if not inferred_class and m_str_raw:
             if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
             elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]): inferred_class = "LINING"
             elif any(k in m_str_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]): inferred_class = "RIB"
-            elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER", "LABEL", "MÁC", "TAG"]): inferred_class = "ACCESSORY"
+            elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER", "LABEL", "MÁC", "TAG", "TICKET"]): inferred_class = "ACCESSORY"
             elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
-        
+            
+        # Bước 6: Trường hợp cuối cùng mặc định là Vải chính (Fabric)
         if not inferred_class:
-            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE"]):
-                inferred_class = "ACCESSORY"
-            elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "VAI LOT"]):
-                inferred_class = "LINING"
-            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]):
-                inferred_class = "FUSING"
-            elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]):
-                inferred_class = "RIB"
-            else:
-                inferred_class = "FABRIC"
+            inferred_class = "FABRIC"
                 
         try:
             val_l_check = r.get(d5_actual_l_col)
@@ -2176,7 +2186,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
                 except ValueError:
                     base_file_area = 0.0
 
-        # PHÒNG VỆ: Nếu diện tích bằng 0, gán tự động bằng Dài x Rộng hình hộp bao
         if base_file_area <= 0.0: 
             base_file_area = raw_l * raw_w
 
@@ -2190,7 +2199,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             raw_net_area = round(base_file_area, 4)
 
         current_virtual_pieces[idx] = {
-            "component_name": c_name_raw,
+            "component_name_display": c_name_origin,
             "piece_class": inferred_class,
             "length_prod": raw_l,
             "width_prod": raw_w,
@@ -2198,11 +2207,18 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "net_area_prod": raw_net_area
         }
 
-    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐỂ ĐÈ SỐ LÊN BẢNG CAD MARKER MATRIX ---
+    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐỂ ĐÈ SỐ LÊN BIẾN DF_BOM GỐC ---
+    # Tìm cột hiển thị Nhóm vật tư/Phân loại trên bảng UI của bạn
+    class_col_check = next((c for c in ["Nhóm vật tư", "Material Class", "class", "piece_class", "Phân loại vật tư"] if c in df_bom.columns), "Material Class")
+
     for idx, data in current_virtual_pieces.items():
         if idx in df_bom.index:
-            df_bom.at[idx, comp_col_check] = data["component_name"]
             df_bom.at[idx, 'polygon_net_area'] = data["net_area_prod"]
+            # Đè nhóm phân loại mới đã bóc tách chính xác (FABRIC, ACCESSORY, LINING, FUSING...)
+            df_bom.at[idx, class_col_check] = data["piece_class"]
+            
+            if data["component_name_display"]:
+                df_bom.at[idx, comp_col_check] = data["component_name_display"]
             if detected_l_col: df_bom.at[idx, detected_l_col] = data["length_prod"]
             if detected_w_col: df_bom.at[idx, detected_w_col] = data["width_prod"]
 
