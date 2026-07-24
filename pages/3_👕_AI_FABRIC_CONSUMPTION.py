@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: TRIỆT TIÊU VỆT TRẮNG ĐÁY & ĐỒNG BỘ NỀN XÁM SƯƠNG MÙ ERP
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ĐỔI MÀU NỀN Ô CHAT XANH NHẠT DỊU MẮT
 # =====================================================================
 st.markdown("""
 <style>
@@ -127,7 +127,7 @@ st.markdown("""
         background-color: transparent !important; 
     }
 
-    /* 🔥 SỬA DỨT ĐIỂM: KHỬ SẠCH VỆT TRẮNG NGANG CỦA KHỐI CHỨA Ô CHAT INPUT TRÊN CLOUD */
+    /* 🔥 ĐÃ SỬA: BIẾN Ô CHAT THÀNH MÀU XANH NHẠT SANG TRỌNG VÀ KHỬ VỆT TRẮNG */
     .stChatInput, 
     div[data-testid="stChatInputText"], 
     div[data-testid="stChatInputContainer"],
@@ -144,13 +144,24 @@ st.markdown("""
         box-shadow: none !important;
     }
     
-    /* Chỉ giữ lại khung viền trắng đóng hộp cho riêng phần bo nhập chữ bên trong */
-    div[data-testid="stChatInputContainer"] button,
-    div[data-testid="stChatInputContainer"] textarea,
+    /* 🛠️ ĐỔI MÀU Ô CHAT: Nền xanh ngọc lam nhạt dãn rộng, viền xanh mượt mà */
     div[data-testid="stChatInputContainer"] {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
+        background-color: #ccfbf1 !important; /* Màu xanh ngọc cực nhạt và dịu mắt */
+        border: 1px solid #99f6e4 !important; /* Viền xanh đồng màu nhẹ nhàng */
         border-radius: 8px !important;
+    }
+
+    /* Định hình khu vực viết chữ bên trong ô chat */
+    div[data-testid="stChatInputContainer"] textarea {
+        background-color: transparent !important;
+        color: #0f766e !important; /* Màu chữ xanh đậm dễ đọc */
+    }
+
+    /* Đổi màu nút gửi icon mũi tên sang màu xanh đồng bộ */
+    div[data-testid="stChatInputContainer"] button {
+        background-color: #0f766e !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
     }
 
     /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
