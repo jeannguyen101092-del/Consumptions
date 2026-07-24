@@ -2024,7 +2024,7 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
 
 
 # =====================================================================
-# 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (ÉP BUỘC TÍNH TOÁN ĐƯỜNG MAY & CO RÚT)
+# 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
 # =====================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
@@ -2043,36 +2043,40 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
     m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
-    # Đọc thông số phần trăm co rút thớ vải đại trà từ UI May mẫu
-    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
-    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
-    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
-    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
-    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
-    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+    # Đọc thông số phần trăm co rút thớ riêng biệt từng loại từ UI May mẫu
+    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    # Dọc vải chính / Phôi bo Rib
+    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    # Ngang vải chính / Phôi bo Rib
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0)) # Dọc Keo/Méc
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0)) # Ngang Keo/Méc
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0)) # Dọc Vải lót
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0)) # Ngang Vải lót
 
-    # BIÊN ĐƯỜNG MAY CÔNG NGHIỆP: Cộng biên nới may 0.5 inch mỗi vế (Tổng nới chu vi phôi = 1.0 inch)
+    # BIÊN ĐƯỜNG MAY CÔNG NGHIỆP: Cộng nới biên may 0.5 inch mỗi vế (Tổng nới chu vi phôi = 1.0 inch)
     SEAM_ALLOWANCE_TOTAL = 1.0 
 
-    # 🔥 ĐỘT PHÁ SỬA LỖI: Khởi tạo lại mới hoàn toàn để xóa sạch bộ đệm kẹt cũ của Streamlit Cloud
+    # Ép buộc khởi tạo mới xóa sạch bộ đệm kẹt của Streamlit Cloud để nạp logic mới
     current_virtual_pieces = {}
     
     for idx, r in df_bom.iterrows():
         c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper()
         m_str_raw = str(r.get(m_col, "FABRIC")).upper() if m_col else "FABRIC"
         
+        # 🧠 MA TRẬN PHÂN LOẠI NGUYÊN VẬT TƯ CHUYÊN SÂU:
         inferred_class = "FABRIC"
         if any(k in c_name_raw or k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
-            inferred_class = "FUSING"
+            inferred_class = "FUSING" # Luồng Keo/Dựng dựng form
         elif any(k in c_name_raw or k in m_str_raw for k in ["LINING", "LOT", "POCKETING", "VAI LOT", "BAG POCKET"]):
-            inferred_class = "LINING"
-        elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY", "METAL", "RIVET", "SHANK", "ZIP", "NÚT", "ĐINH", "TAPE"]):
+            inferred_class = "LINING" # Luồng Vải lót túi / lót thân
+        elif any(k in c_name_raw or k in m_str_raw for k in ["RIB", "BO", "BO DET", "COLLAR RIB"]):
+            inferred_class = "FABRIC" # Bo dệt mang đặc tính hình học dạng dải vải chính -> đưa vào luồng FABRIC để tính sơ đồ
+        # Chỉ loại bỏ các phụ liệu đếm chiếc/phụ liệu cứng ra khỏi luồng vải cuộn
+        elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY", "METAL", "RIVET", "SHANK", "ZIP", "NÚT", "ĐINH", "TAPE", "LABEL", "MÁC", "TAG"]):
             inferred_class = "ACCESSORY"
             
         l_orig_val = float(r.get(d5_actual_l_col, 0.0))
         w_orig_val = float(r.get(d5_actual_w_col, 0.0))
 
-        # TOÁN TỬ SẢN XUẤT CỐT LÕI: Cộng đường may trước cho phôi rập thành phẩm, sau đó nhân co rút dọc/ngang
+        # TOÁN TỬ SẢN XUẤT CỐT LÕI: Cộng biên đường may trước cho phôi, sau đó nhân tỷ lệ co rút thớ vải tương ứng
         if inferred_class == "FABRIC":
             l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
             w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
@@ -2104,7 +2108,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "is_paired": False
         }
     
-    # Đồng bộ lưu đè vào Session State toàn cục để giải phóng hoàn toàn cache cũ
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
 
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
@@ -2118,6 +2121,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         v_piece = current_virtual_pieces.get(idx, {})
         p_class_check = v_piece.get("piece_class", "FABRIC")
         
+        # Đưa toàn bộ phôi vải chính và phôi bo Rib dệt vào mô phỏng sơ đồ vải chính
         if p_class_check == "FABRIC":
             net_area = v_piece.get("net_area_prod", 0.0)
             p_l_val = v_piece.get("length_prod", 0.0)
@@ -2158,6 +2162,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     else:
         real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
 
+    # Tính toán tổng diện tích tiêu hao cho luồng vải lót (Lining)
     total_lining_net_area = 0.0
     for idx, r in df_bom.iterrows():
         v_piece = current_virtual_pieces.get(idx, {})
@@ -2209,6 +2214,8 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         if not v_piece: return 0.0 
         
         p_class = v_piece.get("piece_class", "FABRIC")
+        
+        # CHẶN PHỤ LIỆU CỨNG: Ép cứng định mức phụ liệu đếm chiếc = 0.0 Yard vải cuộn
         if p_class == "ACCESSORY": return 0.0
         
         pcs = v_piece.get("final_pcs", 1.0)
@@ -2241,7 +2248,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
         
-        # 📊 ĐỒNG BỘ UI LỚN: Ghi nhận trực tiếp giá trị kích thước sản xuất (Đã gồm đường may + co rút) lên Grid
+        # 📊 ĐỒNG BỘ HIỂN THỊ KÍCH THƯỚC SẢN XUẤT (ĐÃ CỘNG ĐƯỜNG MAY + CO RÚT LÊN GRID)
         updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
         updated_lengths.append(round(v_piece.get("length_prod", 0.0), 2))
         updated_widths.append(round(v_piece.get("width_prod", 0.0), 2))
@@ -2257,7 +2264,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             
     df_bom["polygon_net_area"] = updated_net_areas
     
-    # 🔥 GÁN GIÁ TRỊ TRỰC TIẾP LÊN HAI CỘT HIỂN THỊ CỦA GRID (Trích xuất kích thước sản xuất)
     if "Dài sản xuất (L-inch)" in df_bom.columns:
         df_bom["Dài sản xuất (L-inch)"] = updated_lengths
     if "Rộng sản xuất (W-inch)" in df_bom.columns:
@@ -2267,6 +2273,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
