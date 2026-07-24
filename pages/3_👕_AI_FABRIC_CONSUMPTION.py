@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH GHIM LOGO PPJ GROUP CHUẨN LÊN ĐỈNH NAV
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH PHỤC HỒI LOGO PPJ CHUẨN LÊN ĐỈNH SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
@@ -139,31 +139,19 @@ st.markdown("""
         color: #115e59 !important; 
     }
 
-    /* 🛠️ SỬA DỨT ĐIỂM: GHIM LOGO HÌNH PPJ GROUP CHUẨN LÊN ĐỈNH NAV ĐA TRANG */
+    /* 🛠️ ĐÃ SỬA DỨT ĐIỂM: ÉP LIÊN KẾT LOGO PPJ GROUP TRỰC TIẾP VÀO NỀN KHỐI ĐIỀU HƯỚNG */
     [data-testid="stSidebarNav"] {
-        padding-top: 120px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
+        padding-top: 110px !important; /* Đẩy các chữ MAIN DASHBOARD dịch xuống dưới nhường chỗ */
+        background-image: url("https://r2.dev") !important; 
+        background-repeat: no-repeat !important;
+        background-position: center 20px !important; /* Căn logo nằm chính giữa khoảng trống đỉnh */
+        background-size: 160px auto !important; /* Định kích cỡ chiều rộng logo chuẩn 160px */
+        background-color: #0f766e !important;
         position: relative !important;
     }
     
-    /* Chèn hình ảnh logo PPJ GROUP (Boundless solutions) sắc nét vào làm nền */
-    [data-testid="stSidebarNav"]::before {
-        content: "" !important;
-        position: absolute !important;
-        top: 20px !important;
-        left: 15px !important;
-        right: 15px !important;
-        height: 75px !important;
-        background-image: url("https://r2.dev") !important; 
-        background-repeat: no-repeat !important;
-        background-position: center !important;
-        background-size: contain !important;
-        background-color: transparent !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-        z-index: 999996 !important;
-    }
-
-    /* Tắt bỏ dòng chữ Text PPJ GROUP cũ của các turn trước */
+    /* Xóa bỏ hoàn toàn các lớp phủ text của turn trước tránh xung đột */
+    [data-testid="stSidebarNav"]::before,
     [data-testid="stSidebarNav"]::after {
         content: "" !important;
         display: none !important;
@@ -175,17 +163,17 @@ st.markdown("""
     .stChatInput fieldset,
     div[data-testid="stChatInputContainer"] {
         position: fixed !important;
-        bottom: 0 !important; /* Ghim khít sàn đáy */
-        left: 300px !important; /* Đâm khít sạt chạm lề vào Sidebar */
-        right: 0 !important; /* Đâm khít sạt ra biên ngoài cùng bên phải màn hình */
-        width: calc(100% - 300px) !important; /* Phủ kín toàn bộ phần trang phải */
+        bottom: 0 !important; 
+        left: 300px !important; 
+        right: 0 !important; 
+        width: calc(100% - 300px) !important; 
         max-width: calc(100% - 300px) !important; 
-        background-color: #ccfbf1 !important; /* Đồng bộ nhuộm xanh ngọc mịn toàn khối */
+        background-color: #ccfbf1 !important; 
         border: none !important;
-        border-top: 1px solid #5eead4 !important; /* Kẻ đường viền xanh mượt ngăn cách phía trên */
-        border-radius: 0px !important; /* Làm vuông vắn các góc để đóng hộp liền khối */
+        border-top: 1px solid #5eead4 !important; 
+        border-radius: 0px !important; 
         box-shadow: 0 -4px 10px rgba(15, 118, 110, 0.06) !important;
-        padding: 10px 2rem !important; /* Tạo lề đệm thẳng hàng tăm tắp với hai hộp uploader phía trên */
+        padding: 10px 2rem !important; 
     }
 
     /* Định dạng lõi nhập văn bản gõ chữ bên trong cho tiệp màu xanh ngọc */
