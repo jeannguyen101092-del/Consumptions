@@ -2026,7 +2026,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 1: GEOMETRIC MARKER ENGINE (CẬP NHẬT ĐƯỜNG MAY 0.5 INCH XUNG QUANH)
+# 🟩 ĐOẠN 1A: DATA INGESTION & MATERIAL INFERENCE (PHÂN LOẠI VẬT TƯ CHUYÊN SÂU)
 # =====================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
@@ -2045,6 +2045,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
     m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
+    # Lấy thông số co rút từ UI do người dùng điều chỉnh
     warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
     weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
@@ -2052,12 +2053,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # 🔥 CHUẨN HÓA: Quy định đường may 0.5 inch cho từng cạnh xung quanh rập
+    # Quy định đường may 0.5 inch xung quanh chi tiết rập (Tổng tăng 1.0 inch)
     SEAM_EDGE = 0.5 
-    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  # Tổng chiều dài và rộng tăng thêm 1.0 inch
+    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
 
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
+    # Đồng bộ bộ lọc khi đổi file tránh lỗi KeyError
     if current_virtual_pieces:
         if not all(idx in df_bom.index for idx in current_virtual_pieces.keys()):
             current_virtual_pieces = {}
@@ -2065,17 +2067,35 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     if not current_virtual_pieces:
         for idx, r in df_bom.iterrows():
-            c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper()
-            m_str_raw = str(r.get(m_col, "FABRIC")).upper() if m_col else "FABRIC"
+            c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
+            m_str_raw = str(r.get(m_col, "")).upper().strip()
             
-            inferred_class = "FABRIC"
-            if any(k in c_name_raw or k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
-                inferred_class = "FUSING"
-            elif any(k in c_name_raw or k in m_str_raw for k in ["LINING", "LOT", "POCKETING", "VAI LOT", "BAG POCKET"]):
-                inferred_class = "LINING"
-            elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY", "METAL", "RIVET", "SHANK", "ZIP", "NÚT", "ĐINH", "TAPE", "LABEL", "MÁC", "TAG"]):
-                inferred_class = "ACCESSORY"
-                
+            inferred_class = None
+            
+            # TẦNG 1: ƯU TIÊN TUYỆT ĐỐI THEO CHẤT LIỆU TỪ BẢNG CAD
+            if m_str_raw:
+                if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
+                    inferred_class = "FUSING"
+                elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]):
+                    inferred_class = "LINING"
+                elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER"]):
+                    inferred_class = "ACCESSORY"
+                elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]):
+                    inferred_class = "FABRIC"
+            
+            # TẦNG 2: SUY LUẬN THEO TÊN CHI TIẾT NẾU CHẤT LIỆU TRỐNG
+            if not inferred_class:
+                if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "STITCH", "OVERLUCK", "TAG", "LABEL", "MÁC", "CARE LA", "WARNING"]):
+                    inferred_class = "ACCESSORY"
+                elif any(k in c_name_raw for k in ["POCKETING", "POCKET BAG", "LINING", "LÓT", "VAI LOT", "BAG POCKET"]):
+                    inferred_class = "LINING"
+                elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT", "TAPE"]):
+                    inferred_class = "FUSING"
+                elif any(k in c_name_raw for k in ["YOKE", "POCKET", "FLY", "SHIELD", "LOOP", "WAISTBAND", "FRONT", "BACK", "JOKER", "BELT", "PANEL", "SLEEVE", "COLLAR"]):
+                    inferred_class = "FABRIC"
+                else:
+                    inferred_class = "FABRIC"
+                    
             current_virtual_pieces[idx] = {
                 "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")),
                 "piece_class": inferred_class,
@@ -2084,7 +2104,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
                 "net_area_prod": float(r.get("polygon_net_area", 0.0)),
                 "final_pcs": float(r.get("pcs_numeric", 1.0))
             }
-
+    
+    st.session_state["virtual_pieces_layer"] = current_virtual_pieces# =====================================================================
+# 🟦 ĐOẠN 1B: GEOMETRIC SIMULATION MACHINE (MÔ PHỎNG ĐAN XEN GERBER 2D)
+# =====================================================================
+if 'df_bom' in locals() or 'df_bom' in globals():
+    current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
+    
     for idx in current_virtual_pieces.keys():
         v_piece = current_virtual_pieces[idx]
         row_ref = df_bom.loc[idx]
@@ -2102,7 +2128,12 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         w_orig_val = float(row_ref.get(d5_actual_w_col, 0.0))
         p_class = v_piece["piece_class"]
         
-        # Áp dụng cộng đường may 0.5 inch xung quanh độc lập cho từng nhóm vật liệu
+        # Vá lỗi khuyết kích thước hình học từ CAD (Đảm bảo dài rộng không bằng 0 nếu có diện tích)
+        if l_orig_val <= 0.0 and float(row_ref.get("polygon_net_area", 0.0)) > 0:
+            l_orig_val = round(float(row_ref.get("polygon_net_area", 0.0)) ** 0.5, 2)
+            w_orig_val = l_orig_val
+
+        # Cộng đường may 0.5 inch xung quanh và tính độ co rút
         if p_class == "FABRIC":
             l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
             w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
@@ -2152,6 +2183,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             for _ in range(int(current_pcs)):
                 fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
 
+    # VẬN HÀNH THUẬT TOÁN SKYLINE 2D ĐAN XEN KIỂU GERBER CHO VẢI CHÍNH
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
         usable_width = current_fabric_width - 1.5
