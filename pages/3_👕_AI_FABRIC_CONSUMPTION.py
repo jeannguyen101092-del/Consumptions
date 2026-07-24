@@ -118,7 +118,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX HÌNH ẢNH LOGO VÀ ĐỒNG BỘ MÀU SẮC ERP
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ÉP PHỤC HỒI LOGO TRÊN THẺ NỀN TRẮNG ĐỈNH SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
@@ -165,6 +165,16 @@ st.markdown("""
     [data-testid="stSidebarNav"]::after {
         content: "" !important;
         display: none !important;
+    }
+
+    /* 🔥 ĐÃ SỬA CƯỞNG BỨC: ÉP CHỮA CHÁY KHỐI THẺ NỀN TRẮNG CHỨA LOGO PPJ BẰNG PYTHON PHẢI HIỂN THỊ 100% */
+    [data-testid="stSidebar"] div:has(img[src*="logo-ppj-boundless"]),
+    [data-testid="stSidebar"] img[src*="logo-ppj-boundless"] {
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        max-width: 150px !important;
+        height: auto !important;
     }
 
     /* ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN ĐÁY MÀN HÌNH */
@@ -274,12 +284,11 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* 🛠️ ĐÃ SỬA: Bộ lọc thông minh chỉ ẩn các icon ảnh vỡ lỗi nhỏ của Streamlit, KHÔNG ẩn logo thẻ trắng của bạn */
+    /* Bộ lọc chỉ ẩn các icon ảnh vỡ cũ, TUYỆT ĐỐI KHÔNG ẩn thẻ chứa logo của bạn */
     [data-testid="stSidebar"] img[src*="data:image/png;base64,iVBOR"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
 
 
 
