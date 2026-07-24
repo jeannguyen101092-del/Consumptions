@@ -2352,156 +2352,153 @@ if 'df_bom' in locals() or 'df_bom' in globals():
        # =====================================================================
        # =====================================================================
        # =====================================================================
-   # =====================================================================
-# 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
 # =====================================================================
-st.header("📋 AI GARMENT AUDIT REPORT")
-ai_decision_final = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-if not isinstance(ai_decision_final, dict): ai_decision_final = {}
+# 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (FIXED SCOPE)
+# =====================================================================
+if 'df_bom' in locals() or 'df_bom' in globals():
+    st.header("📋 AI GARMENT AUDIT REPORT")
+    ai_decision_final = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
+    if not isinstance(ai_decision_final, dict): ai_decision_final = {}
 
-estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
-ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
-comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
-ui_complexity_tier = "COMPLEX / PHỨC TẠP" if comp_score_val >= 50 else "NORMAL / THƯỜNG"
-ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-prod_cat_ui = str(ai_decision_final.get("product_category", "JEAN_LONG")).upper().strip()
+    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
+    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
+    comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
+    ui_complexity_tier = "COMPLEX / PHỨC TẠP" if comp_score_val >= 50 else "NORMAL / THƯỜNG"
+    ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
+    prod_cat_ui = str(ai_decision_final.get("product_category", "JEAN_LONG")).upper().strip()
 
-# Khởi tạo an toàn cấu trúc bộ nhớ tạm Streamlit State nếu chưa tồn tại
-if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
-if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
+    # Khởi tạo an toàn cấu trúc bộ nhớ tạm Streamlit State nếu chưa tồn tại
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-# 📊 HIỂN THỊ CÁC THẺ METRIC ĐỒNG BỘ ĐỘNG LÊN WORKSPACE
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("🤖 Chủng Loại Sản Phẩm (Category)", ai_product_type if 'ai_product_type' in locals() else prod_cat_ui)
-m2.metric(f"{ui_complexity_icon} Độ Phức Tạp Kỹ Thuật (IE Score)", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-m3.metric("📐 Marker Efficiency", f"{ui_display_density*100:.2f}%")
+    # 📊 HIỂN THỊ CÁC THÈ METRIC ĐỒNG BỘ ĐỘNG LÊN WORKSPACE
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("🤖 Chủng Loại Sản Phẩm (Category)", ai_product_type if 'ai_product_type' in locals() else prod_cat_ui)
+    m2.metric(f"{ui_complexity_icon} Độ Phức Tạp Kỹ Thuật (IE Score)", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
+    m3.metric("📐 Marker Efficiency", f"{ui_display_density*100:.2f}%")
 
-# Đọc tổng số lượng mảnh thực tế từ bộ lưu trữ RAM Đoạn 5.2 để tránh bị hiển thị 0 Pcs
-total_actual_pcs_display = int(st.session_state.get("total_actual_pieces_kpi", 0))
-m4.metric("🟢 Tổng Số Mảnh Rập Thực Tế", f"{total_actual_pcs_display} Pcs")
+    # Đọc tổng số lượng mảnh thực tế từ bộ lưu trữ RAM Đoạn 5.2 để tránh bị hiển thị 0 Pcs
+    total_actual_pcs_display = int(st.session_state.get("total_actual_pieces_kpi", 0))
+    m4.metric("🟢 Tổng Số Mảnh Rập Thực Tế", f"{total_actual_pcs_display} Pcs")
 
-# 🔒 ĐỒNG BỘ 1: Ép bảng Summary nhóm dữ liệu theo đúng nhãn chất liệu 'piece_class' của Mảnh ảo V10
-if "virtual_pieces_layer" in locals() and virtual_pieces_layer:
-    current_virtual_layer = virtual_pieces_layer
-else:
-    current_virtual_layer = ai_decision_final.get("virtual_pieces_layer", st.session_state.get("virtual_pieces_layer", {}))
+    # 🔒 ĐỒNG BỘ 1: Ép bảng Summary nhóm dữ liệu theo đúng nhãn chất liệu 'piece_class' của Mảnh ảo V10
+    current_virtual_layer = st.session_state.get("virtual_pieces_layer", ai_decision_final.get("virtual_pieces_layer", {}))
 
-clean_materials_list = []
-for idx in df_bom.index:
-    v_piece = current_virtual_layer.get(idx, {})
-    # Sử dụng chính xác từ khóa chất liệu (piece_class) đã qua bộ lọc đồ thị hình học Hungarian
-    clean_materials_list.append(v_piece.get("piece_class", "FABRIC"))
-    
-df_bom["_temp_class"] = clean_materials_list
-
-if "Gross Consumption" not in df_bom.columns:
-    df_bom["Gross Consumption"] = 0.0
-
-# Xây dựng ma trận tổng hợp vật tư thương mại khép kín
-summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-cls_map = {
-    "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
-    "FUSING": "MÉC / KEO (INTERLINING)", 
-    "LINING": "VẢI LÓT (LINING)", 
-    "THREAD": "CHỈ MAY (SEWING THREAD)", 
-    "ACCESSORY": "PHỤ LIỆU (TRIMS)", 
-    "UNKNOWN": "VẬT TƯ KHÁC (OTHER MAT)"
-}
-
-df_summary = pd.DataFrame({
-    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC (OTHER MAT)"),
-    "Material Class": summary_grouped["_temp_class"],
-    "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
-    "UOM": "YDS"
-})
-
-st.markdown("##### 📊 Bảng Tổng Hợp Định Mức (BOM Summary Matrix)")
-st.dataframe(df_summary, use_container_width=True, hide_index=True)
-
-# ĐỒNG BỘ 2: Chuẩn hóa lưới hiển thị chi tiết rập (CAD Marker Matrix Grid)
-df_bom_display = df_bom.copy()
-
-if "Calculated Width (Inch)" in df_bom_display.columns:
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
-else:
-    df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("fabric_width_inch", 58.0))
-    
-df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
-df_bom_display["material_class"] = df_bom_display["_temp_class"]
-
-df_bom_display = df_bom_display.rename(columns={
-    "component_name": "Tên chi tiết rập (Component)", 
-    "material_class": "Nhóm vật tư (Class)", 
-    "geometry_role": "Vị trí kết cấu (Geometry Role)"
-})
-
-# Đọc số lượng mảnh chính xác có đồng bộ bộ đệm can thiệp thủ công từ User
-df_bom_display["Số lượng rập"] = [float(st.session_state["user_edited_pieces"].get(idx, current_virtual_layer.get(idx, {}).get("final_pcs", r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
-df_bom_display["_original_row_index"] = df_bom.index
-
-ordered_cols = [
-    "_original_row_index", "Tên chi tiết rập (Component)", "Nhóm vật tư (Class)", "Vị trí kết cấu (Geometry Role)", 
-    "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", 
-    "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"
-]
-display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
-df_bom_display = df_bom_display[display_final_cols]
-
-col_t1, col_t2 = st.columns(2)
-col_t1.subheader("📋 CAD Marker Matrix")
-
-# 📥 LUỒNG KẾT XUẤT EXCEL THƯƠNG MẠI CHUẨN PPJ GROUP
-with col_t2:
-    try:
-        if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-            prod_label = prod if 'prod' in locals() else prod_cat_ui
-            excel_file = local_export_excel_ppj_format(
-                df_summary, 
-                df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                prod_label, ctx, ui_display_density
-            )
-            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            st.download_button(
-                "🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
-                data=excel_file, 
-                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
-                file_name=f"PPJ_BOM_{prod_label}_{style_name_clean}.xlsx", 
-                use_container_width=True
-            )
-    except Exception as e: 
-        st.error(f"Lỗi kết xuất Excel kĩ thuật: {e}")
-
-# 🔥 SỬA LỖI KEYERROR VÀ KẸT STREAMLIT ĐỒNG BỘ: Sử dụng cơ chế xử lý từ điển thay đổi nâng cao của Streamlit
-edited_df = st.data_editor(
-    df_bom_display, 
-    column_config={
-        "_original_row_index": None, 
-        "Số lượng rập": st.column_config.NumberColumn("Số lượng rập (Pcs)", min_value=1.0, max_value=40.0, step=1.0),
-        "Nhóm vật tư (Class)": st.column_config.SelectboxColumn(
-            "Nhóm vật tư (Class)", help="Điều chỉnh phân nhóm linh kiện kĩ thuật nếu AI nhận diện chưa khớp",
-            options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
-        )
-    }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v12_perfect_match" 
-)
-
-# Thuật toán bắt sự kiện thay đổi trên lưới Grid của Streamlit cực kỳ an toàn, loại bỏ duyệt dòng ép buộc
-has_changed = False
-if "bom_data_editor_grid_final_v12_perfect_match" in st.session_state:
-    edits = st.session_state["bom_data_editor_grid_final_v12_perfect_match"].get("edited_rows", {})
-    for row_pos, changes in edits.items():
-        # Tìm chính xác chỉ mục dòng gốc trong cơ sở dữ liệu dựa trên vị trí hiển thị trên lưới Grid
-        orig_idx = df_bom_display.index[int(row_pos)]
-        real_bom_idx = int(df_bom_display.at[orig_idx, "_original_row_index"])
+    clean_materials_list = []
+    for idx in df_bom.index:
+        v_piece = current_virtual_layer.get(idx, {})
+        clean_materials_list.append(v_piece.get("piece_class", "FABRIC"))
         
-        # 1. Nếu người dùng chủ động điều chỉnh số lượng mảnh trên UI Grid
-        if "Số lượng rập" in changes:
-            st.session_state["user_edited_pieces"][real_bom_idx] = float(changes["Số lượng rập"])
-            has_changed = True
-            
-        # 2. Nếu người dùng chủ động phân loại lại nhóm chất liệu vật tư
-        if "Nhóm vật tư (Class)" in changes:
-            st.session_state["user_edited_materials"][real_bom_idx] = str(changes["Nhóm vật tư (Class)"]).upper().strip()
-            has_changed = True
+    df_bom["_temp_class"] = clean_materials_list
 
-if has_changed:
-    st.rerun()
+    if "Gross Consumption" not in df_bom.columns:
+        df_bom["Gross Consumption"] = 0.0
+
+    # Xây dựng ma trận tổng hợp vật tư thương mại khép kín
+    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+    cls_map = {
+        "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
+        "FUSING": "MÉC / KEO (INTERLINING)", 
+        "LINING": "VẢI LÓT (LINING)", 
+        "THREAD": "CHỈ MAY (SEWING THREAD)", 
+        "ACCESSORY": "PHỤ LIỆU (TRIMS)", 
+        "UNKNOWN": "VẬT TƯ KHÁC (OTHER MAT)"
+    }
+
+    df_summary = pd.DataFrame({
+        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC (OTHER MAT)"),
+        "Material Class": summary_grouped["_temp_class"],
+        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
+        "UOM": "YDS"
+    })
+
+    st.markdown("##### 📊 Bảng Tổng Hợp Định Mức (BOM Summary Matrix)")
+    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+    # ĐỒNG BỘ 2: Chuẩn hóa lưới hiển thị chi tiết rập (CAD Marker Matrix Grid)
+    df_bom_display = df_bom.copy()
+
+    if "Calculated Width (Inch)" in df_bom_display.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
+    else:
+        df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("fabric_width_inch", 58.0))
+        
+    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
+    df_bom_display["material_class"] = df_bom_display["_temp_class"]
+
+    df_bom_display = df_bom_display.rename(columns={
+        "component_name": "Tên chi tiết rập (Component)", 
+        "material_class": "Nhóm vật tư (Class)", 
+        "geometry_role": "Vị trí kết cấu (Geometry Role)"
+    })
+
+    # Đọc số lượng mảnh chính xác có đồng bộ bộ đệm can thiệp thủ công từ User
+    df_bom_display["Số lượng rập"] = [float(st.session_state["user_edited_pieces"].get(idx, current_virtual_layer.get(idx, {}).get("final_pcs", r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
+    df_bom_display["_original_row_index"] = df_bom.index
+
+    ordered_cols = [
+        "_original_row_index", "Tên chi tiết rập (Component)", "Nhóm vật tư (Class)", "Vị trí kết cấu (Geometry Role)", 
+        "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", 
+        "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"
+    ]
+    display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
+    df_bom_display = df_bom_display[display_final_cols]
+
+    col_t1, col_t2 = st.columns(2)
+    col_t1.subheader("📋 CAD Marker Matrix")
+
+    # 📥 LUỒNG KẾT XUẤT EXCEL THƯƠNG MẠI CHUẨN PPJ GROUP
+    with col_t2:
+        try:
+            if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
+                prod_label = prod if 'prod' in locals() else prod_cat_ui
+                excel_file = local_export_excel_ppj_format(
+                    df_summary, 
+                    df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
+                    prod_label, ctx, ui_display_density
+                )
+                style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+                st.download_button(
+                    "🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
+                    data=excel_file, 
+                    mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
+                    file_name=f"PPJ_BOM_{prod_label}_{style_name_clean}.xlsx", 
+                    use_container_width=True
+                )
+        except Exception as e: 
+            st.error(f"Lỗi kết xuất Excel kĩ thuật: {e}")
+
+    # XỬ LÝ LƯỚI DATA EDITOR
+    edited_df = st.data_editor(
+        df_bom_display, 
+        column_config={
+            "_original_row_index": None, 
+            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập (Pcs)", min_value=1.0, max_value=40.0, step=1.0),
+            "Nhóm vật tư (Class)": st.column_config.SelectboxColumn(
+                "Nhóm vật tư (Class)", help="Điều chỉnh phân nhóm linh kiện kĩ thuật nếu AI nhận diện chưa khớp",
+                options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
+            )
+        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v12_perfect_match" 
+    )
+
+    # Thuật toán bắt sự kiện thay đổi trên lưới Grid của Streamlit cực kỳ an toàn
+    has_changed = False
+    if "bom_data_editor_grid_final_v12_perfect_match" in st.session_state:
+        edits = st.session_state["bom_data_editor_grid_final_v12_perfect_match"].get("edited_rows", {})
+        for row_pos, changes in edits.items():
+            orig_idx = df_bom_display.index[int(row_pos)]
+            real_bom_idx = int(df_bom_display.at[orig_idx, "_original_row_index"])
+            
+            if "Số lượng rập" in changes:
+                st.session_state["user_edited_pieces"][real_bom_idx] = float(changes["Số lượng rập"])
+                has_changed = True
+                
+            if "Nhóm vật tư (Class)" in changes:
+                st.session_state["user_edited_materials"][real_bom_idx] = str(changes["Nhóm vật tư (Class)"]).upper().strip()
+                has_changed = True
+
+    if has_changed:
+        st.rerun()
+else:
+    # Trạng thái chờ load tệp rập ban đầu
+    st.write("")
