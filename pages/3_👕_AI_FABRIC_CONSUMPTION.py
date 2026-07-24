@@ -99,13 +99,13 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH NHUỘM TOÀN TRANG XANH NGỌC SANG TRỌNG
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH KHÓA KHÍT VIỀN Ô CHAT TRÀN HAI BIÊN ERP
 # =====================================================================
 st.markdown("""
 <style>
     /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XANH NGỌC MỊN CHO TẤT CẢ CÁC LỚP BAN NỀN */
     .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
-        background-color: #e6f4f1 !important; /* Đổi sang nền xanh ngọc dịu mắt toàn trang */
+        background-color: #e6f4f1 !important; 
     }
     
     /* Ép khoảng cách lề của toàn vùng nội dung dạt sang phải, tránh so le */
@@ -127,64 +127,52 @@ st.markdown("""
         background-color: transparent !important; 
     }
 
-    /* 🧱 ĐÃ SỬA: NHUỘM XANH CÁC KHỐI CHỨA UPLOADER VÀ VISUALIZER CHO ĐỒNG BỘ */
+    /* NHUỘM XANH CÁC KHỐI CHỨA UPLOADER VÀ VISUALIZER CHO ĐỒNG BỘ */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: #f0fdfa !important; /* Nền hộp trắng chuyển sang xanh ngọc cực nhạt */
-        border: 1px solid #99f6e4 !important; /* Viền xanh đồng màu tinh tế */
+        background-color: #f0fdfa !important; 
+        border: 1px solid #99f6e4 !important; 
         box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
     }
     
-    /* Khung viền chứa chữ thông báo trống bên trong */
     div[data-testid="stVerticalBlockBorderWrapper"] p,
     div[data-testid="stVerticalBlockBorderWrapper"] div {
-        color: #115e59 !important; /* Chuyển màu chữ thông báo sang xanh đậm cho dễ đọc */
+        color: #115e59 !important; 
     }
 
-    /* 🔥 SỬA DỨT ĐIỂM & ÉP TRÀN TOÀN MÀN HÌNH: PHÌNH TO KHỐI CHỨA Ô CHAT RA HAI MÉP */
-    .stChatInput, 
-    div[data-testid="stChatInputText"], 
-    div[data-testid="stChatInputText"] > div,
-    .stChatInput > div {
-        position: fixed !important;
-        bottom: 20px !important;
-        left: 330px !important; /* Đẩy lùi khớp thẳng hàng tăm tắp với lề block-container */
-        right: 30px !important; /* Kéo dãn đâm sát ra biên phải màn hình */
-        width: calc(100% - 360px) !important; /* Khóa độ rộng phủ hết không gian còn lại */
-        max-width: 100% !important; 
-        background-color: transparent !important; 
-        border: none !important;
-        box-shadow: none !important;
-    }
-    
-    /* NHUỘM MÀU XANH NGỌC NHẠT TOÀN DIỆN CHO KHUNG HỘP CHỨA LÕI NHẬP LIỆU */
+    /* 🔥 SỬA DỨT ĐIỂM: ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN */
+    .stChatInput,
+    .stChatInput > div,
+    .stChatInput fieldset,
     div[data-testid="stChatInputContainer"] {
-        width: 100% !important; 
-        max-width: 100% !important;
-        background-color: #ccfbf1 !important; /* Màu xanh ngọc nhạt của ô chat */
-        border: 1px solid #5eead4 !important; 
-        border-radius: 8px !important;
-        padding: 4px 8px !important;
-        box-shadow: 0 4px 10px rgba(15, 118, 110, 0.08) !important; 
+        position: fixed !important;
+        bottom: 0 !important; /* Ghim khít sàn đáy */
+        left: 300px !important; /* Đâm khít sạt chạm lề vào Sidebar */
+        right: 0 !important; /* Đâm khít sạt ra biên ngoài cùng bên phải màn hình */
+        width: calc(100% - 300px) !important; /* Phủ kín toàn bộ phần trang phải */
+        max-width: calc(100% - 300px) !important; /* Triệt tiêu giới hạn bề ngang mặc định */
+        background-color: #ccfbf1 !important; /* Đồng bộ nhuộm xanh ngọc mịn toàn khối */
+        border: none !important;
+        border-top: 1px solid #5eead4 !important; /* Kẻ đường viền xanh mượt ngăn cách phía trên */
+        border-radius: 0px !important; /* Làm vuông vắn các góc để đóng hộp liền khối */
+        box-shadow: 0 -4px 10px rgba(15, 118, 110, 0.06) !important;
+        padding: 10px 2rem !important; /* Tạo lề đệm thẳng hàng tăm tắp với hai hộp uploader phía trên */
     }
 
-    /* Ép lõi nhập văn bản gõ chữ bên trong */
+    /* Định dạng lõi nhập văn bản gõ chữ bên trong cho tiệp màu xanh ngọc */
     div[data-testid="stChatInputContainer"] textarea {
-        background-color: transparent !important; 
+        background-color: #ccfbf1 !important; 
         color: #115e59 !important; 
         font-family: "Segoe UI", sans-serif !important;
         font-size: 13px !important;
         width: 100% !important;
+        border: none !important;
     }
 
-    /* Định dạng nút bấm gửi câu lệnh hình mũi tên sang màu xanh thẫm đồng bộ */
+    /* Căn chỉnh nút gửi hình mũi tên gọn gàng bên góc phải dải băng chat */
     div[data-testid="stChatInputContainer"] button {
         background-color: #0f766e !important;
         color: #ffffff !important;
         border-radius: 6px !important;
-        transition: all 0.2s ease !important;
-    }
-    div[data-testid="stChatInputContainer"] button:hover {
-        background-color: #115e59 !important;
     }
 
     /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
