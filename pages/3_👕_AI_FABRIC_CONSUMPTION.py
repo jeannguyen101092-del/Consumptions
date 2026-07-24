@@ -99,13 +99,13 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ÉP Ô CHAT TRÀN HẾT MÀN HÌNH (FULL-WIDTH)
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH NHUỘM TOÀN TRANG XANH NGỌC SANG TRỌNG
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XANH SƯƠNG MÙ CHO TẤT CẢ CÁC LỚP BAN NỀN */
+    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XANH NGỌC MỊN CHO TẤT CẢ CÁC LỚP BAN NỀN */
     .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
-        background-color: #f0f4f8 !important; 
+        background-color: #e6f4f1 !important; /* Đổi sang nền xanh ngọc dịu mắt toàn trang */
     }
     
     /* Ép khoảng cách lề của toàn vùng nội dung dạt sang phải, tránh so le */
@@ -115,16 +115,29 @@ st.markdown("""
         padding-right: 2rem !important; 
         margin-left: 300px !important; /* Tạo khoảng trống chuẩn tách biệt Sidebar */
         max-width: calc(100% - 300px) !important; 
-        padding-bottom: 120px !important; /* Chừa khoảng trống đáy sâu hơn để tránh lấp bảng */
+        padding-bottom: 120px !important; 
     }
     
-    /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều, tiệt tiêu khe hở trắng ở hai mép */
+    /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều */
     div[data-testid="stHorizontalBlock"] { 
         margin-top: 0px !important; 
         padding-top: 0px !important; 
         width: 100% !important;
         max-width: 100% !important;
         background-color: transparent !important; 
+    }
+
+    /* 🧱 ĐÃ SỬA: NHUỘM XANH CÁC KHỐI CHỨA UPLOADER VÀ VISUALIZER CHO ĐỒNG BỘ */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #f0fdfa !important; /* Nền hộp trắng chuyển sang xanh ngọc cực nhạt */
+        border: 1px solid #99f6e4 !important; /* Viền xanh đồng màu tinh tế */
+        box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
+    }
+    
+    /* Khung viền chứa chữ thông báo trống bên trong */
+    div[data-testid="stVerticalBlockBorderWrapper"] p,
+    div[data-testid="stVerticalBlockBorderWrapper"] div {
+        color: #115e59 !important; /* Chuyển màu chữ thông báo sang xanh đậm cho dễ đọc */
     }
 
     /* 🔥 SỬA DỨT ĐIỂM & ÉP TRÀN TOÀN MÀN HÌNH: PHÌNH TO KHỐI CHỨA Ô CHAT RA HAI MÉP */
@@ -137,27 +150,27 @@ st.markdown("""
         left: 330px !important; /* Đẩy lùi khớp thẳng hàng tăm tắp với lề block-container */
         right: 30px !important; /* Kéo dãn đâm sát ra biên phải màn hình */
         width: calc(100% - 360px) !important; /* Khóa độ rộng phủ hết không gian còn lại */
-        max-width: 100% !important; /* Phá vỡ kịch trần độ rộng mặc định của Streamlit */
+        max-width: 100% !important; 
         background-color: transparent !important; 
         border: none !important;
         box-shadow: none !important;
     }
     
-    /* 🛠️ NHUỘM MÀU XANH NGỌC NHẠT TOÀN DIỆN CHO KHUNG HỘP CHỨA LÕI NHẬP LIỆU */
+    /* NHUỘM MÀU XANH NGỌC NHẠT TOÀN DIỆN CHO KHUNG HỘP CHỨA LÕI NHẬP LIỆU */
     div[data-testid="stChatInputContainer"] {
-        width: 100% !important; /* Ép lõi chứa dãn căng 100% theo khung ngoài */
+        width: 100% !important; 
         max-width: 100% !important;
-        background-color: #ccfbf1 !important; /* Màu xanh ngọc cực nhạt và dịu mắt */
-        border: 1px solid #5eead4 !important; /* Viền xanh đồng màu sắc nét */
+        background-color: #ccfbf1 !important; /* Màu xanh ngọc nhạt của ô chat */
+        border: 1px solid #5eead4 !important; 
         border-radius: 8px !important;
         padding: 4px 8px !important;
-        box-shadow: 0 4px 10px rgba(15, 118, 110, 0.08) !important; /* Đổ bóng mờ màu xanh nhẹ */
+        box-shadow: 0 4px 10px rgba(15, 118, 110, 0.08) !important; 
     }
 
-    /* Ép lõi nhập văn bản gõ chữ bên trong cũng phải ăn theo màu xanh ngọc nhạt */
+    /* Ép lõi nhập văn bản gõ chữ bên trong */
     div[data-testid="stChatInputContainer"] textarea {
         background-color: transparent !important; 
-        color: #115e59 !important; /* Màu chữ xanh đậm chuẩn ERP cực kì dễ đọc */
+        color: #115e59 !important; 
         font-family: "Segoe UI", sans-serif !important;
         font-size: 13px !important;
         width: 100% !important;
@@ -200,7 +213,6 @@ st.markdown("""
         position: relative !important;
     }
     
-    /* Dựng khối nền Banner xanh Gradient bo góc */
     [data-testid="stSidebarNav"]::before {
         content: "" !important;
         position: absolute !important;
@@ -214,7 +226,6 @@ st.markdown("""
         z-index: 1 !important;
     }
 
-    /* Chèn dòng chữ lớn "PPJ GROUP" chính giữa hộp */
     [data-testid="stSidebarNav"]::after {
         content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
         white-space: pre-wrap !important;
@@ -237,12 +248,10 @@ st.markdown("""
         z-index: 2 !important;
     }
 
-    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại chuẩn mẫu */
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
-    /* Định dạng nút bấm xóa bộ nhớ tinh tế */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -255,7 +264,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* TIÊU ĐỀ NỔI BẬT MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
@@ -268,7 +276,6 @@ st.markdown("""
         margin-top: 18px !important;
     }
 
-    /* Các hộp thông tin đổi sang dải màu gradient tối dịu mắt */
     .sidebar-custom-card, .sidebar-custom-card-history {
         background: linear-gradient(135deg, #115e59 0%, #134e4a 100%) !important; 
         border: 1px solid #14b8a6 !important;
@@ -280,7 +287,6 @@ st.markdown("""
     .sidebar-custom-card-history { padding: 6px 12px !important; }
     .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
 
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ trần trang chính bên phải */
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
@@ -289,15 +295,14 @@ st.markdown("""
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    /* Hộp trắng bao bọc hình vẽ rập vector hình học */
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi cũ */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 import streamlit as st
 import re
