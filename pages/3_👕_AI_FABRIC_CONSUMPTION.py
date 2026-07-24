@@ -2206,8 +2206,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             if detected_l_col: df_bom.at[idx, detected_l_col] = data["length_prod"]
             if detected_w_col: df_bom.at[idx, detected_w_col] = data["width_prod"]
 
-    # Đổ bảng dữ liệu cuối cùng lên ứng dụng Streamlit
-    st.dataframe(df_bom)
+   
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
