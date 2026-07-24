@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH PHỤC HỒI LOGO PPJ CHUẨN LÊN ĐỈNH SIDEBAR
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH TẠO THẺ NỀN TRẮNG ĐỂ HIỂN THỊ LOGO PPJ CHUẨN
 # =====================================================================
 st.markdown("""
 <style>
@@ -133,25 +133,35 @@ st.markdown("""
         border: 1px solid #99f6e4 !important; 
         box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
     }
-    
-    div[data-testid="stVerticalBlockBorderWrapper"] p,
-    div[data-testid="stVerticalBlockBorderWrapper"] div {
-        color: #115e59 !important; 
-    }
 
-    /* 🛠️ ĐÃ SỬA DỨT ĐIỂM: ÉP LIÊN KẾT LOGO PPJ GROUP TRỰC TIẾP VÀO NỀN KHỐI ĐIỀU HƯỚNG */
+    /* 🛠️ SỬA DỨT ĐIỂM: ĐẨY THANH ĐIỀU HƯỚNG XUỐNG VÀ XÓA BACKGROUND CŨ ĐỂ HIỂN THỊ THẺ LOGO */
     [data-testid="stSidebarNav"] {
-        padding-top: 110px !important; /* Đẩy các chữ MAIN DASHBOARD dịch xuống dưới nhường chỗ */
-        background-image: url("https://r2.dev") !important; 
-        background-repeat: no-repeat !important;
-        background-position: center 20px !important; /* Căn logo nằm chính giữa khoảng trống đỉnh */
-        background-size: 160px auto !important; /* Định kích cỡ chiều rộng logo chuẩn 160px */
-        background-color: #0f766e !important;
+        padding-top: 130px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ rộng rãi */
+        background-color: transparent !important;
         position: relative !important;
     }
     
-    /* Xóa bỏ hoàn toàn các lớp phủ text của turn trước tránh xung đột */
-    [data-testid="stSidebarNav"]::before,
+    /* 🎨 TẠO KHỐI THẺ NỀN TRẮNG BO GÓC GHIM CỐ ĐỊNH Ở ĐỈNH SIDEBAR */
+    [data-testid="stSidebarNav"]::before {
+        content: "" !important;
+        display: block !important;
+        position: absolute !important;
+        top: 15px !important;
+        left: 15px !important;
+        right: 15px !important;
+        height: 85px !important;
+        /* Nạp trực tiếp ảnh logo PPJ GROUP chuẩn vào khối thẻ */
+        background-image: url("https://r2.dev") !important;
+        background-repeat: no-repeat !important;
+        background-position: center !important;
+        background-size: 85% auto !important; /* Thu gọn ảnh vừa vặn trong thẻ */
+        background-color: #ffffff !important; /* Đổi sang nền TRẮNG TINH KHÔI để làm nổi bật logo màu xanh đỏ */
+        border-radius: 10px !important; /* Bo góc mềm mại sang trọng */
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15) !important; /* Đổ bóng nổi khối 3D */
+        z-index: 999999 !important;
+    }
+
+    /* Triệt tiêu dòng chữ text rác cũ hoàn toàn */
     [data-testid="stSidebarNav"]::after {
         content: "" !important;
         display: none !important;
