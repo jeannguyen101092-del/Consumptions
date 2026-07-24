@@ -1875,8 +1875,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["polygon_net_area"] = p_area_list
     df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5: INTEGRATED GEOMETRIC CAD ENGINE & CLOSING SOLVER
+       # =====================================================================
+    # 🟩 ĐOẠN 5: INTEGRATED GEOMETRIC CAD ENGINE (KHỐI 1 - MÔ PHỎNG SƠ ĐỒ)
     # =====================================================================
     if "processed_display_rows" in st.session_state and st.session_state["processed_display_rows"]:
         df_bom = pd.DataFrame(st.session_state["processed_display_rows"])
@@ -1925,15 +1925,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 net_area = v_piece.get("production_net_area", float(r.get("polygon_net_area", 0.0)))
                 comp_name_upper = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper().strip()
                 inferred_pcs = v_piece.get("inferred_pieces", r.get("pcs_numeric", 1.0))
+                
                 if "BACK" in comp_name_upper and inferred_pcs == 1.0:
                     inferred_pcs = 2.0
                     v_piece["inferred_pieces"] = 2.0
                     
                 current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
                 synchronized_fabric_pcs[idx] = current_pcs
+                
+                # CHIA ĐÔI RẬP RÃ: Chia nhỏ chiều rộng và diện tích nếu rập được rã đôi rải cặp
+                p_l = float(v_piece.get("production_l", 0.0))
+                p_w = float(v_piece.get("production_w", 0.0))
+                if current_pcs >= 2.0:
+                    p_w = p_w / 2.0
+                    if net_area > (p_l * p_w): net_area = net_area / 2.0
+                
                 total_fabric_net_area += net_area * current_pcs
                 for _ in range(int(current_pcs)):
-                    fabric_pieces_to_nest.append({"l": v_piece.get("production_l", 0.0), "w": v_piece.get("production_w", 0.0), "area": net_area})
+                    fabric_pieces_to_nest.append({"l": p_l, "w": p_w, "area": net_area})
 
         if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
             fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
@@ -1951,12 +1960,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
             total_marker_bounding_area = simulated_marker_length * current_fabric_width
             real_fabric_density = (total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior) * historical_bias_factor
-            real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
+            real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.12, real_fabric_density))
             fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
             total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
         else:
             real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
-
+        # =====================================================================
+        # 🟩 ĐOẠN 5: CLOSING SOLVER (KHỐI 2 - PHÂN BỔ ĐỊNH MỨC DÒNG)
+        # =====================================================================
         total_lining_net_area = 0.0
         for idx, r in df_bom.iterrows():
             v_piece = virtual_pieces_layer.get(idx, {})
@@ -1985,6 +1996,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if v_piece.get("inferred_class", "FABRIC") == "FABRIC":
                 pcs_fabric = synchronized_fabric_pcs.get(idx, v_piece.get("inferred_pieces", 1.0))
                 net_area = v_piece.get("production_net_area", 0.0)
+                
+                if pcs_fabric >= 2.0 and net_area > (float(v_piece.get("production_l", 0.0)) * (float(v_piece.get("production_w", 0.0)) / 2.0)):
+                    net_area = net_area / 2.0
+                    
                 complexity = v_piece.get("piece_complexity", {"rectangularity": 1.0, "concavity": 0.0})
                 shape_factor = 1.0 + (complexity.get("concavity", 0.0) * 0.20) - ((complexity.get("rectangularity", 1.0) - 0.8) * 0.10)
                 shape_factor = max(0.95, min(1.15, shape_factor))
@@ -2002,7 +2017,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if p_class == "FUSING": return round(dynamic_fusing_solver(v_piece.get("production_l", 0.0), v_piece.get("production_w", 0.0), net_area, v_piece.get("inferred_pieces", 1.0)), 4)
             elif p_class == "FABRIC":
                 pcs_fabric = synchronized_fabric_pcs.get(idx, v_piece.get("inferred_pieces", 1.0))
-                if weighted_total_fabric_area > 0: return round(total_fabric_gross_yds * (((net_area * pcs_fabric) * piece_shape_factors.get(idx, 1.0)) / weighted_total_fabric_area), 4)
+                line_net_area = net_area / 2.0 if (pcs_fabric >= 2.0 and net_area > (float(v_piece.get("production_l", 0.0)) * (float(v_piece.get("production_w", 0.0)) / 2.0))) else net_area
+                if weighted_total_fabric_area > 0: return round(total_fabric_gross_yds * (((line_net_area * pcs_fabric) * piece_shape_factors.get(idx, 1.0)) / weighted_total_fabric_area), 4)
                 return 0.0
             elif p_class == "LINING":
                 pcs_lining = v_piece.get("inferred_pieces", 1.0)
@@ -2012,7 +2028,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
         df_bom["Calculated Width (Inch)"] = [current_fabric_width if virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC") == "FABRIC" else (lining_width if virtual_pieces_layer.get(idx, {}).get("inferred_class") == "LINING" else fusing_width) for idx in df_bom.index]
-
 
 
    
