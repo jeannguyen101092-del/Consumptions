@@ -2153,6 +2153,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
+    # 🔥 THUẬT TOÁN NESTING ĐÃ ĐƯỢC ĐIỀU CHỈNH HỆ SỐ AN TOÀN (CHỐNG ĐỊNH MỨC THẤP)
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2162,11 +2163,15 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
         
         if "MAJOR_PANEL" in geo_role:
-            predicted_density = round(0.80 + (void_ratio * 0.15) - (min(slenderness, 10.0) * 0.005), 3)
+            # Hạ mốc mật độ dự đoán xuống (73% - 76%) để kéo định mức cao lên mốc an toàn thương mại
+            predicted_density = round(0.74 + (void_ratio * 0.10) - (min(slenderness, 10.0) * 0.005), 3)
         else:
-            predicted_density = round(0.88 + (void_ratio * 0.10), 3)
+            # Chi tiết nhỏ lách sơ đồ đạt khoảng 82%
+            predicted_density = round(0.82 + (void_ratio * 0.05), 3)
             
-        final_marker_efficiency = max(min(predicted_density, 0.91), 0.74)
+        # 🔥 ĐẶT VAN KHỐNG CHẾ TRẦN HIỆU SUẤT ĐỂ ĐỊNH MỨC KHÔNG BỊ THẤP (Giới hạn tối đa 80% hiệu suất đan xen)
+        final_marker_efficiency = max(min(predicted_density, 0.80), 0.68)
+        
         gross_yds = ((net_area * pcs) / marker_width / final_marker_efficiency / 36.0)
         return round(gross_yds * target_wastage, 4)
 
@@ -2184,7 +2189,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         if p_class == "FUSING": 
             return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
-        elif p_class in ["FABRIC", "RIB"]: # Nhóm RIB và FABRIC cùng chia sẻ thuật toán sơ đồ hình học
+        elif p_class in ["FABRIC", "RIB"]:
             if total_fabric_gross_yds > 0 and total_fabric_net_area_dynamic > 0 and p_class == "FABRIC":
                 line_share_ratio = (net_area * pcs) / total_fabric_net_area_dynamic
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
@@ -2196,10 +2201,16 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
         return 0.0
 
+    # 1. Thực thi gán định mức tiêu hao Yards
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # Tạo mảng lưu trữ cấu trúc cột tạm thời
-    updated_net_areas, updated_lengths, updated_widths, calculated_widths, class_list = [], [], [], [], []
+    # 2. Đồng bộ làm sạch dữ liệu và trích xuất danh sách hiển thị cho giao diện UI
+    updated_net_areas = []
+    updated_lengths = []
+    updated_widths = []
+    calculated_widths = []
+    class_list = []
+
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
@@ -2216,10 +2227,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             
     df_bom["polygon_net_area"] = updated_net_areas
     df_bom["Calculated Width (Inch)"] = calculated_widths
-    df_bom["Detected Class Temporary"] = class_list # Thêm cột tạm phục vụ bộ lọc hiển thị an toàn
+    df_bom["Detected Class Temporary"] = class_list
     
     st.session_state["_prod_lengths_list_cache"] = updated_lengths
     st.session_state["_prod_widths_list_cache"] = updated_widths
+
+    if current_virtual_pieces:
+        st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
