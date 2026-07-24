@@ -99,12 +99,12 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: TRIỆT TIÊU VỆT TRẮNG & ĐỒNG BỘ NỀN XÁM SƯƠNG MÙ ERP
+# ĐOẠN 6a - PHẦN 2: TRIỆT TIÊU VỆT TRẮNG ĐÁY & ĐỒNG BỘ NỀN XÁM SƯƠNG MÙ ERP
 # =====================================================================
 st.markdown("""
 <style>
     /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XÁM SƯƠNG MÙ CHO TẤT CẢ CÁC LỚP */
-    .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"] { 
+    .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
         background-color: #f0f4f8 !important; 
     }
     
@@ -115,7 +115,7 @@ st.markdown("""
         padding-right: 2rem !important; 
         margin-left: 300px !important; /* Tạo khoảng trống chuẩn tách biệt Sidebar */
         max-width: calc(100% - 300px) !important; 
-        padding-bottom: 90px !important; /* Chừa khoảng trống đáy để ô chat không đè bảng */
+        padding-bottom: 120px !important; /* Chừa khoảng trống đáy sâu hơn để tránh lấp bảng */
     }
     
     /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều, tiệt tiêu khe hở trắng ở hai mép */
@@ -124,28 +124,33 @@ st.markdown("""
         padding-top: 0px !important; 
         width: 100% !important;
         max-width: 100% !important;
-        background-color: transparent !important; /* Xóa vệt trắng loang của hàng */
+        background-color: transparent !important; 
     }
 
-    /* 🔥 SỬA DỨT ĐIỂM: KHỬ VỆT TRẮNG NGANG CỦA THANH NHẬP LIỆU CHAT INPUT */
-    .stChatInput, div[data-testid="stChatInputText"], div[data-testid="stChatInputContainer"] {
+    /* 🔥 SỬA DỨT ĐIỂM: KHỬ SẠCH VỆT TRẮNG NGANG CỦA KHỐI CHỨA Ô CHAT INPUT TRÊN CLOUD */
+    .stChatInput, 
+    div[data-testid="stChatInputText"], 
+    div[data-testid="stChatInputContainer"],
+    div[data-testid="stChatInputText"] > div,
+    .stChatInput > div {
         position: fixed !important;
         bottom: 20px !important;
         left: 330px !important; /* Đẩy lùi khớp thẳng hàng tăm tắp với lề block-container */
         right: 30px !important;
         width: auto !important;
         z-index: 999995 !important;
-        background-color: transparent !important; /* Ép ẩn dải nền trắng nằm ngang đi */
+        background-color: transparent !important; /* Triệt tiêu hoàn toàn dải nền trắng nằm ngang */
         border: none !important;
         box-shadow: none !important;
     }
     
     /* Chỉ giữ lại khung viền trắng đóng hộp cho riêng phần bo nhập chữ bên trong */
+    div[data-testid="stChatInputContainer"] button,
+    div[data-testid="stChatInputContainer"] textarea,
     div[data-testid="stChatInputContainer"] {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
         border-radius: 8px !important;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
     }
 
     /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
@@ -272,6 +277,7 @@ st.markdown("""
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 import streamlit as st
 import re
