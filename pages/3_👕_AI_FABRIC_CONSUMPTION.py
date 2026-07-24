@@ -2024,8 +2024,8 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
 
 
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC ĐỒNG BỘ V10)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
@@ -2034,7 +2034,12 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
     target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
     features = ai_decision_d5.get("geometry_features", {})
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
-    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
+    
+    # 🔒 ĐỒNG BỘ: Kế thừa trực tiếp layer phôi ảo sạch lỗi từ tầng kiểm toán 4B
+    if "virtual_pieces_layer" in locals():
+        current_virtual_pieces = virtual_pieces_layer
+    else:
+        current_virtual_pieces = ai_decision_d5.get("virtual_pieces_layer", {})
 
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
@@ -2044,24 +2049,30 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
     fabric_pieces_to_nest = []
 
     for idx, r in df_bom.iterrows():
-        v_piece = virtual_pieces_layer.get(idx, {})
-        if v_piece.get("inferred_class", "FABRIC") == "FABRIC":
-            # 🚨 ĐÃ CẬP NHẬT: Đọc diện tích tịnh an toàn sau cứu viện từ màng ảo RAM
-            net_area = v_piece.get("production_net_area", float(r["polygon_net_area"]))
+        v_piece = current_virtual_pieces.get(idx, {})
+        # Đồng bộ từ khóa phân loại chất liệu từ tầng 4B (piece_class)
+        p_class_check = v_piece.get("piece_class", "FABRIC")
+        
+        if p_class_check == "FABRIC":
+            # 🚨 ĐỒNG BỘ TỪ KHÓA: Đọc chính xác diện tích và kích thước từ Layer phôi ảo V10
+            net_area = v_piece.get("net_area_prod", float(r.get("polygon_net_area", 0.0)))
+            p_l_val = v_piece.get("length_prod", float(r.get(actual_l_col, 0.0)))
+            p_w_val = v_piece.get("width_prod", float(r.get(actual_w_col, 0.0)))
             
-            # Ép thớ số lượng mảnh: Nếu là thân sau đầm suông (DRESS BACK PANEL) mảnh gầy đơn lẻ, ép lên đúng 2 mảnh đối xứng
-            comp_name_upper_d5 = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper().strip()
-            inferred_pcs_d5 = v_piece.get("inferred_pieces", r["pcs_numeric"])
-            if "BACK" in comp_name_upper_d5 and inferred_pcs_d5 == 1.0:
-                inferred_pcs_d5 = 2.0
-                v_piece["inferred_pieces"] = 2.0
+            # Cập nhật độ dài chi tiết lớn nhất động phục vụ mô phỏng chiều dài sơ đồ gốc
+            if p_l_val > max_piece_length:
+                max_piece_length = p_l_val
                 
-            current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs_d5))
+            # Đồng bộ từ khóa số lượng chi tiết từ tầng 4B (final_pcs), tôn trọng tuyệt đối dữ liệu gốc/user sửa
+            final_pcs_d5 = v_piece.get("final_pcs", float(r.get("pcs_numeric", 1.0)))
+            current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, final_pcs_d5))
+            
             total_fabric_net_area += net_area * current_pcs
             
             for _ in range(int(current_pcs)):
-                fabric_pieces_to_nest.append({"l": v_piece["production_l"], "w": v_piece["production_w"], "area": net_area})
+                fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
 
+    # Thuật toán mô phỏng hình học xếp sơ đồ (Nesting Simulation)
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
         simulated_marker_length = max_piece_length 
@@ -2084,23 +2095,28 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
     else:
         real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
 
+    # Tính toán luồng vải lót (Lining) tương thích topo hình học
     total_lining_net_area = 0.0
     for idx, r in df_bom.iterrows():
-        v_piece = virtual_pieces_layer.get(idx, {})
-        if v_piece.get("inferred_class") == "LINING":
-            total_lining_net_area += v_piece.get("production_net_area", 0.0) * v_piece.get("inferred_pieces", 1.0)
+        v_piece = current_virtual_pieces.get(idx, {})
+        if v_piece.get("piece_class") == "LINING":
+            total_lining_net_area += v_piece.get("net_area_prod", 0.0) * v_piece.get("final_pcs", 1.0)
 
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.76
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
-    else: total_lining_gross_yds = 0.0
+    else: 
+        total_lining_gross_yds = 0.0
 
-    ctx["ai_expert_decision"].update({"real_fabric_density": round(real_fabric_density, 4), "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), "total_lining_gross_yds": round(total_lining_gross_yds, 4)})
+    ctx["ai_expert_decision"].update({
+        "real_fabric_density": round(real_fabric_density, 4), 
+        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
+        "total_lining_gross_yds": round(total_lining_gross_yds, 4)
+    })
 
-       # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP KHÍT KHAO ĐỊNH MỨC TỔNG)
     # =====================================================================
-    # Giải toán Keo/Méc độc lập bảo vệ biên
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2110,24 +2126,21 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
             return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
 
-    # 🚨 BỘ ĐIỀU PHỐI ĐỊNH MỨC KHÉP KÍN CHUẨN TOÁN CAD (CLOSED-LOOP DISTRIBUTION SOLVER)
-    # Tính toán trước tổng diện tích tịnh thực tế của luồng vải chính để làm mẫu số chia tỷ lệ chẵn thớ
-    calculated_total_fabric_net_area = sum([vp["production_net_area"] * vp["inferred_pieces"] for vp in virtual_pieces_layer.values() if vp["inferred_class"] == "FABRIC"])
+    # 🚨 ĐỒNG BỘ: Tính toán tổng diện tích vải chính dựa trên các từ khóa cấu trúc mới của Tầng 4B
+    calculated_total_fabric_net_area = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp["piece_class"] == "FABRIC"])
 
     def core_engine_router(row, idx):
-        v_piece = virtual_pieces_layer.get(idx, {})
-        p_class = v_piece.get("inferred_class", "FABRIC")
+        v_piece = current_virtual_pieces.get(idx, {})
+        p_class = v_piece.get("piece_class", "FABRIC")
         if p_class == "ACCESSORY": return 0.0
         
-        pcs = v_piece.get("inferred_pieces", 1.0)
-        net_area = v_piece.get("production_net_area", 0.0)
+        pcs = v_piece.get("final_pcs", 1.0)
+        net_area = v_piece.get("net_area_prod", 0.0)
         
         if p_class == "FUSING": 
-            return round(dynamic_fusing_solver(v_piece["production_l"], v_piece["production_w"], net_area, pcs), 4)
+            return round(dynamic_fusing_solver(v_piece["length_prod"], v_piece["width_prod"], net_area, pcs), 4)
             
         elif p_class == "FABRIC":
-            # 🚨 ĐÃ SỬA DỨT ĐIỂM LỆCH SỐ: Phân bổ khép kín tuyến tính. Lấy định mức tổng 1.862 làm gốc nhân tỷ lệ diện tích dòng.
-            # Không nhân hệ số giảm trừ ảo, đảm bảo tổng các dòng chi tiết cộng lại bắt buộc phải bằng chính xác định mức tổng sơ đồ.
             if calculated_total_fabric_net_area > 0:
                 line_share_ratio = (net_area * pcs) / calculated_total_fabric_net_area
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
@@ -2140,13 +2153,12 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
                 return round(((((net_area * pcs) / lining_width) / 36.0 / 0.76) * target_wastage), 4)
         return 0.0
 
-    # Xuất bản dữ liệu thương mại sạch sai lệch lên dataframe hệ thống
+    # Đẩy dữ liệu định mức phân bổ chính xác lên Dataframe lưới Grid
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-    df_bom["Calculated Width (Inch)"] = [current_fabric_width if virtual_pieces_layer[idx]["inferred_class"] == "FABRIC" else (lining_width if virtual_pieces_layer[idx]["inferred_class"] == "LINING" else fusing_width) for idx in df_bom.index]
+    df_bom["Calculated Width (Inch)"] = [current_fabric_width if current_virtual_pieces[idx]["piece_class"] == "FABRIC" else (lining_width if current_virtual_pieces[idx]["piece_class"] == "LINING" else fusing_width) for idx in df_bom.index]
     
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đóng gói khớp khít khao luồng phân bổ dòng)")
-
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
