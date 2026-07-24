@@ -2131,6 +2131,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
         # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2150,12 +2151,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
         m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
         
-        pcs_col_src = "pcs_numeric" if "pcs_numeric" in df_bom.columns else df_bom.columns
-        actual_pcs_count = int(df_bom[pcs_col_src].sum())
-        m4.metric("🧩 Tổng số mảnh rập thực tế", f"{actual_pcs_count} Pcs")
+        # ĐỒNG BỘ: Sử dụng danh sách số lượng mảnh rập đã được đồng bộ chuẩn toán CAD
+        total_synchronized_pcs = sum(synchronized_fabric_pcs.values()) if 'synchronized_fabric_pcs' in locals() else df_bom["pcs_numeric"].sum()
+        m4.metric("🧩 Tổng số mảnh rập thực tế", f"{int(total_synchronized_pcs)} Pcs")
 
         virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
-        df_bom["_temp_class"] = [virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC") for idx in df_bom.index]
+        df_bom["_temp_class"] = [virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC") if virtual_pieces_layer else "FABRIC" for idx in df_bom.index]
         if "Gross Consumption" not in df_bom.columns: df_bom["Gross Consumption"] = 0.0
 
         summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
@@ -2170,7 +2171,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
         df_bom_display["material_class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
-        df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r[pcs_col_src])) for idx, r in df_bom.iterrows()]
+        
+        # 🚨 ĐÃ SỬA: Ép hiển thị số lượng rập theo đúng số mảnh thực tế mà thuật toán AI đang áp dụng
+        df_bom_display["Số lượng rập"] = [
+            float(st.session_state.get("user_edited_pieces", {}).get(idx, synchronized_fabric_pcs.get(idx, r["pcs_numeric"])))
+            for idx, r in df_bom.iterrows()
+        ]
         df_bom_display["_original_row_index"] = df_bom.index
 
         ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
@@ -2191,7 +2197,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
-            old_pcs = float(df_bom.at[orig_idx, pcs_col_src])
+            
+            # Đồng bộ kiểm tra thay đổi dựa trên nguồn số liệu hiển thị thực tế
+            pcs_col_src = "pcs_numeric" if "pcs_numeric" in df_bom.columns else df_bom.columns[0]
+            old_pcs = float(synchronized_fabric_pcs.get(orig_idx, df_bom.at[orig_idx, pcs_col_src]))
             new_pcs = float(row["Số lượng rập"])
             if old_pcs != new_pcs:
                 st.session_state["user_edited_pieces"][orig_idx] = new_pcs
