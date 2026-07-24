@@ -80,40 +80,16 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SỬA LOGO)
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SẠCH MÃ)
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Chuỗi dữ liệu Base64 hình ảnh của logo PPJ GROUP chuẩn không lỗi kí tự
-logo_ppj_base64 = (
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAYAAACgWwTfAAAAAXNSR0IArs4c6QAAAARn"
-    "QU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHl5"
-    "yWU8AAAGs0lEQVR4Xu2bTWwcVxXHz3vrtbPr9Sbe2I7tOI6T1G6KpE0pSkNbhYpWpEorqlAECBAgWFAgWCBWCCuEF"
-    "FAsgBAsgBB8SIsQLIDEt0SgShWpUptUadI0bZs4teP449i73vW+++bOnvG8N/bMzs7Oezu7Xv+P9N7xzrx5783v/e"
-    "a9uV5vS0h6wEToAnpAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3"
-    "pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD"
-    "4ZasCgsh5W79+zZ/0rA1euv/gV60u6U27b6863VvPWev7GWr5qrc9Z63fWemYtcXv3uN96bDXftZat1Wv6Z6D8b"
-    "92b67fXrX0mK5S8f4fW16w9L8+rct6UzzZgDk7K51XmY+Z9w66fP6Oa7gMfeC/97O65e/fu2gclYfWhPa698V1"
-    "7M2b7z7H738fucx+7/z12f/b+rP3NfOz6z6wXPrvbeY+V2vFz+p28v2reXzPvC/K+g/v277332f17K8+Y7r9N6"
-    "9vWLstnHZ7nE3N4877NfE5lPhF+pZreYv73gffSz8o6pGvBvXvXv7WfS8TqI3vM/vU39pD6K+T9V+7+K3f/pLv"
-    "13N2ftb9K3pfv7H2pPeT0HwK7R36v9XvkvfKe4f3w/EbyffD9Rvf37X0feO6V9yLv6eP+ofpY/j3R99P07p+R"
-    "379v/wZdwZfI+YDTwSfcA6f9A79Sfe9gfeX75g789/N9G67P9z6vD3zD+v/9V/9b+7bInF19vP4Wb63O0O//A"
-    "gBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII="
-)
+# 🛠️ ĐÃ SỬA: Xóa bỏ hoàn toàn câu lệnh st.sidebar.markdown cũ chứa ảnh lỗi ở đây.
+# Khối Banner xanh PPJ GROUP giờ đây được tự động vẽ bằng CSS ở Đoạn 6a - Phần 2 cực kỳ ổn định.
 
-# 🔥 ĐÃ SỬA: Thay thế st.sidebar.image cũ bằng nhúng HTML trực tiếp vào Sidebar để cố định vị trí đỉnh 
-st.sidebar.markdown(
-    f"""
-    <div style="text-align: center; padding-bottom: 20px;">
-        <img src="{logo_ppj_base64}" style="width: 100%; max-width: 160px; height: auto;">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-# 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State)
+# 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State) an toàn
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
@@ -123,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS CỐ ĐỊNH SIDEBAR KHÔNG TRƯỢT
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & BANNER PPJ GROUP ĐỈNH SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
@@ -133,22 +109,13 @@ st.markdown("""
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
     div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
 
-    /* 🛠️ ĐÃ SỬA: KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ẨN THANH CUỘN LÊN XUỐNG */
+    /* GIỮ NỀN XANH NGỌC LAM ĐẬM GỐC CỦA SIDEBAR QUEN THUỘC */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
-        position: fixed !important;
-        height: 100vh !important;
-        overflow-y: hidden !important; /* Triệt tiêu hoàn toàn thanh cuộn dọc của Sidebar */
-    }
-    
-    /* Cho phép vùng chứa nội dung bên trong Sidebar co dãn vừa khít màn hình */
-    [data-testid="stSidebar"] > div:first-child {
-        height: 100vh !important;
-        overflow-y: hidden !important;
     }
 
-    /* 🛠️ TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
+    /* 🛠️ SỬA DỨT ĐIỂM BẰNG LỚP PHỦ CSS: TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
     [data-testid="stSidebarNav"] {
         padding-top: 130px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
         position: relative !important;
@@ -162,7 +129,7 @@ st.markdown("""
         left: 12px !important;
         right: 12px !important;
         height: 95px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; 
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; /* Màu xanh mượt mà */
         border-radius: 12px !important;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
         z-index: 1 !important;
@@ -249,7 +216,7 @@ st.markdown("""
     .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* 🛠nt Triệt tiêu hoàn toàn icon ảnh vỡ lỗi */
+    /* 🛠️ TRIỆT TIÊU HOÀN TOÀN: Ẩn các khối chứa icon lỗi ảnh cũ đi */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
