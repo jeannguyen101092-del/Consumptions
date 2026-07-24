@@ -2136,6 +2136,9 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
+    # Nhận diện chủng loại sản phẩm hiện tại để điều phối van hiệu suất rập
+    prod_cat_ui = str(ai_decision_d52.get("product_category", "JEAN_LONG")).upper().strip()
+
     simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
     if simulated_length_inch > 0:
         total_fabric_gross_yds = round((simulated_length_inch / 36.0) * target_wastage, 4)
@@ -2153,7 +2156,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # 🔥 THUẬT TOÁN NESTING ĐÃ ĐƯỢC ĐIỀU CHỈNH HỆ SỐ AN TOÀN (CHỐNG ĐỊNH MỨC THẤP)
+    # 🔥 THUẬT TOÁN ĐA NĂNG PHÂN TÁCH BIÊN ĐỘ HIỆU SUẤT QUẦN / ÁO ĐỘNG
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2162,15 +2165,28 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
         
-        if "MAJOR_PANEL" in geo_role:
-            # Hạ mốc mật độ dự đoán xuống (73% - 76%) để kéo định mức cao lên mốc an toàn thương mại
-            predicted_density = round(0.74 + (void_ratio * 0.10) - (min(slenderness, 10.0) * 0.005), 3)
+        # 1. Kiểm tra xem mã hàng hiện tại là ÁO hay QUẦN
+        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
+        
+        # 2. Định hình mốc hiệu suất nền và van khống chế trần động theo đặc thù hình học rập
+        if is_apparel_top:
+            # ÁO: Rập to vuông vức, cấu trúc sơ đồ Gerber thực tế đạt hiệu suất rất cao (84% - 87%)
+            if "MAJOR_PANEL" in geo_role:
+                predicted_density = round(0.83 + (void_ratio * 0.08) - (min(slenderness, 10.0) * 0.005), 3)
+            else:
+                predicted_density = round(0.88 + (void_ratio * 0.04), 3)
+            # Thiết lập trần hiệu suất Áo tối đa đạt mốc 88% thực tế
+            final_marker_efficiency = max(min(predicted_density, 0.88), 0.78)
         else:
-            # Chi tiết nhỏ lách sơ đồ đạt khoảng 82%
-            predicted_density = round(0.82 + (void_ratio * 0.05), 3)
-            
-        # 🔥 ĐẶT VAN KHỐNG CHẾ TRẦN HIỆU SUẤT ĐỂ ĐỊNH MỨC KHÔNG BỊ THẤP (Giới hạn tối đa 80% hiệu suất đan xen)
-        final_marker_efficiency = max(min(predicted_density, 0.80), 0.68)
+            # QUẦN: Giữ nguyên mốc thắt chặt an toàn cũ (Trần tối đa 80%) để kéo định mức quần lên
+            if "MAJOR_PANEL" in geo_role:
+                predicted_density = round(0.74 + (void_ratio * 0.10) - (min(slenderness, 10.0) * 0.005), 3)
+            else:
+                predicted_density = round(0.82 + (void_ratio * 0.05), 3)
+            final_marker_efficiency = max(min(predicted_density, 0.80), 0.68)
+        
+        # Đồng bộ chỉ số hiệu suất thực tế ra bộ nhớ tạm st.session_state phục vụ hiển thị ở Đoạn 7
+        st.session_state["calculated_marker_efficiency_kpi"] = final_marker_efficiency
         
         gross_yds = ((net_area * pcs) / marker_width / final_marker_efficiency / 36.0)
         return round(gross_yds * target_wastage, 4)
@@ -2201,16 +2217,11 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
         return 0.0
 
-    # 1. Thực thi gán định mức tiêu hao Yards
+    # Thực thi gán định mức tiêu hao Yards
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # 2. Đồng bộ làm sạch dữ liệu và trích xuất danh sách hiển thị cho giao diện UI
-    updated_net_areas = []
-    updated_lengths = []
-    updated_widths = []
-    calculated_widths = []
-    class_list = []
-
+    # Đồng bộ dữ liệu ra bảng hiển thị chi tiết
+    updated_net_areas, updated_lengths, updated_widths, calculated_widths, class_list = [], [], [], [], []
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
