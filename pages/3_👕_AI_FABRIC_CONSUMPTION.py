@@ -139,12 +139,12 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* 🛠️ SỬA DỨT ĐIỂM BẰNG CSS CAO CẤP: CHÈN LOGO VÀO ĐỈNH THANH NAV ĐA TRANG CỦA STREAMLIT */
+    /* 🛠️ SỬA DỨT ĐIỂM: DÙNG URL ẢNH THẬT ĐỂ CHÈN LOGO VÀO THANH NAV ĐA TRANG CỦA STREAMLIT */
     [data-testid="stSidebarNav"] {
-        padding-top: 110px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
-        background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAYAAACgWwTfAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHl5yWU8AAAGs0lEQVR4Xu2bTWwcVxXHz3vrtbPr9Sbe2I7tOI6T1G6KpE0pSkNbhYpWpEorqlAECBAgWFAgWCBWCCuEFFAsgBAsgBB8SIsQLIDEt0SgShWpUptUadI0bZs4teP449i73vW+++bOnvG8N/bMzs7Oezu7Xv+P9N7xzrx5783v/ea9uV5vS0h6wEToAnpAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD4ZasCgsh5W79+zZ/0rA1euv/gV60u6U27b6863VvPWev7GWr5qrc9Z63fWemYtcXv3uN96bDXftZat1Wv6Z6D8b92b67fXrX0mK5S8f4fW16w9L8+rct6UzzZgDk7K51XmY+Z9w66fP6Oa7gMfeC/97O65e/fu2gclYfWhPa698V17M2b7z7H738fucx+7/z12f/b+rP3NfOz6z6wXPrvbeY+V2vFz+p28v2reXzPvC/K+g/v277332f17K8+Y7r9N69vWLstnHZ7nE3N4877NfE5lPhF+pZreYv73gffSz8o6pGvBvXvXv7WfS8TqI3vM/vU39pD6K+T9V+7+K3f/pLv13N2ftb9K3pfv7H2pPeT0HwK7R36v9XvkvfKe4f3w/EbyffD9Rvf37X0feO6V9yLv6eP+ofpY/j3R99P07p+R379v/wZdwZfI+YDTwSfcA6f9A79Sfe9gfeX75g789/N9G67P9z6vD3zD+v/9V/9b+7bInF19vP4Wb63O0O//AfgBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII=") !important;
+        padding-top: 100px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống tạo khoảng trống */
+        background-image: url("https://r2.dev") !important;
         background-repeat: no-repeat !important;
-        background-position: center 20px !important; /* Căn chỉnh logo nằm chính giữa lề trái phải */
+        background-position: center 25px !important; /* Căn chỉnh logo nằm chính giữa khoảng trống */
         background-size: 150px auto !important; /* Định kích cỡ logo vừa vặn thanh menu */
         background-color: #0f766e !important;
     }
@@ -210,12 +210,11 @@ st.markdown("""
     .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* Ẩn các khối chứa hình ảnh vỡ lỗi */
+    /* 🛠️ TRIỆT TIÊU HOÀN TOÀN: Ẩn các khối chứa icon hình vỡ lỗi nhỏ màu trắng */
+    [data-testid="stSidebar"] img[src*="data:image"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
-
 
 
 
