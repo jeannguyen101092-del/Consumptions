@@ -2023,7 +2023,7 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
         
     return virtual_pieces_layer
 
-   import pandas as pd
+import pandas as pd
 import streamlit as st
 
 # ==============================================================================
