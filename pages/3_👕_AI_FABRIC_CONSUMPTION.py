@@ -1875,9 +1875,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["polygon_net_area"] = p_area_list
     df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
-
-
-    def run_geometric_marker_engine(df_bom, ctx, st):
+def run_geometric_marker_engine(df_bom, ctx, st):
     """
     ĐOẠN 5.1: GEOMETRIC MARKER ENGINE WITH KNOWLEDGE PROFILE
     Mô phỏng xếp sơ đồ tổng và tính mật độ thực nghiệm dựa trên tri thức sản phẩm.
@@ -1886,7 +1884,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not isinstance(ai_decision, dict): 
         ai_decision = {}
         
-    # 1. Tích hợp Garment Profile & Material Library
     garment_profile = ai_decision.get("garment_profile", {
         "category": "DRESS", "fabric_type": "WOVEN", "nap": True, "stripe": False, "plaid": False
     })
@@ -1900,7 +1897,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     mat_type = garment_profile.get("fabric_type", "WOVEN")
     mat_db_config = material_db.get(mat_type, {"density": 0.78, "wastage": 1.03})
 
-    # 2. Dự đoán mật độ & hao hụt thông minh
     estimated_density_prior = float(ai_decision.get("predicted_density", mat_db_config["density"]))
     
     dynamic_wastage_config = ai_decision.get("dynamic_wastage", {})
@@ -1914,7 +1910,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             base_wastage += 0.04
         target_wastage = base_wastage
 
-    # 3. Hiệu chỉnh bằng dữ liệu lịch sử
     historical_data = ai_decision.get("historical_marker_match", {})
     historical_bias_factor = 1.0
     if historical_data:
@@ -2108,6 +2103,14 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
         
         if avg_confidence < 0.75:
             st.warning(f"⚠️ **CẢNH BÁO AI CONFIDENCE (`{avg_confidence*100:.0f}%`)**: Độ tin cậy tính toán thấp do thiếu dữ liệu lịch sử hoặc chi tiết rập quá đặc biệt. Nên đối chiếu lại sơ đồ CAD thực tế.")
+
+
+    # LỆNH GỌI THỰC THI (QUAN TRỌNG: 2 dòng này bắt buộc phải thụt lề vào 4 khoảng trắng để chạy lồng trong hàm chính)
+    nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
+    run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
+
+
+   
 
 
 
