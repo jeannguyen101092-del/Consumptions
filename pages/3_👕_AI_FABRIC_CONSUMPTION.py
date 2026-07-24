@@ -2080,32 +2080,26 @@ if 'df_bom' in locals() or 'df_bom' in globals():
                 
         raw_l = float(r.get(d5_actual_l_col, 0.0))
         raw_w = float(r.get(d5_actual_w_col, 0.0))
-        raw_pcs = float(r.get("pcs_numeric", 1.0))
+        raw_pcs = float(r.get("pcs_numeric", r.get("Số lượng rập", 1.0)))
         
         is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"])
         is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
         is_major_leg_panel = any(k in c_name_raw for k in ["FRONT", "BACK", "TROUSER", "THÂN TRƯỚC", "THÂN SAU"])
         
-        # 1. Khử lỗi thông số cả vòng cho QUẦN (Giữ nguyên mốc chuẩn cũ)
+        # 1. Khử lỗi thông số cả vòng cho QUẦN
         if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0:
             raw_w = round(raw_w / 2.0, 2)
             
-        # 2. 🔥 THUẬT TOÁN BÙ RẬP ĐỐI XỨNG CHO ÁO KHOÁC (SYMMETRIC PIECES AUTO-MULTIPLIER)
-        # Nếu là Áo khoác và phát hiện tên chi tiết rập đối xứng (Tay áo, Thân trước, Nẹp...) 
-        # mà AI trích xuất thiếu số lượng (chỉ bằng 1 hoặc 2 tùy cấu trúc cặp), tự động bổ sung nhân đôi
+        # 2. GIỚI HẠN LOGIC BÙ RẬP ÁO: Chỉ tăng từ 1 lên 2 cho các chi tiết cặp thực tế nếu file ghi thiếu
         if is_apparel_top:
-            if any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "TRƯỚC", "FACING", "NẸP", "POCKET", "TÚI"]):
-                if raw_pcs == 1.0: 
-                    raw_pcs = 2.0  # Ép từ 1 mảnh lên 1 cặp (Trái + Phải)
-                elif raw_pcs == 2.0 and any(k in c_name_raw for k in ["SLEEVE", "TAY"]):
-                    # Đối với áo khoác Jacket dày có lót/măng séc hoặc tay 2 mảnh (Upper/Under sleeve)
-                    raw_pcs = 4.0 
+            if any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0:
+                raw_pcs = 2.0
 
-        # Bảo toàn diện tích khung bao chữ nhật
+        # 🔥 ĐIỀU CHỈNH DIỆN TÍCH THỰC (Hiệu suất rập phẳng): Hạ từ 100% xuống 82% diện tích bao hộp để kéo định mức Áo tụt xuống
         if is_major_leg_panel or any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "BACK", "BODY"]):
-            raw_net_area = round(raw_l * raw_w, 4)
+            raw_net_area = round(raw_l * raw_w * 0.82, 4) 
         else:
-            raw_net_area = round(raw_l * raw_w * 0.85, 4)
+            raw_net_area = round(raw_l * raw_w * 0.76, 4)
                 
         if inferred_class in ["FABRIC", "RIB"]:
             shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
@@ -2146,7 +2140,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # Nhận diện chủng loại sản phẩm hiện tại từ AI
     prod_cat_ui = str(ai_decision_d52.get("product_category", "JEAN_LONG")).upper().strip()
 
     simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
@@ -2166,7 +2159,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # 🔥 THUẬT TOÁN ĐIỀU CHỈNH MẪU SỐ TOÁN HỌC DỆT MAY (REVERSE EFFICIENCY SOLVER)
+    # 🔥 ĐIỀU CHỈNH ĐIỂM RƠI HIỆU SUẤT TRUNG HÒA (BALANCED NESTING SOLVER)
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2174,27 +2167,23 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
         
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
-        
-        # Kiểm tra xem mã hàng là ÁO hay QUẦN
         is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
         
         if is_apparel_top:
-            # 🔴 SỬA LỖI: ÁO có hao hụt đầu bàn lớn $\rightarrow$ HẠ hiệu suất tính toán xuống mốc thấp hơn để KÉO định mức Yards tăng cao lên
+            # ÁO: Đưa trần hiệu suất tính toán về mốc cân bằng 79% giúp định mức hạ từ 3.11 YDS xuống vùng mốc an toàn
             if "MAJOR_PANEL" in geo_role:
-                predicted_density = round(0.71 + (void_ratio * 0.05) - (min(slenderness, 10.0) * 0.005), 3)
+                predicted_density = round(0.76 + (void_ratio * 0.05) - (min(slenderness, 10.0) * 0.005), 3)
             else:
-                predicted_density = round(0.78 + (void_ratio * 0.02), 3)
-            # Ép van khống chế trần hiệu suất Áo tối đa chỉ đạt 74% nhằm bảo vệ an toàn định mức Yards
-            final_marker_efficiency = max(min(predicted_density, 0.74), 0.65)
+                predicted_density = round(0.82 + (void_ratio * 0.02), 3)
+            final_marker_efficiency = max(min(predicted_density, 0.79), 0.70)
         else:
-            # QUẦN: Giữ nguyên mốc hiệu suất nền đã được bạn duyệt ok ở lượt chạy trước
+            # QUẦN: Giữ nguyên mốc hiệu suất tối ưu cũ
             if "MAJOR_PANEL" in geo_role:
                 predicted_density = round(0.74 + (void_ratio * 0.10) - (min(slenderness, 10.0) * 0.005), 3)
             else:
                 predicted_density = round(0.82 + (void_ratio * 0.05), 3)
             final_marker_efficiency = max(min(predicted_density, 0.80), 0.68)
         
-        # Ghi giá trị hiệu suất thực tế vào session_state để Đoạn 7 đồng bộ hiển thị lên màn hình
         st.session_state["calculated_marker_efficiency_kpi"] = final_marker_efficiency
         
         gross_yds = ((net_area * pcs) / marker_width / final_marker_efficiency / 36.0)
@@ -2226,10 +2215,8 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
         return 0.0
 
-    # Thực thi gán định mức Yards mới
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # Trích xuất danh sách phục vụ hiển thị UI
     updated_net_areas, updated_lengths, updated_widths, calculated_widths, class_list = [], [], [], [], []
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
