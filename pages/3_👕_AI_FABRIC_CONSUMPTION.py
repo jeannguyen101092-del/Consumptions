@@ -128,20 +128,28 @@ st.markdown("""
         background-color: #0f766e !important; 
         color: #ffffff !important;
     }
+    
+    /* 🛠️ ĐÃ SỬA: ÉP GHIM LOGO PPJ GROUP CỐ ĐỊNH LÊN ĐỈNH SIDEBAR KHÔNG CHO BỊ ĐÈ */
+    [data-testid="stSidebar"] .stImage {
+        position: absolute !important;
+        top: 20px !important;
+        left: 15px !important;
+        width: calc(100% - 30px) !important;
+        z-index: 999991 !important;
+    }
+
+    /* Đẩy toàn bộ menu lựa chọn trang của Streamlit dịch xuống dưới để nhường chỗ trống cho logo */
+    [data-testid="stSidebarNav"] {
+        margin-top: 100px !important; 
+        padding-top: 0px !important;
+        background-color: #0f766e !important;
+    }
+
     [data-testid="stSidebar"] .stMarkdown h3 {
         color: #ffffff !important; 
         font-size: 13px !important;
         letter-spacing: 0.5px !important;
         margin-top: 15px !important;
-    }
-
-    /* Ghim cố định logo và menu lựa chọn của Streamlit Nav trên đỉnh Sidebar */
-    [data-testid="stSidebarNav"] {
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 999 !important;
-        background-color: #0f766e !important;
-        padding-bottom: 10px !important;
     }
 
     /* Định dạng nút bấm xóa bộ nhớ tinh tế, dễ nhìn */
