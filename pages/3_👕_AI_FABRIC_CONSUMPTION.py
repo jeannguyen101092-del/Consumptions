@@ -2022,12 +2022,16 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
         
     return virtual_pieces_layer
 
+import pandas as pd
+import streamlit as st
+
 # =====================================================================
-# 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC ĐỒNG BỘ ĐỘNG)
+# 🟩 ĐOẠN 1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ ĐAN XEN KIỂU GERBER)
 # =====================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+    if not isinstance(ai_decision_d5, dict): 
+        ai_decision_d5 = {}
         
     estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.78))
     target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
@@ -2122,9 +2126,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
 
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
-    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
-    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
-
     total_fabric_net_area = 0.0
     fabric_pieces_to_nest = []
 
@@ -2136,7 +2137,8 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             p_w_val = v_piece["width_prod"]
             current_pcs = v_piece["final_pcs"]
             
-            if p_l_val > max_piece_length: max_piece_length = p_l_val
+            if p_l_val > max_piece_length: 
+                max_piece_length = p_l_val
             total_fabric_net_area += net_area * current_pcs
             
             for _ in range(int(current_pcs)):
@@ -2144,41 +2146,52 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
-        simulated_marker_length = max_piece_length 
-        accumulated_width_used = 0.0
+        usable_width = current_fabric_width - 1.5
+        skyline = [0.0] * int(usable_width * 10)
+        
         for piece in fabric_pieces_to_nest:
-            p_len = min(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["l"]
-            p_wid = max(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["w"]
-            if accumulated_width_used + p_wid <= (current_fabric_width - 1.5):
-                accumulated_width_used += p_wid
-                if p_len > simulated_marker_length: simulated_marker_length = p_len
+            if features.get("rotation_freedom", 1.0) == 1.0:
+                p_wid = min(piece["l"], piece["w"])
+                p_len = max(piece["l"], piece["w"])
             else:
-                simulated_marker_length += p_len
-                accumulated_width_used = p_wid
+                p_wid = piece["w"]
+                p_len = piece["l"]
+                
+            p_wid_units = int(p_wid * 10)
+            if p_wid_units <= 0: p_wid_units = 1
+            if p_wid_units > len(skyline): p_wid_units = len(skyline)
+
+            best_idx = 0
+            min_height = float('inf')
+            for i in range(len(skyline) - p_wid_units + 1):
+                current_max_in_range = max(skyline[i:i + p_wid_units])
+                if current_max_in_range < min_height:
+                    min_height = current_max_in_range
+                    best_idx = i
+            
+            bounding_box_area = p_len * p_wid
+            void_ratio = (bounding_box_area - piece["area"]) / bounding_box_area if bounding_box_area > 0 else 0.0
+            gerber_interlock_factor = 0.82 if piece["area"] < 40.0 else (1.0 - (void_ratio * 0.15))
+            effective_length = p_len * gerber_interlock_factor
+            
+            new_height = min_height + effective_length
+            for w_unit in range(p_wid_units):
+                skyline[best_idx + w_unit] = new_height
+
+        simulated_marker_length = max(skyline)
+        if simulated_marker_length < max_piece_length:
+            simulated_marker_length = max_piece_length
 
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
-        real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
-        fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
-        total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
-    else:
-        real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
+        real_fabric_density = max(0.68, min(real_fabric_density, 0.89))
+        
+        st.session_state["simulated_marker_length"] = round(simulated_marker_length, 2)
+        st.session_state["real_fabric_density"] = round(real_fabric_density, 4)
+import streamlit as st
 
-    total_lining_net_area = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp["piece_class"] == "LINING"])
-    if total_lining_net_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_net_area / (lining_width - 1.5) / 0.78
-        total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
-    else: 
-        total_lining_gross_yds = 0.0
-
-    ctx["ai_expert_decision"].update({
-        "real_fabric_density": round(real_fabric_density, 4), 
-        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
-        "total_lining_gross_yds": round(total_lining_gross_yds, 4)
-    })
-    st.session_state["final_fabric_consumption_kpi"] = round(total_fabric_gross_yds, 4)
 # =====================================================================
-# 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (PHÂN BỔ ĐỘC LẬP TUYẾN TÍNH)
+# 🟦 ĐOẠN 2: CONSUMPTION ROUTER & PUBLISHING (GIỮ NGUYÊN CẤU TRÚC KEO LÓT)
 # =====================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d52 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
@@ -2190,7 +2203,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    total_fabric_gross_yds = float(st.session_state.get("final_fabric_consumption_kpi", 0.0))
+    simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
+    if simulated_length_inch > 0:
+        total_fabric_gross_yds = round((simulated_length_inch / 36.0) * target_wastage, 4)
+        st.session_state["final_fabric_consumption_kpi"] = total_fabric_gross_yds
+    else:
+        total_fabric_gross_yds = float(st.session_state.get("final_fabric_consumption_kpi", 0.0))
+        
     total_lining_gross_yds = float(ai_decision_d52.get("total_lining_gross_yds", 0.0))
     
     total_fabric_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "FABRIC"])
@@ -2262,6 +2281,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
