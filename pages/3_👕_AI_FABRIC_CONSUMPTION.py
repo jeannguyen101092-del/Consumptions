@@ -2078,7 +2078,7 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
     return max(min(base_density, 0.84), 0.55)
     # ==============================================================================
 # ==============================================================================
-# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ PHÂN LOẠI CHI TIẾT CHUẨN XÁC
+# ĐOẠN 2: LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ TÍNH TOÁN ĐỊNH MỨC TỔNG (GROSS CONSUMPTION)
 # ==============================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
@@ -2100,12 +2100,12 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     rotation_allowed = st.session_state.get("rotation_allowed", True)
     fabric_matching = st.session_state.get("fabric_matching", "TWO_WAY")
 
-    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
-    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name", "component"] if c in df_bom.columns), "component")
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length", "Dài sản xuất (L inch)"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width", "Rộng sản xuất (W inch)"] if c in df_bom.columns), None)
     
-    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
-    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài sản xuất (L inch)")
+    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng sản xuất (W inch)")
     m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
     warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
@@ -2124,23 +2124,17 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         c_name_raw = str(c_name_origin).upper().strip()
         m_str_raw = str(r.get(m_col, "")).upper().strip()
         
-        # 🌟 THUẬT TOÁN MỚI: ƯU TIÊN PHÂN LOẠI THEO TÊN CHI TIẾT TRƯỚC ĐỂ TRÁNH BỊ "MAIN FABRIC" NUỐT CHỬNG
+        # PHÂN LOẠI THUẦN TÚY THEO TỪ KHÓA TÊN CHI TIẾT
         inferred_class = None
-        
-        # Bước 1: Quét từ khóa Phụ liệu rác (Accessory) dựa trên Tên chi tiết rập
         if any(k in c_name_raw for k in ["THREAD", "CHI ", "CHỈ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE", "PRICE", "TICKET", "BRAND"]):
             inferred_class = "ACCESSORY"
-        # Bước 2: Quét từ khóa Vải lót (Lining) dựa trên Tên chi tiết rập
         elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "LOT", "VAI LOT"]):
             inferred_class = "LINING"
-        # Bước 3: Quét từ khóa Mex/Keo (Fusing) dựa trên Tên chi tiết rập
         elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
             inferred_class = "FUSING"
-        # Bước 4: Quét từ khóa Bo phối (Rib) dựa trên Tên chi tiết rập
         elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]):
             inferred_class = "RIB"
             
-        # Bước 5: Nếu tên chi tiết không chứa từ khóa đặc biệt, mới xét đến cột Chất liệu vải (Material)
         if not inferred_class and m_str_raw:
             if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
             elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]): inferred_class = "LINING"
@@ -2148,7 +2142,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER", "LABEL", "MÁC", "TAG", "TICKET"]): inferred_class = "ACCESSORY"
             elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
             
-        # Bước 6: Trường hợp cuối cùng mặc định là Vải chính (Fabric)
         if not inferred_class:
             inferred_class = "FABRIC"
                 
@@ -2174,22 +2167,19 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         if is_apparel_top and any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0: 
             raw_pcs = 2.0
 
-        # --- DÒ TÌM VÀ CHUẨN HÓA DIỆN TÍCH TỊNH (NET AREA) ---
-        detected_net_col = next((c for c in ["polygon_net_area", "net_area", "Diện tích", "Net Area"] if c in df_bom.columns), None)
+        # --- DÒ TÌM VÀ CHUẨN HÓA DIỆN TÍCH TỊNH ---
+        detected_net_col = next((c for c in ["polygon_net_area", "net_area", "Diện tích", "Net Area"] if c in df_bom.columns), "polygon_net_area")
         
         base_file_area = 0.0
-        if detected_net_col:
+        if detected_net_col in df_bom.columns:
             val_net_check = r.get(detected_net_col)
             if pd.notna(val_net_check) and str(val_net_check).strip().lower() not in ['none', '']:
-                try:
-                    base_file_area = float(val_net_check)
-                except ValueError:
-                    base_file_area = 0.0
+                try: base_file_area = float(val_net_check)
+                except ValueError: base_file_area = 0.0
 
         if base_file_area <= 0.0: 
             base_file_area = raw_l * raw_w
 
-        # --- TÍNH TOÁN DIỆN TÍCH TỊNH THỰC TẾ ---
         if is_dress_skirt:
             if is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"]):
                 raw_net_area = round(base_file_area * 0.90, 4)
@@ -2207,21 +2197,38 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "net_area_prod": raw_net_area
         }
 
-    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐỂ ĐÈ SỐ LÊN BIẾN DF_BOM GỐC ---
-    # Tìm cột hiển thị Nhóm vật tư/Phân loại trên bảng UI của bạn
-    class_col_check = next((c for c in ["Nhóm vật tư", "Material Class", "class", "piece_class", "Phân loại vật tư"] if c in df_bom.columns), "Material Class")
+    # 🔥 KÍCH HOẠT ĐỘNG CƠ TÍNH TOÁN HIỆU SUẤT VÀ ĐỊNH MỨC TỔNG (GROSS CONSUMPTION)
+    computed_efficiency = predict_marker_density_pure_math(
+        pieces_dict=current_virtual_pieces,
+        marker_width=current_fabric_width,
+        prod_cat=prod_cat_ui,
+        rotation_allowed=rotation_allowed,
+        fabric_matching=fabric_matching
+    )
+
+    # --- ĐỒNG BỘ NGƯỢC DỮ LIỆU ĐÈ LÊN BIẾN DF_BOM GỐC ---
+    # Đồng bộ chính xác theo các tiêu đề cột trên UI của bạn
+    class_col_check = next((c for c in ["Nhóm vật tư (Class)", "Nhóm vật tư", "Material Class", "class"] if c in df_bom.columns), "Nhóm vật tư (Class)")
+    gross_col_check = next((c for c in ["Gross Consumption", "Gross_Consumption", "Định mức tổng"] if c in df_bom.columns), "Gross Consumption")
 
     for idx, data in current_virtual_pieces.items():
         if idx in df_bom.index:
             df_bom.at[idx, 'polygon_net_area'] = data["net_area_prod"]
-            # Đè nhóm phân loại mới đã bóc tách chính xác (FABRIC, ACCESSORY, LINING, FUSING...)
             df_bom.at[idx, class_col_check] = data["piece_class"]
+            
+            # 🌟 CÔNG THỨC VÁ LỖI CỘT GROSS CONSUMPTION:
+            # Định mức tổng (Yards) = (Diện tích tịnh / (Khổ vải * Hiệu suất sơ đồ)) * Hệ số hao hụt / 36 (đổi sang Yards)
+            if computed_efficiency > 0 and current_fabric_width > 0 and data["piece_class"] == "FABRIC":
+                gross_value = (data["net_area_prod"] / (current_fabric_width * computed_efficiency)) * target_wastage / 36.0
+                df_bom.at[idx, gross_col_check] = round(gross_value * data["final_pcs"], 4)
+            else:
+                # Nếu là phụ liệu (Accessory) hoặc không phải vải chính, định mức tính theo số lượng rập (Pcs) hoặc tạm để 0
+                df_bom.at[idx, gross_col_check] = 0.0
             
             if data["component_name_display"]:
                 df_bom.at[idx, comp_col_check] = data["component_name_display"]
             if detected_l_col: df_bom.at[idx, detected_l_col] = data["length_prod"]
             if detected_w_col: df_bom.at[idx, detected_w_col] = data["width_prod"]
-
    
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
