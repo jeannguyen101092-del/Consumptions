@@ -99,25 +99,39 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & BANNER PPJ GROUP ĐỈNH SIDEBAR
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS CỐ ĐỊNH SIDEBAR & FULL TRANG PHẢI
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🌟 ĐỔI TONE MÀU NỀN CHÍNH TRANG ĐỂ DỊU MẮT VĂN PHÒNG 🌟 */
+    /* 🌟 CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG 🌟 */
     .stApp { background-color: #f0f4f8 !important; }
     header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
-    .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
-    div[data-testid="stHorizontalBlock"] { margin-top: 0px !important; padding-top: 0px !important; }
-
-    /* GIỮ NỀN XANH NGỌC LAM ĐẬM GỐC CỦA SIDEBAR QUEN THUỘC */
+    
+    /* 🔥 ĐÃ SỬA: Ép phần nội dung chính bên phải tràn rộng tối đa và căn lề thẳng hàng */
+    .block-container { 
+        padding-top: 1.5rem !important; 
+        padding-left: 2rem !important; 
+        padding-right: 2rem !important; 
+        max-width: 100% !important; 
+    }
+    
+    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ẨN THANH CUỘN LÊN XUỐNG */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
+        position: fixed !important;
+        height: 100vh !important;
+        overflow-y: hidden !important;
+    }
+    
+    [data-testid="stSidebar"] > div:first-child {
+        height: 100vh !important;
+        overflow-y: hidden !important;
     }
 
-    /* 🛠️ SỬA DỨT ĐIỂM BẰNG LỚP PHỦ CSS: TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
+    /* ĐẠO KHỐI BANNER CHỮ PPJ GROUP ĐÊM TRÊN ĐỈNH NAV */
     [data-testid="stSidebarNav"] {
-        padding-top: 130px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
+        padding-top: 130px !important; 
         position: relative !important;
     }
     
@@ -129,7 +143,7 @@ st.markdown("""
         left: 12px !important;
         right: 12px !important;
         height: 95px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; /* Màu xanh mượt mà */
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; 
         border-radius: 12px !important;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
         z-index: 1 !important;
@@ -216,13 +230,11 @@ st.markdown("""
     .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* 🛠️ TRIỆT TIÊU HOÀN TOÀN: Ẩn các khối chứa icon lỗi ảnh cũ đi */
+    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
-
 
 import streamlit as st
 import re
