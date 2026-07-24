@@ -2182,6 +2182,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * target_wastage
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
+    # [BỔ SUNG LOGIC DỰ PHÒNG]: Tự động tính toán định mức khi chưa có sơ đồ tổng
+    def fallback_area_solver(l_prod, w_prod, pcs, marker_width):
+        if marker_width <= 0 or l_prod <= 0 or w_prod <= 0: return 0.0
+        # Tính định mức dựa trên diện tích hình chữ nhật bao quanh chi tiết rập (Hiệu suất giả định 74%)
+        gross_yds = ((l_prod * w_prod * pcs) / marker_width / 0.74 / 36.0) * target_wastage
+        return round(gross_yds, 4)
+
     def core_engine_router(row, idx):
         v_piece = current_virtual_pieces.get(idx, {})
         if not v_piece: return 0.0 
@@ -2191,19 +2198,26 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         pcs = v_piece.get("final_pcs", 1.0)
         net_area = v_piece.get("net_area_prod", 0.0)
+        l_prod = v_piece.get("length_prod", 0.0)
+        w_prod = v_piece.get("width_prod", 0.0)
         
         if p_class == "FUSING": 
-            return round(dynamic_fusing_solver(v_piece.get("length_prod", 0.0), v_piece.get("width_prod", 0.0), net_area, pcs), 4)
+            return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
+            
         elif p_class == "FABRIC":
-            if total_fabric_net_area_dynamic > 0:
+            if total_fabric_gross_yds > 0 and total_fabric_net_area_dynamic > 0:
                 line_share_ratio = (net_area * pcs) / total_fabric_net_area_dynamic
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
-            return 0.0
+            # Nếu chưa chạy sơ đồ, tự động dùng thuật toán hình học dự phòng
+            return fallback_area_solver(l_prod, w_prod, pcs, current_fabric_width)
+                
         elif p_class == "LINING":
-            if total_lining_net_area_dynamic > 0: 
+            if total_lining_gross_yds > 0 and total_lining_net_area_dynamic > 0: 
                 line_share_ratio_lining = (net_area * pcs) / total_lining_net_area_dynamic
                 return round(total_lining_gross_yds * line_share_ratio_lining, 4)
-            return 0.0
+            # Dự phòng cho vải lót
+            return fallback_area_solver(l_prod, w_prod, pcs, lining_width)
+            
         return 0.0
 
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
