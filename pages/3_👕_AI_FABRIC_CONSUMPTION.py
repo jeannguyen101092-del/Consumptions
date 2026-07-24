@@ -99,7 +99,8 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX TRIỆT ĐỂ LỖI ĐÈ NỘI DUNG VÀ SO LE
+# =====================================================================
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX TRIỆT ĐỂ LỖI ĐÈ NỘI DUNG VÀ Ô CHAT
 # =====================================================================
 st.markdown("""
 <style>
@@ -107,13 +108,23 @@ st.markdown("""
     .stApp { background-color: #f0f4f8 !important; }
     header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
     
-    /* 🛠️ ĐÃ SỬA: Đẩy vùng trang chính dịch sang phải 300px để không bị Sidebar đè lên nội dung */
+    /* Đẩy vùng trang chính dịch sang phải 300px để không bị Sidebar đè lên nội dung */
     .block-container { 
         padding-top: 1.5rem !important; 
         padding-left: 2rem !important; 
         padding-right: 2rem !important; 
         margin-left: 300px !important; /* Tạo khoảng trống bù trừ cho Sidebar */
         max-width: calc(100% - 300px) !important; /* Ép độ rộng vừa vặn màn hình còn lại */
+    }
+    
+    /* 🔥 ĐÃ SỬA: ÉP Ô CHAT GHIM CỐ ĐỊNH Ở ĐÁY BÊN PHẢI VÀ CHẠY THEO NỘI DUNG */
+    .stChatInput, div[data-testid="stChatInputText"] {
+        position: fixed !important;
+        bottom: 20px !important;
+        left: 330px !important; /* Thụt lề sang phải (300px Sidebar + 30px khoảng cách an toàn) */
+        right: 30px !important;
+        width: auto !important;
+        z-index: 999992 !important;
     }
     
     /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ĐỊNH VỊ ĐỘ RỘNG CHUẨN */
@@ -242,6 +253,7 @@ st.markdown("""
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 import streamlit as st
 import re
