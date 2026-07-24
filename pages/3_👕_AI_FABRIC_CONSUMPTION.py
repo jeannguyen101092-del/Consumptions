@@ -99,60 +99,68 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH BIẾN Ô CHAT LIỀN KHỐI CHUẨN ĐẸP VỚI TRANG PHẢI
+# ĐOẠN 6a - PHẦN 2: TRIỆT TIÊU VỆT TRẮNG & ĐỒNG BỘ NỀN XÁM SƯƠNG MÙ ERP
 # =====================================================================
 st.markdown("""
 <style>
-    /* CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG DỊU MẮT */
-    .stApp { background-color: #f0f4f8 !important; }
-    header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
+    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XÁM SƯƠNG MÙ CHO TẤT CẢ CÁC LỚP */
+    .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"] { 
+        background-color: #f0f4f8 !important; 
+    }
     
-    /* Đẩy toàn bộ khối nội dung trang chính dạt sang bên phải ngay ngắn */
+    /* Ép khoảng cách lề của toàn vùng nội dung dạt sang phải, tránh so le */
     .block-container { 
         padding-top: 1.5rem !important; 
-        padding-left: 0px !important; 
-        padding-right: 25px !important; 
-        margin-left: 320px !important; /* Đẩy rộng hơn một chút tạo khoảng thở với Sidebar */
-        max-width: calc(100% - 325px) !important;
+        padding-left: 2rem !important; 
+        padding-right: 2rem !important; 
+        margin-left: 300px !important; /* Tạo khoảng trống chuẩn tách biệt Sidebar */
+        max-width: calc(100% - 300px) !important; 
+        padding-bottom: 90px !important; /* Chừa khoảng trống đáy để ô chat không đè bảng */
+    }
+    
+    /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều, tiệt tiêu khe hở trắng ở hai mép */
+    div[data-testid="stHorizontalBlock"] { 
+        margin-top: 0px !important; 
+        padding-top: 0px !important; 
+        width: 100% !important;
+        max-width: 100% !important;
+        background-color: transparent !important; /* Xóa vệt trắng loang của hàng */
     }
 
-    /* 🧱 THIẾT KẾ ĐỘC QUYỀN: BỘ BỌC KHỐI NỀN TRẮNG TOÀN DIỆN CHO TRANG PHẢI */
-    .dashboard-workspace-card {
+    /* 🔥 SỬA DỨT ĐIỂM: KHỬ VỆT TRẮNG NGANG CỦA THANH NHẬP LIỆU CHAT INPUT */
+    .stChatInput, div[data-testid="stChatInputText"], div[data-testid="stChatInputContainer"] {
+        position: fixed !important;
+        bottom: 20px !important;
+        left: 330px !important; /* Đẩy lùi khớp thẳng hàng tăm tắp với lề block-container */
+        right: 30px !important;
+        width: auto !important;
+        z-index: 999995 !important;
+        background-color: transparent !important; /* Ép ẩn dải nền trắng nằm ngang đi */
+        border: none !important;
+        box-shadow: none !important;
+    }
+    
+    /* Chỉ giữ lại khung viền trắng đóng hộp cho riêng phần bo nhập chữ bên trong */
+    div[data-testid="stChatInputContainer"] {
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
         border-radius: 8px !important;
-        padding: 24px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-        margin-bottom: 95px !important; /* Dành chỗ trống ở đáy cho ô chat liền khối */
-        width: 100% !important;
-    }
-    
-    /* 🛠️ ĐÃ SỬA: ÉP Ô CHAT GHIM LIỀN MẠCH, THẲNG HÀNG VÀ ĂN KHỚP VỚI KHỐI VIỀN TRẮNG */
-    .stChatInput, div[data-testid="stChatInputText"] {
-        position: fixed !important;
-        bottom: 20px !important;
-        left: 345px !important; /* Đồng bộ lùi lề khớp với mép trong khối viền trắng */
-        right: 50px !important;
-        width: auto !important;
-        z-index: 999992 !important;
-        background-color: #ffffff !important;
-        border-radius: 6px !important;
-        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03) !important; /* Đổ bóng nhẹ lên trên tạo độ mượt */
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
     }
 
-    /* ĐỊNH VỊ KHÓA CỨNG SIDEBAR BÊN TRÁI KHÔNG TRƯỢT */
+    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
         position: fixed !important;
         top: 0 !important;
         left: 0 !important;
-        width: 300px !important;
+        width: 300px !important; 
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
         overflow-y: hidden !important;
-        z-index: 9999 !important;
+        z-index: 99999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
@@ -166,6 +174,7 @@ st.markdown("""
         position: relative !important;
     }
     
+    /* Dựng khối nền Banner xanh Gradient bo góc */
     [data-testid="stSidebarNav"]::before {
         content: "" !important;
         position: absolute !important;
@@ -179,6 +188,7 @@ st.markdown("""
         z-index: 1 !important;
     }
 
+    /* Chèn dòng chữ lớn "PPJ GROUP" chính giữa hộp */
     [data-testid="stSidebarNav"]::after {
         content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
         white-space: pre-wrap !important;
@@ -201,10 +211,12 @@ st.markdown("""
         z-index: 2 !important;
     }
 
+    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại chuẩn mẫu */
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -217,6 +229,7 @@ st.markdown("""
         color: #ffffff !important;
     }
 
+    /* TIÊU ĐỀ NỔI BẬT MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
@@ -229,6 +242,7 @@ st.markdown("""
         margin-top: 18px !important;
     }
 
+    /* Các hộp thông tin đổi sang dải màu gradient tối dịu mắt */
     .sidebar-custom-card, .sidebar-custom-card-history {
         background: linear-gradient(135deg, #115e59 0%, #134e4a 100%) !important; 
         border: 1px solid #14b8a6 !important;
@@ -240,6 +254,7 @@ st.markdown("""
     .sidebar-custom-card-history { padding: 6px 12px !important; }
     .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
 
+    /* Thẻ chỉ số KPIs sắc màu rực rỡ trần trang chính bên phải */
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
@@ -248,9 +263,11 @@ st.markdown("""
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
+    /* Hộp trắng bao bọc hình vẽ rập vector hình học */
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
+    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
