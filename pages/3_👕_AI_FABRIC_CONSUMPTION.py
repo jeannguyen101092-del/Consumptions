@@ -2120,7 +2120,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
     # =====================================================================
-    st.header("📋 AI GARMENT AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC KỸ THUẬT)")
+    st.header("📋 AI GARMENT AUDIT REPORT")
     ai_decision_final = ctx.get("ai_expert_decision", {})
     estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
     ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
@@ -2132,8 +2132,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Chủng Loại Sản Phẩm (Category)", ai_product_type if 'ai_product_type' in locals() else "JEAN_LONG")
     m2.metric(f"{ui_complexity_icon} Độ Phức Tạp Kỹ Thuật (IE Score)", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-    m3.metric("📐 Hiệu Suất Sơ Đồ Chỉ Định (Marker Efficiency)", f"{ui_display_density*100:.2f}%")
-    m4.metric("🎯 Độ Tin Cậy Thuật Toán (AI Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
+    m3.metric("📐 Marker Efficiency", f"{ui_display_density*100:.2f}%")
+    m4.metric("🎯 Độ Tin Cậy Thuật Toán (AI Confidence)", f"{float(ctx.get('confidence', 0.90))*100:.1f}%")
 
     # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
     # Triệt tiêu hoàn toàn lỗi nhận diện nhầm FUSING thành FABRIC làm lệch số 1.67 vs 1.63
@@ -2160,7 +2160,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "UOM": "YDS"
     })
 
-    st.markdown("##### 📊 Bảng Tổng Hợp Định Mức Tiêu Hao Vật Tư Đại Trà (BOM Summary Matrix)")
+    st.markdown("##### 📊 Bảng Tổng Hợp Định Mức (BOM Summary Matrix)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
     df_bom_display = df_bom.copy()
@@ -2189,7 +2189,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display = df_bom_display[display_final_cols]
 
     col_t1, col_t2 = st.columns(2)
-    col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết (CAD Marker Matrix)")
+    col_t1.subheader("📋 CAD Marker Matrix")
     
     with col_t2:
         try:
