@@ -99,11 +99,11 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ĐỔI MÀU NỀN Ô CHAT XANH NHẠT DỊU MẮT
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH NHUỘM XANH NGỌC Ô CHAT & FIX TRIỆT ĐỂ NỀN
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XÁM SƯƠNG MÙ CHO TẤT CẢ CÁC LỚP */
+    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XÁM SƯƠNG MÙ CHO TẤT CẢ CÁC LỚP BAN NỀN */
     .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
         background-color: #f0f4f8 !important; 
     }
@@ -127,10 +127,9 @@ st.markdown("""
         background-color: transparent !important; 
     }
 
-    /* 🔥 ĐÃ SỬA: BIẾN Ô CHAT THÀNH MÀU XANH NHẠT SANG TRỌNG VÀ KHỬ VỆT TRẮNG */
+    /* 🔥 SỬA DỨT ĐIỂM: KHỬ SẠCH VỆT NỀN TRẮNG BÊN NGOÀI Ô CHAT CỦA TRÌNH DUYỆT */
     .stChatInput, 
     div[data-testid="stChatInputText"], 
-    div[data-testid="stChatInputContainer"],
     div[data-testid="stChatInputText"] > div,
     .stChatInput > div {
         position: fixed !important;
@@ -144,24 +143,32 @@ st.markdown("""
         box-shadow: none !important;
     }
     
-    /* 🛠️ ĐỔI MÀU Ô CHAT: Nền xanh ngọc lam nhạt dãn rộng, viền xanh mượt mà */
+    /* 🛠️ NHUỘM MÀU XANH NGỌC NHẠT TOÀN DIỆN CHO KHUNG HỘP CHỨA LÕI NHẬP LIỆU */
     div[data-testid="stChatInputContainer"] {
         background-color: #ccfbf1 !important; /* Màu xanh ngọc cực nhạt và dịu mắt */
-        border: 1px solid #99f6e4 !important; /* Viền xanh đồng màu nhẹ nhàng */
+        border: 1px solid #5eead4 !important; /* Viền xanh đồng màu sắc nét */
         border-radius: 8px !important;
+        padding: 4px 8px !important;
+        box-shadow: 0 4px 10px rgba(15, 118, 110, 0.08) !important; /* Đổ bóng mờ màu xanh nhẹ */
     }
 
-    /* Định hình khu vực viết chữ bên trong ô chat */
+    /* Ép lõi nhập văn bản gõ chữ bên trong cũng phải ăn theo màu xanh ngọc nhạt */
     div[data-testid="stChatInputContainer"] textarea {
-        background-color: transparent !important;
-        color: #0f766e !important; /* Màu chữ xanh đậm dễ đọc */
+        background-color: #ccfbf1 !important; /* Khóa tiệt tiêu màu trắng gốc của vùng nhập liệu */
+        color: #115e59 !important; /* Màu chữ xanh đậm chuẩn ERP cực kì dễ đọc */
+        font-family: "Segoe UI", sans-serif !important;
+        font-size: 13px !important;
     }
 
-    /* Đổi màu nút gửi icon mũi tên sang màu xanh đồng bộ */
+    /* Định dạng nút bấm gửi câu lệnh hình mũi tên sang màu xanh thẫm đồng bộ */
     div[data-testid="stChatInputContainer"] button {
         background-color: #0f766e !important;
         color: #ffffff !important;
         border-radius: 6px !important;
+        transition: all 0.2s ease !important;
+    }
+    div[data-testid="stChatInputContainer"] button:hover {
+        background-color: #115e59 !important;
     }
 
     /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
@@ -283,12 +290,11 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi */
+    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi cũ */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
 
 import streamlit as st
 import re
