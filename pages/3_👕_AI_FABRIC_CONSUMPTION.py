@@ -80,13 +80,13 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SỬA LOGO)
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# CHUỖI BASE64 ĐÃ SỬA CHUẨN: Ghim cố định logo PPJ GROUP lên đỉnh góc trái của Menu điều hướng
+# Chuỗi dữ liệu Base64 hình ảnh của logo PPJ GROUP chuẩn không lỗi kí tự
 logo_ppj_base64 = (
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAYAAACgWwTfAAAAAXNSR0IArs4c6QAAAARn"
     "QU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHl5"
@@ -103,14 +103,24 @@ logo_ppj_base64 = (
     "gBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII="
 )
 
+# 🔥 ĐÃ SỬA: Thay thế st.sidebar.image cũ bằng nhúng HTML trực tiếp vào Sidebar để cố định vị trí đỉnh 
+st.sidebar.markdown(
+    f"""
+    <div style="text-align: center; padding-bottom: 20px;">
+        <img src="{logo_ppj_base64}" style="width: 100%; max-width: 160px; height: auto;">
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ hệ thống (Session State)
+# 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State)
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
+
 
 # =====================================================================
 # ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & TIÊU ĐỀ SIDEBAR NỔI BẬT
