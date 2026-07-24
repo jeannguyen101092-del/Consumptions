@@ -348,14 +348,14 @@ with st.sidebar:
 
 import streamlit as st
 import re
-import fitz  # Thư viện PyMuPDF để trích xuất ảnh từ file PDF tự động
+import fitz  # Thư viện PyMuPDF để trích xuất văn bản và ảnh tự động từ file PDF
 
 # ------------------------------------------------------------------------------
-# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ SỬA LỖI HIỂN THỊ HÌNH SKETCH)
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ ĐÓNG KHUNG VIỀN ĐẸP MẮT & SỬA LỖI HIỂN THỊ)
 # ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÀU XANH ---
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
     with st.container(border=True, height=520):
         st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
@@ -363,7 +363,7 @@ with col_left:
         uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
         
         if uploaded_file is not None:
-            # Nếu phát hiện tải lên một file hoàn toàn mới
+            # Nếu phát hiện người dùng tải lên một file hoàn toàn mới
             if st.session_state.pdf_name != uploaded_file.name:
                 st.session_state.pdf_text_cache = None
                 st.session_state.pdf_page_one_image = None
@@ -372,24 +372,24 @@ with col_left:
             st.session_state.pdf_bytes = uploaded_file.read()
             st.session_state.pdf_name = uploaded_file.name
 
-            # 🔥 ĐÃ SỬA: Tự động bóc tách Văn Bản và chuyển đổi PDF thành hình ảnh Sketch ngay lập tức
+            # Tự động bóc tách Văn Bản và chuyển đổi PDF thành hình ảnh Sketch ngay lập tức
             if st.session_state.pdf_text_cache is None or st.session_state.pdf_page_one_image is None:
                 with st.spinner("🤖 AI đang đọc tài liệu và trích xuất hình ảnh phác thảo..."):
                     try:
                         # Mở file PDF trực tiếp từ bộ nhớ bytes
                         doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
                         
-                        # 1. Trích xuất toàn bộ text từ tất cả các trang để phục vụ Regex tìm mã hàng
+                        # 1. Trích xuất toàn bộ text từ tất cả các trang phục vụ Regex tìm mã hàng
                         full_text = ""
                         for page in doc:
                             full_text += page.get_text()
                         st.session_state.pdf_text_cache = full_text
                         
-                        # 2. Chuyển đổi trang đầu tiên (Trang 0) thành hình ảnh chất lượng cao làm Sketch
+                        # 2. Chuyển đổi trang đầu tiên (Trang 0) thành hình ảnh PNG chất lượng cao
                         if len(doc) > 0:
                             page_one = doc[0]
                             pix = page_one.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom x2 để ảnh nét hơn
-                            image_bytes = pix.tobytes("png") # Chuyển thành dạng dữ liệu ảnh PNG
+                            image_bytes = pix.tobytes("png")
                             st.session_state.pdf_page_one_image = image_bytes
                             
                         doc.close()
@@ -401,7 +401,7 @@ with col_left:
 
         # Hiển thị thông tin hồ sơ tóm tắt sau khi đã trích xuất văn bản thành công
         if st.session_state.pdf_text_cache is not None:
-            st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
             txt = st.session_state.pdf_text_cache
             
             def get_meta(pattern, default="N/A"):
@@ -410,37 +410,56 @@ with col_left:
 
             # Thực hiện quét thông tin kĩ thuật bằng biểu thức chính quy (Regex)
             style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE RUCHED MINI DRESS")
+            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE BAGGY JEANS")
             customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
-            season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "FALL Winter 2026")
-            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "POPLIN FABRIC COTTON - SP26")
+            season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025 Apparel Reitmans")
+            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - MID RISE - POPLIN FABRIC")
 
-            # Ghim mã hàng vừa tìm thấy vào bộ nhớ toàn cục để đồng bộ lên các khối KPIs trần trang và Lịch sử
+            # Ghim mã hàng vào bộ nhớ toàn cục để đồng bộ lên các khối KPIs trần trang và Lịch sử
             st.session_state.style_id = style_id
 
+            # Bộ cấu hình CSS cao cấp đóng khung hộp viền mịn màng, đổ bóng 3D độc lập
+            box_style = (
+                "background-color: #f8fafc; "
+                "border: 1px solid #e2e8f0; "
+                "border-radius: 6px; "
+                "padding: 12px 14px; "
+                "margin-bottom: 12px; "
+                "box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);"
+            )
+            lbl_style = "font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;"
+            val_style = "font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+
+            # Chia lưới cột nhỏ bên trong khung Techpack Uploader
             m_col1, m_col2 = st.columns(2)
             with m_col1:
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Style Code / Mã hàng</div><div class="meta-value-flat"><b>{style_id}</b></div></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Customer / Đối tác</div><div class="meta-value-flat">{customer}</div></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Season / Mùa sản xuất</div><div class="meta-value-flat">{season}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Style Code / Mã hàng</div><div style="{val_style}; color: #0f766e;">{style_id}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Customer / Đối tác</div><div style="{val_style}">{customer}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Season / Mùa sản xuất</div><div style="{val_style}">{season}</div></div>', unsafe_allow_html=True)
             with m_col2:
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Garment Type / Kiểu dáng</div><div class="meta-value-flat">{short_desc}</div></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Material Spec / Mô tả vải</div><div class="meta-value-flat">{fabric_type[:25]}...</div></div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="meta-box-light-flat"><div class="meta-label-flat">Techpack Status</div><div class="meta-value-light" style="color: #16a34a; font-weight: bold;">🟢 READY TO BOM</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Garment Type / Kiểu dáng</div><div style="{val_style}">{short_desc}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Material Spec / Mô tả vải</div><div style="{val_style}" title="{fabric_type}">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="{box_style} background-color: #f0fdf4; border-color: #bbf7d0;">'
+                    f'  <div style="{lbl_style} color: #166534;">Techpack Status</div>'
+                    f'  <div style="{val_style} color: #15803d; display: flex; align-items: center; gap: 6px;">🟢 READY TO BOM</div>'
+                    f'</div>', 
+                    unsafe_allow_html=True
+                )
         else:
             if st.session_state.pdf_bytes is None:
-                st.markdown("<div style='margin-top: 20px; text-align: center; color: #64748b; font-size: 13px;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
+                st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
 
 # --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ HÌNH ẢNH SKETCH ---
 with col_right:
     with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-        # 🔥 ĐÃ SỬA BIẾN KIỂM TRA: Giờ đây hình ảnh dạng bytes sau khi trích xuất từ PDF sẽ hiển thị mượt mà tại đây
+        # Hình ảnh phác thảo dạng bytes sau khi trích xuất từ PDF sẽ hiển thị sắc nét tại đây
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
             st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo trích xuất: {st.session_state.get('pdf_name', '')}", use_container_width=True)
         else:
-            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
 
 
 
