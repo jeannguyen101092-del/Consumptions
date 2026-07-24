@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH NHUỘM XANH Ô CHAT CHUẨN ĐỒNG BỘ ERP
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ÉP Ô CHAT TRÀN HẾT MÀN HÌNH (FULL-WIDTH)
 # =====================================================================
 st.markdown("""
 <style>
@@ -127,35 +127,40 @@ st.markdown("""
         background-color: transparent !important; 
     }
 
-    /* 🔥 SỬA DỨT ĐIỂM: KHỬ SẠCH VỆT NỀN TRẮNG BÊN NGOÀI Ô CHAT CỦA TRÌNH DUYỆT */
-    .stChatInput {
+    /* 🔥 SỬA DỨT ĐIỂM & ÉP TRÀN TOÀN MÀN HÌNH: PHÌNH TO KHỐI CHỨA Ô CHAT RA HAI MÉP */
+    .stChatInput, 
+    div[data-testid="stChatInputText"], 
+    div[data-testid="stChatInputText"] > div,
+    .stChatInput > div {
         position: fixed !important;
         bottom: 20px !important;
         left: 330px !important; /* Đẩy lùi khớp thẳng hàng tăm tắp với lề block-container */
-        right: 30px !important;
-        width: auto !important;
-        z-index: 999995 !important;
-        background-color: transparent !important; /* Triệt tiêu hoàn toàn dải nền trắng nằm ngang */
+        right: 30px !important; /* Kéo dãn đâm sát ra biên phải màn hình */
+        width: calc(100% - 360px) !important; /* Khóa độ rộng phủ hết không gian còn lại */
+        max-width: 100% !important; /* Phá vỡ kịch trần độ rộng mặc định của Streamlit */
+        background-color: transparent !important; 
         border: none !important;
         box-shadow: none !important;
     }
     
-    /* 🛠️ NHUỘM MÀU XANH NGỌC NHẠT: Ép triệt để vào các phân lớp quản lý ô chat nhập liệu của Streamlit */
-    .stChatInput > div,
-    .stChatInput div[data-testid="stChatInputContainer"],
+    /* 🛠️ NHUỘM MÀU XANH NGỌC NHẠT TOÀN DIỆN CHO KHUNG HỘP CHỨA LÕI NHẬP LIỆU */
     div[data-testid="stChatInputContainer"] {
+        width: 100% !important; /* Ép lõi chứa dãn căng 100% theo khung ngoài */
+        max-width: 100% !important;
         background-color: #ccfbf1 !important; /* Màu xanh ngọc cực nhạt và dịu mắt */
         border: 1px solid #5eead4 !important; /* Viền xanh đồng màu sắc nét */
         border-radius: 8px !important;
+        padding: 4px 8px !important;
         box-shadow: 0 4px 10px rgba(15, 118, 110, 0.08) !important; /* Đổ bóng mờ màu xanh nhẹ */
     }
 
     /* Ép lõi nhập văn bản gõ chữ bên trong cũng phải ăn theo màu xanh ngọc nhạt */
     div[data-testid="stChatInputContainer"] textarea {
-        background-color: transparent !important; /* Khóa tiệt tiêu màu trắng gốc của vùng nhập liệu */
+        background-color: transparent !important; 
         color: #115e59 !important; /* Màu chữ xanh đậm chuẩn ERP cực kì dễ đọc */
         font-family: "Segoe UI", sans-serif !important;
         font-size: 13px !important;
+        width: 100% !important;
     }
 
     /* Định dạng nút bấm gửi câu lệnh hình mũi tên sang màu xanh thẫm đồng bộ */
@@ -293,7 +298,6 @@ st.markdown("""
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
 
 import streamlit as st
 import re
