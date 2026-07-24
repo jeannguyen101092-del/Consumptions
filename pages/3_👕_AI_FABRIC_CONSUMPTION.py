@@ -2233,6 +2233,13 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
        # =====================================================================
        # =====================================================================
         # =====================================================================
+     # =====================================================================
+    # 🟩 KÍCH HOẠT ĐỘNG CƠ TÍNH TOÁN ĐỊNH MỨC AI TRƯỚC KHI XUẤT BÁO CÁO GIAO DIỆN
+    # =====================================================================
+    nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
+    run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
+
+    # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
