@@ -2132,7 +2132,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
         current_virtual_pieces[idx] = {"component_name": r.get(comp_col_check, r.get("component_name", "PIECE")), "piece_class": inferred_class, "length_prod": l_prod, "width_prod": w_prod, "net_area_prod": round(raw_net_area, 4), "final_pcs": raw_pcs}
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
-    # --- ĐOẠN 2: LUỒNG TÍNH TOÁN VÀ PHÂN BỔ ĐỊNH MỨC THEO SƠ ĐỒ ---
+     # --- ĐOẠN 2: LUỒNG TÍNH TOÁN VÀ PHÂN BỔ ĐỊNH MỨC THEO SƠ ĐỒ ---
     ai_decision_d52 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
     target_wastage = float(ai_decision_d52.get("dynamic_wastage_factor", 1.03))
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
@@ -2194,7 +2194,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     df_bom["Detected Class Temporary"] = class_list
     st.session_state["_prod_lengths_list_cache"], st.session_state["_prod_widths_list_cache"] = updated_lengths, updated_widths
     if current_virtual_pieces: st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
-Use code with caution.Bạn cập nhật lần lượt 2 khối lệnh này, sau đó chạy lại để tận hưởng kết quả nhé!
 
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
