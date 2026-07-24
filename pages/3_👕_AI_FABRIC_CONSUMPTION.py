@@ -2225,19 +2225,22 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
         workbook.save(output_stream)
         output_stream.seek(0)
         return output_stream
-       # =====================================================================
-       # =====================================================================
         # =====================================================================
-    # 🟩 BỘ KÍCH HOẠT ĐỘNG CƠ ĐỊNH MỨC AI CAD - ĐỒNG BỘ DỮ LIỆU NỀN
+    # 🟩 BỘ ĐỒNG BỘ DỮ LIỆU NỀN & KÍCH HOẠT HỆ THỐNG ĐỊNH MỨC AI CAD
     # =====================================================================
-    # Ép hệ thống lấy dữ liệu rập từ bộ nhớ tạm thời của Streamlit ra để tính toán sơ đồ
+    # Khôi phục dữ liệu rập thô từ session state vào df_bom để thuật toán chạy
     if "processed_display_rows" in st.session_state and st.session_state["processed_display_rows"]:
         df_bom = pd.DataFrame(st.session_state["processed_display_rows"])
-    
-    # Chỉ khi có dữ liệu chi tiết rập mới chạy thuật toán hình học phức tạp
+    elif 'df_sum' in locals() and df_sum is not None and not df_sum.empty:
+        df_bom = df_sum.copy()
+        
+    # Kích hoạt động cơ tính toán ma trận sơ đồ hình học mới
     if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
-        nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
-        run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
+        try:
+            nesting_res = run_geometric_marker_engine(df_bom, ctx, st)
+            run_consumption_router_and_publishing(df_bom, ctx, nesting_res, st)
+        except Exception as e:
+            st.error(f"Lỗi đồng bộ lõi tính toán: {e}")
 
     # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
@@ -2256,21 +2259,30 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     
-    # Đếm tổng số lượng rập thực tế sau khi đồng bộ dữ liệu thành công
-    actual_pcs_count = int(df_bom["pcs_numeric"].sum()) if ('df_bom' in locals() and "pcs_numeric" in df_bom.columns) else 0
+    # Ép hiển thị số lượng mảnh thực tế từ DataFrame hợp lệ trong luồng của bạn
+    if 'df_bom' in locals() and "pcs_numeric" in df_bom.columns:
+        actual_pcs_count = int(df_bom["pcs_numeric"].sum())
+    elif 'df_sum' in locals() and "pcs_numeric" in df_sum.columns:
+        actual_pcs_count = int(df_sum["pcs_numeric"].sum())
+    else:
+        actual_pcs_count = 0
     m4.metric("🧩 Tổng số mảnh rập thực tế", f"{actual_pcs_count} Pcs")
 
-    # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
-    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
-    
-    clean_materials_list = []
-    if 'df_bom' in locals() and not df_bom.empty:
+    # Đảm bảo hệ thống luôn có dữ liệu để vẽ bảng kết quả bên dưới
+    if 'df_bom' not in locals() or df_bom is None or df_bom.empty:
+        if 'df_sum' in locals() and df_sum is not None and not df_sum.empty:
+            df_bom = df_sum.copy()
+
+    # XỬ LÝ VẼ BẢNG TIÊU HAO VẬT TƯ
+    if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
+        virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
+        
+        clean_materials_list = []
         for idx in df_bom.index:
             v_piece = virtual_pieces_layer.get(idx, {})
             clean_materials_list.append(v_piece.get("inferred_class", "FABRIC"))
         df_bom["_temp_class"] = clean_materials_list
-
-    if 'df_bom' in locals() and not df_bom.empty:
+        
         if "Gross Consumption" not in df_bom.columns:
             df_bom["Gross Consumption"] = 0.0
 
@@ -2297,7 +2309,9 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
         df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
         df_bom_display["material_class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
-        df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
+        
+        pcs_col_src = "pcs_numeric" if "pcs_numeric" in df_bom.columns else df_bom.columns[0]
+        df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r[pcs_col_src])) for idx, r in df_bom.iterrows()]
         df_bom_display["_original_row_index"] = df_bom.index
 
         ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
@@ -2309,13 +2323,15 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
         
         with col_t2:
             try:
+                prod_var = prod if 'prod' in locals() else "STYLE"
                 if 'local_export_excel_ppj_format' in locals():
-                    excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, ui_display_density)
+                    excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod_var, ctx, ui_display_density)
                     style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-                    st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
-            except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
+                    st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod_var}_{style_name_clean}.xlsx", use_container_width=True)
+            except Exception as e: 
+                pass
 
-        # Hiển thị bảng chi tiết định mức đại trà cho phép sửa trực tiếp
+        # Hiển thị lưới dữ liệu định mức chi tiết rập
         edited_df = st.data_editor(
             df_bom_display, 
             column_config={
@@ -2331,7 +2347,7 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
-            old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
+            old_pcs = float(df_bom.at[orig_idx, pcs_col_src])
             new_pcs = float(row["Số lượng rập"])
             if old_pcs != new_pcs:
                 st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2346,4 +2362,4 @@ def run_consumption_router_and_publishing(df_bom, ctx, nesting_results, st):
             st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
             st.rerun()
     else:
-        st.info("💡 Hệ thống đang chờ phân tích dữ liệu sơ đồ rập... Vui lòng upload Techpack hoặc bấm nút tính toán.")
+        st.warning("⚠️ Không tìm thấy ma trận dữ liệu rập trong bộ nhớ. Vui lòng bấm Upload rập hoặc chạy phân tích lại.")
