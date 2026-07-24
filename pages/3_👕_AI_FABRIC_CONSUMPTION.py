@@ -2024,141 +2024,162 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
 
 
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC ĐỒNG BỘ V10)
-    # =====================================================================
-    ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
-        
-    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.78))
-    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
-    features = ai_decision_d5.get("geometry_features", {})
-    max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
+  # =====================================================================
+# 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
+# =====================================================================
+ai_decision_d5 = ctx.get("ai_expert_decision", {})
+if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
     
-    # 🔒 ĐỒNG BỘ: Kế thừa trực tiếp layer phôi ảo sạch lỗi từ tầng kiểm toán 4B
-    if "virtual_pieces_layer" in locals():
-        current_virtual_pieces = virtual_pieces_layer
-    else:
-        current_virtual_pieces = ai_decision_d5.get("virtual_pieces_layer", {})
+estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.78))
+target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
+features = ai_decision_d5.get("geometry_features", {})
+max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
 
-    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
-    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
-    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
+# 🔒 ĐỒNG BỘ LUỒNG DỮ LIỆU SẠCH: Ưu tiên lấy trực tiếp từ bộ nhớ RAM hoặc Session State của Tầng 4B
+if "virtual_pieces_layer" in locals() and virtual_pieces_layer:
+    current_virtual_pieces = virtual_pieces_layer
+else:
+    current_virtual_pieces = st.session_state.get("virtual_pieces_layer", ai_decision_d5.get("virtual_pieces_layer", {}))
 
-    total_fabric_net_area = 0.0
-    fabric_pieces_to_nest = []
+# Đọc cấu hình khổ vải chính xác từ các ô nhập liệu của giao diện UI Streamlit
+current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
+fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    for idx, r in df_bom.iterrows():
-        v_piece = current_virtual_pieces.get(idx, {})
-        # Đồng bộ từ khóa phân loại chất liệu từ tầng 4B (piece_class)
-        p_class_check = v_piece.get("piece_class", "FABRIC")
+total_fabric_net_area = 0.0
+fabric_pieces_to_nest = []
+
+# Duyệt qua bảng dữ liệu BOM để bóc tách kích thước phôi phục vụ mô phỏng xếp sơ đồ
+for idx, r in df_bom.iterrows():
+    v_piece = current_virtual_pieces.get(idx, {})
+    if not v_piece: continue # Phòng thủ lỗi nếu dòng chi tiết rỗng
+    
+    # Sử dụng chính xác từ khóa chất liệu (piece_class) đã được chuẩn hóa phi ngữ nghĩa
+    p_class_check = v_piece.get("piece_class", "FABRIC")
+    
+    if p_class_check == "FABRIC":
+        # Đọc diện tích tịnh và kích thước thực tế sau co rút từ Layer phôi ảo V10
+        net_area = v_piece.get("net_area_prod", float(r.get("polygon_net_area", 0.0)))
+        p_l_val = v_piece.get("length_prod", float(r.get(actual_l_col, 0.0)))
+        p_w_val = v_piece.get("width_prod", float(r.get(actual_w_col, 0.0)))
         
-        if p_class_check == "FABRIC":
-            # 🚨 ĐỒNG BỘ TỪ KHÓA: Đọc chính xác diện tích và kích thước từ Layer phôi ảo V10
-            net_area = v_piece.get("net_area_prod", float(r.get("polygon_net_area", 0.0)))
-            p_l_val = v_piece.get("length_prod", float(r.get(actual_l_col, 0.0)))
-            p_w_val = v_piece.get("width_prod", float(r.get(actual_w_col, 0.0)))
+        if p_l_val > max_piece_length: 
+            max_piece_length = p_l_val
             
-            # Cập nhật độ dài chi tiết lớn nhất động phục vụ mô phỏng chiều dài sơ đồ gốc
-            if p_l_val > max_piece_length:
-                max_piece_length = p_l_val
-                
-            # Đồng bộ từ khóa số lượng chi tiết từ tầng 4B (final_pcs), tôn trọng tuyệt đối dữ liệu gốc/user sửa
-            final_pcs_d5 = v_piece.get("final_pcs", float(r.get("pcs_numeric", 1.0)))
-            current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, final_pcs_d5))
-            
-            total_fabric_net_area += net_area * current_pcs
-            
-            for _ in range(int(current_pcs)):
-                fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
-
-    # Thuật toán mô phỏng hình học xếp sơ đồ (Nesting Simulation)
-    if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
-        fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
-        simulated_marker_length = max_piece_length 
-        accumulated_width_used = 0.0
-        for piece in fabric_pieces_to_nest:
-            p_len = min(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["l"]
-            p_wid = max(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["w"]
-            if accumulated_width_used + p_wid <= current_fabric_width:
-                accumulated_width_used += p_wid
-                if p_len > simulated_marker_length: simulated_marker_length = p_len
-            else:
-                simulated_marker_length += p_len
-                accumulated_width_used = p_wid
-
-        total_marker_bounding_area = simulated_marker_length * current_fabric_width
-        real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
-        real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
-        fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
-        total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
-    else:
-        real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
-
-    # Tính toán luồng vải lót (Lining) tương thích topo hình học
-    total_lining_net_area = 0.0
-    for idx, r in df_bom.iterrows():
-        v_piece = current_virtual_pieces.get(idx, {})
-        if v_piece.get("piece_class") == "LINING":
-            total_lining_net_area += v_piece.get("net_area_prod", 0.0) * v_piece.get("final_pcs", 1.0)
-
-    if total_lining_net_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_net_area / lining_width / 0.76
-        total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
-    else: 
-        total_lining_gross_yds = 0.0
-
-    ctx["ai_expert_decision"].update({
-        "real_fabric_density": round(real_fabric_density, 4), 
-        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
-        "total_lining_gross_yds": round(total_lining_gross_yds, 4)
-    })
-
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP KHÍT KHAO ĐỊNH MỨC TỔNG)
-    # =====================================================================
-    def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
-        if fusing_width <= 0: return 0.0
-        bounding_box_area = l_prod * w_prod
-        void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-        slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
-        if slenderness >= 6.0 and void_ratio <= 0.12:
-            return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
-        return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
-
-    # 🚨 ĐỒNG BỘ: Tính toán tổng diện tích vải chính dựa trên các từ khóa cấu trúc mới của Tầng 4B
-    calculated_total_fabric_net_area = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp["piece_class"] == "FABRIC"])
-
-    def core_engine_router(row, idx):
-        v_piece = current_virtual_pieces.get(idx, {})
-        p_class = v_piece.get("piece_class", "FABRIC")
-        if p_class == "ACCESSORY": return 0.0
+        # Lấy số lượng chi tiết thực tế đã qua kiểm toán đồ thị (final_pcs)
+        final_pcs_d5 = v_piece.get("final_pcs", float(r.get("pcs_numeric", 1.0)))
+        current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, final_pcs_d5))
         
-        pcs = v_piece.get("final_pcs", 1.0)
-        net_area = v_piece.get("net_area_prod", 0.0)
+        total_fabric_net_area += net_area * current_pcs
         
-        if p_class == "FUSING": 
-            return round(dynamic_fusing_solver(v_piece["length_prod"], v_piece["width_prod"], net_area, pcs), 4)
-            
-        elif p_class == "FABRIC":
-            if calculated_total_fabric_net_area > 0:
-                line_share_ratio = (net_area * pcs) / calculated_total_fabric_net_area
-                return round(total_fabric_gross_yds * line_share_ratio, 4)
-            return 0.0
-                
-        elif p_class == "LINING":
-            if total_lining_net_area > 0: 
-                return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
-            elif lining_width > 0: 
-                return round(((((net_area * pcs) / lining_width) / 36.0 / 0.76) * target_wastage), 4)
+        for _ in range(int(current_pcs)):
+            fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
+
+# Giải thuật mô phỏng hình học xếp sơ đồ không khổ (Nesting Marker Simulation)
+if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
+    fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
+    simulated_marker_length = max_piece_length 
+    accumulated_width_used = 0.0
+    
+    for piece in fabric_pieces_to_nest:
+        p_len = min(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["l"]
+        p_wid = max(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["w"]
+        
+        # Sắp xếp các mảnh phôi lên khổ rộng hữu dụng (Đã trừ biên an toàn)
+        if accumulated_width_used + p_wid <= (current_fabric_width - 1.5):
+            accumulated_width_used += p_wid
+            if p_len > simulated_marker_length: 
+                simulated_marker_length = p_len
+        else:
+            simulated_marker_length += p_len
+            accumulated_width_used = p_wid
+
+    total_marker_bounding_area = simulated_marker_length * current_fabric_width
+    real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
+    
+    # Ràng buộc mật độ thực nghiệm sơ đồ nằm trong biên độ toán học an toàn
+    real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
+    fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
+    total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
+else:
+    real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
+
+# Tính toán tổng diện tích tiêu hao cho luồng vải lót (Lining)
+total_lining_net_area = 0.0
+for idx, r in df_bom.iterrows():
+    v_piece = current_virtual_pieces.get(idx, {})
+    if v_piece.get("piece_class") == "LINING":
+        total_lining_net_area += v_piece.get("net_area_prod", 0.0) * v_piece.get("final_pcs", 1.0)
+
+if total_lining_net_area > 0 and lining_width > 0:
+    lining_sim_length = total_lining_net_area / lining_width / 0.76
+    total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
+else: 
+    total_lining_gross_yds = 0.0
+
+# Đồng bộ kết quả vào bộ não lưu trữ để cập nhật lên các thẻ Metric ngoài UI
+ctx["ai_expert_decision"].update({
+    "real_fabric_density": round(real_fabric_density, 4), 
+    "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
+    "total_lining_gross_yds": round(total_lining_gross_yds, 4)
+})
+
+# Đẩy trạng thái kết quả tính toán Yds tổng vào bộ nhớ tạm Streamlit
+st.session_state["final_fabric_consumption_kpi"] = round(total_fabric_gross_yds, 4)
+
+
+# =====================================================================
+# 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP PHÂN BỔ ĐÒNG CHI TIẾT)
+# =====================================================================
+# Giải toán phân bổ Keo/Mex độc lập bảo vệ biên sơ đồ
+def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
+    if fusing_width <= 0: return 0.0
+    bounding_box_area = l_prod * w_prod
+    void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
+    slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
+    if slenderness >= 6.0 and void_ratio <= 0.12:
+        return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
+    return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
+
+# 🚨 PHÂN BỔ KHÉP KÍN TUYẾN TÍNH: Tính toán tổng diện tích tịnh thực tế của vải chính sau co rút
+calculated_total_fabric_net_area = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp["piece_class"] == "FABRIC"])
+
+def core_engine_router(row, idx):
+    v_piece = current_virtual_pieces.get(idx, {})
+    p_class = v_piece.get("piece_class", "FABRIC")
+    if p_class == "ACCESSORY": return 0.0
+    
+    pcs = v_piece.get("final_pcs", 1.0)
+    net_area = v_piece.get("net_area_prod", 0.0)
+    
+    if p_class == "FUSING": 
+        return round(dynamic_fusing_solver(v_piece["length_prod"], v_piece["width_prod"], net_area, pcs), 4)
+        
+    elif p_class == "FABRIC":
+        # Sử dụng phương pháp phân bổ khép kín tuyến tính. Lấy định mức tổng sơ đồ nhân tỷ lệ dòng chi tiết
+        if calculated_total_fabric_net_area > 0:
+            line_share_ratio = (net_area * pcs) / calculated_total_fabric_net_area
+            return round(total_fabric_gross_yds * line_share_ratio, 4)
         return 0.0
+            
+    elif p_class == "LINING":
+        if total_lining_net_area > 0: 
+            return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
+        elif lining_width > 0: 
+            return round(((((net_area * pcs) / lining_width) / 36.0 / 0.76) * target_wastage), 4)
+    return 0.0
 
-    # Đẩy dữ liệu định mức phân bổ chính xác lên Dataframe lưới Grid
-    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-    df_bom["Calculated Width (Inch)"] = [current_fabric_width if current_virtual_pieces[idx]["piece_class"] == "FABRIC" else (lining_width if current_virtual_pieces[idx]["piece_class"] == "LINING" else fusing_width) for idx in df_bom.index]
-    
-    if len(fabric_pieces_to_nest) > 0:
-        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đóng gói khớp khít khao luồng phân bổ dòng)")
+# Xuất bản dữ liệu thương mại sạch sai lệch trực tiếp lên Grid Dataframe hệ thống
+df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+df_bom["Calculated Width (Inch)"] = [current_fabric_width if current_virtual_pieces[idx]["piece_class"] == "FABRIC" else (lining_width if current_virtual_pieces[idx]["piece_class"] == "LINING" else fusing_width) for idx in df_bom.index]
+
+# Thống kê tổng số lượng mảnh rập thực tế sau xử lý đồ thị để cập nhật KPI màn hình hiển thị
+if current_virtual_pieces:
+    st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+
+# Đưa ra thông báo thành công và ghi nhận kết quả lên giao diện
+if len(fabric_pieces_to_nest) > 0:
+    st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã đóng gói khớp khít khao luồng phân bổ dòng)")
 
           # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
