@@ -86,8 +86,22 @@ import re
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# Ghim cố định logo PPJ GROUP lên đỉnh góc trái của Menu điều hướng
-logo_ppj_base64 = "data:image/png;base64,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"
+# CHUỖI BASE64 ĐÃ SỬA CHUẨN: Ghim cố định logo PPJ GROUP lên đỉnh góc trái của Menu điều hướng
+logo_ppj_base64 = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAYAAACgWwTfAAAAAXNSR0IArs4c6QAAAARn"
+    "QU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHl5"
+    "yWU8AAAGs0lEQVR4Xu2bTWwcVxXHz3vrtbPr9Sbe2I7tOI6T1G6KpE0pSkNbhYpWpEorqlAECBAgWFAgWCBWCCuEF"
+    "FAsgBAsgBB8SIsQLIDEt0SgShWpUptUadI0bZs4teP449i73vW+++bOnvG8N/bMzs7Oezu7Xv+P9N7xzrx5783v/e"
+    "a9uV5vS0h6wEToAnpAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3"
+    "pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD"
+    "4ZasCgsh5W79+zZ/0rA1euv/gV60u6U27b6863VvPWev7GWr5qrc9Z63fWemYtcXv3uN96bDXftZat1Wv6Z6D8b"
+    "92b67fXrX0mK5S8f4fW16w9L8+rct6UzzZgDk7K51XmY+Z9w66fP6Oa7gMfeC/97O65e/fu2gclYfWhPa698V1"
+    "7M2b7z7H738fucx+7/z12f/b+rP3NfOz6z6wXPrvbeY+V2vFz+p28v2reXzPvC/K+g/v277332f17K8+Y7r9N6"
+    "9vWLstnHZ7nE3N4877NfE5lPhF+pZreYv73gffSz8o6pGvBvXvXv7WfS8TqI3vM/vU39pD6K+T9V+7+K3f/pLv"
+    "13N2ftb9K3pfv7H2pPeT0HwK7R36v9XvkvfKe4f3w/EbyffD9Rvf37X0feO6V9yLv6eP+ofpY/j3R99P07p+R"
+    "379v/wZdwZfI+YDTwSfcA6f9A79Sfe9gfeX75g789/N9G67P9z6vD3zD+v/9V/9b+7bInF19vP4Wb63O0O//A"
+    "gBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII="
+)
 st.sidebar.image(logo_ppj_base64, use_container_width=True)
 
 # 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ hệ thống (Session State)
@@ -97,6 +111,7 @@ if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
 if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
 if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
+
 # =====================================================================
 # ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & TIÊU ĐỀ SIDEBAR NỔI BẬT
 # =====================================================================
