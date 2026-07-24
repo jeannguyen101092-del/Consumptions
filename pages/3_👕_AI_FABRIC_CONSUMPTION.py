@@ -2117,7 +2117,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
        # =====================================================================
        # =====================================================================
-      # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
     # =====================================================================
     st.header("📋 AI GARMENT AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC KỸ THUẬT)")
@@ -2135,7 +2135,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Hiệu Suất Sơ Đồ Chỉ Định (Marker Efficiency)", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy Thuật Toán (AI Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 🚨 ĐÃ SỬA CHÍNH XÁC: ÉP BẢNG SUMMARY PHẢI NHÓM DỮ LIỆU THEO ĐÚNG NHÃN CHẤT LIỆU CỦA MẢNH ẢO TRONG RAM
+    # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
     # Triệt tiêu hoàn toàn lỗi nhận diện nhầm FUSING thành FABRIC làm lệch số 1.67 vs 1.63
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     
@@ -2216,7 +2216,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
         old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
-        new_pcs = float(row["Số lượng rập (Pcs)"])
+        
+        # 🔥 ĐÃ SỬA: Đọc chính xác tên cột gốc "Số lượng rập" bên trong Dataframe lõi để dứt điểm lỗi KeyError
+        new_pcs = float(row["Số lượng rập"])
+        
         if old_pcs != new_pcs:
             st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
