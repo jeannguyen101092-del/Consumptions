@@ -2026,34 +2026,31 @@ import pandas as pd
 import streamlit as st
 
 if 'df_bom' in locals() or 'df_bom' in globals():
-    ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-    if not isinstance(ai_decision_d5, dict): 
-        ai_decision_d5 = {}
+    # Kiểm tra xem dữ liệu đã được tính toán mô phỏng chưa, nếu có rồi thì BỎ QUA để tránh lặp vô hạn
+    if "virtual_pieces_layer" not in st.session_state or not st.session_state["virtual_pieces_layer"]:
         
-    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
-    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
-    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
-    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
-    m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
+        ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
+        if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+            
+        comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+        detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+        detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+        d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+        d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+        m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
-    # Lấy thông số co rút từ UI
-    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
-    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
-    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
-    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
-    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
-    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+        warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
+        weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
+        fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+        fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+        lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+        lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    SEAM_EDGE = 0.5 
-    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
+        SEAM_EDGE = 0.5 
+        TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
 
-    current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
-
-    if current_virtual_pieces and not all(idx in df_bom.index for idx in current_virtual_pieces.keys()):
         current_virtual_pieces = {}
 
-    if not current_virtual_pieces:
         for idx, r in df_bom.iterrows():
             c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
             m_str_raw = str(r.get(m_col, "")).upper().strip()
@@ -2065,72 +2062,44 @@ if 'df_bom' in locals() or 'df_bom' in globals():
                 elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER"]): inferred_class = "ACCESSORY"
                 elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
             else:
-                if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "NÚT"]): inferred_class = "ACCESSORY"
+                if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER"]): inferred_class = "ACCESSORY"
                 elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT"]): inferred_class = "LINING"
                 elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]): inferred_class = "FUSING"
                     
-            # [BẢO TOÀN DIỆN TÍCH DXF]: Ưu tiên tuyệt đối diện tích thực tế từ rập CAD
             raw_net_area = float(r.get("polygon_net_area", 0.0))
             raw_l = float(r.get(d5_actual_l_col, 0.0))
             raw_w = float(r.get(d5_actual_w_col, 0.0))
             
-            # Chỉ tính diện tích bao hộp nếu file lỗi/không có diện tích hình học thực
+            # Bảo toàn dữ liệu thực tế DXF, tránh bốc thuốc diện tích bao hộp
             if raw_net_area <= 0.0 and raw_l > 0 and raw_w > 0:
                 raw_net_area = round(raw_l * raw_w * 0.74, 4)
                     
+            # Áp dụng tính toán co rút rập ngay tại đây
+            if inferred_class == "FABRIC":
+                shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
+                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
+                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + weft_shrink_ui / 100.0), 3) if raw_w > 0 else 0.0
+            elif inferred_class == "FUSING":
+                shrink_factor = (1 + fusing_warp_shrink / 100.0) * (1 + fusing_weft_shrink / 100.0)
+                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + fusing_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
+                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + fusing_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
+            elif inferred_class == "LINING":
+                shrink_factor = (1 + lining_warp_shrink / 100.0) * (1 + lining_weft_shrink / 100.0)
+                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + lining_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
+                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + lining_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
+            else:
+                l_prod, w_prod = raw_l, raw_w
+                shrink_factor = 1.0
+
             current_virtual_pieces[idx] = {
                 "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")),
                 "piece_class": inferred_class,
-                "length_prod": raw_l,
-                "width_prod": raw_w,
-                "net_area_prod": raw_net_area,
+                "length_prod": l_prod,
+                "width_prod": w_prod,
+                "net_area_prod": round(raw_net_area * shrink_factor, 4),
                 "final_pcs": float(r.get("pcs_numeric", 1.0))
             }
-
-    # Tính toán biến đổi hình học qua độ co rút dệt may
-    for idx in list(current_virtual_pieces.keys()):
-        v_piece = current_virtual_pieces[idx]
-        row_ref = df_bom.loc[idx]
-        
-        if idx in st.session_state.get("user_edited_materials", {}):
-            v_piece["piece_class"] = st.session_state["user_edited_materials"][idx]
-        if idx in st.session_state.get("user_edited_pieces", {}):
-            v_piece["final_pcs"] = float(st.session_state["user_edited_pieces"][idx])
-            
-        l_orig_val = float(row_ref.get(d5_actual_l_col, 0.0))
-        w_orig_val = float(row_ref.get(d5_actual_w_col, 0.0))
-        p_class = v_piece["piece_class"]
-        
-        # Đồng bộ diện tích nền ban đầu
-        net_area_base = float(v_piece["net_area_prod"])
-        if net_area_base <= 0.0 and l_orig_val > 0 and w_orig_val > 0:
-            net_area_base = round(l_orig_val * w_orig_val * 0.74, 4)
-
-        if p_class == "FABRIC":
-            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
-            v_piece["length_prod"] = round(l_seam * (1 + warp_shrink_ui / 100.0), 3)
-            v_piece["width_prod"] = round(w_seam * (1 + weft_shrink_ui / 100.0), 3)
-            shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
-        elif p_class == "FUSING":
-            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
-            v_piece["length_prod"] = round(l_seam * (1 + fusing_warp_shrink / 100.0), 3)
-            v_piece["width_prod"] = round(w_seam * (1 + fusing_weft_shrink / 100.0), 3)
-            shrink_factor = (1 + fusing_warp_shrink / 100.0) * (1 + fusing_weft_shrink / 100.0)
-        elif p_class == "LINING":
-            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
-            v_piece["length_prod"] = round(l_seam * (1 + lining_warp_shrink / 100.0), 3)
-            v_piece["width_prod"] = round(w_seam * (1 + lining_weft_shrink / 100.0), 3)
-            shrink_factor = (1 + lining_warp_shrink / 100.0) * (1 + lining_weft_shrink / 100.0)
-        else:
-            v_piece["length_prod"], v_piece["width_prod"] = l_orig_val, w_orig_val
-            shrink_factor = 1.0
-            
-        v_piece["net_area_prod"] = round(net_area_base * shrink_factor, 4)
-
-    st.session_state["virtual_pieces_layer"] = current_virtual_pieces
+        st.session_state["virtual_pieces_layer"] = current_virtual_pieces
 import pandas as pd
 import streamlit as st
 
@@ -2144,11 +2113,9 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # Tính toán simulated_marker_length tự động dựa trên tổng diện tích thực / chiều rộng khổ hữu dụng
     simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
     if simulated_length_inch > 0:
         total_fabric_gross_yds = round((simulated_length_inch / 36.0) * target_wastage, 4)
-        st.session_state["final_fabric_consumption_kpi"] = total_fabric_gross_yds
     else:
         total_fabric_gross_yds = float(st.session_state.get("final_fabric_consumption_kpi", 0.0))
         
@@ -2161,35 +2128,24 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-        slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
-        if slenderness >= 6.0 and void_ratio <= 0.12:
-            return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * target_wastage
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # [GIẢI QUYẾT ĐỊNH HƯỚNG 2&3]: Thuật toán Nesting dự đoán Density dựa trên Đặc trưng hình học chi tiết rập
+    # Thuật toán Nesting dự đoán Density dựa trên Đặc trưng hình học chi tiết rập (Xóa bỏ lỗi biến trống)
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
-        
         bounding_box_area = l_prod * w_prod
-        # Void ratio phản ánh độ cong/khoét hụt của chi tiết (Ví dụ: vòng đùi quần Jean)
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-        # Slenderness phản ánh tỷ lệ dài mảnh (Thân quần dài vs Đáp túi vuông)
         slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
         
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
         
-        # Thuật toán dự đoán mật độ xếp rập (Density Prediction Model)
         if "MAJOR_PANEL" in geo_role:
-            # Chi tiết lớn định hình khung sơ đồ chính
             predicted_density = round(0.80 + (void_ratio * 0.15) - (min(slenderness, 10.0) * 0.005), 3)
         else:
-            # Chi tiết nhỏ lấp đầy khoảng trống (Hiệu suất nén không gian cực lớn)
             predicted_density = round(0.88 + (void_ratio * 0.10), 3)
             
-        # Khống chế biên độ trần mật độ đan xen thực tế của Gerber AccuMark (74% -> 91%)
         final_marker_efficiency = max(min(predicted_density, 0.91), 0.74)
-        
-        gross_yds = ((net_area * pcs) / marker_width / final_efficiency_ratio / 36.0) if 'final_efficiency_ratio' in locals() else ((net_area * pcs) / marker_width / final_marker_efficiency / 36.0)
+        gross_yds = ((net_area * pcs) / marker_width / final_marker_efficiency / 36.0)
         return round(gross_yds * target_wastage, 4)
 
     def core_engine_router(row, idx):
@@ -2206,43 +2162,23 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         if p_class == "FUSING": 
             return round(dynamic_fusing_solver(l_prod, w_prod, net_area, pcs), 4)
-            
         elif p_class == "FABRIC":
             if total_fabric_gross_yds > 0 and total_fabric_net_area_dynamic > 0:
                 line_share_ratio = (net_area * pcs) / total_fabric_net_area_dynamic
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, current_fabric_width)
-                
         elif p_class == "LINING":
             if total_lining_gross_yds > 0 and total_lining_net_area_dynamic > 0: 
                 line_share_ratio_lining = (net_area * pcs) / total_lining_net_area_dynamic
                 return round(total_lining_gross_yds * line_share_ratio_lining, 4)
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
-            
         return 0.0
 
-    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+    # Chỉ tính toán định mức lưu vào mảng tạm thời, KHÔNG GHI ĐÈ lên polygon_net_area gốc của DataFrame nữa
+    gross_consumption_list = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+    df_bom["Gross Consumption"] = gross_consumption_list
 
-    calculated_widths, updated_net_areas, updated_lengths, updated_widths = [], [], [], []
-    for idx in df_bom.index:
-        v_piece = current_virtual_pieces.get(idx, {})
-        p_class = v_piece.get("piece_class", "FABRIC")
-        
-        updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
-        updated_lengths.append(round(v_piece.get("length_prod", 0.0), 2))
-        updated_widths.append(round(v_piece.get("width_prod", 0.0), 2))
-        
-        if p_class == "FABRIC": calculated_widths.append(current_fabric_width)
-        elif p_class == "LINING": calculated_widths.append(lining_width)
-        elif p_class == "FUSING": calculated_widths.append(fusing_width)
-        else: calculated_widths.append(current_fabric_width)
-            
-    df_bom["polygon_net_area"] = updated_net_areas
-    df_bom["Calculated Width (Inch)"] = calculated_widths
-    
-    st.session_state["_prod_lengths_list_cache"] = updated_lengths
-    st.session_state["_prod_widths_list_cache"] = updated_widths
-
+    # Xuất báo cáo KPIs ra bộ nhớ đệm an toàn
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
 
