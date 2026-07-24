@@ -80,14 +80,35 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SẠCH MÃ)
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BANNER VĂN BẢN ĐỈNH SIDEBAR CHUẨN ERP
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🛠️ ĐÃ SỬA: Xóa bỏ hoàn toàn câu lệnh st.sidebar.markdown cũ chứa ảnh lỗi ở đây.
-# Khối Banner xanh PPJ GROUP giờ đây được tự động vẽ bằng CSS ở Đoạn 6a - Phần 2 cực kỳ ổn định.
+# Dùng lệnh Python tạo hộp chữ Banner vuông vắn ghim cứng lên đỉnh lề trái
+with st.sidebar:
+    st.markdown(
+        """
+        <div style="
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); 
+            border-radius: 8px; 
+            padding: 15px 10px; 
+            text-align: center; 
+            margin-top: -30px; /* Đẩy sát kịch trần lề trên */
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        ">
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; line-height: 1.2;">
+                PPJ GROUP
+            </div>
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 9px; font-weight: 600; color: #bfdbfe; letter-spacing: 0.3px; margin-top: 4px; text-transform: uppercase;">
+                BOUNDLESS SOLUTIONS
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State) an toàn
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
@@ -98,61 +119,106 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 
 
+
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH BIẾN Ô CHAT LIỀN KHỐI CHUẨN ĐẸP VỚI TRANG PHẢI
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS ĐỒNG BỘ MÀU SẮC & XỬ LÝ LỀ SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
-    /* CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG DỊU MẮT */
-    .stApp { background-color: #f0f4f8 !important; }
-    header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
+    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XANH NGỌC MỊN CHO TẤT CẢ CÁC LỚP BAN NỀN */
+    .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
+        background-color: #e6f4f1 !important; 
+    }
     
-    /* Đẩy toàn bộ khối nội dung trang chính dạt sang bên phải ngay ngắn */
+    /* Ép khoảng cách lề của toàn vùng nội dung dạt sang phải, tránh so le */
     .block-container { 
         padding-top: 1.5rem !important; 
-        padding-left: 0px !important; 
-        padding-right: 25px !important; 
-        margin-left: 320px !important; /* Đẩy rộng hơn một chút tạo khoảng thở với Sidebar */
-        max-width: calc(100% - 325px) !important;
-    }
-
-    /* 🧱 THIẾT KẾ ĐỘC QUYỀN: BỘ BỌC KHỐI NỀN TRẮNG TOÀN DIỆN CHO TRANG PHẢI */
-    .dashboard-workspace-card {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 8px !important;
-        padding: 24px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-        margin-bottom: 95px !important; /* Dành chỗ trống ở đáy cho ô chat liền khối */
-        width: 100% !important;
+        padding-left: 2rem !important; 
+        padding-right: 2rem !important; 
+        margin-left: 300px !important; /* Tạo khoảng trống chuẩn tách biệt Sidebar */
+        max-width: calc(100% - 300px) !important; 
+        padding-bottom: 120px !important; 
     }
     
-    /* 🛠️ ĐÃ SỬA: ÉP Ô CHAT GHIM LIỀN MẠCH, THẲNG HÀNG VÀ ĂN KHỚP VỚI KHỐI VIỀN TRẮNG */
-    .stChatInput, div[data-testid="stChatInputText"] {
-        position: fixed !important;
-        bottom: 20px !important;
-        left: 345px !important; /* Đồng bộ lùi lề khớp với mép trong khối viền trắng */
-        right: 50px !important;
-        width: auto !important;
-        z-index: 999992 !important;
-        background-color: #ffffff !important;
-        border-radius: 6px !important;
-        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03) !important; /* Đổ bóng nhẹ lên trên tạo độ mượt */
+    /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều */
+    div[data-testid="stHorizontalBlock"] { 
+        margin-top: 0px !important; 
+        padding-top: 0px !important; 
+        width: 100% !important;
+        max-width: 100% !important;
+        background-color: transparent !important; 
     }
 
-    /* ĐỊNH VỊ KHÓA CỨNG SIDEBAR BÊN TRÁI KHÔNG TRƯỢT */
+    /* NHUỘM XANH CÁC KHỐI CHỨA UPLOADER VÀ VISUALIZER CHO ĐỒNG BỘ */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #f0fdfa !important; 
+        border: 1px solid #99f6e4 !important; 
+        box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
+    }
+
+    /* CẤU HÌNH THANH MENU ĐIỀU HƯỚNG ĐA TRANG GỌN GÀNG */
+    [data-testid="stSidebarNav"] {
+        padding-top: 5px !important; /* Thu hẹp lại lề vì khoảng trống đã được lấp đầy */
+        background-color: transparent !important;
+        position: relative !important;
+    }
+    
+    /* Triệt tiêu hoàn toàn các cơ chế vẽ đè cũ tránh xung đột */
+    [data-testid="stSidebarNav"]::before,
+    [data-testid="stSidebarNav"]::after {
+        content: "" !important;
+        display: none !important;
+    }
+
+    /* ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN ĐÁY MÀN HÌNH */
+    .stChatInput,
+    .stChatInput > div,
+    .stChatInput fieldset,
+    div[data-testid="stChatInputContainer"] {
+        position: fixed !important;
+        bottom: 0 !important; 
+        left: 300px !important; 
+        right: 0 !important; 
+        width: calc(100% - 300px) !important; 
+        max-width: calc(100% - 300px) !important; 
+        background-color: #ccfbf1 !important; 
+        border: none !important;
+        border-top: 1px solid #5eead4 !important; 
+        border-radius: 0px !important; 
+        box-shadow: 0 -4px 10px rgba(15, 118, 110, 0.06) !important;
+        padding: 10px 2rem !important; 
+    }
+
+    /* Định dạng lõi nhập văn bản gõ chữ bên trong cho tiệp màu xanh ngọc */
+    div[data-testid="stChatInputContainer"] textarea {
+        background-color: #ccfbf1 !important; 
+        color: #115e59 !important; 
+        font-family: "Segoe UI", sans-serif !important;
+        font-size: 13px !important;
+        width: 100% !important;
+        border: none !important;
+    }
+
+    /* Căn chỉnh nút gửi hình mũi tên gọn gàng bên góc phải dải băng chat */
+    div[data-testid="stChatInputContainer"] button {
+        background-color: #0f766e !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+    }
+
+    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
         position: fixed !important;
         top: 0 !important;
         left: 0 !important;
-        width: 300px !important;
+        width: 300px !important; 
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
         overflow-y: hidden !important;
-        z-index: 9999 !important;
+        z-index: 99999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
@@ -160,51 +226,11 @@ st.markdown("""
         overflow-y: hidden !important;
     }
 
-    /* TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
-    [data-testid="stSidebarNav"] {
-        padding-top: 130px !important; 
-        position: relative !important;
-    }
-    
-    [data-testid="stSidebarNav"]::before {
-        content: "" !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; 
-        border-radius: 12px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-        z-index: 1 !important;
-    }
-
-    [data-testid="stSidebarNav"]::after {
-        content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
-        white-space: pre-wrap !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        text-align: center !important;
-        color: #ffffff !important;
-        font-family: "Segoe UI", -apple-system, sans-serif !important;
-        font-size: 18px !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.8px !important;
-        line-height: 1.6 !important;
-        z-index: 2 !important;
-    }
-
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -251,10 +277,13 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
+    /* 🛠️ SỬA DỨT ĐIỂM: Khử sạch và ẩn hoàn toàn cái icon rác ảnh vỡ nhỏ màu trắng ở giữa lề */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+
 
 import streamlit as st
 import re
@@ -409,6 +438,125 @@ with st.sidebar:
     
     st.markdown(history_html, unsafe_allow_html=True)
     st.markdown("<div style='font-size: 10px; color: #ccfbf1; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px; opacity: 0.8;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
+
+
+
+
+import streamlit as st
+import re
+import fitz  # Thư viện PyMuPDF để trích xuất văn bản và ảnh tự động từ file PDF
+
+# ------------------------------------------------------------------------------
+# LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ ĐÓNG KHUNG VIỀN ĐẸP MẮT & SỬA LỖI HIỂN THỊ)
+# ------------------------------------------------------------------------------
+col_left, col_right = st.columns(2)
+
+# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
+with col_left:
+    with st.container(border=True, height=520):
+        st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
+        
+        uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+        
+        if uploaded_file is not None:
+            # Nếu phát hiện người dùng tải lên một file hoàn toàn mới
+            if st.session_state.pdf_name != uploaded_file.name:
+                st.session_state.pdf_text_cache = None
+                st.session_state.pdf_page_one_image = None
+                if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+                
+            st.session_state.pdf_bytes = uploaded_file.read()
+            st.session_state.pdf_name = uploaded_file.name
+
+            # Tự động bóc tách Văn Bản và chuyển đổi PDF thành hình ảnh Sketch ngay lập tức
+            if st.session_state.pdf_text_cache is None or st.session_state.pdf_page_one_image is None:
+                with st.spinner("🤖 AI đang đọc tài liệu và trích xuất hình ảnh phác thảo..."):
+                    try:
+                        # Mở file PDF trực tiếp từ bộ nhớ bytes
+                        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                        
+                        # 1. Trích xuất toàn bộ text từ tất cả các trang phục vụ Regex tìm mã hàng
+                        full_text = ""
+                        for page in doc:
+                            full_text += page.get_text()
+                        st.session_state.pdf_text_cache = full_text
+                        
+                        # 2. Chuyển đổi trang đầu tiên (Trang 0) thành hình ảnh PNG chất lượng cao
+                        if len(doc) > 0:
+                            page_one = doc[0]
+                            pix = page_one.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom x2 để ảnh nét hơn
+                            image_bytes = pix.tobytes("png")
+                            st.session_state.pdf_page_one_image = image_bytes
+                            
+                        doc.close()
+                    except Exception as e:
+                        st.error(f"Lỗi khi đọc file PDF kĩ thuật: {e}")
+                
+                # Khởi động lại luồng giao diện để cập nhật ngay lập tức dữ liệu mới lên màn hình
+                st.rerun()
+
+        # Hiển thị thông tin hồ sơ tóm tắt sau khi đã trích xuất văn bản thành công
+        if st.session_state.pdf_text_cache is not None:
+            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+            txt = st.session_state.pdf_text_cache
+            
+            def get_meta(pattern, default="N/A"):
+                m = re.search(pattern, txt, re.IGNORECASE)
+                return m.group(1).strip() if m else default
+
+            # Thực hiện quét thông tin kĩ thuật bằng biểu thức chính quy (Regex)
+            style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
+            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE BAGGY JEANS")
+            customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
+            season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025 Apparel Reitmans")
+            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - MID RISE - POPLIN FABRIC")
+
+            # Ghim mã hàng vào bộ nhớ toàn cục để đồng bộ lên các khối KPIs trần trang và Lịch sử
+            st.session_state.style_id = style_id
+
+            # Bộ cấu hình CSS cao cấp đóng khung hộp viền mịn màng, đổ bóng 3D độc lập
+            box_style = (
+                "background-color: #f8fafc; "
+                "border: 1px solid #e2e8f0; "
+                "border-radius: 6px; "
+                "padding: 12px 14px; "
+                "margin-bottom: 12px; "
+                "box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);"
+            )
+            lbl_style = "font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;"
+            val_style = "font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+
+            # Chia lưới cột nhỏ bên trong khung Techpack Uploader
+            m_col1, m_col2 = st.columns(2)
+            with m_col1:
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Style Code / Mã hàng</div><div style="{val_style}; color: #0f766e;">{style_id}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Customer / Đối tác</div><div style="{val_style}">{customer}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Season / Mùa sản xuất</div><div style="{val_style}">{season}</div></div>', unsafe_allow_html=True)
+            with m_col2:
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Garment Type / Kiểu dáng</div><div style="{val_style}">{short_desc}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Material Spec / Mô tả vải</div><div style="{val_style}" title="{fabric_type}">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="{box_style} background-color: #f0fdf4; border-color: #bbf7d0;">'
+                    f'  <div style="{lbl_style} color: #166534;">Techpack Status</div>'
+                    f'  <div style="{val_style} color: #15803d; display: flex; align-items: center; gap: 6px;">🟢 READY TO BOM</div>'
+                    f'</div>', 
+                    unsafe_allow_html=True
+                )
+        else:
+            if st.session_state.pdf_bytes is None:
+                st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
+
+# --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ HÌNH ẢNH SKETCH ---
+with col_right:
+    with st.container(border=True, height=520):
+        st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
+        
+        # Hình ảnh phác thảo dạng bytes sau khi trích xuất từ PDF sẽ hiển thị sắc nét tại đây
+        if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
+            st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo trích xuất: {st.session_state.get('pdf_name', '')}", use_container_width=True)
+        else:
+            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+
 
 
 
