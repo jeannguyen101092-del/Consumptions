@@ -761,19 +761,60 @@ with chat_history_container:
             st.chat_message("user").write(msg["user"])
             st.chat_message("assistant").write(msg["ai"])
 
-# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
+# Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
     key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
+# 3. Kích hoạt cờ hiệu xử lý khi người dùng gửi thành công câu lệnh mới
 if safe_user_prompt:
     st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
     st.session_state.ai_processing = True
     st.rerun()
 
+# 🔥 [ĐÃ VÁ LỖI NGHẼN LUỒNG]: Đón cờ hiệu ai_processing để thực thi gọi Agent AI quét tài liệu
+if st.session_state.ai_processing and st.session_state["last_submitted_query"]:
+    with st.spinner("🤖 AI đang tiến hành phân tích Techpack và bóc tách toàn bộ nguyên phụ liệu..."):
+        try:
+            # 🚨 Gọi hàm quét AI (execute_cached_gemini_scan) từ Đoạn A của bạn
+            # Giả định các biến cấu hình đầu vào đã được định nghĩa ở các đoạn trước
+            ai_response_blueprint = execute_cached_gemini_scan(
+                pdf_bytes=st.session_state.get("uploaded_pdf_bytes"),
+                current_query=st.session_state["last_submitted_query"],
+                active_width=st.session_state.get("fabric_width_inch", 58.0),
+                target_size_cmd=st.session_state.get("target_size", "30"),
+                raw_json_schema=raw_json_schema if 'raw_json_schema' in locals() else None,
+                prompt_agent_2=prompt_agent_2 if 'prompt_agent_2' in locals() else ""
+            )
+            
+            # Gán kết quả trả về của AI vào biến context (ctx) và lưu bộ nhớ ảo layer rập
+            if ai_response_blueprint and "bom_rows" in ai_response_blueprint:
+                st.session_state["ai_expert_decision"] = ai_response_blueprint
+                
+                # Ép giải phóng bộ nhớ đệm virtual_pieces_layer cũ để Đoạn 1A nạp lại rập đa vật tư mới
+                if "virtual_pieces_layer" in st.session_state:
+                    del st.session_state["virtual_pieces_layer"]
+                
+                # Lưu câu trả lời thành công vào lịch sử Chat
+                success_msg = f"✅ Đã xử lý bóc tách thành công toàn bộ rập cho cỡ {ai_response_blueprint.get('calculated_on_size')}!"
+                st.session_state.chat_history.append({
+                    "user": st.session_state["last_submitted_query"],
+                    "ai": success_msg
+                })
+            else:
+                st.error("⚠️ AI không tìm thấy dữ liệu bảng rập rợp hợp lệ trong file Techpack.")
+
+        except Exception as e:
+            st.error(f"❌ Lỗi xử lý kết nối AI Agent: {e}")
+        
+        finally:
+            # Hạ cờ hiệu xử lý xuống để mở khóa cho ô nhập lệnh tiếp theo
+            st.session_state.ai_processing = False
+            st.rerun()
+
 # =====================================================================
+=========================
 # 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
 # =====================================================================
 
