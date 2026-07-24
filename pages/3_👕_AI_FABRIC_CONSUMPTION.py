@@ -2026,7 +2026,7 @@ import pandas as pd
 import streamlit as st
 
 if 'df_bom' in locals() or 'df_bom' in globals():
-    # Kiểm tra xem dữ liệu đã được tính toán mô phỏng chưa, nếu có rồi thì BỎ QUA để tránh lặp vô hạn
+    # Kiểm tra đồng bộ tránh lặp vô hạn và lệch index
     if "virtual_pieces_layer" not in st.session_state or not st.session_state["virtual_pieces_layer"]:
         
         ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
@@ -2070,11 +2070,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             raw_l = float(r.get(d5_actual_l_col, 0.0))
             raw_w = float(r.get(d5_actual_w_col, 0.0))
             
-            # Bảo toàn dữ liệu thực tế DXF, tránh bốc thuốc diện tích bao hộp
-            if raw_net_area <= 0.0 and raw_l > 0 and raw_w > 0:
-                raw_net_area = round(raw_l * raw_w * 0.74, 4)
+            # Bảo toàn dữ liệu DXF thực tế, loại bỏ số liệu ảo hàng triệu từ CAD
+            if raw_net_area > 100000.0 or raw_net_area <= 0.0:
+                if raw_l > 0 and raw_w > 0:
+                    raw_net_area = round(raw_l * raw_w * 0.74, 4)
+                else:
+                    raw_net_area = 0.0
                     
-            # Áp dụng tính toán co rút rập ngay tại đây
             if inferred_class == "FABRIC":
                 shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
                 l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
@@ -2130,7 +2132,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # Thuật toán Nesting dự đoán Density dựa trên Đặc trưng hình học chi tiết rập (Xóa bỏ lỗi biến trống)
+    # Thuật toán Nesting dự đoán Density dựa trên Đặc trưng hình học chi tiết rập
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2174,11 +2176,20 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
         return 0.0
 
-    # Chỉ tính toán định mức lưu vào mảng tạm thời, KHÔNG GHI ĐÈ lên polygon_net_area gốc của DataFrame nữa
-    gross_consumption_list = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-    df_bom["Gross Consumption"] = gross_consumption_list
+    # Tính định mức
+    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # Xuất báo cáo KPIs ra bộ nhớ đệm an toàn
+    # 🔥 VÁ LỖI CHÊNH LỆCH ĐỘ DÀI: Khởi tạo mảng cache khớp chính xác từng Index với df_bom đang duyệt
+    updated_lengths = []
+    updated_widths = []
+    for idx in df_bom.index:
+        v_piece = current_virtual_pieces.get(idx, {})
+        updated_lengths.append(round(v_piece.get("length_prod", 0.0), 2))
+        updated_widths.append(round(v_piece.get("width_prod", 0.0), 2))
+        
+    st.session_state["_prod_lengths_list_cache"] = updated_lengths
+    st.session_state["_prod_widths_list_cache"] = updated_widths
+
     if current_virtual_pieces:
         st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
 
