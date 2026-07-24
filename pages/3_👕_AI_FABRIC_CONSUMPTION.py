@@ -562,13 +562,13 @@ with col_right:
 
 
 
-import copy
 import hashlib
 import json
 import re
 import fitz
 import google.generativeai as genai
 import streamlit as st
+
 
 # =====================================================================
 # 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI (ĐÃ SỬA LỖI KHỔ VẢI)
@@ -587,8 +587,12 @@ def execute_cached_gemini_scan(
     prompt_agent_2,
 ):
     """Hàm gọi AI quét TOÀN BỘ các trang trong file Techpack để bóc tách trọn
+
     vẹn cấu trúc Vải chính, Vải lót và Keo lót (Fusing).
     """
+    import copy
+    import hashlib
+
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
@@ -601,7 +605,7 @@ def execute_cached_gemini_scan(
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
-        # Quét toàn bộ số trang của file Techpack để tìm sạch linh kiện keo/phụ liệu ở trang sau
+        # 🚨 ĐÃ SỬA: Quét toàn bộ số trang của file Techpack để tìm sạch linh kiện keo/phụ liệu ở trang sau
         for idx in range(total_pages):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
@@ -627,16 +631,15 @@ def execute_cached_gemini_scan(
         f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
     )
 
-    # CẬP NHẬT PROMPT ÉP ĐẦU RA TOÀN DIỆN NGUYÊN PHỤ LIỆU CHẶT CHẼ
+    # 🚨 ĐÃ CẬP NHẬT PROMPT ÉP ĐẦU RA TOÀN DIỆN NGUYÊN PHỤ LIỆU
     extended_prompt = (
         prompt_agent_2
         + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
     - Carefully scan for pocket linings, waist linings, and fusing/interfacing descriptors.
-    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", "MEX KEO", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "VẢI LÓT", classify its material_class strictly as "LINING".
-    - You MUST output the dynamic 'material_class' value for every single piece row. Do not default everyone to FABRIC.
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
     - Do not omit any minor panels or components from the final JSON structure.
     """
     )
@@ -677,16 +680,6 @@ def execute_cached_gemini_scan(
                 row["component_name"] = " ".join(
                     str(row["component_name"]).upper().split()
                 )
-            
-            # 🔥 VÁ LỖI PHÂN LOẠI VẬT TƯ CHUYÊN SÂU: Bảo toàn trường nhóm vật tư do AI trả về
-            if "material_class" in row:
-                row["piece_class"] = str(row["material_class"]).upper().strip()
-            elif "piece_class" in row:
-                row["material_class"] = str(row["piece_class"]).upper().strip()
-            else:
-                row["material_class"] = "FABRIC"
-                row["piece_class"] = "FABRIC"
-
             try:
                 row["bounding_box_length"] = round(
                     float(row.get("bounding_box_length", 0.0)), 2
@@ -713,22 +706,33 @@ def execute_cached_gemini_scan(
                 )
             except Exception:
                 row["gross_consumption"] = 0.0415
+            try:
+                row["marker_efficiency"] = str(
+                    row.get("marker_efficiency", "82.5%")
+                ).strip()
+            except Exception:
+                row["marker_efficiency"] = "82.5%"
             
-            # Khởi tạo hiệu suất rập động trống để Core Router tự động tính theo không gian hình học
-            row["marker_efficiency"] = None
-            
-            # ÉP ĐÈ KHỔ VẢI THEO Ô CHAT VÀO TỪNG DÒNG RẬP CHỐNG KẸT CACHE 56 CŨ
+            # 🛠️ ĐÃ SỬA: ÉP ĐÈ KHỔ VẢI THEO Ô CHAT VÀO TỪNG DÒNG RẬP CHỐNG KẸT CACHE 56 CŨ
             try:
                 forced_width = float(active_width)
                 if current_query:
-                    width_match = re.search(r"(?:khổ\s*vải|khổ)\s*(\d+(?:\.\d+)?)", str(current_query), re.IGNORECASE)
+                    width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
                     if width_match:
-                        forced_width = float(width_match.group(1))
+                        forced_width = float(width_match.group(2))
+                
+                # Gán thẳng khổ vải vừa quét động được vào dữ liệu chi tiết rập
                 row["fabric_width_inch"] = forced_width
             except Exception:
                 row["fabric_width_inch"] = float(active_width)
+
     return blueprint_worker
 
+
+
+
+
+import streamlit as st
 
 # =====================================================================
 # 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
@@ -751,17 +755,17 @@ with chat_history_container:
             st.chat_message("user").write(msg["user"])
             st.chat_message("assistant").write(msg["ai"])
 
-# Khung nhập lệnh tính toán động hệ _v8 mới tinh giải phóng hoàn toàn bộ nhớ đệm kẹt
+# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
     key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý khi người dùng gửi thành công câu lệnh mới
+# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
 if safe_user_prompt:
-    st.session_state["last_submitted_query"] = safe_user_prompt
+    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
+    st.session_state.ai_processing = True
     st.rerun()
-
 # =====================================================================
 =========================
 # 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
