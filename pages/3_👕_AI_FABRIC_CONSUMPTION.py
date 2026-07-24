@@ -1699,7 +1699,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m1: st.metric(label="📊 Ước lượng Mật độ Tiên nghiệm (Regression)", value=f"{estimated_density*100:.2f}%", delta=f"{(estimated_density - base_prior)*100:+.2f}% vs Barem")
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
-    # =====================================================================
+
+       # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCED JACKET FIX)
     # =====================================================================
     pattern_has_shrink = True  
@@ -1726,16 +1727,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
     if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-    FUSING_STRICT_RULES = {
-        "SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], 
-        "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], 
-        "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], 
-        "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], 
-        "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], 
-        "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], 
-        "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], 
-        "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]
-    }
+    FUSING_STRICT_RULES = {"SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]}
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
@@ -1758,7 +1750,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
             class_confidence = 1.0
         else:
-            mat_str = str(row[m_col]).upper().strip() if 'm_col' in locals() else ""
+            mat_str = str(row[m_col]).upper().strip()
             if slenderness >= 5.0 and void_ratio <= 0.15 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]):
                 p_class, class_confidence = "FUSING", 0.92
             elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
@@ -1776,10 +1768,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG"])
         is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC"])
 
-        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat
+        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat ("ngang 14", "dọc 3")
         if p_class == "FABRIC":
-            w_prod = round(w_orig * (1 + (weft_shrink / 100.0 if 'weft_shrink' in locals() else 0.0)), 3)
-            l_prod = round(l_orig * (1 + (warp_shrink / 100.0 if 'warp_shrink' in locals() else 0.0)), 3)
+            w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3)
         elif p_class == "FUSING":
             w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3)
             l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
@@ -1811,6 +1803,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     inferred_pcs = 2.0  # Thân trước mổ khóa kéo = 2 mảnh độc lập
                     qty_confidence = 0.99
                 elif has_back_kw:
+                    # Nếu thân sau rất rộng (mở phẳng liền trục) -> 1 mảnh chẵn, nếu xẻ sống lưng -> 2 mảnh
                     inferred_pcs = 1.0 if w_prod > 20.0 and "SPLIT" not in comp_name_upper else 2.0
                     qty_confidence = 0.99
             # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN
@@ -1828,20 +1821,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             inferred_pcs = 2.0
             qty_confidence = 0.99
 
-        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận
+        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận cưỡng bức
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
 
-        # Bước D: Khởi tạo từ điển lưu trữ dữ liệu chi tiết mảnh ảo sau khi xử lý hình học
+        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD
+        shape_factor = 0.92 if any(k in comp_name_upper for k in ["WAISTBAND", "BELT", "CAP"]) else (0.78 if p_class == "FUSING" else 0.85)
+        net_area_prod = round(l_prod * w_prod * shape_factor, 2)
+        p_area_list.append(net_area_prod)
+
         virtual_pieces_layer[idx] = {
-            "component_name": comp_name_raw,
-            "material_class": p_class,
-            "original_length": l_orig,
-            "original_width": w_orig,
-            "production_length": l_prod,
-            "production_width": w_prod,
-            "inferred_pcs": final_pcs,
-            "confidence": min(class_confidence, qty_confidence)
+            "original_index": idx, "component_name": comp_name_raw, "inferred_class": p_class,
+            "class_confidence": class_confidence, "qty_confidence": qty_confidence,
+            "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs
         }
+
+    # Bàn giao lớp phôi ảo sang context an toàn cho Đoạn 5 giải toán
+    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+    st.session_state["bom_data"] = ctx
+
+    # Xuất bản dữ liệu phẳng đồng bộ ra bảng tính df_bom hệ thống chuẩn chỉnh
+    df_bom["Dài sản xuất (L-inch)"] = p_length_list
+    df_bom["Rộng sản xuất (W-inch)"] = p_width_list
+    df_bom["polygon_net_area"] = p_area_list
+    df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
 
 
