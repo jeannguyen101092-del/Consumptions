@@ -2056,6 +2056,16 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
+    # =====================================================================
+    # 🔥 ĐOẠN SỬA LỖI: KIỂM TRA ĐỒNG BỘ INDEX ĐỂ TRÁNH LỖI KEYERROR KHI ĐỔI FILE
+    # =====================================================================
+    if current_virtual_pieces:
+        # Nếu phát hiện bất kỳ key cũ nào không tồn tại trong df_bom mới -> Tiến hành làm sạch session
+        if not all(idx in df_bom.index for idx in current_virtual_pieces.keys()):
+            current_virtual_pieces = {}
+            st.session_state["virtual_pieces_layer"] = {}
+    # =====================================================================
+
     if not current_virtual_pieces:
         for idx, r in df_bom.iterrows():
             c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper()
@@ -2188,7 +2198,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         st.session_state["simulated_marker_length"] = round(simulated_marker_length, 2)
         st.session_state["real_fabric_density"] = round(real_fabric_density, 4)
-import streamlit as st
 
 # =====================================================================
 # 🟦 ĐOẠN 2: CONSUMPTION ROUTER & PUBLISHING (GIỮ NGUYÊN CẤU TRÚC KEO LÓT)
