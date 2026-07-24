@@ -2178,10 +2178,9 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # Chuẩn hóa diện tích thực tế từ cấu trúc hình học (Bỏ qua số liệu lỗi hàng triệu từ CAD)
+    # Chuẩn hóa lại diện tích inch vuông tránh lỗi lệch đơn vị hàng triệu từ CAD
     for idx, vp in current_virtual_pieces.items():
         if vp.get("length_prod", 0) > 0 and vp.get("width_prod", 0) > 0:
-            # Gán lại net_area chuẩn inch vuông dựa trên hình hộp chữ nhật bao quanh chi tiết
             vp["net_area_prod"] = vp["length_prod"] * vp["width_prod"] * 0.76
 
     simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
@@ -2196,6 +2195,9 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     total_fabric_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "FABRIC"])
     total_lining_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "LINING"])
 
+    # 🔥 Đếm tổng số lượng chi tiết (Pcs) thực tế phân bổ trên toàn bộ bàn cắt sơ đồ
+    total_pieces_in_marker = sum(float(vp.get("final_pcs", 1.0)) for vp in current_virtual_pieces.values())
+
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2205,24 +2207,36 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * target_wastage
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # Thuật toán mô phỏng đan xen rập chuyên sâu (Xen kẽ chi tiết lớn/nhỏ và tối ưu khoảng trống sơ đồ)
-    def advanced_nesting_solver(row, l_prod, w_prod, pcs, marker_width):
+    # 🔥 THUẬT TOÁN ĐAN XEN TỰ ĐỘNG NÂNG HIỆU SUẤT THEO MẬT ĐỘ CHI TIẾT
+    def advanced_nesting_solver(row, l_prod, w_prod, pcs, marker_width, p_class):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0: return 0.0
         
         geo_role = str(row.get("Vị trí kết cấu (Geometry Role)", "MINOR_COMPONENT")).upper().strip()
         
-        # Thiết lập hiệu suất sơ đồ động (Marker Efficiency) dựa trên khả năng lồng ghép, đan xen chi tiết
-        if "MAJOR_PANEL" in geo_role:
-            # Thân trước/sau chiếm diện tích lớn, khó đan xen hơn, hiệu suất thực tế khoảng 78% - 82%
-            marker_efficiency = 0.81 
-        elif "MINOR_COMPONENT" in geo_role or "WAISTBAND" in geo_role:
-            # Chi tiết nhỏ (đáp, túi, đỉa, cạp) dễ dàng lách vào các khoảng trống của thân lớn, hiệu suất đan xen cực cao (88% - 92%)
-            marker_efficiency = 0.90
+        # 1. Định hình mốc hiệu suất nền (Base Efficiency) cho từng loại chất liệu
+        if p_class == "FABRIC":
+            base_eff = 0.81 if "MAJOR_PANEL" in geo_role else 0.86
+        elif p_class == "LINING":
+            base_eff = 0.79 if "MAJOR_PANEL" in geo_role else 0.84
         else:
-            marker_efficiency = 0.84 # Hiệu suất trung bình mặc định cho toàn sơ đồ
+            base_eff = 0.82
+            
+        # 2. Cơ chế AI tự động tính toán điểm thưởng đan xen (Nesting Bonus) dựa trên số lượng rập
+        # Sơ đồ càng nhiều chi tiết (ví dụ trên 10, 20, 30 chi tiết) thì khả năng tận dụng khoảng trống càng tốt
+        if total_pieces_in_marker > 30:
+            efficiency_bonus = 0.05  # Thưởng thêm 5% hiệu suất cho sơ đồ cực nhiều chi tiết
+        elif total_pieces_in_marker > 15:
+            efficiency_bonus = 0.03  # Thưởng thêm 3% cho sơ đồ trung bình
+        elif total_pieces_in_marker > 6:
+            efficiency_bonus = 0.015 # Thưởng thêm 1.5%
+        else:
+            efficiency_bonus = 0.0   # Sơ đồ quá ít chi tiết đơn lẻ, giữ nguyên mức nền
+            
+        # 3. Tính toán tổng hiệu suất sau tối ưu (Giới hạn trần tối đa dệt may không vượt quá 92%)
+        final_efficiency = min(base_eff + efficiency_bonus, 0.92)
             
         bounding_area = l_prod * w_prod * pcs
-        gross_yds = (bounding_area / marker_width / marker_efficiency / 36.0) * target_wastage
+        gross_yds = (bounding_area / marker_width / final_efficiency / 36.0) * target_wastage
         return round(gross_yds, 4)
 
     def core_engine_router(row, idx):
@@ -2244,14 +2258,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             if total_fabric_gross_yds > 0 and total_fabric_net_area_dynamic > 0:
                 line_share_ratio = (net_area * pcs) / total_fabric_net_area_dynamic
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
-            # Gọi thuật toán giả lập đan xen chi tiết nâng cao khi tính toán dự phòng
-            return advanced_nesting_solver(row, l_prod, w_prod, pcs, current_fabric_width)
+            return advanced_nesting_solver(row, l_prod, w_prod, pcs, current_fabric_width, "FABRIC")
                 
         elif p_class == "LINING":
             if total_lining_gross_yds > 0 and total_lining_net_area_dynamic > 0: 
                 line_share_ratio_lining = (net_area * pcs) / total_lining_net_area_dynamic
                 return round(total_lining_gross_yds * line_share_ratio_lining, 4)
-            return advanced_nesting_solver(row, l_prod, w_prod, pcs, lining_width)
+            return advanced_nesting_solver(row, l_prod, w_prod, pcs, lining_width, "LINING")
             
         return 0.0
 
@@ -2278,7 +2291,8 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     st.session_state["_prod_widths_list_cache"] = updated_widths
 
     if current_virtual_pieces:
-        st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+        st.session_state["total_actual_pieces_kpi"] = int(total_pieces_in_marker)
+
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
