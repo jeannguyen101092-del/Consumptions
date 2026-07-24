@@ -1876,7 +1876,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
        # =====================================================================
-    # 🟩 ĐOẠN 5: INTEGRATED GEOMETRIC CAD ENGINE (KHỐI 1 - MÔ PHỎNG SƠ ĐỒ)
+        # =====================================================================
+    # 🟩 ĐOẠN 5: INTEGRATED GEOMETRIC CAD ENGINE (KHỐI 1 - MÔ PHỎNG SƠ ĐỒ CHUẨN KÍCH THƯỚC THỰC)
     # =====================================================================
     if "processed_display_rows" in st.session_state and st.session_state["processed_display_rows"]:
         df_bom = pd.DataFrame(st.session_state["processed_display_rows"])
@@ -1922,6 +1923,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         for idx, r in df_bom.iterrows():
             v_piece = virtual_pieces_layer.get(idx, {})
             if v_piece.get("inferred_class", "FABRIC") == "FABRIC":
+                # 🚨 BẢO TOÀN DỮ LIỆU: Giữ nguyên diện tích tịnh chuẩn từ file CAD, không tự ý chia đôi nữa
                 net_area = v_piece.get("production_net_area", float(r.get("polygon_net_area", 0.0)))
                 comp_name_upper = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper().strip()
                 inferred_pcs = v_piece.get("inferred_pieces", r.get("pcs_numeric", 1.0))
@@ -1933,12 +1935,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
                 synchronized_fabric_pcs[idx] = current_pcs
                 
-                # CHIA ĐÔI RẬP RÃ: Chia nhỏ chiều rộng và diện tích nếu rập được rã đôi rải cặp
+                # 🚨 BẢO TOÀN DỮ LIỆU: Đọc đúng kích thước chiều dài/chiều rộng rập thực tế, triệt tiêu lỗi teo rập
                 p_l = float(v_piece.get("production_l", 0.0))
                 p_w = float(v_piece.get("production_w", 0.0))
-                if current_pcs >= 2.0:
-                    p_w = p_w / 2.0
-                    if net_area > (p_l * p_w): net_area = net_area / 2.0
                 
                 total_fabric_net_area += net_area * current_pcs
                 for _ in range(int(current_pcs)):
@@ -1960,11 +1959,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
             total_marker_bounding_area = simulated_marker_length * current_fabric_width
             real_fabric_density = (total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior) * historical_bias_factor
-            real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.12, real_fabric_density))
+            
+            # Khống chế mật độ rải thực tế từ mốc tri thức (mảnh rã gầy đạt hiệu suất tốt hơn khoảng +4% so với mặc định)
+            real_fabric_density = max(estimated_density_prior - 0.05, min(estimated_density_prior + 0.04, real_fabric_density))
             fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
             total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
         else:
             real_fabric_density, total_fabric_gross_yds = estimated_density_prior, 0.0
+
         # =====================================================================
         # 🟩 ĐOẠN 5: CLOSING SOLVER (KHỐI 2 - PHÂN BỔ ĐỊNH MỨC DÒNG)
         # =====================================================================
