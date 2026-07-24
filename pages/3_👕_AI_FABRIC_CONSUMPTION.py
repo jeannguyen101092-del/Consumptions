@@ -2026,13 +2026,16 @@ import pandas as pd
 import streamlit as st
 
 if 'df_bom' in locals() or 'df_bom' in globals():
-    # HARD RESET: Xóa bộ nhớ đệm cũ để áp dụng bộ lọc phân loại mới
+    # HARD RESET: Xóa cache cũ để làm sạch dữ liệu hình học
     if "virtual_pieces_layer" in st.session_state:
         del st.session_state["virtual_pieces_layer"]
 
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
+    # Lấy chủng loại sản phẩm hiện tại để đối chiếu danh mục (TROUSER, JEAN, JACKET, T-SHIRT...)
+    prod_cat_ui = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper().strip()
+
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
@@ -2057,8 +2060,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         m_str_raw = str(r.get(m_col, "")).upper().strip()
         
         inferred_class = None
-        
-        # TẦNG 1: ƯU TIÊN THEO CHẤT LIỆU TỪ BẢNG CAD
         if m_str_raw:
             if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
             elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]): inferred_class = "LINING"
@@ -2066,32 +2067,36 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER", "LABEL", "MÁC", "TAG"]): inferred_class = "ACCESSORY"
             elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
         
-        # TẦNG 2: SUY LUẬN CHẶT CHẼ THEO TÊN CHI TIẾT
         if not inferred_class:
-            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "STITCH", "OVERLUCK", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE"]):
+            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE"]):
                 inferred_class = "ACCESSORY"
-            elif any(k in c_name_raw for k in ["POCKETING", "POCKET BAG", "LINING", "LÓT", "VAI LOT", "BAG POCKET"]):
+            elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "VAI LOT"]):
                 inferred_class = "LINING"
-            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
+            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]):
                 inferred_class = "FUSING"
-            elif any(k in c_name_raw for k in ["RIB", "BO ", "BO CỔ", "BO TAY", "PHỐI", "PHOI"]):
+            elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]):
                 inferred_class = "RIB"
-            elif any(k in c_name_raw for k in ["YOKE", "POCKET", "FLY", "SHIELD", "LOOP", "WAISTBAND", "FRONT", "BACK", "JOKER", "BELT", "PANEL", "SLEEVE", "COLLAR", "CUFF", "JACKET", "BODY"]):
-                inferred_class = "FABRIC"
             else:
                 inferred_class = "FABRIC"
                 
-        raw_net_area = float(r.get("polygon_net_area", 0.0))
         raw_l = float(r.get(d5_actual_l_col, 0.0))
         raw_w = float(r.get(d5_actual_w_col, 0.0))
+        raw_pcs = float(r.get("pcs_numeric", 1.0))
         
-        if raw_net_area > 100000.0 or raw_net_area <= 0.0:
-            if raw_l > 0 and raw_w > 0:
-                raw_net_area = round(raw_l * raw_w * 0.76, 4)
-            else:
-                raw_net_area = 0.0
+        # 🔥 THUẬT TOÁN KIỂM TRA CHÉO DANH MỤC HÌNH HỌC (CROSS-CHECKING SANITIZER)
+        is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"])
+        is_major_leg_panel = any(k in c_name_raw for k in ["FRONT", "BACK", "TROUSER", "THÂN TRƯỚC", "THÂN SAU"])
+        
+        # CHỈ chia đôi chiều rộng nếu: 
+        # 1. Thuộc danh mục Quần ĐỒNG THỜI là thân rập lớn
+        # 2. Chiều rộng vọt lên quá khổ rập phẳng thông thường (> 16 inch)
+        # 3. Số lượng rập bắt buộc phải bằng 2 (Tức là rập đối xứng cắt đôi)
+        if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0:
+            raw_w = round(raw_w / 2.0, 2)
+            
+        # Tính toán diện tích tịnh rập thực tế sau khi đã lọc dữ liệu thông minh
+        raw_net_area = round(raw_l * raw_w * 0.75, 4)
                 
-        # Tính toán co rút (Nhóm RIB tạm thời tính co rút như FABRIC hoặc giữ nguyên tùy ý bạn)
         if inferred_class in ["FABRIC", "RIB"]:
             shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
             l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
@@ -2114,9 +2119,10 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "length_prod": l_prod,
             "width_prod": w_prod,
             "net_area_prod": round(raw_net_area * shrink_factor, 4),
-            "final_pcs": float(r.get("pcs_numeric", 1.0))
+            "final_pcs": raw_pcs
         }
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
+
 import pandas as pd
 import streamlit as st
 
