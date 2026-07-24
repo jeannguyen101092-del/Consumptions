@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS CỐ ĐỊNH SIDEBAR & FULL TRANG PHẢI
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX TRIỆT ĐỂ LỖI ĐÈ NỘI DUNG VÀ SO LE
 # =====================================================================
 st.markdown("""
 <style>
@@ -107,21 +107,28 @@ st.markdown("""
     .stApp { background-color: #f0f4f8 !important; }
     header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
     
-    /* 🔥 ĐÃ SỬA: Ép phần nội dung chính bên phải tràn rộng tối đa và căn lề thẳng hàng */
+    /* 🛠️ ĐÃ SỬA: Đẩy vùng trang chính dịch sang phải 300px để không bị Sidebar đè lên nội dung */
     .block-container { 
         padding-top: 1.5rem !important; 
         padding-left: 2rem !important; 
         padding-right: 2rem !important; 
-        max-width: 100% !important; 
+        margin-left: 300px !important; /* Tạo khoảng trống bù trừ cho Sidebar */
+        max-width: calc(100% - 300px) !important; /* Ép độ rộng vừa vặn màn hình còn lại */
     }
     
-    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ẨN THANH CUỘN LÊN XUỐNG */
+    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ĐỊNH VỊ ĐỘ RỘNG CHUẨN */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
         position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 300px !important; /* Khóa cứng độ rộng Sidebar */
+        min-width: 300px !important;
+        max-width: 300px !important;
         height: 100vh !important;
         overflow-y: hidden !important;
+        z-index: 9999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
@@ -129,7 +136,7 @@ st.markdown("""
         overflow-y: hidden !important;
     }
 
-    /* ĐẠO KHỐI BANNER CHỮ PPJ GROUP ĐÊM TRÊN ĐỈNH NAV */
+    /* TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
     [data-testid="stSidebarNav"] {
         padding-top: 130px !important; 
         position: relative !important;
@@ -172,7 +179,7 @@ st.markdown("""
         z-index: 2 !important;
     }
 
-    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại chuẩn mẫu */
+    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại */
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
