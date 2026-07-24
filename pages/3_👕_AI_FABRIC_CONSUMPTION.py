@@ -2132,7 +2132,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # Thuật toán Nesting dự đoán Density dựa trên Đặc trưng hình học chi tiết rập
     def geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, marker_width):
         if marker_width <= 0 or l_prod <= 0 or w_prod <= 0 or net_area <= 0: return 0.0
         bounding_box_area = l_prod * w_prod
@@ -2176,17 +2175,34 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             return geometry_density_nesting_solver(row, l_prod, w_prod, net_area, pcs, lining_width)
         return 0.0
 
-    # Tính định mức
+    # 1. Tính toán định mức tiêu hao Yards
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # 🔥 VÁ LỖI CHÊNH LỆCH ĐỘ DÀI: Khởi tạo mảng cache khớp chính xác từng Index với df_bom đang duyệt
+    # 2. 🔥 CẬP NHẬT DIỆN TÍCH VÀ KHỔ VẢI TRỰC TIẾP RA BẢNG HIỂN THỊ (VÁ LỖI CỘT KHÔNG CHẠY)
+    updated_net_areas = []
     updated_lengths = []
     updated_widths = []
+    calculated_widths = []
+
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
+        p_class = v_piece.get("piece_class", "FABRIC")
+        
+        # Đẩy diện tích đã tính toán co rút sang mảng hiển thị
+        updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
         updated_lengths.append(round(v_piece.get("length_prod", 0.0), 2))
         updated_widths.append(round(v_piece.get("width_prod", 0.0), 2))
         
+        if p_class == "FABRIC": calculated_widths.append(current_fabric_width)
+        elif p_class == "LINING": calculated_widths.append(lining_width)
+        elif p_class == "FUSING": calculated_widths.append(fusing_width)
+        else: calculated_widths.append(current_fabric_width)
+
+    # Đè dữ liệu hiển thị an toàn vào bảng không sợ lặp vô hạn
+    df_bom["polygon_net_area"] = updated_net_areas
+    df_bom["Calculated Width (Inch)"] = calculated_widths
+    
+    # Ghi đè list cache khớp chỉ mục index cho code hiển thị phía sau của bạn
     st.session_state["_prod_lengths_list_cache"] = updated_lengths
     st.session_state["_prod_widths_list_cache"] = updated_widths
 
