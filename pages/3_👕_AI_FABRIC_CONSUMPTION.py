@@ -2026,82 +2026,87 @@ import pandas as pd
 import streamlit as st
 
 if 'df_bom' in locals() or 'df_bom' in globals():
-    # Kiểm tra đồng bộ tránh lặp vô hạn và lệch index
-    if "virtual_pieces_layer" not in st.session_state or not st.session_state["virtual_pieces_layer"]:
+    # 🔥 THỰC HIỆN HARD RESET: Xóa bỏ hoàn toàn cache e+30 bị kẹt trong RAM từ các phiên chạy lỗi trước
+    if "virtual_pieces_layer" in st.session_state:
+        del st.session_state["virtual_pieces_layer"]
+
+    ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
+    if not isinstance(ai_decision_d5, dict): 
+        ai_decision_d5 = {}
         
-        ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-        if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
-            
-        comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-        detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
-        detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
-        d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
-        d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
-        m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+    m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
-        warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
-        weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
-        fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
-        fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
-        lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
-        lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+    # Lấy thông số co rút từ UI
+    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
+    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-        SEAM_EDGE = 0.5 
-        TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
+    SEAM_EDGE = 0.5 
+    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
 
-        current_virtual_pieces = {}
+    current_virtual_pieces = {}
 
-        for idx, r in df_bom.iterrows():
-            c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
-            m_str_raw = str(r.get(m_col, "")).upper().strip()
-            
-            inferred_class = "FABRIC"
-            if m_str_raw:
-                if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
-                elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]): inferred_class = "LINING"
-                elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER"]): inferred_class = "ACCESSORY"
-                elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
+    for idx, r in df_bom.iterrows():
+        c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
+        m_str_raw = str(r.get(m_col, "")).upper().strip()
+        
+        inferred_class = "FABRIC"
+        if m_str_raw:
+            if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
+            elif any(k in m_str_raw for k in ["LINING", "LOT", "VAI LOT"]): inferred_class = "LINING"
+            elif any(k in m_str_raw for k in ["ACCESSORY", "TRIMS", "CHI ", "THREAD", "ZIPPER"]): inferred_class = "ACCESSORY"
+            elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
+        else:
+            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER"]): inferred_class = "ACCESSORY"
+            elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT"]): inferred_class = "LINING"
+            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]): inferred_class = "FUSING"
+                
+        # Đọc lại diện tích gốc từ file thiết kế ban đầu
+        raw_net_area = float(r.get("polygon_net_area", 0.0))
+        raw_l = float(r.get(d5_actual_l_col, 0.0))
+        raw_w = float(r.get(d5_actual_w_col, 0.0))
+        
+        # 🚨 BẪY CHẶN SỐ MŨ VÔ HẠN: Nếu diện tích cũ bị lỗi (lớn hơn 100k) hoặc khuyết bằng 0, ép tính toán lại bằng hình học rập
+        if raw_net_area > 100000.0 or raw_net_area <= 0.0:
+            if raw_l > 0 and raw_w > 0:
+                raw_net_area = round(raw_l * raw_w * 0.76, 4)
             else:
-                if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER"]): inferred_class = "ACCESSORY"
-                elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT"]): inferred_class = "LINING"
-                elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]): inferred_class = "FUSING"
-                    
-            raw_net_area = float(r.get("polygon_net_area", 0.0))
-            raw_l = float(r.get(d5_actual_l_col, 0.0))
-            raw_w = float(r.get(d5_actual_w_col, 0.0))
-            
-            # Bảo toàn dữ liệu DXF thực tế, loại bỏ số liệu ảo hàng triệu từ CAD
-            if raw_net_area > 100000.0 or raw_net_area <= 0.0:
-                if raw_l > 0 and raw_w > 0:
-                    raw_net_area = round(raw_l * raw_w * 0.74, 4)
-                else:
-                    raw_net_area = 0.0
-                    
-            if inferred_class == "FABRIC":
-                shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
-                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
-                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + weft_shrink_ui / 100.0), 3) if raw_w > 0 else 0.0
-            elif inferred_class == "FUSING":
-                shrink_factor = (1 + fusing_warp_shrink / 100.0) * (1 + fusing_weft_shrink / 100.0)
-                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + fusing_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
-                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + fusing_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
-            elif inferred_class == "LINING":
-                shrink_factor = (1 + lining_warp_shrink / 100.0) * (1 + lining_weft_shrink / 100.0)
-                l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + lining_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
-                w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + lining_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
-            else:
-                l_prod, w_prod = raw_l, raw_w
-                shrink_factor = 1.0
+                raw_net_area = 0.0
+                
+        # Áp dụng hệ số co rút dệt may vào kích thước rập sản xuất
+        if inferred_class == "FABRIC":
+            shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
+            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
+            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + weft_shrink_ui / 100.0), 3) if raw_w > 0 else 0.0
+        elif inferred_class == "FUSING":
+            shrink_factor = (1 + fusing_warp_shrink / 100.0) * (1 + fusing_weft_shrink / 100.0)
+            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + fusing_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
+            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + fusing_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
+        elif inferred_class == "LINING":
+            shrink_factor = (1 + lining_warp_shrink / 100.0) * (1 + lining_weft_shrink / 100.0)
+            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + lining_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
+            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + lining_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
+        else:
+            l_prod, w_prod = raw_l, raw_w
+            shrink_factor = 1.0
 
-            current_virtual_pieces[idx] = {
-                "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")),
-                "piece_class": inferred_class,
-                "length_prod": l_prod,
-                "width_prod": w_prod,
-                "net_area_prod": round(raw_net_area * shrink_factor, 4),
-                "final_pcs": float(r.get("pcs_numeric", 1.0))
-            }
-        st.session_state["virtual_pieces_layer"] = current_virtual_pieces
+        current_virtual_pieces[idx] = {
+            "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")),
+            "piece_class": inferred_class,
+            "length_prod": l_prod,
+            "width_prod": w_prod,
+            "net_area_prod": round(raw_net_area * shrink_factor, 4),
+            "final_pcs": float(r.get("pcs_numeric", 1.0))
+        }
+    st.session_state["virtual_pieces_layer"] = current_virtual_pieces
 import pandas as pd
 import streamlit as st
 
