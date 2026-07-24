@@ -99,7 +99,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH KHÓA KHÍT VIỀN Ô CHAT TRÀN HAI BIÊN ERP
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH GHIM LOGO PPJ GROUP CHUẨN LÊN ĐỈNH NAV
 # =====================================================================
 st.markdown("""
 <style>
@@ -139,7 +139,37 @@ st.markdown("""
         color: #115e59 !important; 
     }
 
-    /* 🔥 SỬA DỨT ĐIỂM: ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN */
+    /* 🛠️ SỬA DỨT ĐIỂM: GHIM LOGO HÌNH PPJ GROUP CHUẨN LÊN ĐỈNH NAV ĐA TRANG */
+    [data-testid="stSidebarNav"] {
+        padding-top: 120px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
+        position: relative !important;
+    }
+    
+    /* Chèn hình ảnh logo PPJ GROUP (Boundless solutions) sắc nét vào làm nền */
+    [data-testid="stSidebarNav"]::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 20px !important;
+        left: 15px !important;
+        right: 15px !important;
+        height: 75px !important;
+        background-image: url("https://r2.dev") !important; 
+        background-repeat: no-repeat !important;
+        background-position: center !important;
+        background-size: contain !important;
+        background-color: transparent !important;
+        border-radius: 0px !important;
+        box-shadow: none !important;
+        z-index: 999996 !important;
+    }
+
+    /* Tắt bỏ dòng chữ Text PPJ GROUP cũ của các turn trước */
+    [data-testid="stSidebarNav"]::after {
+        content: "" !important;
+        display: none !important;
+    }
+
+    /* ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN ĐÁY MÀN HÌNH */
     .stChatInput,
     .stChatInput > div,
     .stChatInput fieldset,
@@ -149,7 +179,7 @@ st.markdown("""
         left: 300px !important; /* Đâm khít sạt chạm lề vào Sidebar */
         right: 0 !important; /* Đâm khít sạt ra biên ngoài cùng bên phải màn hình */
         width: calc(100% - 300px) !important; /* Phủ kín toàn bộ phần trang phải */
-        max-width: calc(100% - 300px) !important; /* Triệt tiêu giới hạn bề ngang mặc định */
+        max-width: calc(100% - 300px) !important; 
         background-color: #ccfbf1 !important; /* Đồng bộ nhuộm xanh ngọc mịn toàn khối */
         border: none !important;
         border-top: 1px solid #5eead4 !important; /* Kẻ đường viền xanh mượt ngăn cách phía trên */
@@ -195,51 +225,11 @@ st.markdown("""
         overflow-y: hidden !important;
     }
 
-    /* TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
-    [data-testid="stSidebarNav"] {
-        padding-top: 130px !important; 
-        position: relative !important;
-    }
-    
-    [data-testid="stSidebarNav"]::before {
-        content: "" !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; 
-        border-radius: 12px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-        z-index: 1 !important;
-    }
-
-    [data-testid="stSidebarNav"]::after {
-        content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
-        white-space: pre-wrap !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        text-align: center !important;
-        color: #ffffff !important;
-        font-family: "Segoe UI", -apple-system, sans-serif !important;
-        font-size: 18px !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.8px !important;
-        line-height: 1.6 !important;
-        z-index: 2 !important;
-    }
-
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -290,6 +280,7 @@ st.markdown("""
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 import streamlit as st
