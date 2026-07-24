@@ -1887,127 +1887,140 @@ def execute_geometric_graph_pairing(df_bom: pd.DataFrame, actual_l_col: str, act
                 embedding_catalog[idx_b]["pair_target_idx"] = idx_a
 
     return embedding_catalog
-# 🟩 ĐOẠN 4B: INDUSTRIAL CROSS-AUDIT & GEOMETRIC PRODUCTION PROCESSOR (LEVEL 5 -> 6)
+# 🟩 ĐOẠN 4B: INDUSTRIAL CROSS-AUDIT & GEOMETRIC PRODUCTION PROCESSOR (FIXED SCOPE)
 # =====================================================================
-# Bộ sniffer dò tìm chính xác cột kích thước và chất liệu gốc của file CAD
-comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
-detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
-actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
-actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
-m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
+import pandas as pd
+import streamlit as st
 
-# Thực thi Tầng 4A để lấy bản đồ topo hình học bất biến
-embedding_catalog = execute_geometric_graph_pairing(df_bom, actual_l_col, actual_w_col)
+def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui: float = 0.0, weft_shrink_ui: float = 0.0) -> dict:
+    """
+    Kế thừa ma trận đồ thị hình học từ tầng 4A để kiểm toán cấu trúc rập 
+    và xử lý phình phôi co rút phục vụ tính định mức.
+    """
+    # Phòng thủ nếu df_bom bị rỗng hoặc chưa được khởi tạo
+    if df_bom is None or df_bom.empty:
+        st.warning("Dữ liệu BOM/CAD rỗng. Vui lòng tải tài liệu lên hệ thống.")
+        return {}
 
-# LEVEL 5: TOPOLOGY REASONING - Xác định xem hệ thống tổng thể có phải hệ rập rã vế chính hay không
-paired_main_blocks_count = sum(1 for idx, info in embedding_catalog.items() if info["is_paired"] and info["structural_weight"] > 0.45)
-is_split_pattern_system = paired_main_blocks_count >= 2
+    # 1. BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT DỮ LIỆU
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+    actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+    m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
-# Khởi tạo lưu trữ dữ liệu Streamlit State nếu chưa có
-if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
-if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
+    # Đọc thông số co rút thớ vải phụ từ UI phục vụ keo/lót
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-# LEVEL 6: PRODUCTION LINEARIZATION & CROSS-GROUP AUDITING
-virtual_pieces_layer = {}
-p_length_list, p_width_list, p_area_list = [], [], []
+    # Thực thi Tầng 4A để lấy bản đồ topo hình học bất biến (Gọi hàm từ module 4A)
+    embedding_catalog = execute_geometric_graph_pairing(df_bom, actual_l_col, actual_w_col)
 
-for idx, row in df_bom.iterrows():
-    comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
-    comp_name_upper = comp_name_raw.upper().strip()
-    
-    geo_info = embedding_catalog[idx]
-    l_orig = geo_info["l_orig"]
-    w_orig = geo_info["w_orig"]
-    net_area_raw = geo_info["net_area"]
-    
-    # Bước A: Phân loại chất liệu thông minh dựa vào Vector hình học thuần túy lõi
-    if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
-        p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
-        class_confidence = 1.0
-    else:
-        mat_str = str(row[m_col]).upper().strip() if m_col else ""
-        if geo_info["embedding"][0] >= 5.0 and geo_info["embedding"][1] >= 0.85 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]):
-            p_class, class_confidence = "FUSING", 0.95
-        elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
-            p_class, class_confidence = ("LINING", 0.88) if "LINING" in mat_str or "LÓT" in comp_name_upper else ("FABRIC", 0.75)
-        elif any(k in mat_str or k in comp_name_upper for k in ["FUSING", "MEC", "KEO", "INTERLINING"]):
-            p_class, class_confidence = "FUSING", 1.0
-        elif any(k in mat_str or k in comp_name_upper for k in ["LINING", "LOT", "POCKETING", "VAI LOT"]):
-            p_class, class_confidence = "LINING", 1.0
-        elif any(k in mat_str or k in comp_name_upper for k in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
-            p_class, class_confidence = "ACCESSORY", 1.0
-        else:
-            p_class, class_confidence = ("FABRIC", 0.95) if geo_info["structural_weight"] > 0.20 else ("FABRIC", 0.70)
+    # LEVEL 5: TOPOLOGY REASONING - Xác định xem hệ thống tổng thể có phải hệ rập rã vế chính hay không
+    paired_main_blocks_count = sum(1 for idx, info in embedding_catalog.items() if info["is_paired"] and info["structural_weight"] > 0.45)
+    is_split_pattern_system = paired_main_blocks_count >= 2
 
-    # Bước B: Áp thông số co rút sợi sản xuất trực tiếp đọc từ UI
-    warp_shrink = float(locals().get('warp_shrink', 0.0))
-    weft_shrink = float(locals().get('weft_shrink', 0.0))
+    # Đảm bảo Streamlit Session State được khởi tạo an toàn
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-    if p_class == "FABRIC":
-        w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3)
-        l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3)
-    elif p_class == "FUSING":
-        w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3)
-        l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
-    elif p_class == "LINING":
-        w_prod = round(w_orig * (1 + lining_weft_shrink / 100.0), 3)
-        l_prod = round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
-    else:
-        w_prod, l_prod = w_orig, l_orig
+    # LEVEL 6: PRODUCTION LINEARIZATION & CROSS-GROUP AUDITING
+    virtual_pieces_layer = {}
 
-    p_width_list.append(w_prod)
-    p_length_list.append(l_prod)
-
-    # 🔒 Bước C: BẢO TOÀN DỮ LIỆU GỐC & THỰC THI KIỂM TOÁN LỆCH ĐỒ THỊ
-    raw_pcs = float(row.get("pcs_numeric", 1.0)) if not pd.isna(row.get("pcs_numeric")) else 1.0
-    if raw_pcs <= 0: raw_pcs = 1.0
+    for idx, row in df_bom.iterrows():
+        comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
+        comp_name_upper = comp_name_raw.upper().strip()
         
-    final_pcs = raw_pcs 
-    qty_warning = None   
+        geo_info = embedding_catalog[idx]
+        l_orig = geo_info["l_orig"]
+        w_orig = geo_info["w_orig"]
+        net_area_raw = geo_info["net_area"]
+        
+        # Bước A: Phân loại chất liệu thông minh dựa vào Vector hình học thuần túy lõi
+        if idx in st.session_state["user_edited_materials"]:
+            p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
+            class_confidence = 1.0
+        else:
+            mat_str = str(row[m_col]).upper().strip() if m_col else ""
+            if geo_info["embedding"][0] >= 5.0 and geo_info["embedding"][1] >= 0.85 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]):
+                p_class, class_confidence = "FUSING", 0.95
+            elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
+                p_class, class_confidence = ("LINING", 0.88) if "LINING" in mat_str or "LÓT" in comp_name_upper else ("FABRIC", 0.75)
+            elif any(k in mat_str or k in comp_name_upper for k in ["FUSING", "MEC", "KEO", "INTERLINING"]):
+                p_class, class_confidence = "FUSING", 1.0
+            elif any(k in mat_str or k in comp_name_upper for k in ["LINING", "LOT", "POCKETING", "VAI LOT"]):
+                p_class, class_confidence = "LINING", 1.0
+            elif any(k in mat_str or k in comp_name_upper for k in ["THREAD", "CHI", "ACCESSORY", "BUTTON", "ZIPPER"]):
+                p_class, class_confidence = "ACCESSORY", 1.0
+            else:
+                p_class, class_confidence = ("FABRIC", 0.95) if geo_info["structural_weight"] > 0.20 else ("FABRIC", 0.70)
 
-    if p_class in ["FABRIC", "LINING"]:
-        # 1. Kiểm toán dựa trên việc ghép cặp hình học của thuật toán Hungarian toàn cục
-        if geo_info["is_paired"]:
-            if final_pcs != 1.0:
-                qty_warning = f"Cảnh báo cấu trúc đồ thị: Chi tiết thuộc cụm vế đối xứng song sinh ({comp_name_raw}) có số lượng {final_pcs} pcs (Kỳ vọng đồng bộ: 1 pcs)."
+        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp (Lấy từ tham số đầu vào của hàm)
+        if p_class == "FABRIC":
+            w_prod = round(w_orig * (1 + weft_shrink_ui / 100.0), 3)
+            l_prod = round(l_orig * (1 + warp_shrink_ui / 100.0), 3)
+        elif p_class == "FUSING":
+            w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
+        elif p_class == "LINING":
+            w_prod = round(w_orig * (1 + lining_weft_shrink / 100.0), 3)
+            l_prod = round(l_orig * (1 + lining_warp_shrink / 100.0), 3)
+        else:
+            w_prod, l_prod = w_orig, l_orig
+
+        # 🔒 Bước C: BẢO TOÀN DỮ LIỆU GỐC & THỰC THI KIỂM TOÁN LỆCH ĐỒ THỊ
+        raw_pcs = float(row.get("pcs_numeric", 1.0)) if not pd.isna(row.get("pcs_numeric")) else 1.0
+        if raw_pcs <= 0: raw_pcs = 1.0
             
-            t_idx = geo_info["pair_target_idx"]
-            t_u_pcs = st.session_state["user_edited_pieces"].get(t_idx, None)
-            t_pcs = float(t_u_pcs) if t_u_pcs is not None else float(df_bom.loc[t_idx].get("pcs_numeric", 1.0))
-            if final_pcs != t_pcs:
-                qty_warning = f"Cảnh báo cấu trúc đồ thị: Phát hiện sự mất cân đối định mức. Chi tiết đối vế hình học trực tiếp của ({comp_name_raw}) đang khai báo lệch số lượng mảnh."
+        final_pcs = raw_pcs 
+        qty_warning = None   
 
-        # 2. Kiểm toán mảnh chính đơn lẻ diện tích lớn (Khối gập vải hoặc khối mở phẳng đơn chiếc)
-        elif not geo_info["is_paired"] and geo_info["structural_weight"] > 0.60:
-            if is_split_pattern_system and final_pcs != 1.0:
-                qty_warning = f"Cảnh báo cấu trúc đồ thị: Hệ rập đang chạy theo quy ước tách dòng đối xứng, chi tiết đơn lẻ ({comp_name_raw}) có số lượng {final_pcs} pcs khác biệt quy chiếu."
+        if p_class in ["FABRIC", "LINING"]:
+            # 1. Kiểm toán dựa trên việc ghép cặp hình học của thuật toán Hungarian
+            if geo_info["is_paired"]:
+                if final_pcs != 1.0:
+                    qty_warning = f"Cảnh báo cấu trúc đồ thị: Chi tiết thuộc cụm vế đối xứng song sinh ({comp_name_raw}) có số lượng {final_pcs} pcs (Kỳ vọng đồng bộ: 1 pcs)."
+                
+                t_idx = geo_info["pair_target_idx"]
+                t_u_pcs = st.session_state["user_edited_pieces"].get(t_idx, None)
+                t_pcs = float(t_u_pcs) if t_u_pcs is not None else float(df_bom.loc[t_idx].get("pcs_numeric", 1.0))
+                if final_pcs != t_pcs:
+                    qty_warning = f"Cảnh báo cấu trúc đồ thị: Phát hiện sự mất cân đối định mức. Chi tiết đối vế hình học trực tiếp của ({comp_name_raw}) đang khai báo lệch số lượng mảnh."
 
-    # Ưu tiên tuyệt đối hành vi can thiệp của User trên giao diện UI Grid
-    if idx in st.session_state["user_edited_pieces"]:
-        final_pcs = float(st.session_state["user_edited_pieces"][idx])
-        qty_warning = None  
+            # 2. Kiểm toán mảnh chính đơn lẻ diện tích lớn (Khối gập vải hoặc khối mở phẳng đơn chiếc)
+            elif not geo_info["is_paired"] and geo_info["structural_weight"] > 0.60:
+                if is_split_pattern_system and final_pcs != 1.0:
+                    qty_warning = f"Cảnh báo cấu trúc đồ thị: Hệ rập đang chạy theo quy ước tách dòng đối xứng, chi tiết đơn lẻ ({comp_name_raw}) có số lượng {final_pcs} pcs khác biệt quy chiếu."
 
-    # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD phục vụ hạ nguồn tính định mức
-    l_orig_safe = l_orig if l_orig > 0 else 1.0
-    w_orig_safe = w_orig if w_orig > 0 else 1.0
-    is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe)) > 450.0 and (l_prod / w_orig_safe) < 1.8)
-    
-    net_area_prod = net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe))
-    p_area_list.append(net_area_prod)
+        # Ưu tiên tuyệt đối hành vi can thiệp của User trên giao diện UI Grid
+        if idx in st.session_state["user_edited_pieces"]:
+            final_pcs = float(st.session_state["user_edited_pieces"][idx])
+            qty_warning = None  
 
-    # Đóng gói dữ liệu chuyển tiếp sang Level 6 (Consumption AI)
-    virtual_pieces_layer[idx] = {
-        "component_name": comp_name_raw,
-        "piece_class": p_class,
-        "class_confidence": class_confidence,
-        "length_prod": l_prod,
-        "width_prod": w_prod,
-        "final_pcs": final_pcs,
-        "is_geometric_paired": geo_info["is_paired"], 
-        "qty_warning": qty_warning,  
-        "net_area_prod": net_area_prod
-    }
+        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD phục vụ hạ nguồn tính định mức
+        l_orig_safe = l_orig if l_orig > 0 else 1.0
+        w_orig_safe = w_orig if w_orig > 0 else 1.0
+        is_wide_piece = (w_prod > 18.0) or (net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe)) > 450.0 and (l_prod / w_orig_safe) < 1.8)
+        
+        net_area_prod = net_area_raw * ((l_prod * w_prod) / (l_orig_safe * w_orig_safe))
+
+        # Đóng gói dữ liệu chuyển tiếp sang Level 6 (Consumption AI)
+        virtual_pieces_layer[idx] = {
+            "component_name": comp_name_raw,
+            "piece_class": p_class,
+            "class_confidence": class_confidence,
+            "length_prod": l_prod,
+            "width_prod": w_prod,
+            "final_pcs": final_pcs,
+            "is_geometric_paired": geo_info["is_paired"], 
+            "qty_warning": qty_warning,  
+            "net_area_prod": net_area_prod
+        }
+        
+    return virtual_pieces_layer
 
 
 
