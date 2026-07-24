@@ -123,7 +123,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & TIÊU ĐỀ SIDEBAR NỔI BẬT
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS SÁNG RÕ & BANNER PPJ GROUP ĐỈNH SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
@@ -139,22 +139,52 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* 🛠️ SỬA DỨT ĐIỂM: DÙNG URL ẢNH THẬT ĐỂ CHÈN LOGO VÀO THANH NAV ĐA TRANG CỦA STREAMLIT */
+    /* 🛠️ SỬA DỨT ĐIỂM BẰNG LỚP PHỦ CSS: TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
     [data-testid="stSidebarNav"] {
-        padding-top: 100px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống tạo khoảng trống */
-        background-image: url("https://r2.dev") !important;
-        background-repeat: no-repeat !important;
-        background-position: center 25px !important; /* Căn chỉnh logo nằm chính giữa khoảng trống */
-        background-size: 150px auto !important; /* Định kích cỡ logo vừa vặn thanh menu */
-        background-color: #0f766e !important;
+        padding-top: 130px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
+        position: relative !important;
+    }
+    
+    /* Dựng khối nền Banner xanh Gradient bo góc */
+    [data-testid="stSidebarNav"]::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 15px !important;
+        left: 12px !important;
+        right: 12px !important;
+        height: 95px !important;
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; /* Màu xanh mượt mà */
+        border-radius: 12px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+        z-index: 1 !important;
     }
 
-    /* Định dạng phần tiêu đề nhỏ trong Sidebar */
-    [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #ffffff !important; 
-        font-size: 13px !important;
-        letter-spacing: 0.5px !important;
-        margin-top: 15px !important;
+    /* Chèn dòng chữ lớn "PPJ GROUP" chính giữa hộp */
+    [data-testid="stSidebarNav"]::after {
+        content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
+        white-space: pre-wrap !important;
+        position: absolute !important;
+        top: 15px !important;
+        left: 12px !important;
+        right: 12px !important;
+        height: 95px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        color: #ffffff !important;
+        font-family: "Segoe UI", -apple-system, sans-serif !important;
+        font-size: 18px !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.8px !important;
+        line-height: 1.6 !important;
+        z-index: 2 !important;
+    }
+
+    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại chuẩn mẫu */
+    div[data-testid="stSidebarNav"] {
+        font-size: 11px !important;
     }
 
     /* Định dạng nút bấm xóa bộ nhớ tinh tế, dễ nhìn */
@@ -210,8 +240,8 @@ st.markdown("""
     .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* 🛠️ TRIỆT TIÊU HOÀN TOÀN: Ẩn các khối chứa icon hình vỡ lỗi nhỏ màu trắng */
-    [data-testid="stSidebar"] img[src*="data:image"] { display: none !important; }
+    /* 🛠️ TRIỆT TIÊU HOÀN TOÀN: Ẩn các khối chứa icon lỗi ảnh cũ đi */
+    [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
