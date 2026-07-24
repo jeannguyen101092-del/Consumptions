@@ -127,7 +127,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🌟 ĐÃ SỬA: Đổi sang tone màu Xanh Sương Mù Dịu mắt chuẩn phần mềm ERP văn phòng 🌟 */
+    /* 🌟 ĐỔI TONE MÀU NỀN CHÍNH TRANG ĐỂ DỊU MẮT VĂN PHÒNG 🌟 */
     .stApp { background-color: #f0f4f8 !important; }
     header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
     .block-container { padding-top: 1.5rem !important; margin-top: 0px !important; max-width: 100% !important; }
@@ -138,23 +138,18 @@ st.markdown("""
         background-color: #0f766e !important; 
         color: #ffffff !important;
     }
-    
-    /* 🛠️ ĐÃ SỬA: ÉP GHIM LOGO PPJ GROUP CỐ ĐỊNH LÊN ĐỈNH SIDEBAR KHÔNG CHO BỊ ĐÈ */
-    [data-testid="stSidebar"] .stImage {
-        position: absolute !important;
-        top: 20px !important;
-        left: 15px !important;
-        width: calc(100% - 30px) !important;
-        z-index: 999991 !important;
-    }
 
-    /* Đẩy toàn bộ menu lựa chọn trang của Streamlit dịch xuống dưới để nhường chỗ trống cho logo */
+    /* 🛠️ SỬA DỨT ĐIỂM BẰNG CSS CAO CẤP: CHÈN LOGO VÀO ĐỈNH THANH NAV ĐA TRANG CỦA STREAMLIT */
     [data-testid="stSidebarNav"] {
-        margin-top: 100px !important; 
-        padding-top: 0px !important;
+        padding-top: 110px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ */
+        background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAYAAACgWwTfAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHl5yWU8AAAGs0lEQVR4Xu2bTWwcVxXHz3vrtbPr9Sbe2I7tOI6T1G6KpE0pSkNbhYpWpEorqlAECBAgWFAgWCBWCCuEFFAsgBAsgBB8SIsQLIDEt0SgShWpUptUadI0bZs4teP449i73vW+++bOnvG8N/bMzs7Oezu7Xv+P9N7xzrx5783v/ea9uV5vS0h6wEToAnpAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD6hB/QJPaBP6AF9Qg/oE3pAn9AD+oQe0Cf0gD4ZasCgsh5W79+zZ/0rA1euv/gV60u6U27b6863VvPWev7GWr5qrc9Z63fWemYtcXv3uN96bDXftZat1Wv6Z6D8b92b67fXrX0mK5S8f4fW16w9L8+rct6UzzZgDk7K51XmY+Z9w66fP6Oa7gMfeC/97O65e/fu2gclYfWhPa698V17M2b7z7H738fucx+7/z12f/b+rP3NfOz6z6wXPrvbeY+V2vFz+p28v2reXzPvC/K+g/v277332f17K8+Y7r9N69vWLstnHZ7nE3N4877NfE5lPhF+pZreYv73gffSz8o6pGvBvXvXv7WfS8TqI3vM/vU39pD6K+T9V+7+K3f/pLv13N2ftb9K3pfv7H2pPeT0HwK7R36v9XvkvfKe4f3w/EbyffD9Rvf37X0feO6V9yLv6eP+ofpY/j3R99P07p+R379v/wZdwZfI+YDTwSfcA6f9A79Sfe9gfeX75g789/N9G67P9z6vD3zD+v/9V/9b+7bInF19vP4Wb63O0O//AfgBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII=") !important;
+        background-repeat: no-repeat !important;
+        background-position: center 20px !important; /* Căn chỉnh logo nằm chính giữa lề trái phải */
+        background-size: 150px auto !important; /* Định kích cỡ logo vừa vặn thanh menu */
         background-color: #0f766e !important;
     }
 
+    /* Định dạng phần tiêu đề nhỏ trong Sidebar */
     [data-testid="stSidebar"] .stMarkdown h3 {
         color: #ffffff !important; 
         font-size: 13px !important;
@@ -175,7 +170,7 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* FIX DỨT ĐIỂM: LÀM TIÊU ĐỀ NỔI BẬT LÊN MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
+    /* TIÊU ĐỀ NỔI BẬT MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
@@ -207,13 +202,15 @@ st.markdown("""
     .bg-style-erp { background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important; }
     .bg-items-erp { background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%) !important; }
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
-    .bg-size-erp  { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
+    .bg-size-erp { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
     /* Hộp trắng bao bọc hình vẽ rập vector hình học */
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     .garment-emoji-container { display: inline-block !important; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important; cursor: pointer !important; }
     .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
+    
+    /* Ẩn các khối chứa hình ảnh vỡ lỗi */
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
