@@ -2075,8 +2075,7 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         base_density = min(base_density, 0.65)
         
     return max(min(base_density, 0.84), 0.55)
-     # --- ĐOẠN 2 CHỐT: ĐÓNG BĂNG DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ GIAO DIỆN (THỤT LỀ 4 DẤU CÁCH) ---
-    # 1. Đóng băng nguồn cấu hình sản xuất ổn định (Ưu tiên từ UI/Cấu hình hệ thống cố định)
+      # --- ĐOẠN 2 CHỐT HẠ: ĐỒNG BỘ TUYỆT ĐỐI THEO INDEX TRÁNH LỖI ĐỘ DÀI MẢNG (THỤT LỀ 4 DẤU CÁCH) ---
     prod_cat_ui = str(st.session_state.get("product_category", "DRESS")).upper().strip()
     target_wastage = float(st.session_state.get("target_wastage", 1.03))
     
@@ -2085,24 +2084,20 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
     simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
     
-    # Lấy các quy tắc trải vải cố định từ UI trạng thái
     rotation_allowed = st.session_state.get("rotation_allowed", True)
     fabric_matching = st.session_state.get("fabric_matching", "TWO_WAY")
 
-    # 2. Đọc lớp rập ảo đã đóng băng (Freeze Layer), tuyệt đối không cho AI ghi đè trong luồng này
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # Tính toán mật độ toán học thuần túy
+    # Tính toán mật độ toán học thuần túy ổn định
     global_fabric_density = predict_marker_density_pure_math(
         current_virtual_pieces, current_fabric_width, prod_cat_ui, rotation_allowed, fabric_matching
     )
     st.session_state["calculated_marker_efficiency_kpi"] = global_fabric_density
 
-    # Tính toán diện tích tịnh động tổng thể ổn định
     total_fabric_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "FABRIC"])
     total_lining_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "LINING"])
 
-    # 3. Tính toán Total Gross độc lập cố định trước khi phân bổ
     if simulated_length_inch > 0:
         total_fabric_gross_yds = round((simulated_length_inch / 36.0) * target_wastage, 4)
     else:
@@ -2113,11 +2108,9 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
             
     st.session_state["final_fabric_consumption_kpi"] = total_fabric_gross_yds
 
-    # Giải quyết bài toán Lining bị bằng 0: Nếu AI không cấp phát, hệ thống tự động tính toán hình học độc lập
     ai_decision_d52 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
     total_lining_gross_yds = float(ai_decision_d52.get("total_lining_gross_yds", 0.0))
     if total_lining_gross_yds <= 0 and total_lining_net_area_dynamic > 0 and lining_width > 0:
-        # Tự tính tổng định mức lót dựa trên mật độ an toàn
         calculated_lining_length = total_lining_net_area_dynamic / lining_width / (global_fabric_density * 1.02)
         total_lining_gross_yds = round((calculated_lining_length / 36.0) * target_wastage, 4)
 
@@ -2126,7 +2119,6 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         void_ratio = ((l_prod * w_prod) - net_area) / (l_prod * w_prod) if (l_prod * w_prod) > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
 
-    # 4. Router phân bổ Gross hạ tầng xuống từng chi tiết đơn lẻ bằng tỷ lệ diện tích cố định
     def core_engine_router(row, idx):
         v_piece = current_virtual_pieces.get(idx, {})
         if not v_piece: return 0.0 
@@ -2146,27 +2138,41 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
 
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
-    # 5. Đồng bộ lại dữ liệu hiển thị giao diện bảng ma trận
-    updated_net_areas, updated_lengths, updated_widths, calculated_widths, class_list = [], [], [], [], []
+    # 🔥 SỬA ĐỔI QUAN TRỌNG: Khởi tạo các cột dạng Series có Index khớp tuyệt đối với df_bom để triệt tiêu lỗi Require Length Match
+    production_net_area_series = pd.Series(index=df_bom.index, dtype=float)
+    calculated_width_series = pd.Series(index=df_bom.index, dtype=float)
+    detected_class_series = pd.Series(index=df_bom.index, dtype=str)
+    
+    prod_lengths_dict = {}
+    prod_widths_dict = {}
+
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
-        class_list.append(p_class)
-        updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
-        updated_lengths.append(round(v_piece.get("length_prod", 0.0), 2))
-        updated_widths.append(round(v_piece.get("width_prod", 0.0), 2))
-        if p_class in ["FABRIC", "RIB"]: calculated_widths.append(current_fabric_width)
-        elif p_class == "LINING": calculated_widths.append(lining_width)
-        elif p_class == "FUSING": calculated_widths.append(fusing_width)
-        else: calculated_widths.append(current_fabric_width)
+        
+        detected_class_series[idx] = p_class
+        production_net_area_series[idx] = round(v_piece.get("net_area_prod", 0.0), 2)
+        
+        # Lưu kích thước sản xuất vào dictionary định danh bằng Index để map chính xác phía dưới bảng hiển thị
+        prod_lengths_dict[idx] = round(v_piece.get("length_prod", 0.0), 2)
+        prod_widths_dict[idx] = round(v_piece.get("width_prod", 0.0), 2)
+        
+        if p_class in ["FABRIC", "RIB"]: calculated_width_series[idx] = current_fabric_width
+        elif p_class == "LINING": calculated_width_series[idx] = lining_width
+        elif p_class == "FUSING": calculated_width_series[idx] = fusing_width
+        else: calculated_width_series[idx] = current_fabric_width
             
-    df_bom["production_net_area"] = updated_net_areas
-    df_bom["polygon_net_area"] = updated_net_areas  # Ghi đè hiển thị UI đồng bộ
-    df_bom["Calculated Width (Inch)"] = calculated_widths
-    df_bom["Detected Class Temporary"] = class_list
-    st.session_state["_prod_lengths_list_cache"], st.session_state["_prod_widths_list_cache"] = updated_lengths, updated_widths
-    if current_virtual_pieces: st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+    df_bom["production_net_area"] = production_net_area_series
+    df_bom["polygon_net_area"] = production_net_area_series  
+    df_bom["Calculated Width (Inch)"] = calculated_width_series
+    df_bom["Detected Class Temporary"] = detected_class_series
+    
+    # Ép kiểu dữ liệu cache sang Dictionary map theo Index để tầng hiển thị bên dưới gọi ra không bị lệch dòng
+    st.session_state["_prod_lengths_list_cache"] = prod_lengths_dict
+    st.session_state["_prod_widths_list_cache"] = prod_widths_dict
 
+    if current_virtual_pieces: 
+        st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
@@ -2292,12 +2298,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_final = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
     if not isinstance(ai_decision_final, dict): ai_decision_final = {}
 
-    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
-    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
+    # 🔥 ĐỒNG BỘ: Lấy hiệu suất sơ đồ từ hàm toán học thuần túy đã đóng băng trong Session State
+    ui_display_density = float(st.session_state.get("calculated_marker_efficiency_kpi", 0.74))
+    
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX / PHỨC TẠP" if comp_score_val >= 50 else "NORMAL / THƯỜNG"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-    prod_cat_ui = str(ai_decision_final.get("product_category", "JEAN_LONG")).upper().strip()
+    prod_cat_ui = str(st.session_state.get("product_category", "DRESS")).upper().strip()
 
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
     if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
@@ -2310,7 +2317,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     total_actual_pcs_display = int(st.session_state.get("total_actual_pieces_kpi", 0))
     m4.metric("🟢 Tổng Số Mảnh Rập Thực Tế", f"{total_actual_pcs_display} Pcs")
 
-    current_virtual_layer = st.session_state.get("virtual_pieces_layer", ai_decision_final.get("virtual_pieces_layer", {}))
+    current_virtual_layer = st.session_state.get("virtual_pieces_layer", {})
 
     clean_materials_list = []
     for idx in df_bom.index:
@@ -2324,14 +2331,13 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     
-    # 🔥 BỔ SUNG RIB VÀO BẢN ĐỒ ÁNH XẠ BẢNG TỔNG HỢP PHÍA TRÊN
     cls_map = {
         "FABRIC": "VẢI CHÍNH (MAIN FABRIC)", 
         "FUSING": "MÉC / KEO (INTERLINING)", 
         "LINING": "VẢI LÓT (LINING)", 
         "RIB": "BO PHỐI (RIB / PHỐI)",
         "THREAD": "CHỈ MAY (SEWING THREAD)", 
-        "ACCESSORY": "PHỤ LIỆU (TRIMS)"
+        "ACCESSORY": "PHU LIỆU (TRIMS)"
     }
 
     df_summary = pd.DataFrame({
@@ -2346,11 +2352,11 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     df_bom_display = df_bom.copy()
 
-    # Nạp mảng Dài/Rộng sản xuất từ cache vào khi DataFrame hiển thị còn nguyên số dòng index gốc
+    # 🔥 SỬA ĐỔI CỐT LÕI: Dùng .map() dựa trên Index để nạp dữ liệu kích thước từ Dictionary cache vào bảng hiển thị, triệt tiêu hoàn toàn lỗi lệch dòng
     if "_prod_lengths_list_cache" in st.session_state:
-        df_bom_display["Dài sản xuất (L-inch)"] = st.session_state["_prod_lengths_list_cache"]
+        df_bom_display["Dài sản xuất (L-inch)"] = df_bom_display.index.map(st.session_state["_prod_lengths_list_cache"])
     if "_prod_widths_list_cache" in st.session_state:
-        df_bom_display["Rộng sản xuất (W-inch)"] = st.session_state["_prod_widths_list_cache"]
+        df_bom_display["Rộng sản xuất (W-inch)"] = df_bom_display.index.map(st.session_state["_prod_widths_list_cache"])
 
     if "Calculated Width (Inch)" in df_bom_display.columns:
         df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
@@ -2369,7 +2375,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     df_bom_display["Số lượng rập"] = [float(st.session_state["user_edited_pieces"].get(idx, current_virtual_layer.get(idx, {}).get("final_pcs", r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # 🔥 BỘ LỌC THỰC THỂ HIỂN THỊ: Chỉ giữ lại 4 nhóm Chính, Lót, Keo, Phối và loại bỏ ACCESSORY/THREAD khỏi Marker Matrix
+    # BỘ LỌC THỰC THỂ HIỂN THỊ
     target_display_classes = ["FABRIC", "LINING", "FUSING", "RIB"]
     df_bom_display = df_bom_display[df_bom_display["Nhóm vật tư (Class)"].isin(target_display_classes)].copy()
 
@@ -2409,7 +2415,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     if "bom_data_editor_grid_final_v12_perfect_match" in st.session_state:
         edits = st.session_state["bom_data_editor_grid_final_v12_perfect_match"].get("edited_rows", {})
         for row_pos, changes in edits.items():
-            # Đồng bộ lại hàng chỉnh sửa động dựa trên index map thực tế
             row_pos_int = int(row_pos)
             if row_pos_int < len(df_bom_display):
                 orig_idx = df_bom_display.index[row_pos_int]
