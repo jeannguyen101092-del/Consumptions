@@ -2023,38 +2023,7 @@ def execute_production_audit_and_shrinkage(df_bom: pd.DataFrame, warp_shrink_ui:
         
     return virtual_pieces_layer
 
-import pandas as pd
-import streamlit as st
-
-if 'df_bom' in locals() or 'df_bom' in globals():
-    # HARD RESET: Xóa cache cũ để làm sạch dữ liệu hình học
-    if "virtual_pieces_layer" in st.session_state:
-        del st.session_state["virtual_pieces_layer"]
-
-    ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
-        
-    prod_cat_ui = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper().strip()
-
-    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
-    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
-    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
-    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
-    m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
-
-    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
-    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
-    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
-    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
-    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
-    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
-
-    SEAM_EDGE = 0.5 
-    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  
-
-    current_virtual_pieces = {}
-
+    # --- ĐOẠN 1 CẢI TIẾN: SỬA LỖI DIỆN TÍCH BẰNG 0 ---
     for idx, r in df_bom.iterrows():
         c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
         m_str_raw = str(r.get(m_col, "")).upper().strip()
@@ -2083,24 +2052,36 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         raw_w = float(r.get(d5_actual_w_col, 0.0))
         raw_pcs = float(r.get("pcs_numeric", r.get("Số lượng rập", 1.0)))
         
-        is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"])
-        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
+        is_dress_skirt = any(k in prod_cat_ui for k in ["DRESS", "SKIRT", "VÁY", "VAY", "ĐẦM", "DAM"])
+        is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"]) and not is_dress_skirt
+        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"]) and not is_dress_skirt
         is_major_leg_panel = any(k in c_name_raw for k in ["FRONT", "BACK", "TROUSER", "THÂN TRƯỚC", "THÂN SAU"])
         
         # 1. Khử lỗi thông số cả vòng cho QUẦN
         if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0:
             raw_w = round(raw_w / 2.0, 2)
             
-        # 2. GIỚI HẠN LOGIC BÙ RẬP ÁO: Chỉ tăng từ 1 lên 2 cho các chi tiết cặp thực tế nếu file ghi thiếu
+        # 2. GIỚI HẠN LOGIC BÙ RẬP ÁO
         if is_apparel_top:
             if any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0:
                 raw_pcs = 2.0
 
-        # 🔥 ĐIỀU CHỈNH DIỆN TÍCH THỰC (Hiệu suất rập phẳng): Hạ từ 100% xuống 82% diện tích bao hộp để kéo định mức Áo tụt xuống
-        if is_major_leg_panel or any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "BACK", "BODY"]):
-            raw_net_area = round(raw_l * raw_w * 0.82, 4) 
+        # LẤY DIỆN TÍCH GỐC TỪ FILE (NẾU CÓ), NẾU BẰNG 0 HOẶC THIẾU THÌ TỰ NỘI SUY THEO DÀI X RỘNG
+        base_file_area = float(r.get("polygon_net_area", r.get("net_area", 0.0)))
+        if base_file_area <= 0:
+            base_file_area = raw_l * raw_w
+
+        # Điều chỉnh diện tích thực hiệu suất rập phẳng dựa trên diện tích hộp nền chống lỗi bằng 0
+        if is_dress_skirt:
+            if is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"]):
+                raw_net_area = round(base_file_area * 0.90, 4)
+            else:
+                raw_net_area = round(base_file_area * 0.85, 4)
         else:
-            raw_net_area = round(raw_l * raw_w * 0.76, 4)
+            if is_major_leg_panel or any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "BACK", "BODY"]):
+                raw_net_area = round(base_file_area * 0.82, 4) 
+            else:
+                raw_net_area = round(base_file_area * 0.76, 4)
                 
         if inferred_class in ["FABRIC", "RIB"]:
             shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
@@ -2127,6 +2108,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             "final_pcs": raw_pcs
         }
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
+
 
   # --- ĐỊNH NGHĨA HÀM DỰ ĐOÁN MẬT ĐỘ TRƯỚC ĐỂ TRÁNH LỖI NAMEERROR ---
 def predict_marker_density_features(pieces_dict, marker_width):
