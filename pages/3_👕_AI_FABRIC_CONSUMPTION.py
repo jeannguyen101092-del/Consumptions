@@ -80,14 +80,33 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SẠCH MÃ)
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (FIX LOGO CỐ ĐỊNH)
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🛠️ ĐÃ SỬA: Xóa bỏ hoàn toàn câu lệnh st.sidebar.markdown cũ chứa ảnh lỗi ở đây.
-# Khối Banner xanh PPJ GROUP giờ đây được tự động vẽ bằng CSS ở Đoạn 6a - Phần 2 cực kỳ ổn định.
+# 🛠️ ĐÃ SỬA: Dùng lệnh Python nhúng HTML để tạo thẻ nền trắng ghim cứng logo PPJ chuẩn lên đỉnh Sidebar
+with st.sidebar:
+    st.markdown(
+        """
+        <div style="
+            background-color: #ffffff !important; 
+            border-radius: 10px; 
+            padding: 12px 10px; 
+            text-align: center; 
+            margin-top: -30px; /* Đẩy sát lên đỉnh mép Sidebar */
+            margin-bottom: 25px; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
+            display: block !important;
+            visibility: visible !important;
+        ">
+            <img src="https://r2.dev" 
+                 style="width: 100%; max-width: 150px; height: auto; display: inline-block;">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State) an toàn
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
