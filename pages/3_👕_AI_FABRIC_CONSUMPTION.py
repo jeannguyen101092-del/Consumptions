@@ -2353,10 +2353,16 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     df_bom_display = df_bom.copy()
 
     # 🔥 SỬA ĐỔI CỐT LÕI: Dùng .map() dựa trên Index để nạp dữ liệu kích thước từ Dictionary cache vào bảng hiển thị, triệt tiêu hoàn toàn lỗi lệch dòng
+    # Ép kiểu an toàn sang Dictionary để ép bộ nhớ cache cũ bắt buộc phải tương thích với lệnh .map()
     if "_prod_lengths_list_cache" in st.session_state:
-        df_bom_display["Dài sản xuất (L-inch)"] = df_bom_display.index.map(st.session_state["_prod_lengths_list_cache"])
+        lengths_cache = st.session_state["_prod_lengths_list_cache"]
+        lengths_dict = lengths_cache if isinstance(lengths_cache, dict) else dict(enumerate(lengths_cache))
+        df_bom_display["Dài sản xuất (L-inch)"] = df_bom_display.index.map(lengths_dict)
+        
     if "_prod_widths_list_cache" in st.session_state:
-        df_bom_display["Rộng sản xuất (W-inch)"] = df_bom_display.index.map(st.session_state["_prod_widths_list_cache"])
+        widths_cache = st.session_state["_prod_widths_list_cache"]
+        widths_dict = widths_cache if isinstance(widths_cache, dict) else dict(enumerate(widths_cache))
+        df_bom_display["Rộng sản xuất (W-inch)"] = df_bom_display.index.map(widths_dict)
 
     if "Calculated Width (Inch)" in df_bom_display.columns:
         df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
