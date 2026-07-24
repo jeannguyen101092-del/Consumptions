@@ -565,13 +565,13 @@ with col_right:
 import hashlib
 import json
 import re
+import copy
 import fitz
 import google.generativeai as genai
 import streamlit as st
 
-
 # =====================================================================
-# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI (ĐÃ SỬA LỖI KHỔ VẢI)
+# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -587,12 +587,8 @@ def execute_cached_gemini_scan(
     prompt_agent_2,
 ):
     """Hàm gọi AI quét TOÀN BỘ các trang trong file Techpack để bóc tách trọn
-
     vẹn cấu trúc Vải chính, Vải lót và Keo lót (Fusing).
     """
-    import copy
-    import hashlib
-
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
@@ -605,12 +601,10 @@ def execute_cached_gemini_scan(
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
-        # 🚨 ĐÃ SỬA: Quét toàn bộ số trang của file Techpack để tìm sạch linh kiện keo/phụ liệu ở trang sau
         for idx in range(total_pages):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Chỉ render ảnh cho 5 trang đầu hoặc trang chứa hình vẽ rập để tối ưu hóa dung lượng gửi đi
             if len(image_payloads) < 5:
                 try:
                     pix = doc_recovery[idx].get_pixmap(
@@ -631,7 +625,6 @@ def execute_cached_gemini_scan(
         f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
     )
 
-    # 🚨 ĐÃ CẬP NHẬT PROMPT ÉP ĐẦU RA TOÀN DIỆN NGUYÊN PHỤ LIỆU
     extended_prompt = (
         prompt_agent_2
         + """
@@ -713,15 +706,12 @@ def execute_cached_gemini_scan(
             except Exception:
                 row["marker_efficiency"] = "82.5%"
             
-            # 🛠️ ĐÃ SỬA: ÉP ĐÈ KHỔ VẢI THEO Ô CHAT VÀO TỪNG DÒNG RẬP CHỐNG KẸT CACHE 56 CŨ
             try:
                 forced_width = float(active_width)
                 if current_query:
                     width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
                     if width_match:
                         forced_width = float(width_match.group(2))
-                
-                # Gán thẳng khổ vải vừa quét động được vào dữ liệu chi tiết rập
                 row["fabric_width_inch"] = forced_width
             except Exception:
                 row["fabric_width_inch"] = float(active_width)
@@ -729,43 +719,89 @@ def execute_cached_gemini_scan(
     return blueprint_worker
 
 
-
-
-
-import streamlit as st
-
 # =====================================================================
-# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (SỬA LỖI VÒNG LẶP VÔ HẠN)
 # =====================================================================
 
-# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
+# 1. Khởi tạo bộ nhớ đệm hệ thống (Session State)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "ai_processing" not in st.session_state:
-    st.session_state.ai_processing = False
 if "last_submitted_query" not in st.session_state:
     st.session_state.last_submitted_query = ""
 
-# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
+# Đảm bảo các cấu hình giả định này đã được định nghĩa trước khi chạy
+# (Bạn có thể thay bằng các widget upload file hoặc input tương ứng)
+if "uploaded_pdf_bytes" not in st.session_state:
+    st.session_state.uploaded_pdf_bytes = None  # Gán file bytes thực tế của bạn tại đây
+if "raw_json_schema" not in st.session_state:
+    st.session_state.raw_json_schema = None     # Gán JSON Schema thực tế tại đây
+if "prompt_agent_2" not in st.session_state:
+    st.session_state.prompt_agent_2 = "You are a professional IE garment engineer."
+
+# 2. Tạo Container chứa toàn bộ hội thoại
 chat_history_container = st.container()
 with chat_history_container:
     st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-    if st.session_state.get("chat_history"):
-        for msg in st.session_state.chat_history:
-            st.chat_message("user").write(msg["user"])
-            st.chat_message("assistant").write(msg["ai"])
+    # Hiển thị lại toàn bộ lịch sử trò chuyện cũ
+    for msg in st.session_state.chat_history:
+        with st.chat_message("user"):
+            st.write(msg["user"])
+        with st.chat_message("assistant"):
+            st.write(msg["ai"])
 
-# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
+# 3. Widget nhập câu lệnh đầu vào
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
     key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
+# 4. Kích hoạt xử lý đồng bộ ngay khi nhận lệnh (Không dùng st.rerun)
 if safe_user_prompt:
-    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
-    st.session_state.ai_processing = True
-    st.rerun()
+    query_str = str(safe_user_prompt).strip()
+    st.session_state["last_submitted_query"] = query_str
+    
+    # Hiển thị tức thời câu hỏi vừa gõ lên giao diện
+    with chat_history_container:
+        with st.chat_message("user"):
+            st.write(query_str)
+            
+    # Tiến hành gọi AI phân tích dữ liệu
+    with st.spinner("AI đang quét Techpack và xử lý cấu trúc vật liệu..."):
+        if st.session_state.uploaded_pdf_bytes is None:
+            ai_response = "❌ Lỗi: Bạn chưa cung cấp hoặc tải lên tệp tài liệu Techpack PDF hệ thống."
+        else:
+            try:
+                # Trích xuất sơ bộ kích thước đích từ chuỗi nhập liệu (nếu có)
+                size_match = re.search(r"(cỡ|size)\s*(\d+)", query_str, re.IGNORECASE)
+                target_size = size_match.group(2) if size_match else "32"
+                
+                # Thực thi hàm quét đã bọc cache
+                ai_result = execute_cached_gemini_scan(
+                    pdf_bytes=st.session_state.uploaded_pdf_bytes,
+                    current_query=query_str,
+                    active_width=56.0,  # Khổ vải mặc định ban đầu
+                    target_size_cmd=target_size,
+                    raw_json_schema=st.session_state.raw_json_schema,
+                    prompt_agent_2=st.session_state.prompt_agent_2
+                )
+                
+                # Định dạng kết quả trả về màn hình chat
+                bom_count = len(ai_result.get("bom_rows", []))
+                ai_response = f"✅ Đã phân tích thành công Techpack! Tìm thấy dữ liệu cấu trúc gồm `{bom_count}` thành phần chi tiết (Vải/Lining/Fusing) cho Size {target_size}."
+                
+                # Gợi ý: Bạn có thể lưu thêm ai_result vào st.session_state để vẽ bảng Dataframe bên ngoài
+                st.session_state["latest_bom_result"] = ai_result
+                
+            except Exception as e:
+                ai_response = f"❌ Thất bại khi kết nối AI: {str(e)}"
+                
+    # Hiển thị câu trả lời của AI và lưu vào lịch sử
+    with chat_history_container:
+        with st.chat_message("assistant"):
+            st.write(ai_response)
+            
+    st.session_state.chat_history.append({"user": query_str, "ai": ai_response})
+
 # =====================================================================
 =========================
 # 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
