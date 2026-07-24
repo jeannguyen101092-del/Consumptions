@@ -2026,7 +2026,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ ĐAN XEN KIỂU GERBER)
+# 🟩 ĐOẠN 1: GEOMETRIC MARKER ENGINE (CẬP NHẬT ĐƯỜNG MAY 0.5 INCH XUNG QUANH)
 # =====================================================================
 if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
@@ -2052,19 +2052,16 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    SEAM_ALLOWANCE_TOTAL = 1.0 
+    # 🔥 CHUẨN HÓA: Quy định đường may 0.5 inch cho từng cạnh xung quanh rập
+    SEAM_EDGE = 0.5 
+    TOTAL_SEAM_GROWTH = SEAM_EDGE * 2  # Tổng chiều dài và rộng tăng thêm 1.0 inch
 
     current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
 
-    # =====================================================================
-    # 🔥 ĐOẠN SỬA LỖI: KIỂM TRA ĐỒNG BỘ INDEX ĐỂ TRÁNH LỖI KEYERROR KHI ĐỔI FILE
-    # =====================================================================
     if current_virtual_pieces:
-        # Nếu phát hiện bất kỳ key cũ nào không tồn tại trong df_bom mới -> Tiến hành làm sạch session
         if not all(idx in df_bom.index for idx in current_virtual_pieces.keys()):
             current_virtual_pieces = {}
             st.session_state["virtual_pieces_layer"] = {}
-    # =====================================================================
 
     if not current_virtual_pieces:
         for idx, r in df_bom.iterrows():
@@ -2105,21 +2102,22 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         w_orig_val = float(row_ref.get(d5_actual_w_col, 0.0))
         p_class = v_piece["piece_class"]
         
+        # Áp dụng cộng đường may 0.5 inch xung quanh độc lập cho từng nhóm vật liệu
         if p_class == "FABRIC":
-            l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
+            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
             v_piece["length_prod"] = round(l_seam * (1 + warp_shrink_ui / 100.0), 3)
             v_piece["width_prod"] = round(w_seam * (1 + weft_shrink_ui / 100.0), 3)
             shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
         elif p_class == "FUSING":
-            l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
+            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
             v_piece["length_prod"] = round(l_seam * (1 + fusing_warp_shrink / 100.0), 3)
             v_piece["width_prod"] = round(w_seam * (1 + fusing_weft_shrink / 100.0), 3)
             shrink_factor = (1 + fusing_warp_shrink / 100.0) * (1 + fusing_weft_shrink / 100.0)
         elif p_class == "LINING":
-            l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
-            w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+            l_seam = l_orig_val + TOTAL_SEAM_GROWTH if l_orig_val > 0 else 0.0
+            w_seam = w_orig_val + TOTAL_SEAM_GROWTH if w_orig_val > 0 else 0.0
             v_piece["length_prod"] = round(l_seam * (1 + lining_warp_shrink / 100.0), 3)
             v_piece["width_prod"] = round(w_seam * (1 + lining_weft_shrink / 100.0), 3)
             shrink_factor = (1 + lining_warp_shrink / 100.0) * (1 + lining_weft_shrink / 100.0)
@@ -2198,7 +2196,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         
         st.session_state["simulated_marker_length"] = round(simulated_marker_length, 2)
         st.session_state["real_fabric_density"] = round(real_fabric_density, 4)
-
 # =====================================================================
 # 🟦 ĐOẠN 2: CONSUMPTION ROUTER & PUBLISHING (GIỮ NGUYÊN CẤU TRÚC KEO LÓT)
 # =====================================================================
