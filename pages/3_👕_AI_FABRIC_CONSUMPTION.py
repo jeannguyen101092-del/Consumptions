@@ -102,7 +102,7 @@ logo_ppj_base64 = (
     "379v/wZdwZfI+YDTwSfcA6f9A79Sfe9gfeX75g789/N9G67P9z6vD3zD+v/9V/9b+7bInF19vP4Wb63O0O//A"
     "gBfUIP6BN6QJ/QA/qEHvC/BfwH18gA+F6VvE0AAAAASUVORK5CYII="
 )
-st.sidebar.image(logo_ppj_base64, use_container_width=True)
+
 
 # 2. Khởi tạo an toàn cấu trúc trạng thái bộ nhớ hệ thống (Session State)
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
