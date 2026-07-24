@@ -732,8 +732,7 @@ def execute_cached_gemini_scan(
                 row["fabric_width_inch"] = forced_width
             except Exception:
                 row["fabric_width_inch"] = float(active_width)
-
-     return blueprint_worker
+    return blueprint_worker
 
 
 # 🚨 ĐÃ SỬA: ĐƯA TOÀN BỘ KHỐI CHAT RA SÁT LỀ TRÁI TUYỆT ĐỐI (KHÔNG THỤT LỀ)
