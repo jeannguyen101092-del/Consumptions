@@ -2069,11 +2069,47 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         
     return max(min(base_density, 0.84), 0.55)
     # ==============================================================================
-    # --- ĐOẠN 1 CẢI TIẾN: VÒNG LẶP KHỞI TẠO RẬP ẢO (THỤT LỀ CHUẨN 4 DẤU CÁCH) ---
-    # ==============================================================================
+   if 'df_bom' in locals() or 'df_bom' in globals():
+    # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
+    if "virtual_pieces_layer" in st.session_state:
+        del st.session_state["virtual_pieces_layer"]
+
+    ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
+    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+        
+    prod_cat_ui = str(st.session_state.get("product_category", "DRESS")).upper().strip()
+    target_wastage = float(st.session_state.get("target_wastage", 1.03))
+    
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
+    simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
+    
+    rotation_allowed = st.session_state.get("rotation_allowed", True)
+    fabric_matching = st.session_state.get("fabric_matching", "TWO_WAY")
+
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
+    d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
+    m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
+
+    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    
+    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+
+    TOTAL_SEAM_GROWTH = 0.5 * 2  
+    current_virtual_pieces = {}
+
+    # --- VÒNG LẶP KHỞI TẠO RẬP ẢO CÓ MÀNG PHÒNG VỆ CHẶN CHI TIẾT LỖI ---
     for idx, r in df_bom.iterrows():
         c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper().strip()
         m_str_raw = str(r.get(m_col, "")).upper().strip()
+        
         inferred_class = None
         if m_str_raw:
             if any(k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]): inferred_class = "FUSING"
@@ -2083,21 +2119,28 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
             elif any(k in m_str_raw for k in ["MAIN", "FABRIC", "VAICHINH", "VẢI CHÍNH"]): inferred_class = "FABRIC"
         
         if not inferred_class:
-            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE"]): inferred_class = "ACCESSORY"
-            elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "VAI LOT"]): inferred_class = "LINING"
-            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]): inferred_class = "FUSING"
-            elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]): inferred_class = "RIB"
-            else: inferred_class = "FABRIC"
+            if any(k in c_name_raw for k in ["THREAD", "CHI ", "BUTTON", "ZIPPER", "METAL", "RIVET", "SHANK", "NÚT", "ĐINH", "TAG", "LABEL", "MÁC", "CARE", "WARNING", "TAB", "CODE", "TAPE"]):
+                inferred_class = "ACCESSORY"
+            elif any(k in c_name_raw for k in ["POCKETING", "LINING", "LÓT", "VAI LOT"]):
+                inferred_class = "LINING"
+            elif any(k in c_name_raw for k in ["FUSING", "MEC", "KEO"]):
+                inferred_class = "FUSING"
+            elif any(k in c_name_raw for k in ["RIB", "BO ", "PHỐI", "PHOI"]):
+                inferred_class = "RIB"
+            else:
+                inferred_class = "FABRIC"
                 
-        # Phòng vệ nghiêm ngặt ép kiểu kích thước, bỏ qua hàng lỗi None (như ONS LABEL)
+        # PHÒNG VỆ NGHIÊM NGẶT: Bỏ qua chi tiết rác khuyết kích thước None (như ONS LABEL)
         try:
-            raw_l = float(r.get(d5_actual_l_col, 0.0)) if pd.notna(r.get(d5_actual_l_col)) else 0.0
-            raw_w = float(r.get(d5_actual_w_col, 0.0)) if pd.notna(r.get(d5_actual_w_col)) else 0.0
+            val_l_check = r.get(d5_actual_l_col)
+            val_w_check = r.get(d5_actual_w_col)
+            raw_l = float(val_l_check) if (pd.notna(val_l_check) and str(val_l_check).strip().lower() != 'none') else 0.0
+            raw_w = float(val_w_check) if (pd.notna(val_w_check) and str(val_w_check).strip().lower() != 'none') else 0.0
         except:
             raw_l, raw_w = 0.0, 0.0
             
         if raw_l <= 0 or raw_w <= 0: 
-            continue # Bỏ qua ngay lập tức để không làm sập bộ nhớ tính toán
+            continue # Lọc bỏ ngay lập tức để bảo vệ lõi tính toán phía sau không bị gãy dữ liệu
             
         raw_pcs = float(r.get("pcs_numeric", r.get("Số lượng rập", 1.0)))
         is_dress_skirt = any(k in prod_cat_ui for k in ["DRESS", "SKIRT", "VÁY", "VAY", "ĐẦM", "DAM"])
@@ -2105,12 +2148,15 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"]) and not is_dress_skirt
         is_major_leg_panel = any(k in c_name_raw for k in ["FRONT", "BACK", "TROUSER", "THÂN TRƯỚC", "THÂN SAU"])
         
-        if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0: raw_w = round(raw_w / 2.0, 2)
-        if is_apparel_top and any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0: raw_pcs = 2.0
+        if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0: 
+            raw_w = round(raw_w / 2.0, 2)
+        if is_apparel_top and any(k in c_name_raw for k in ["SLEEVE", "TAY", "FACING", "NẸP"]) and raw_pcs == 1.0: 
+            raw_pcs = 2.0
 
-        # TỰ ĐỘNG BÙ DIỆN TÍCH BẰNG HÌNH HỘP BAO (Bảo vệ ma trận không bị bằng 0)
+        # TỰ ĐỘNG BÙ DIỆN TÍCH BẰNG HÌNH HỘP BAO ĐỂ TRÁNH BẰNG 0
         base_file_area = float(r.get("polygon_net_area", r.get("net_area", 0.0))) if pd.notna(r.get("polygon_net_area")) else 0.0
-        if base_file_area <= 0: base_file_area = raw_l * raw_w
+        if base_file_area <= 0: 
+            base_file_area = raw_l * raw_w
 
         if is_dress_skirt:
             raw_net_area = round(base_file_area * 0.90, 4) if (is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"])) else round(base_file_area * 0.85, 4)
@@ -2126,9 +2172,17 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
         elif inferred_class == "LINING":
             l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + lining_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
             w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + lining_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
-        else: l_prod, w_prod = raw_l, raw_w
+        else: 
+            l_prod, w_prod = raw_l, raw_w
 
-        current_virtual_pieces[idx] = {"component_name": r.get(comp_col_check, r.get("component_name", "PIECE")), "piece_class": inferred_class, "length_prod": l_prod, "width_prod": w_prod, "net_area_prod": round(raw_net_area, 4), "final_pcs": raw_pcs}
+        current_virtual_pieces[idx] = {
+            "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")), 
+            "piece_class": inferred_class, 
+            "length_prod": l_prod, 
+            "width_prod": w_prod, 
+            "net_area_prod": round(raw_net_area, 4), 
+            "final_pcs": raw_pcs
+        }
     st.session_state["virtual_pieces_layer"] = current_virtual_pieces
      # ==============================================================================
     # --- ĐOẠN 2: LUỒNG ĐỒNG BỘ INDEX TOÁN HỌC THUẦN TÚY (THỤT LỀ CHUẨN 4 DẤU CÁCH) ---
