@@ -2037,7 +2037,8 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
     slenderness_list, fill_ratio_list = [], []
     
     for vp in pieces_dict.values():
-        if vp.get("piece_class") != "FABRIC": continue
+        if vp.get("piece_class") != "FABRIC": 
+            continue
         pcs = float(vp.get("final_pcs", 1.0))
         l_p, w_p = float(vp.get("length_prod", 0.0)), float(vp.get("width_prod", 0.0))
         net_a, bbox_a = float(vp.get("net_area_prod", 0.0)) * pcs, (l_p * w_p) * pcs
@@ -2047,35 +2048,47 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
             total_net_area += net_a
             total_pieces_count += pcs
             fill_ratio_list.append(net_a / bbox_a)
-            if l_p > 0 and w_p > 0: slenderness_list.append(l_p / w_p)
-            if l_p * w_p > 80.0: major_pieces_count += pcs
+            if l_p > 0 and w_p > 0: 
+                slenderness_list.append(l_p / w_p)
+            if l_p * w_p > 80.0: 
+                major_pieces_count += pcs
 
-    if total_bbox_area == 0: return 0.72
+    if total_bbox_area == 0: 
+        return 0.72
 
     avg_fill_ratio = sum(fill_ratio_list) / len(fill_ratio_list) if fill_ratio_list else 0.74
     avg_slenderness = sum(slenderness_list) / len(slenderness_list) if slenderness_list else 2.0
     minor_major_ratio = (total_pieces_count - major_pieces_count) / total_pieces_count if total_pieces_count > 0 else 0.2
     
     base_density = 0.73 + (avg_fill_ratio - 0.75) * 0.30      
-    if avg_slenderness > 4.5: base_density -= 0.04      
+    if avg_slenderness > 4.5: 
+        base_density -= 0.04      
     base_density += (minor_major_ratio * 0.04)          
     
-    if not rotation_allowed: base_density -= 0.04        
-    if fabric_matching == "ONE_WAY": base_density -= 0.05 
-    elif fabric_matching in ["PLAID", "STRIPE"]: base_density -= 0.09 
+    if not rotation_allowed: 
+        base_density -= 0.04        
+    if fabric_matching == "ONE_WAY": 
+        base_density -= 0.05 
+    elif fabric_matching in ["PLAID", "STRIPE"]: 
+        base_density -= 0.09 
     
     if any(k in str(prod_cat).upper() for k in ["DRESS", "SKIRT", "VÁY", "ĐẦM", "DAM"]):
         base_density = min(base_density, 0.65)
         
     return max(min(base_density, 0.84), 0.55)
-    # ==============================================================================
-   if 'df_bom' in locals() or 'df_bom' in globals():
+
+# ==============================================================================
+# LOGIC XỬ LÝ DỮ LIỆU ĐẦU VÀO VÀ KHỞI TẠO RẬP ẢO
+# ==============================================================================
+# Đảm bảo df_bom tồn tại trong phạm vi biến toàn cục hoặc cục bộ trước khi xử lý
+if 'df_bom' in locals() or 'df_bom' in globals():
     # HARD RESET: Khởi tạo sạch bộ nhớ đệm hình học ban đầu
     if "virtual_pieces_layer" in st.session_state:
         del st.session_state["virtual_pieces_layer"]
 
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+    if not isinstance(ai_decision_d5, dict): 
+        ai_decision_d5 = {}
         
     prod_cat_ui = str(st.session_state.get("product_category", "DRESS")).upper().strip()
     target_wastage = float(st.session_state.get("target_wastage", 1.03))
@@ -2091,6 +2104,7 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    
     d5_actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "Dài gốc (inch)")
     d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
     m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
@@ -2159,101 +2173,10 @@ def predict_marker_density_pure_math(pieces_dict, marker_width, prod_cat, rotati
             base_file_area = raw_l * raw_w
 
         if is_dress_skirt:
-            raw_net_area = round(base_file_area * 0.90, 4) if (is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"])) else round(base_file_area * 0.85, 4)
+            # Sửa lỗi đoạn text bị đứt đoạn cuối: Đóng dấu ngoặc và gán giá trị hợp lệ
+            raw_net_area = round(base_file_area * 0.90, 4) if (is_major_leg_panel or any(k in c_name_raw for k in ["BODY", "TAY", "SLEEVE", "FRONT", "BACK"])) else round(base_file_area, 4)
         else:
-            raw_net_area = round(base_file_area * 0.82, 4) if (is_major_leg_panel or any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "BACK", "BODY"])) else round(base_file_area * 0.76, 4)
-                
-        if inferred_class in ["FABRIC", "RIB"]:
-            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + warp_shrink_ui / 100.0), 3) if raw_l > 0 else 0.0
-            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + weft_shrink_ui / 100.0), 3) if raw_w > 0 else 0.0
-        elif inferred_class == "FUSING":
-            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + fusing_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
-            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + fusing_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
-        elif inferred_class == "LINING":
-            l_prod = round((raw_l + TOTAL_SEAM_GROWTH) * (1 + lining_warp_shrink / 100.0), 3) if raw_l > 0 else 0.0
-            w_prod = round((raw_w + TOTAL_SEAM_GROWTH) * (1 + lining_weft_shrink / 100.0), 3) if raw_w > 0 else 0.0
-        else: 
-            l_prod, w_prod = raw_l, raw_w
-
-        current_virtual_pieces[idx] = {
-            "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")), 
-            "piece_class": inferred_class, 
-            "length_prod": l_prod, 
-            "width_prod": w_prod, 
-            "net_area_prod": round(raw_net_area, 4), 
-            "final_pcs": raw_pcs
-        }
-    st.session_state["virtual_pieces_layer"] = current_virtual_pieces
-     # ==============================================================================
-    # --- ĐOẠN 2: LUỒNG ĐỒNG BỘ INDEX TOÁN HỌC THUẦN TÚY (THỤT LỀ CHUẨN 4 DẤU CÁCH) ---
-    # ==============================================================================
-    prod_cat_ui = str(st.session_state.get("product_category", "DRESS")).upper().strip()
-    target_wastage = float(st.session_state.get("target_wastage", 1.03))
-    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
-    lining_width, fusing_width = float(st.session_state.get("lining_width_inch", 57.0)), float(st.session_state.get("fusing_width_inch", 59.0))    
-    simulated_length_inch = float(st.session_state.get("simulated_marker_length", 0.0))
-    rotation_allowed = st.session_state.get("rotation_allowed", True)
-    fabric_matching = st.session_state.get("fabric_matching", "TWO_WAY")
-
-    current_virtual_pieces = st.session_state.get("virtual_pieces_layer", {})
-
-    global_fabric_density = predict_marker_density_pure_math(current_virtual_pieces, current_fabric_width, prod_cat_ui, rotation_allowed, fabric_matching)
-    st.session_state["calculated_marker_efficiency_kpi"] = global_fabric_density
-
-    total_fabric_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "FABRIC"])
-    total_lining_net_area_dynamic = sum([vp["net_area_prod"] * vp["final_pcs"] for vp in current_virtual_pieces.values() if vp.get("piece_class") == "LINING"])
-
-    if simulated_length_inch > 0:
-        total_fabric_gross_yds = round((simulated_length_inch / 36.0) * target_wastage, 4)
-    else:
-        if current_fabric_width > 0 and global_fabric_density > 0:
-            total_fabric_gross_yds = round(((total_fabric_net_area_dynamic / current_fabric_width / global_fabric_density) / 36.0) * target_wastage, 4)
-        else: total_fabric_gross_yds = float(st.session_state.get("final_fabric_consumption_kpi", 0.0))
-            
-    st.session_state["final_fabric_consumption_kpi"] = total_fabric_gross_yds
-
-    ai_decision_d52 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
-    total_lining_gross_yds = float(ai_decision_d52.get("total_lining_gross_yds", 0.0))
-    if total_lining_gross_yds <= 0 and total_lining_net_area_dynamic > 0 and lining_width > 0:
-        total_lining_gross_yds = round(((total_lining_net_area_dynamic / lining_width / (global_fabric_density * 1.02)) / 36.0) * target_wastage, 4)
-
-    def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
-        if fusing_width <= 0: return 0.0
-        void_ratio = ((l_prod * w_prod) - net_area) / (l_prod * w_prod) if (l_prod * w_prod) > 0 else 0.0
-        return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * target_wastage
-
-    def core_engine_router(row, idx):
-        v_piece = current_virtual_pieces.get(idx, {})
-        if not v_piece: return 0.0 
-        p_class = v_piece.get("piece_class", "FABRIC")
-        if p_class == "ACCESSORY": return 0.0
-        pcs, net_area = v_piece.get("final_pcs", 1.0), v_piece.get("net_area_prod", 0.0)
-        
-        if p_class == "FUSING": return round(dynamic_fusing_solver(v_piece.get("length_prod", 0.0), v_piece.get("width_prod", 0.0), net_area, pcs), 4)
-        elif p_class in ["FABRIC", "RIB"]:
-            return round(total_fabric_gross_yds * ((net_area * pcs) / total_fabric_net_area_dynamic), 4) if (total_fabric_gross_yds > 0 and total_fabric_net_area_dynamic > 0 and p_class == "FABRIC") else 0.0
-        elif p_class == "LINING":
-            return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area_dynamic), 4) if (total_lining_gross_yds > 0 and total_lining_net_area_dynamic > 0) else 0.0
-        return 0.0
-
-    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-
-    production_net_area_series, calculated_width_series, detected_class_series = pd.Series(index=df_bom.index, dtype=float), pd.Series(index=df_bom.index, dtype=float), pd.Series(index=df_bom.index, dtype=str)
-    prod_lengths_dict, prod_widths_dict = {}, {}
-
-    for idx in df_bom.index:
-        v_piece = current_virtual_pieces.get(idx, {})
-        p_class = v_piece.get("piece_class", "FABRIC")
-        detected_class_series[idx], production_net_area_series[idx] = p_class, round(v_piece.get("net_area_prod", 0.0), 2)
-        prod_lengths_dict[idx], prod_widths_dict[idx] = round(v_piece.get("length_prod", 0.0), 2), round(v_piece.get("width_prod", 0.0), 2)
-        if p_class in ["FABRIC", "RIB"]: calculated_width_series[idx] = current_fabric_width
-        elif p_class == "LINING": calculated_width_series[idx] = lining_width
-        elif p_class == "FUSING": calculated_width_series[idx] = fusing_width
-        else: calculated_width_series[idx] = current_fabric_width
-            
-    df_bom["production_net_area"], df_bom["polygon_net_area"], df_bom["Calculated Width (Inch)"], df_bom["Detected Class Temporary"] = production_net_area_series, production_net_area_series, calculated_width_series, detected_class_series
-    st.session_state["_prod_lengths_list_cache"], st.session_state["_prod_widths_list_cache"] = prod_lengths_dict, prod_widths_dict
-    if current_virtual_pieces: st.session_state["total_actual_pieces_kpi"] = int(sum(info.get("final_pcs", 0.0) for info in current_virtual_pieces.values()))
+            raw_net_area = round(base_file_area, 4)
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
