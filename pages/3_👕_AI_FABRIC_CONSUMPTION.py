@@ -80,29 +80,31 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (FIX LOGO CỐ ĐỊNH)
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BANNER VĂN BẢN ĐỈNH SIDEBAR CHUẨN ERP
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🛠️ ĐÃ SỬA: Dùng lệnh Python nhúng HTML để tạo thẻ nền trắng ghim cứng logo PPJ chuẩn lên đỉnh Sidebar
+# Dùng lệnh Python tạo hộp chữ Banner vuông vắn ghim cứng lên đỉnh lề trái
 with st.sidebar:
     st.markdown(
         """
         <div style="
-            background-color: #ffffff !important; 
-            border-radius: 10px; 
-            padding: 12px 10px; 
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); 
+            border-radius: 8px; 
+            padding: 15px 10px; 
             text-align: center; 
-            margin-top: -30px; /* Đẩy sát lên đỉnh mép Sidebar */
-            margin-bottom: 25px; 
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
-            display: block !important;
-            visibility: visible !important;
+            margin-top: -30px; /* Đẩy sát kịch trần lề trên */
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
         ">
-            <img src="https://r2.dev" 
-                 style="width: 100%; max-width: 150px; height: auto; display: inline-block;">
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; line-height: 1.2;">
+                PPJ GROUP
+            </div>
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 9px; font-weight: 600; color: #bfdbfe; letter-spacing: 0.3px; margin-top: 4px; text-transform: uppercase;">
+                BOUNDLESS SOLUTIONS
+            </div>
         </div>
         """,
         unsafe_allow_html=True
@@ -117,8 +119,9 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 
 
+
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH ÉP PHỤC HỒI LOGO TRÊN THẺ NỀN TRẮNG ĐỈNH SIDEBAR
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS ĐỒNG BỘ MÀU SẮC & XỬ LÝ LỀ SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
@@ -153,28 +156,18 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
     }
 
-    /* CẤU HÌNH MENU ĐA TRANG CỦA STREAMLIT GỌN GÀNG */
+    /* CẤU HÌNH THANH MENU ĐIỀU HƯỚNG ĐA TRANG GỌN GÀNG */
     [data-testid="stSidebarNav"] {
-        padding-top: 10px !important; 
+        padding-top: 5px !important; /* Thu hẹp lại lề vì khoảng trống đã được lấp đầy */
         background-color: transparent !important;
         position: relative !important;
     }
     
-    /* Triệt tiêu các lớp phủ pseudo-element cũ tránh đè giao diện */
+    /* Triệt tiêu hoàn toàn các cơ chế vẽ đè cũ tránh xung đột */
     [data-testid="stSidebarNav"]::before,
     [data-testid="stSidebarNav"]::after {
         content: "" !important;
         display: none !important;
-    }
-
-    /* 🔥 ĐÃ SỬA CƯỞNG BỨC: ÉP CHỮA CHÁY KHỐI THẺ NỀN TRẮNG CHỨA LOGO PPJ BẰNG PYTHON PHẢI HIỂN THỊ 100% */
-    [data-testid="stSidebar"] div:has(img[src*="logo-ppj-boundless"]),
-    [data-testid="stSidebar"] img[src*="logo-ppj-boundless"] {
-        display: inline-block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        max-width: 150px !important;
-        height: auto !important;
     }
 
     /* ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN ĐÁY MÀN HÌNH */
@@ -284,8 +277,8 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* Bộ lọc chỉ ẩn các icon ảnh vỡ cũ, TUYỆT ĐỐI KHÔNG ẩn thẻ chứa logo của bạn */
-    [data-testid="stSidebar"] img[src*="data:image/png;base64,iVBOR"] { display: none !important; }
+    /* 🛠️ SỬA DỨT ĐIỂM: Khử sạch và ẩn hoàn toàn cái icon rác ảnh vỡ nhỏ màu trắng ở giữa lề */
+    [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
