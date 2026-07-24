@@ -118,7 +118,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH TẠO THẺ NỀN TRẮNG ĐỂ HIỂN THỊ LOGO PPJ CHUẨN
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX HÌNH ẢNH LOGO VÀ ĐỒNG BỘ MÀU SẮC ERP
 # =====================================================================
 st.markdown("""
 <style>
@@ -153,34 +153,15 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
     }
 
-    /* 🛠️ SỬA DỨT ĐIỂM: ĐẨY THANH ĐIỀU HƯỚNG XUỐNG VÀ XÓA BACKGROUND CŨ ĐỂ HIỂN THỊ THẺ LOGO */
+    /* CẤU HÌNH MENU ĐA TRANG CỦA STREAMLIT GỌN GÀNG */
     [data-testid="stSidebarNav"] {
-        padding-top: 130px !important; /* Đẩy chữ MAIN DASHBOARD dịch xuống để nhường chỗ rộng rãi */
+        padding-top: 10px !important; 
         background-color: transparent !important;
         position: relative !important;
     }
     
-    /* 🎨 TẠO KHỐI THẺ NỀN TRẮNG BO GÓC GHIM CỐ ĐỊNH Ở ĐỈNH SIDEBAR */
-    [data-testid="stSidebarNav"]::before {
-        content: "" !important;
-        display: block !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 15px !important;
-        right: 15px !important;
-        height: 85px !important;
-        /* Nạp trực tiếp ảnh logo PPJ GROUP chuẩn vào khối thẻ */
-        background-image: url("https://r2.dev") !important;
-        background-repeat: no-repeat !important;
-        background-position: center !important;
-        background-size: 85% auto !important; /* Thu gọn ảnh vừa vặn trong thẻ */
-        background-color: #ffffff !important; /* Đổi sang nền TRẮNG TINH KHÔI để làm nổi bật logo màu xanh đỏ */
-        border-radius: 10px !important; /* Bo góc mềm mại sang trọng */
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15) !important; /* Đổ bóng nổi khối 3D */
-        z-index: 999999 !important;
-    }
-
-    /* Triệt tiêu dòng chữ text rác cũ hoàn toàn */
+    /* Triệt tiêu các lớp phủ pseudo-element cũ tránh đè giao diện */
+    [data-testid="stSidebarNav"]::before,
     [data-testid="stSidebarNav"]::after {
         content: "" !important;
         display: none !important;
@@ -293,10 +274,12 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
+    /* 🛠️ ĐÃ SỬA: Bộ lọc thông minh chỉ ẩn các icon ảnh vỡ lỗi nhỏ của Streamlit, KHÔNG ẩn logo thẻ trắng của bạn */
+    [data-testid="stSidebar"] img[src*="data:image/png;base64,iVBOR"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
