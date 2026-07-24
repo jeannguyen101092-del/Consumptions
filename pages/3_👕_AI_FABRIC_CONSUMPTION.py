@@ -2190,6 +2190,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         else: calculated_widths.append(current_fabric_width)
             
     df_bom["production_net_area"] = updated_net_areas
+    df_bom["polygon_net_area"] = updated_net_areas
     df_bom["Calculated Width (Inch)"] = calculated_widths
     df_bom["Detected Class Temporary"] = class_list
     st.session_state["_prod_lengths_list_cache"], st.session_state["_prod_widths_list_cache"] = updated_lengths, updated_widths
