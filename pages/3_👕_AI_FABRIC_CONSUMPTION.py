@@ -2035,6 +2035,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     features = ai_decision_d5.get("geometry_features", {})
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
 
+    # BỘ DÒ CỘT TỰ ĐỘNG (SNIFFER) CHỐNG LỖI NAMEERROR
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
@@ -2042,40 +2043,67 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     d5_actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "Rộng gốc (inch)")
     m_col = next((c for c in ["Material", "material", "Chất liệu", "Vải"] if c in df_bom.columns), None)
 
+    # Đọc thông số co rút sợi sản xuất trực tiếp từ giao diện người dùng (UI Streamlit)
+    warp_shrink_ui = float(st.session_state.get("warp_shrink", 0.0))    # Co rút dọc vải chính
+    weft_shrink_ui = float(st.session_state.get("weft_shrink", 0.0))    # Co rút ngang vải chính
+    fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
+    fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
+    lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
+    lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+
+    # BIÊN ĐƯỜNG MAY CÔNG NGHIỆP (Mỗi vế nới 0.5 inch -> Tổng nới chiều dài và chiều rộng phôi thêm 1.0 inch)
+    SEAM_ALLOWANCE_TOTAL = 1.0 
+
     if "virtual_pieces_layer" in locals() and virtual_pieces_layer:
         current_virtual_pieces = virtual_pieces_layer
     else:
         current_virtual_pieces = st.session_state.get("virtual_pieces_layer", ai_decision_d5.get("virtual_pieces_layer", {}))
 
-    # BỘ TỰ KHỞI TẠO NÂNG CAO (ADVANCED EXTRACTOR): Mở rộng ma trận từ khóa phụ liệu ngành may
+    # BỘ TỰ KHỞI TẠO NÂNG CAO: Tự dựng phôi từ df_bom, tính đường may và nhân phần trăm co rút thớ vải
     if not current_virtual_pieces:
         current_virtual_pieces = {}
         for idx, r in df_bom.iterrows():
             c_name_raw = str(r.get(comp_col_check, r.get("component_name", ""))).upper()
             m_str_raw = str(r.get(m_col, "FABRIC")).upper() if m_col else "FABRIC"
             
-            # Giải toán phân loại luồng chất liệu thông minh đa điểm
             inferred_class = "FABRIC"
             if any(k in c_name_raw or k in m_str_raw for k in ["FUSING", "MEC", "KEO", "INTERLINING", "TRICOT"]):
                 inferred_class = "FUSING"
             elif any(k in c_name_raw or k in m_str_raw for k in ["LINING", "LOT", "POCKETING", "VAI LOT", "BAG POCKET"]):
                 inferred_class = "LINING"
-            # Mở rộng bộ từ khóa để bắt chính xác Nút kim loại, Đinh tán, Khóa kéo quần Jeans PPJ
             elif any(k in c_name_raw or k in m_str_raw for k in ["THREAD", "CHI", "BUTTON", "ZIPPER", "ACCESSORY", "METAL", "RIVET", "SHANK", "ZIP", "NÚT", "ĐINH", "TAPE"]):
                 inferred_class = "ACCESSORY"
                 
             l_orig_val = float(r.get(d5_actual_l_col, 0.0))
             w_orig_val = float(r.get(d5_actual_w_col, 0.0))
+
+            # Logic sản xuất: Cộng biên đường may trước cho phôi, sau đó nhân tỷ lệ co rút thớ vải đại trà
+            if inferred_class == "FABRIC":
+                l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
+                w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+                l_prod = round(l_seam * (1 + warp_shrink_ui / 100.0), 3)
+                w_prod = round(w_seam * (1 + weft_shrink_ui / 100.0), 3)
+            elif inferred_class == "FUSING":
+                l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
+                w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+                l_prod = round(l_seam * (1 + fusing_warp_shrink / 100.0), 3)
+                w_prod = round(w_seam * (1 + fusing_weft_shrink / 100.0), 3)
+            elif inferred_class == "LINING":
+                l_seam = l_orig_val + SEAM_ALLOWANCE_TOTAL if l_orig_val > 0 else 0.0
+                w_seam = w_orig_val + SEAM_ALLOWANCE_TOTAL if w_orig_val > 0 else 0.0
+                l_prod = round(l_seam * (1 + lining_warp_shrink / 100.0), 3)
+                w_prod = round(w_seam * (1 + lining_weft_shrink / 100.0), 3)
+            else:
+                l_prod, w_prod = l_orig_val, w_orig_val
             
-            net_area_calc = float(r.get("polygon_net_area", 0.0))
-            if net_area_calc <= 0.0:
-                net_area_calc = l_orig_val * w_orig_val * 0.76
+            # Cứu viện diện tích tịnh thực tế của phôi ảo sau khi nới may và phình co rút
+            net_area_calc = l_prod * w_prod * 0.76
 
             current_virtual_pieces[idx] = {
                 "component_name": r.get(comp_col_check, r.get("component_name", "PIECE")),
                 "piece_class": inferred_class,
-                "length_prod": l_orig_val,
-                "width_prod": w_orig_val,
+                "length_prod": l_prod,
+                "width_prod": w_prod,
                 "net_area_prod": net_area_calc,
                 "final_pcs": float(r.get("pcs_numeric", 1.0)),
                 "is_paired": False
@@ -2098,10 +2126,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             p_l_val = v_piece.get("length_prod", 0.0)
             p_w_val = v_piece.get("width_prod", 0.0)
             
-            if net_area <= 0.0:
-                net_area = p_l_val * p_w_val * 0.76
-                v_piece["net_area_prod"] = net_area
-                
             if p_l_val > max_piece_length: 
                 max_piece_length = p_l_val
                 
@@ -2114,7 +2138,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
             for _ in range(int(current_pcs)):
                 fabric_pieces_to_nest.append({"l": p_l_val, "w": p_w_val, "area": net_area})
 
-    # Mô phỏng sơ đồ cắt tiêu chuẩn (Nesting Simulation)
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
         simulated_marker_length = max_piece_length 
@@ -2142,11 +2165,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     for idx, r in df_bom.iterrows():
         v_piece = current_virtual_pieces.get(idx, {})
         if v_piece.get("piece_class") == "LINING":
-            l_net = v_piece.get("net_area_prod", 0.0)
-            if l_net <= 0.0:
-                l_net = v_piece.get("length_prod", 0.0) * v_piece.get("width_prod", 0.0) * 0.72
-                v_piece["net_area_prod"] = l_net
-            total_lining_net_area += l_net * v_piece.get("final_pcs", 1.0)
+            total_lining_net_area += v_piece.get("net_area_prod", 0.0) * v_piece.get("final_pcs", 1.0)
 
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.76
@@ -2160,6 +2179,7 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         "total_lining_gross_yds": round(total_lining_gross_yds, 4)
     })
     st.session_state["final_fabric_consumption_kpi"] = round(total_fabric_gross_yds, 4)
+
 # =====================================================================
 # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ÉP KHỚP PHÂN BỔ DÒNG CHI TIẾT)
 # =====================================================================
@@ -2218,12 +2238,11 @@ if 'df_bom' in locals() or 'df_bom' in globals():
 
     calculated_widths = []
     updated_net_areas = []
-    
     for idx in df_bom.index:
         v_piece = current_virtual_pieces.get(idx, {})
         p_class = v_piece.get("piece_class", "FABRIC")
         
-        # 🚨 ĐỒNG BỘ HIỂN THỊ: Ghi nhận diện tích cứu viện toán học ngược lại vào bảng dữ liệu lưới Grid
+        # ĐẨY DIỆN TÍCH THỰC TẾ (ĐÃ GỒM ĐƯỜNG MAY + CO RÚT) LÊN MÀN HÌNH LƯỚI GRID
         updated_net_areas.append(round(v_piece.get("net_area_prod", 0.0), 2))
         
         if p_class == "FABRIC":
