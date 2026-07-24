@@ -2033,7 +2033,6 @@ if 'df_bom' in locals() or 'df_bom' in globals():
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if 'ctx' in locals() else {}
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    # Lấy chủng loại sản phẩm hiện tại để đối chiếu danh mục (TROUSER, JEAN, JACKET, T-SHIRT...)
     prod_cat_ui = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper().strip()
 
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
@@ -2083,19 +2082,30 @@ if 'df_bom' in locals() or 'df_bom' in globals():
         raw_w = float(r.get(d5_actual_w_col, 0.0))
         raw_pcs = float(r.get("pcs_numeric", 1.0))
         
-        # 🔥 THUẬT TOÁN KIỂM TRA CHÉO DANH MỤC HÌNH HỌC (CROSS-CHECKING SANITIZER)
         is_trouser_category = any(k in prod_cat_ui for k in ["TROUSER", "JEAN", "PANT", "SHORT", "QUẦN", "QUAN"])
+        is_apparel_top = any(k in prod_cat_ui for k in ["JACKET", "HOODIE", "TEE", "SHIRT", "COAT", "ÁO", "AO"])
         is_major_leg_panel = any(k in c_name_raw for k in ["FRONT", "BACK", "TROUSER", "THÂN TRƯỚC", "THÂN SAU"])
         
-        # CHỈ chia đôi chiều rộng nếu: 
-        # 1. Thuộc danh mục Quần ĐỒNG THỜI là thân rập lớn
-        # 2. Chiều rộng vọt lên quá khổ rập phẳng thông thường (> 16 inch)
-        # 3. Số lượng rập bắt buộc phải bằng 2 (Tức là rập đối xứng cắt đôi)
+        # 1. Khử lỗi thông số cả vòng cho QUẦN (Giữ nguyên mốc chuẩn cũ)
         if is_trouser_category and is_major_leg_panel and raw_w > 16.0 and raw_pcs == 2.0:
             raw_w = round(raw_w / 2.0, 2)
             
-        # Tính toán diện tích tịnh rập thực tế sau khi đã lọc dữ liệu thông minh
-        raw_net_area = round(raw_l * raw_w * 0.75, 4)
+        # 2. 🔥 THUẬT TOÁN BÙ RẬP ĐỐI XỨNG CHO ÁO KHOÁC (SYMMETRIC PIECES AUTO-MULTIPLIER)
+        # Nếu là Áo khoác và phát hiện tên chi tiết rập đối xứng (Tay áo, Thân trước, Nẹp...) 
+        # mà AI trích xuất thiếu số lượng (chỉ bằng 1 hoặc 2 tùy cấu trúc cặp), tự động bổ sung nhân đôi
+        if is_apparel_top:
+            if any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "TRƯỚC", "FACING", "NẸP", "POCKET", "TÚI"]):
+                if raw_pcs == 1.0: 
+                    raw_pcs = 2.0  # Ép từ 1 mảnh lên 1 cặp (Trái + Phải)
+                elif raw_pcs == 2.0 and any(k in c_name_raw for k in ["SLEEVE", "TAY"]):
+                    # Đối với áo khoác Jacket dày có lót/măng séc hoặc tay 2 mảnh (Upper/Under sleeve)
+                    raw_pcs = 4.0 
+
+        # Bảo toàn diện tích khung bao chữ nhật
+        if is_major_leg_panel or any(k in c_name_raw for k in ["SLEEVE", "TAY", "FRONT", "BACK", "BODY"]):
+            raw_net_area = round(raw_l * raw_w, 4)
+        else:
+            raw_net_area = round(raw_l * raw_w * 0.85, 4)
                 
         if inferred_class in ["FABRIC", "RIB"]:
             shrink_factor = (1 + warp_shrink_ui / 100.0) * (1 + weft_shrink_ui / 100.0)
