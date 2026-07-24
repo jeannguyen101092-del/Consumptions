@@ -80,14 +80,35 @@ import streamlit as st
 import re
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BỘ NHỚ STATE AN TOÀN CHUẨN ERP (ĐÃ SẠCH MÃ)
+# ĐOẠN 6a - PHẦN 1: KHỞI TẠO BANNER VĂN BẢN ĐỈNH SIDEBAR CHUẨN ERP
 # =====================================================================
 
 # 1. Cấu hình trang rộng toàn màn hình chuẩn hệ thống SaaS/ERP Văn phòng
 st.set_page_config(layout="wide", page_title="AI Fabric Consumption Matrix")
 
-# 🛠️ ĐÃ SỬA: Xóa bỏ hoàn toàn câu lệnh st.sidebar.markdown cũ chứa ảnh lỗi ở đây.
-# Khối Banner xanh PPJ GROUP giờ đây được tự động vẽ bằng CSS ở Đoạn 6a - Phần 2 cực kỳ ổn định.
+# Dùng lệnh Python tạo hộp chữ Banner vuông vắn ghim cứng lên đỉnh lề trái
+with st.sidebar:
+    st.markdown(
+        """
+        <div style="
+            background: linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%); 
+            border-radius: 8px; 
+            padding: 15px 10px; 
+            text-align: center; 
+            margin-top: -30px; /* Đẩy sát kịch trần lề trên */
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        ">
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 16px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px; line-height: 1.2;">
+                PPJ GROUP
+            </div>
+            <div style="font-family: 'Segoe UI', sans-serif; font-size: 9px; font-weight: 600; color: #bfdbfe; letter-spacing: 0.3px; margin-top: 4px; text-transform: uppercase;">
+                BOUNDLESS SOLUTIONS
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # 2. Khởi tạo cấu trúc trạng thái bộ nhớ hệ thống (Session State) an toàn
 if "bom_data" not in st.session_state: st.session_state.bom_data = None
@@ -98,61 +119,106 @@ if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = N
 if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_bom_rows = []
 
 
+
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH BIẾN Ô CHAT LIỀN KHỐI CHUẨN ĐẸP VỚI TRANG PHẢI
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS ĐỒNG BỘ MÀU SẮC & XỬ LÝ LỀ SIDEBAR
 # =====================================================================
 st.markdown("""
 <style>
-    /* CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG DỊU MẮT */
-    .stApp { background-color: #f0f4f8 !important; }
-    header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
+    /* 🎨 ÉP ĐỒNG BỘ TOÀN DIỆN MÀU NỀN XANH NGỌC MỊN CHO TẤT CẢ CÁC LỚP BAN NỀN */
+    .stApp, header[data-testid="stHeader"], div[data-testid="stMainView"], section[data-testid="stSidebar"] + div { 
+        background-color: #e6f4f1 !important; 
+    }
     
-    /* Đẩy toàn bộ khối nội dung trang chính dạt sang bên phải ngay ngắn */
+    /* Ép khoảng cách lề của toàn vùng nội dung dạt sang phải, tránh so le */
     .block-container { 
         padding-top: 1.5rem !important; 
-        padding-left: 0px !important; 
-        padding-right: 25px !important; 
-        margin-left: 320px !important; /* Đẩy rộng hơn một chút tạo khoảng thở với Sidebar */
-        max-width: calc(100% - 325px) !important;
-    }
-
-    /* 🧱 THIẾT KẾ ĐỘC QUYỀN: BỘ BỌC KHỐI NỀN TRẮNG TOÀN DIỆN CHO TRANG PHẢI */
-    .dashboard-workspace-card {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 8px !important;
-        padding: 24px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
-        margin-bottom: 95px !important; /* Dành chỗ trống ở đáy cho ô chat liền khối */
-        width: 100% !important;
+        padding-left: 2rem !important; 
+        padding-right: 2rem !important; 
+        margin-left: 300px !important; /* Tạo khoảng trống chuẩn tách biệt Sidebar */
+        max-width: calc(100% - 300px) !important; 
+        padding-bottom: 120px !important; 
     }
     
-    /* 🛠️ ĐÃ SỬA: ÉP Ô CHAT GHIM LIỀN MẠCH, THẲNG HÀNG VÀ ĂN KHỚP VỚI KHỐI VIỀN TRẮNG */
-    .stChatInput, div[data-testid="stChatInputText"] {
-        position: fixed !important;
-        bottom: 20px !important;
-        left: 345px !important; /* Đồng bộ lùi lề khớp với mép trong khối viền trắng */
-        right: 50px !important;
-        width: auto !important;
-        z-index: 999992 !important;
-        background-color: #ffffff !important;
-        border-radius: 6px !important;
-        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03) !important; /* Đổ bóng nhẹ lên trên tạo độ mượt */
+    /* Ép tất cả các khối ngang (Horizontal Blocks) dãn đều */
+    div[data-testid="stHorizontalBlock"] { 
+        margin-top: 0px !important; 
+        padding-top: 0px !important; 
+        width: 100% !important;
+        max-width: 100% !important;
+        background-color: transparent !important; 
     }
 
-    /* ĐỊNH VỊ KHÓA CỨNG SIDEBAR BÊN TRÁI KHÔNG TRƯỢT */
+    /* NHUỘM XANH CÁC KHỐI CHỨA UPLOADER VÀ VISUALIZER CHO ĐỒNG BỘ */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #f0fdfa !important; 
+        border: 1px solid #99f6e4 !important; 
+        box-shadow: 0 4px 6px -1px rgba(15, 118, 110, 0.05) !important;
+    }
+
+    /* CẤU HÌNH THANH MENU ĐIỀU HƯỚNG ĐA TRANG GỌN GÀNG */
+    [data-testid="stSidebarNav"] {
+        padding-top: 5px !important; /* Thu hẹp lại lề vì khoảng trống đã được lấp đầy */
+        background-color: transparent !important;
+        position: relative !important;
+    }
+    
+    /* Triệt tiêu hoàn toàn các cơ chế vẽ đè cũ tránh xung đột */
+    [data-testid="stSidebarNav"]::before,
+    [data-testid="stSidebarNav"]::after {
+        content: "" !important;
+        display: none !important;
+    }
+
+    /* ÉP TOÀN BỘ KHỐI CONTAINER CHAT VÀ FIELDSET PHÌNH TO 100% CHẠM BIÊN ĐÁY MÀN HÌNH */
+    .stChatInput,
+    .stChatInput > div,
+    .stChatInput fieldset,
+    div[data-testid="stChatInputContainer"] {
+        position: fixed !important;
+        bottom: 0 !important; 
+        left: 300px !important; 
+        right: 0 !important; 
+        width: calc(100% - 300px) !important; 
+        max-width: calc(100% - 300px) !important; 
+        background-color: #ccfbf1 !important; 
+        border: none !important;
+        border-top: 1px solid #5eead4 !important; 
+        border-radius: 0px !important; 
+        box-shadow: 0 -4px 10px rgba(15, 118, 110, 0.06) !important;
+        padding: 10px 2rem !important; 
+    }
+
+    /* Định dạng lõi nhập văn bản gõ chữ bên trong cho tiệp màu xanh ngọc */
+    div[data-testid="stChatInputContainer"] textarea {
+        background-color: #ccfbf1 !important; 
+        color: #115e59 !important; 
+        font-family: "Segoe UI", sans-serif !important;
+        font-size: 13px !important;
+        width: 100% !important;
+        border: none !important;
+    }
+
+    /* Căn chỉnh nút gửi hình mũi tên gọn gàng bên góc phải dải băng chat */
+    div[data-testid="stChatInputContainer"] button {
+        background-color: #0f766e !important;
+        color: #ffffff !important;
+        border-radius: 6px !important;
+    }
+
+    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
         position: fixed !important;
         top: 0 !important;
         left: 0 !important;
-        width: 300px !important;
+        width: 300px !important; 
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
         overflow-y: hidden !important;
-        z-index: 9999 !important;
+        z-index: 99999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
@@ -160,51 +226,11 @@ st.markdown("""
         overflow-y: hidden !important;
     }
 
-    /* TẠO KHỐI BANNER CHỮ PPJ GROUP ĐẸP MẮT TRÊN ĐỈNH NAV */
-    [data-testid="stSidebarNav"] {
-        padding-top: 130px !important; 
-        position: relative !important;
-    }
-    
-    [data-testid="stSidebarNav"]::before {
-        content: "" !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important; 
-        border-radius: 12px !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-        z-index: 1 !important;
-    }
-
-    [data-testid="stSidebarNav"]::after {
-        content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
-        white-space: pre-wrap !important;
-        position: absolute !important;
-        top: 15px !important;
-        left: 12px !important;
-        right: 12px !important;
-        height: 95px !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        text-align: center !important;
-        color: #ffffff !important;
-        font-family: "Segoe UI", -apple-system, sans-serif !important;
-        font-size: 18px !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.8px !important;
-        line-height: 1.6 !important;
-        z-index: 2 !important;
-    }
-
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
+    /* Định dạng nút bấm xóa bộ nhớ tinh tế */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -251,10 +277,13 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
+    /* 🛠️ SỬA DỨT ĐIỂM: Khử sạch và ẩn hoàn toàn cái icon rác ảnh vỡ nhỏ màu trắng ở giữa lề */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+
 
 import streamlit as st
 import re
@@ -527,6 +556,7 @@ with col_right:
             st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo trích xuất: {st.session_state.get('pdf_name', '')}", use_container_width=True)
         else:
             st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+
 
 
 
