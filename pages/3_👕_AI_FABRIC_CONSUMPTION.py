@@ -99,42 +99,55 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH FIX TRIỆT ĐỂ LỖI ĐÈ NỘI DUNG VÀ Ô CHAT
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH BIẾN Ô CHAT LIỀN KHỐI CHUẨN ĐẸP VỚI TRANG PHẢI
 # =====================================================================
 st.markdown("""
 <style>
-    /* 🌟 CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG 🌟 */
+    /* CẤU HÌNH MÀU NỀN CHÍNH ERP VĂN PHÒNG DỊU MẮT */
     .stApp { background-color: #f0f4f8 !important; }
     header[data-testid="stHeader"] { background-color: #f0f4f8 !important; }
     
-    /* Đẩy vùng trang chính dịch sang phải 300px để không bị Sidebar đè lên nội dung */
+    /* Đẩy toàn bộ khối nội dung trang chính dạt sang bên phải ngay ngắn */
     .block-container { 
         padding-top: 1.5rem !important; 
-        padding-left: 2rem !important; 
-        padding-right: 2rem !important; 
-        margin-left: 300px !important; /* Tạo khoảng trống bù trừ cho Sidebar */
-        max-width: calc(100% - 300px) !important; /* Ép độ rộng vừa vặn màn hình còn lại */
+        padding-left: 0px !important; 
+        padding-right: 25px !important; 
+        margin-left: 320px !important; /* Đẩy rộng hơn một chút tạo khoảng thở với Sidebar */
+        max-width: calc(100% - 325px) !important;
+    }
+
+    /* 🧱 THIẾT KẾ ĐỘC QUYỀN: BỘ BỌC KHỐI NỀN TRẮNG TOÀN DIỆN CHO TRANG PHẢI */
+    .dashboard-workspace-card {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 8px !important;
+        padding: 24px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03) !important;
+        margin-bottom: 95px !important; /* Dành chỗ trống ở đáy cho ô chat liền khối */
+        width: 100% !important;
     }
     
-    /* 🔥 ĐÃ SỬA: ÉP Ô CHAT GHIM CỐ ĐỊNH Ở ĐÁY BÊN PHẢI VÀ CHẠY THEO NỘI DUNG */
+    /* 🛠️ ĐÃ SỬA: ÉP Ô CHAT GHIM LIỀN MẠCH, THẲNG HÀNG VÀ ĂN KHỚP VỚI KHỐI VIỀN TRẮNG */
     .stChatInput, div[data-testid="stChatInputText"] {
         position: fixed !important;
         bottom: 20px !important;
-        left: 330px !important; /* Thụt lề sang phải (300px Sidebar + 30px khoảng cách an toàn) */
-        right: 30px !important;
+        left: 345px !important; /* Đồng bộ lùi lề khớp với mép trong khối viền trắng */
+        right: 50px !important;
         width: auto !important;
         z-index: 999992 !important;
+        background-color: #ffffff !important;
+        border-radius: 6px !important;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.03) !important; /* Đổ bóng nhẹ lên trên tạo độ mượt */
     }
-    
-    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH THEO CHIỀU CAO MÀN HÌNH, ĐỊNH VỊ ĐỘ RỘNG CHUẨN */
+
+    /* ĐỊNH VỊ KHÓA CỨNG SIDEBAR BÊN TRÁI KHÔNG TRƯỢT */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
         position: fixed !important;
         top: 0 !important;
         left: 0 !important;
-        width: 300px !important; /* Khóa cứng độ rộng Sidebar */
+        width: 300px !important;
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
@@ -153,7 +166,6 @@ st.markdown("""
         position: relative !important;
     }
     
-    /* Dựng khối nền Banner xanh Gradient bo góc */
     [data-testid="stSidebarNav"]::before {
         content: "" !important;
         position: absolute !important;
@@ -167,7 +179,6 @@ st.markdown("""
         z-index: 1 !important;
     }
 
-    /* Chèn dòng chữ lớn "PPJ GROUP" chính giữa hộp */
     [data-testid="stSidebarNav"]::after {
         content: "PPJ GROUP\\A TECHPACK MANAGEMENT CORE AI" !important;
         white-space: pre-wrap !important;
@@ -190,12 +201,10 @@ st.markdown("""
         z-index: 2 !important;
     }
 
-    /* Chỉnh kích cỡ dòng chữ phụ phía dưới nhỏ lại */
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
     }
 
-    /* Định dạng nút bấm xóa bộ nhớ tinh tế, dễ nhìn */
     [data-testid="stSidebar"] button {
         background-color: #115e59 !important;
         color: #fca5a5 !important;
@@ -208,7 +217,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* TIÊU ĐỀ NỔI BẬT MÀU VÀNG CHANH RỰC RỠ, KHÔNG BỊ CHÌM */
     .sidebar-sub-title {
         font-family: "Segoe UI", sans-serif !important; 
         font-size: 12px !important; 
@@ -221,7 +229,6 @@ st.markdown("""
         margin-top: 18px !important;
     }
 
-    /* Các hộp thông tin đổi sang dải màu gradient tối dịu mắt */
     .sidebar-custom-card, .sidebar-custom-card-history {
         background: linear-gradient(135deg, #115e59 0%, #134e4a 100%) !important; 
         border: 1px solid #14b8a6 !important;
@@ -233,7 +240,6 @@ st.markdown("""
     .sidebar-custom-card-history { padding: 6px 12px !important; }
     .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
 
-    /* Thẻ chỉ số KPIs sắc màu rực rỡ trần trang chính bên phải */
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
     .kpi-lbl-flat-matrix { font-size: 9px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.95 !important; text-transform: uppercase !important; margin-top: 2px !important; }
@@ -242,18 +248,13 @@ st.markdown("""
     .bg-cons-erp  { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%) !important; }
     .bg-size-erp { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%) !important; }
 
-    /* Hộp trắng bao bọc hình vẽ rập vector hình học */
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
-    .garment-emoji-container { display: inline-block !important; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease !important; cursor: pointer !important; }
-    .image-placeholder-box-flat:hover .garment-emoji-container { transform: scale(1.18) translateY(-4px) !important; filter: drop-shadow(0px 8px 12px rgba(0, 0, 0, 0.15)) !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* Triệt tiêu hoàn toàn icon ảnh vỡ lỗi */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
-
 
 import streamlit as st
 import re
@@ -1698,8 +1699,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m1: st.metric(label="📊 Ước lượng Mật độ Tiên nghiệm (Regression)", value=f"{estimated_density*100:.2f}%", delta=f"{(estimated_density - base_prior)*100:+.2f}% vs Barem")
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
-
-       # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCED JACKET FIX)
     # =====================================================================
     pattern_has_shrink = True  
@@ -1726,7 +1726,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
     if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-    FUSING_STRICT_RULES = {"SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]}
+    FUSING_STRICT_RULES = {
+        "SHIRT": ["COLLAR", "STAND", "FRONT PLACKET", "UNDER PLACKET", "CUFF", "SLEEVE PLACKET", "FLAP"], 
+        "TOPS_KNIT": ["POLO PLACKET", "PLACKET"], 
+        "JEAN_LONG": ["WAISTBAND", "FACING", "FLY", "SHIELD", "ZIP", "POCKET FACING", "COIN", "FLAP"], 
+        "SHORT": ["WAISTBAND", "FLY", "FACING", "POCKET FACING"], 
+        "SKIRT": ["WAISTBAND", "WAIST FACING", "ZIP FACING"], 
+        "DRESS_FLARE": ["WAISTBAND", "NECK FACING", "ARMHOLE", "PLACKET", "ZIP FACING"], 
+        "JACKET": ["COLLAR", "STAND", "LAPEL", "FRONT FACING", "FRONT PANEL", "POCKET FACING", "FLAP", "WELT", "CUFF", "TAB"], 
+        "VEST": ["FRONT PANEL", "LAPEL", "COLLAR", "STAND", "FRONT FACING", "POCKET FACING", "FLAP", "WELT", "CUFF"]
+    }
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
@@ -1749,7 +1758,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
             class_confidence = 1.0
         else:
-            mat_str = str(row[m_col]).upper().strip()
+            mat_str = str(row[m_col]).upper().strip() if 'm_col' in locals() else ""
             if slenderness >= 5.0 and void_ratio <= 0.15 and not any(k in mat_str for k in ["THREAD", "CHI", "ACCESSORY"]):
                 p_class, class_confidence = "FUSING", 0.92
             elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
@@ -1767,10 +1776,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG"])
         is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC"])
 
-        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat ("ngang 14", "dọc 3")
+        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat
         if p_class == "FABRIC":
-            w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3)
-            l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3)
+            w_prod = round(w_orig * (1 + (weft_shrink / 100.0 if 'weft_shrink' in locals() else 0.0)), 3)
+            l_prod = round(l_orig * (1 + (warp_shrink / 100.0 if 'warp_shrink' in locals() else 0.0)), 3)
         elif p_class == "FUSING":
             w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3)
             l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3)
@@ -1802,7 +1811,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     inferred_pcs = 2.0  # Thân trước mổ khóa kéo = 2 mảnh độc lập
                     qty_confidence = 0.99
                 elif has_back_kw:
-                    # Nếu thân sau rất rộng (mở phẳng liền trục) -> 1 mảnh chẵn, nếu xẻ sống lưng -> 2 mảnh
                     inferred_pcs = 1.0 if w_prod > 20.0 and "SPLIT" not in comp_name_upper else 2.0
                     qty_confidence = 0.99
             # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN
@@ -1820,29 +1828,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             inferred_pcs = 2.0
             qty_confidence = 0.99
 
-        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận cưỡng bức
+        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
 
-        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD
-        shape_factor = 0.92 if any(k in comp_name_upper for k in ["WAISTBAND", "BELT", "CAP"]) else (0.78 if p_class == "FUSING" else 0.85)
-        net_area_prod = round(l_prod * w_prod * shape_factor, 2)
-        p_area_list.append(net_area_prod)
-
+        # Bước D: Khởi tạo từ điển lưu trữ dữ liệu chi tiết mảnh ảo sau khi xử lý hình học
         virtual_pieces_layer[idx] = {
-            "original_index": idx, "component_name": comp_name_raw, "inferred_class": p_class,
-            "class_confidence": class_confidence, "qty_confidence": qty_confidence,
-            "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs
+            "component_name": comp_name_raw,
+            "material_class": p_class,
+            "original_length": l_orig,
+            "original_width": w_orig,
+            "production_length": l_prod,
+            "production_width": w_prod,
+            "inferred_pcs": final_pcs,
+            "confidence": min(class_confidence, qty_confidence)
         }
-
-    # Bàn giao lớp phôi ảo sang context an toàn cho Đoạn 5 giải toán
-    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    st.session_state["bom_data"] = ctx
-
-    # Xuất bản dữ liệu phẳng đồng bộ ra bảng tính df_bom hệ thống chuẩn chỉnh
-    df_bom["Dài sản xuất (L-inch)"] = p_length_list
-    df_bom["Rộng sản xuất (W-inch)"] = p_width_list
-    df_bom["polygon_net_area"] = p_area_list
-    df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
 
 
 
