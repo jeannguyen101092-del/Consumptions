@@ -194,7 +194,7 @@ else:
         for sz in active_sizes:
             orig_po = int(size_breakdown_main.get(sz, 0))
             remaining_balance_t2[sz] = max(0, orig_po - manual_totals[sz])
-        st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
+                st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
         
         trigger_t2_auto = st.button("⚡ KÍCH HOẠT TỰ ĐỘNG BẺ SƠ ĐỒ HÌNH THÁP CHO LƯỢNG CÒN LẠI", type="primary", use_container_width=True)
         
@@ -212,7 +212,7 @@ else:
                     while sum(balance_tracker.values()) > 0 and step_idx <= 15:
                         marker_id = f"Auto_c{step_idx:02d}"
                         target_layers = 120 if step_idx == 1 else 80
-                        sorted_sizes = sorted(balance_tracker.items(), key=lambda x: x[1], reverse=True)
+                        sorted_sizes = sorted(balance_tracker.items(), key=lambda x: x, reverse=True)
                         current_ratios = {sz: 0 for sz in active_sizes}
                         assigned_pcs = 0
                         
@@ -241,28 +241,34 @@ else:
                         step_idx += 1
                     st.session_state["auto_cutting_results"] = calculated_steps
 
-            # --- TỔNG HỢP VÀ DỰNG BẢNG ĐẦY ĐỦ THÔNG SỐ THEO HÌNH ẢNH MẪU CỦA KHÁCH HÀNG ---
+            # --- TỔNG HỢP VÀ DỰNG BẢNG ĐẦY ĐỦ THÔNG SỐ THEO BIỂU MẪU NHÀ XƯỞNG ---
             final_factory_rows = []
             current_balance = {sz: int(size_breakdown_main.get(sz, 0)) for sz in active_sizes}
             
             # 1. Đưa dữ liệu Tầng 1 (Nhập tay) vào danh sách hiển thị tổng hợp
             for _, row in edited_df_t1.iterrows():
                 name = row.get("BÀN CẮT/TÊN SĐ")
-                layers = int(row.get("Số lớp") or 0)
-                m_len = float(row.get("Dài SĐ YC (M)") or 0.0)
-                eff_sd = float(row.get("Hiệu suất SĐ (%)") or 0.0)
-                db_m = float(row.get("Đầu bàn (M)") or 0.0)
+                layers = int(row.get("Số lớp") if pd.notna(row.get("Số lớp")) and str(row.get("Số lớp")).isdigit() else 0)
+                m_len = float(row.get("Dài SĐ YC (M)") if pd.notna(row.get("Dài SĐ YC (M)")) else 0.0)
+                eff_sd = float(row.get("Hiệu suất SĐ (%)") if pd.notna(row.get("Hiệu suất SĐ (%)")) else 0.0)
+                db_m = float(row.get("Đầu bàn (M)") if pd.notna(row.get("Đầu bàn (M)")) else 0.0)
                 
-                ratios_sum = sum(int(row.get(sz) or 0) for sz in active_sizes)
-                total_cut_pcs = ratios_sum * layers
-                
-                display_row = {"BÀN CẮT/TÊN SĐ": name, "Số lớp": layers, "Tổng SL Cắt": total_cut_pcs}
+                # SỬA LỖI TẠI ĐÂY: Ép kiểu int an toàn tuyệt đối cho tỷ lệ size nhập vào
+                ratios_sum = 0
                 for sz in active_sizes:
-                    rat = mountaineer_rat = int(row.get(sz) or 0)
-                    display_row[sz] = mountaineer_rat
-                    current_balance[sz] = max(0, current_balance[sz] - (mountaineer_rat * layers))
+                    raw_val = row.get(sz)
+                    val_int = int(raw_val) if pd.notna(raw_val) and str(raw_val).replace('.0','').isdigit() else 0
+                    ratios_sum += val_int
                 
-                # Tính các chỉ số kỹ thuật chuyên sâu theo ảnh mẫu
+                total_cut_pcs = ratios_sum * layers
+                display_row = {"BÀN CẮT/TÊN SĐ": name, "Số lớp": layers, "Tổng SL Cắt": total_cut_pcs}
+                
+                for sz in active_sizes:
+                    raw_val = row.get(sz)
+                    val_int = int(raw_val) if pd.notna(raw_val) and str(raw_val).replace('.0','').isdigit() else 0
+                    display_row[sz] = val_int
+                    current_balance[sz] = max(0, current_balance[sz] - (val_int * layers))
+                
                 fabric_needed = (m_len + db_m) * layers if layers > 0 else 0.0
                 display_row["Dài SĐ YC (M)"] = m_len
                 display_row["Hiệu suất SĐ (%)"] = f"{eff_sd}%" if m_len > 0 else ""
@@ -290,7 +296,6 @@ else:
                         display_row[sz] = rat
                         current_balance[sz] = max(0, current_balance[sz] - (rat * layers))
                     
-                    # Giả định thông số hình học cho cấu trúc tự động
                     m_len_est = round(max_table_length * 0.8, 2)
                     fabric_needed = (m_len_est + 0.15) * layers
                     display_row["Dài SĐ YC (M)"] = m_len_est
@@ -300,7 +305,6 @@ else:
                     display_row["Hiệu suất chung"] = "81.5%"
                     final_factory_rows.append(display_row)
 
-            # Dòng tổng kết cuối cùng của toàn nhà máy
             df_final_factory_report = pd.DataFrame(final_factory_rows)
             
             # --- HIỂN THỊ MULTI-INDEX 2 TẦNG CHUẨN XƯỞNG MAY ---
@@ -312,7 +316,6 @@ else:
                 
             df_final_factory_report.columns = pd.MultiIndex.from_tuples(web_multi_cols)
             
-            # Thiết lập đổ màu tự động làm nổi bật tỷ lệ size nhảy sơ đồ (màu vàng nhạt như mẫu)
             def highlight_factory_grid(x):
                 color_df = pd.DataFrame('', index=x.index, columns=x.columns)
                 for r in range(len(x)):
@@ -329,7 +332,6 @@ else:
             st.markdown("<p style='font-weight:700; font-size:13px; color:#0369A1; margin-top:20px;'>🖥️ BẢNG TÁC NGHIỆP HAI TẦNG KỸ THUẬT ĐỐI CHIẾU SẢN LƯỢNG THỜI GIAN THỰC</p>", unsafe_allow_html=True)
             st.dataframe(df_final_factory_report.style.apply(highlight_factory_grid, axis=None), use_container_width=True, hide_index=True)
             
-            # Nhúng CSS khóa cố định dải màu 2 tầng tiêu đề phẳng sạch sẽ
             st.markdown("""
                 <style>
                     th.col_heading.level0 { background-color: #3B82F6 !important; color: #FFFFFF !important; font-weight: 700 !important; text-align: center !important; }
