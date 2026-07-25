@@ -200,7 +200,7 @@ else:
         for sz in active_sizes:
             orig_po = int(size_breakdown_main.get(sz, 0))
             remaining_balance_t2[sz] = max(0, orig_po - manual_totals[sz])
-        st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
+                st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
         
         trigger_t2_auto = st.button("⚡ KÍCH HOẠT TỰ ĐỘNG BẺ SƠ ĐỒ HÌNH THÁP CHO LƯỢNG CÒN LẠI", type="primary", use_container_width=True)
         
@@ -254,16 +254,16 @@ else:
             # 1. Đưa dữ liệu Tầng 1 (Nhập tay) vào danh sách hiển thị tổng hợp
             for _, row in edited_df_t1.iterrows():
                 name = row.get("BÀN CẮT/TÊN SĐ")
-                layers = int(row.get("Số lớp") if pd.notna(row.get("Số lớp")) and str(row.get("Số lớp")).isdigit() else 0)
+                layers = int(float(row.get("Số lớp"))) if pd.notna(row.get("Số lớp")) and str(row.get("Số lớp")).strip() != "" else 0
                 m_len = float(row.get("Dài SĐ YC (M)") if pd.notna(row.get("Dài SĐ YC (M)")) else 0.0)
                 eff_sd = float(row.get("Hiệu suất SĐ (%)") if pd.notna(row.get("Hiệu suất SĐ (%)")) else 0.0)
                 db_m = float(row.get("Đầu bàn (M)") if pd.notna(row.get("Đầu bàn (M)")) else 0.0)
                 
-                # SỬA LỖI TẠI ĐÂY: Ép kiểu int an toàn tuyệt đối cho tỷ lệ size nhập vào
+                # Ép kiểu int an toàn cho tổng tỷ lệ size của Tầng 1
                 ratios_sum = 0
                 for sz in active_sizes:
                     raw_val = row.get(sz)
-                    val_int = int(raw_val) if pd.notna(raw_val) and str(raw_val).replace('.0','').isdigit() else 0
+                    val_int = int(float(raw_val)) if pd.notna(raw_val) and str(raw_val).strip() != "" else 0
                     ratios_sum += val_int
                 
                 total_cut_pcs = ratios_sum * layers
@@ -271,7 +271,7 @@ else:
                 
                 for sz in active_sizes:
                     raw_val = row.get(sz)
-                    val_int = int(raw_val) if pd.notna(raw_val) and str(raw_val).replace('.0','').isdigit() else 0
+                    val_int = int(float(raw_val)) if pd.notna(raw_val) and str(raw_val).strip() != "" else 0
                     display_row[sz] = val_int
                     current_balance[sz] = max(0, current_balance[sz] - (val_int * layers))
                 
@@ -292,15 +292,23 @@ else:
             if st.session_state["auto_cutting_results"]:
                 for item in st.session_state["auto_cutting_results"]:
                     name = item["Sơ đồ / Trạng thái"]
-                    layers = item["Số lớp"]
-                    r_sum = sum(item["Ratios"].values())
-                    total_cut_pcs = r_sum * layers
+                    layers = int(float(item["Số lớp"])) if pd.notna(item["Số lớp"]) else 0
                     
-                    display_row = {"BÀN CẮT/TÊN SĐ": name, "Số lớp": layers, "Tổng SL Cắt": total_cut_pcs}
+                    # VÁ LỖI AN TOÀN TẠI ĐÂY: Ép kiểu int cho mảng tỷ lệ tự động của Tầng 2
+                    r_sum = 0
                     for sz in active_sizes:
-                        rat = item["Ratios"].get(sz, 0)
-                        display_row[sz] = rat
-                        current_balance[sz] = max(0, current_balance[sz] - (rat * layers))
+                        r_val = item["Ratios"].get(sz, 0)
+                        r_sum += int(float(r_val))
+                    
+                    total_cut_pcs = r_sum * layers
+                    display_row = {"BÀN CẮT/TÊN SĐ": name, "Số lớp": layers, "Tổng SL Cắt": total_cut_pcs}
+                    
+                    for sz in active_sizes:
+                        r_val = item["Ratios"].get(sz, 0)
+                        val_int = int(float(r_val))
+                        display_row[sz] = val_int
+                        # Thực hiện phép nhân với biến đã được ép kiểu an toàn tuyệt đối
+                        current_balance[sz] = max(0, current_balance[sz] - (val_int * layers))
                     
                     m_len_est = round(max_table_length * 0.8, 2)
                     fabric_needed = (m_len_est + 0.15) * layers
@@ -331,11 +339,11 @@ else:
                     else:
                         for c in range(1, len(x.columns)):
                             val = x.iloc[r, c]
-                            if c <= len(active_sizes) and str(val).isdigit() and int(val) > 0:
+                            if c <= len(active_sizes) and str(val).replace('.0','').isdigit() and int(float(val)) > 0:
                                 color_df.iloc[r, c] = 'background-color: #FEF9C3; color: #991B1B; font-weight: 700; border: 1px solid #FDE047;'
                 return color_df
 
-            st.markdown("<p style='font-weight:700; font-size:13px; color:#0369A1; margin-top:20px;'>🖥️ BẢNG TÁC NGHIỆP HAI TẦNG KỸ THUẬT ĐỐI CHIẾU SẢN LƯỢNG THỜI GIAN THỰC</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight:700; font-size:13px; color:#0369A1; margin-top:20px;'>🖥️ BẢNG TÁC NGHIỆP HAI TẦNG KÍT THUẬT ĐỐI CHIẾU SẢN LƯỢNG THỜI GIAN THỰC</p>", unsafe_allow_html=True)
             st.dataframe(df_final_factory_report.style.apply(highlight_factory_grid, axis=None), use_container_width=True, hide_index=True)
             
             st.markdown("""
