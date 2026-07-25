@@ -1899,7 +1899,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-       # =====================================================================
+          # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HẠ TRẦN HIỆU SUẤT AN TOÀN)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
@@ -1978,7 +1978,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # 📈 THUẬT TOÁN ĐIỀU CHỈNH HIỆU SUẤT ĐỘNG (HẠ NHIỆT VỀ THỰC TẾ SẢN XUẤT)
         min_density_offset = -0.04
-        max_density_offset = 0.04  # Bóp chặt biên độ trần để ngăn hiệu suất vọt ảo
+        max_density_offset = 0.04  
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
         # Áp dụng hình phạt kích thước rập lớn thực tế của quần dài
@@ -1992,6 +1992,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             real_fabric_density += 0.02          # Chỉ cộng nhẹ +2% mật độ nền để an toàn vải
             max_density_offset += 0.02           
             
+        current_prod_cat_d5 = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper().strip()
+        is_dress_or_top = any(k in current_prod_cat_d5 for k in ["DRESS", "SKIRT", "DAM", "VAY", "SUONG", "SHIRT", "AO", "VÁY", "ĐẦM"])
         if is_dress_or_top and not is_trouser:
             real_fabric_density -= 0.03          
             min_density_offset -= 0.03           
@@ -2072,6 +2074,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Khử triệt để dòng phụ liệu khỏi bảng chi tiết
     accessory_indices = [idx for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("inferred_class") == "ACCESSORY"]
     df_bom.drop(index=accessory_indices, inplace=True, errors='ignore')
+
+   
+
 
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ an toàn (Real Density): `{real_fabric_density*100:.2f}%` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds` (Đã hạ nhiệt trần hiệu suất phòng hụt vải)")
