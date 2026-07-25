@@ -1731,7 +1731,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
        # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCED JACKET FIX)
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCE FIX)
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
@@ -1761,6 +1761,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
+
+    # 🚨 BỘ KIỂM SOÁT VÀ PHÂN LOẠI CHỦNG LOẠI HÀNG TẬP TRUNG (ƯU TIÊN TUYỆT ĐỐI DÒNG QUẦN)
+    is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG", "QUAN"])
+    
+    # Nếu hệ thống nhận diện từ khóa là Quần, ép cưỡng bức khóa Jacket = False để không kích hoạt phạt định mức ảo
+    if is_trouser_item:
+        is_jacket_item = False
+        ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  # Reset nhãn phân loại hệ thống về dòng Quần
+    else:
+        is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC", "KHOAC"])
 
     # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ TUYỆT ĐỐI BẢO TOÀN THÔNG SỐ RẬP CHUẨN CAD
     for idx, row in df_bom.iterrows():
@@ -1794,11 +1804,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class, class_confidence = ("FABRIC", 0.95) if net_area_raw > 200.0 else ("FABRIC", 0.70)
 
-        # Nhận diện chủng loại hàng
-        is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG"])
-        is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC"])
-
-        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat ("ngang 14", "dọc 3")
+        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat
         if p_class == "FABRIC":
             w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3)
             l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3)
@@ -1830,15 +1836,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             # 🚨 1. CƯỞNG BỨC KHÓA LUẬT ÁO KHOÁC (JACKET / VEST GATE):
             if is_jacket_item:
                 if has_front_kw:
-                    inferred_pcs = 2.0  # Thân trước mổ khóa kéo = 2 mảnh độc lập
+                    inferred_pcs = 2.0  
                     qty_confidence = 0.99
                 elif has_back_kw:
-                    # Nếu thân sau rất rộng (mở phẳng liền trục) -> 1 mảnh chẵn, nếu xẻ sống lưng -> 2 mảnh
                     inferred_pcs = 1.0 if w_prod > 20.0 and "SPLIT" not in comp_name_upper else 2.0
                     qty_confidence = 0.99
-            # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN
+            # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN 
             elif is_trouser_item:
-                if has_front_kw or has_back_kw or "LEG" in comp_name_upper:
+                if has_front_kw or has_back_kw or any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG"]):
                     inferred_pcs = 2.0
                     qty_confidence = 0.99
             else:
@@ -1851,33 +1856,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             inferred_pcs = 2.0
             qty_confidence = 0.99
 
-        # Nếu người dùng sửa tay trên lưới UI Grid, ưu tiên tuyệt đối, nếu không lấy số lượng AI suy luận cưỡng bức
+        # Lưu dữ liệu phôi ảo đồng bộ màng RAM hệ thống
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
-
-        # Bước D: Khởi tạo diện tích tịnh phình chuẩn xác tỉ theo phôi gốc CAD
-        shape_factor = 0.92 if any(k in comp_name_upper for k in ["WAISTBAND", "BELT", "CAP"]) else (0.78 if p_class == "FUSING" else 0.85)
-        net_area_prod = round(l_prod * w_prod * shape_factor, 2)
-        p_area_list.append(net_area_prod)
-
         virtual_pieces_layer[idx] = {
-            "original_index": idx, "component_name": comp_name_raw, "inferred_class": p_class,
-            "class_confidence": class_confidence, "qty_confidence": qty_confidence,
-            "production_l": l_prod, "production_w": w_prod, "production_net_area": net_area_prod, "inferred_pieces": final_pcs
+            "inferred_class": p_class,
+            "class_confidence": class_confidence,
+            "production_l": l_prod,
+            "production_w": w_prod,
+            "production_net_area": net_area_raw,
+            "inferred_pieces": final_pcs,
+            "qty_confidence": qty_confidence,
+            "component_name": comp_name_raw
         }
 
-    # Bàn giao lớp phôi ảo sang context an toàn cho Đoạn 5 giải toán
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    st.session_state["bom_data"] = ctx
-
-    # Xuất bản dữ liệu phẳng đồng bộ ra bảng tính df_bom hệ thống chuẩn chỉnh
-    df_bom["Dài sản xuất (L-inch)"] = p_length_list
-    df_bom["Rộng sản xuất (W-inch)"] = p_width_list
-    df_bom["polygon_net_area"] = p_area_list
-    df_bom["assigned_solver"] = ["AreaSolver" if not any(k in str(r.get(comp_col_check, "")).upper() for k in ["ELASTIC", "LOOP", "ĐỈA"]) else "LengthSolver" for idx, r in df_bom.iterrows()]
-
-
-
-       # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
@@ -1896,9 +1889,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_fabric_net_area = 0.0
     fabric_pieces_to_nest = []
     
-    # Khởi tạo các biến cờ nhận diện dòng sản phẩm
-    is_trouser = False
-    is_dress_or_top = False
+    # Kế thừa biến nhận diện chủng loại từ màng RAM Đoạn 4
+    current_prod_cat_d5 = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper().strip()
+    is_trouser = any(k in current_prod_cat_d5 for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"])
+    is_dress_or_top = any(k in current_prod_cat_d5 for k in ["DRESS", "SKIRT", "DAM", "VAY", "SUONG", "SHIRT", "AO", "VÁY", "ĐẦM"])
 
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {})
@@ -1906,15 +1900,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_area = v_piece.get("production_net_area", float(r["polygon_net_area"]))
             comp_name_upper_d5 = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper().strip()
             
-            # 🔍 Phân loại dòng sản phẩm để áp trọng số mục tiêu
-            if any(k in comp_name_upper_d5 for k in ["PANT", "TROUSER", "QUAN", "SHORT"]):
-                is_trouser = True
-            if any(k in comp_name_upper_d5 for k in ["DRESS", "SKIRT", "DAM", "VAY", "SUONG", "SHIRT", "AO"]):
-                is_dress_or_top = True
-
             # Ép thớ số lượng mảnh: Nếu là thân sau đầm suông mảnh gầy đơn lẻ, ép lên đúng 2 mảnh đối xứng
             inferred_pcs_d5 = v_piece.get("inferred_pieces", r["pcs_numeric"])
-            if "BACK" in comp_name_upper_d5 and inferred_pcs_d5 == 1.0:
+            if "BACK" in comp_name_upper_d5 and inferred_pcs_d5 == 1.0 and not is_trouser:
                 inferred_pcs_d5 = 2.0
                 v_piece["inferred_pieces"] = 2.0
                 
@@ -1925,8 +1913,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 fabric_pieces_to_nest.append({
                     "l": v_piece["production_l"], 
                     "w": v_piece["production_w"], 
-                    "area": net_area,
-                    "comp_name": comp_name_upper_d5
+                    "area": net_area
                 })
 
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
@@ -1947,34 +1934,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
         
         # =====================================================================
-        # 📈 THUẬT TOÁN ĐIỀU CHỈNH HIỆU SUẤT THEO THÔNG SỐ VÀ CHỦNG LOẠI HÀNG
+        # 📈 THUẬT TOÁN ĐIỀU CHỈNH HIỆU SUẤT ĐỘNG (DENSITY DYNAMIC RE-CALIBRATION)
         # =====================================================================
-        min_density_offset = -0.05
-        max_density_offset = 0.04
+        min_density_offset = -0.04
+        max_density_offset = 0.06  # Nới rộng trần kẹp biên trên lên +6% phục vụ kích hiệu suất
         
-        # Tính toán thông số diện tích trung bình của các mảnh trong sơ đồ để làm mốc phạt kích thước
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
-        # Ngưỡng diện tích rập danh định (Ví dụ: > 150 inch vuông được coi là thông số lớn)
-        # Thông số rập càng lớn -> hệ số phạt (size_penalty) càng cao -> giảm hiệu suất sơ đồ
+        # 🚨 GIẢM ĐỘ PHẠT KÍCH THƯỚC: Nâng ngưỡng bắt đầu phạt lên rập cực lớn (>250 inch vuông)
         size_penalty = 0.0
-        if mean_piece_area > 150.0:
-            size_penalty = min(0.08, (mean_piece_area - 150.0) * 0.0003) 
-            real_fabric_density -= size_penalty  # Áp giá trị phạt làm giảm hiệu suất trực tiếp
-            min_density_offset -= size_penalty   # Hạ sàn kẹp biên dưới để tránh bị nghẽn thuật toán
+        if mean_piece_area > 250.0:
+            size_penalty = min(0.03, (mean_piece_area - 250.0) * 0.0001) 
+            real_fabric_density -= size_penalty  
+            min_density_offset -= size_penalty   
             
-        # Áp dụng logic tối ưu hóa mục tiêu dòng sản phẩm
-        if is_trouser:
-            real_fabric_density += 0.03          # Quần: Tăng hiệu suất nền
-            max_density_offset += 0.04           # Nới trần kẹp biên trên
+        # 🚨 ÉP HIỆU SUẤT DÒNG QUẦN: Cộng mạnh hiệu suất nền khi phát hiện cấu trúc Quần hoặc Jacket nhầm lẫn
+        if is_trouser or "JACKET" in current_prod_cat_d5:
+            real_fabric_density += 0.06          # Tăng cường +6% mật độ sơ đồ nền cho Quần
+            max_density_offset += 0.06           
             
-        if is_dress_or_top:
-            real_fabric_density -= 0.04          # Đầm/Váy/Áo suông: Giảm hiệu suất nền do phom dáng khó đi
-            min_density_offset -= 0.04           # Nới sàn kẹp biên dưới
+        if is_dress_or_top and "JACKET" not in current_prod_cat_d5:
+            real_fabric_density -= 0.02          # Giảm nhẹ -2% mật độ dòng Đầm/Váy/Áo suông
+            min_density_offset -= 0.02           
 
-        # Kẹp biên an toàn động bảo vệ thuật toán không bị nhảy số âm hoặc vượt quá 100%
+        # Kẹp biên an toàn động bảo vệ lõi CAD
         real_fabric_density = max(estimated_density_prior + min_density_offset, min(estimated_density_prior + max_density_offset, real_fabric_density))
-        real_fabric_density = max(0.50, min(0.95, real_fabric_density)) # Giới hạn vật lý tuyệt đối 50% - 95%
+        real_fabric_density = max(0.58, min(0.95, real_fabric_density)) # Sàn vật lý tối thiểu bảo vệ 58%
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
@@ -2040,10 +2025,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if virtual_pieces_layer[idx]["inferred_class"] == "FABRIC" else (lining_width if virtual_pieces_layer[idx]["inferred_class"] == "LINING" else fusing_width) for idx in df_bom.index]
     
     if len(fabric_pieces_to_nest) > 0:
-        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính: `{total_fabric_gross_yds:.3f} Yds` (Đã tự động tính toán phạt thông số lớn & khớp khít khao luồng phân bổ)")
+        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ thực nghiệm sơ đồ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức tổng vải chính phân bổ: `{total_fabric_gross_yds:.3f} Yds` (Đã tự động tối ưu hóa áp trọng số Quần và nới lỏng hình phạt kích thước)")
 
-
-          # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
