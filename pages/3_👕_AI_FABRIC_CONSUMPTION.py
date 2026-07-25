@@ -1575,7 +1575,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
        # =====================================================================
-    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (ĐÃ VÁ LỖI ATTRIBUTEERROR)
+       # =====================================================================
+    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (BỘ PHÂN TÍCH LOẠI HÀNG CHUẨN)
     # =====================================================================
     import pandas as pd
 
@@ -1587,29 +1588,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     }
 
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    prod_upper_name = str(prod).upper().strip()
+    prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
     product_category = None
     
-    # 🧠 TẦNG 1: Quét đặt cờ hiệu nhận diện tên sản phẩm gốc trích xuất từ Header Techpack
-    for k in COMPANY_DENSITY_PRIOR.keys():
-        if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
-            product_category = k
-            break
+    # 🧠 TẦNG 1: Gom toàn bộ văn bản từ danh sách linh kiện trong file rập/BOM để AI phân tích từ khóa chuyên ngành
+    all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
 
-    # 🧠 TẦNG 2 (QUYẾT ĐỊNH CHÍNH XÁC): Nếu tên mã sản phẩm ảo, quét trực tiếp xuống linh kiện bảng BOM
-    if product_category is None or product_category == "JEAN_LONG":
-        # 🚨 ĐÃ SỬA CHÍNH XÁC: Sử dụng .str.upper() đúng chuẩn Pandas để bẻ gãy hoàn toàn lỗi AttributeError
-        all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
+    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa để phân biệt rạch ròi giữa ÁO và QUẦN
+    # Nếu bộ rập chứa các chi tiết đặc trưng của Quần như Cạp, Dải cạp, Ống quần, Đáy, Đũng...
+    if any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
+        product_category = "JEAN_LONG"
         
-        # Hễ thấy bảng rập chứa chi tiết tên SLEEVE (Tay) hoặc COLLAR (Cổ) -> Bắt buộc 100% đây phải là Áo khoác JACKET!
-        if any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO"]):
-            product_category = "JACKET"
-        elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS"]):
+    # Nếu không có từ khóa quần và chứa các từ khóa đặc trưng của Áo có tay/cổ mổ khóa...
+    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC", "BODY PANEL"]):
+        product_category = "JACKET"
+        
+    # TẦNG 3: Nếu quét linh kiện vẫn trống, AI sẽ đọc tiêu đề sản phẩm (Header Techpack)
+    else:
+        for k in COMPANY_DENSITY_PRIOR.keys():
+            if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
+                product_category = k
+                break
+        # Mặc định phòng hộ nếu file lỗi không có thông tin
+        if product_category is None:
             product_category = "JEAN_LONG"
-        else:
-            product_category = "JACKET" if product_category is None else product_category
 
-    # Đồng bộ chuỗi giao diện hiển thị báo cáo kiểm toán ngoài UI
+    # 🧠 TẦNG 4: Đồng bộ chuỗi văn bản dịch thuật để AI xuất bản ra giao diện UI báo cáo
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
     elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm suông/Thời trang)"
@@ -1619,10 +1623,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
-    # Khóa kết quả nhận diện chủng loại hàng vào context
+    # Ghi giá trị phân tích sạch vào context vùng nhớ hệ thống để nuôi luồng Đoạn 4 và Đoạn 5
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
         ctx["ai_expert_decision"] = {}
+        
     ctx["ai_expert_decision"]["product_category"] = product_category
+    ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
 
       # =====================================================================
     # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR (VÁ LỖI VÙNG NHỚ)
