@@ -147,7 +147,7 @@ else:
                     calculated_steps.append({"Sơ đồ / Trạng thái": "Balance", "Số lớp": "", "Số bàn": "", "Dài sơ đồ": "", "Số sp/SĐ": "", "Ratios": balance_tracker.copy()})
                     step_idx += 1
                 st.session_state["auto_cutting_results"] = calculated_steps
-        # KIỂM TRA ĐIỀU KIỆN 3: Tạo báo cáo và đóng khung dữ liệu
+               # KIỂM TRA ĐIỀU KIỆN 3: Tạo báo cáo và đóng khung dữ liệu
         if st.session_state.get("auto_cutting_results") is not None:
             cad_lengths_map = {}
             if cad_paste_zone.strip() and st.session_state["consumption_activated"]:
@@ -190,39 +190,52 @@ else:
                         st.success("🎉 Đã lưu kho dữ liệu lên hệ thống Supabase thành công!")
                     except Exception as e: st.error(f"Lỗi kết nối lưu trữ: {e}")
 
-            # Đóng khung 3 tầng MultiIndex xuất khẩu sang tệp file Excel thương mại
+            # --- GIẢI PHÁP VÁ LỖI XUẤT EXCEL MULTIINDEX CHUẨN THƯƠNG MẠI ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                     header_data = {"THÔNG TIN ĐƠN HÀNG TÁC NGHIỆP BÀN CẮT CHUẨN": [f"Mã hàng: {style_id_input}", f"PO Qty: {po_qty_input} Pcs", f"Kế hoạch cắt: {total_cut_pcs_sum} Pcs", f"Định mức thực tế: {final_avg_yield:.3f} Yds/Pcs"]}
                     pd.DataFrame(header_data).to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=0)
                     
-                    excel_multi_cols = [("DANH MỤC", "CHỈ SỐ", "SIZE")]
-                    for sz in active_sizes: excel_multi_cols.append((f"GIÀNG: 0", str(sz), f"SL: {int(size_breakdown_main.get(sz,0))}"))
-                    for col_name in ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]: excel_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", "THÔNG SỐ TÁC NGHIỆP", col_name))
-                        
-                    df_excel_export = df_final_report.copy().reset_index(drop=True)
-                    df_excel_export.columns = pd.MultiIndex.from_tuples(excel_multi_cols)
-                    df_excel_export.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=9)
-                    
+                    df_flat_excel = df_final_report.copy()
+                    df_flat_excel.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=12)
+                    # Sử dụng OpenPyXL thiết lập cấu trúc 3 tầng đè lên bảng phẳng Excel
                     worksheet = writer.sheets["BaoCao_TacNghiep"]
-                    for r_idx in range(10, worksheet.max_row + 1):
+                    level0_labels = ["DANH MỤC"] + [f"GIÀNG: 0" for _ in active_sizes] + ["THÔNG SỐ TÁC NGHIỆP" for _ in range(6)]
+                    level1_labels = ["CHỈ SỐ"] + [str(sz) for sz in active_sizes] + ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
+                    level2_labels = ["SIZE"] + [f"SL: {int(size_breakdown_main.get(sz,0))}" for sz in active_sizes] + ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
+                    
+                    fill_header = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+                    font_header = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+                    align_center = Alignment(horizontal="center", vertical="center")
+                    
+                    for col_idx in range(1, worksheet.max_column + 1):
+                        for r, lbls in zip([10, 11, 12], [level0_labels, level1_labels, level2_labels]):
+                            cell = worksheet.cell(row=r, column=col_idx, value=lbls[col_idx-1])
+                            cell.fill = fill_header; cell.font = font_header; cell.alignment = align_center
+
+                    worksheet.merge_cells("B10:E10") 
+                    worksheet.merge_cells("F10:K10") 
+                    worksheet.cell(row=10, column=2, value="GIÀNG: 0").alignment = align_center 
+                    worksheet.cell(row=10, column=6, value="THÔNG SỐ TÁC NGHIỆP").alignment = align_center
+
+                    for r_idx in range(13, worksheet.max_row + 1):
                         is_bal = (worksheet.cell(row=r_idx, column=1).value == "Balance")
                         for c_idx in range(1, worksheet.max_column + 1):
                             cell = worksheet.cell(row=r_idx, column=c_idx)
                             cell.border = Border(left=Side(style="thin", color="CBD5E1"), right=Side(style="thin", color="CBD5E1"), top=Side(style="thin", color="CBD5E1"), bottom=Side(style="thin", color="CBD5E1"))
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                            cell.alignment = align_center
                             if is_bal:
                                 cell.fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
                                 cell.font = Font(name="Calibri", size=11, bold=True, color="991B1B")
                     
                     for col in worksheet.columns:
-                        worksheet.column_dimensions[get_column_letter(col[0].column)].width = 13
+                        worksheet.column_dimensions[get_column_letter(col.column)].width = 14
                 
                 st.download_button(label="📥 XUẤT FILE EXCEL TÁC NGHIỆP CHUẨN THƯƠNG MẠI", data=buffer.getvalue(), file_name=f"BÁO_CÁO_TÁC_NGHIỆP_BÀN_CẮT_{style_id_input}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             except Exception as e: st.error(f"Lỗi xuất Excel: {e}")
 
-            # Đổ màu 3 tầng biểu diễn kỹ thuật lên nền tảng Web Streamlit
+            # --- DỰNG GIAO DIỆN WEB 3 TẦNG ĐỒNG BỘ STREAMLIT ---
             web_multi_cols = [("GIÀNG / SIZE / SL", "SIZE", "SẢN LƯỢNG")]
             for sz in active_sizes: web_multi_cols.append(("GIÀNG: 0", str(sz), f"SL: {int(size_breakdown_main.get(sz,0))}"))
             for col_name in ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]: web_multi_cols.append(("THÔNG SỐ TÁC NGHIỆP", col_name, col_name))
