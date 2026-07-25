@@ -1730,7 +1730,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with m2: st.metric(label="✂️ Định mức Hao hụt Sản xuất Động", value=f"{((calculated_wastage-1)*100):.2f}%")
     with m3: st.metric(label="🧩 Tổng số mảnh rập thực tế", value=f"{features['total_pieces']:.0f} Pcs")
 
-       # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (FORCE FIX)
     # =====================================================================
     pattern_has_shrink = True  
@@ -1763,13 +1763,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     p_length_list, p_width_list, p_area_list = [], [], []
 
     # 🚨 BỘ KIỂM SOÁT VÀ PHÂN LOẠI CHỦNG LOẠI HÀNG TẬP TRUNG (ƯU TIÊN TUYỆT ĐỐI DÒNG QUẦN)
-    is_trouser_item = any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "JEAN_LONG", "QUAN"])
+    # Tìm kiếm các linh kiện đặc trưng của quần trong file BOM hiện tại như WAISTBAND, FRONT FLY, COIN POCKET
+    has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "POCKET"]) for _, row in df_bom.iterrows())
     
-    # Nếu hệ thống nhận diện từ khóa là Quần, ép cưỡng bức khóa Jacket = False để không kích hoạt phạt định mức ảo
-    if is_trouser_item:
+    if has_pant_components or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"]):
+        is_trouser_item = True
         is_jacket_item = False
-        ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  # Reset nhãn phân loại hệ thống về dòng Quần
+        ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  # Cưỡng bức đổi nhãn hệ thống về dòng Quần
     else:
+        is_trouser_item = False
         is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC", "KHOAC"])
 
     # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ TUYỆT ĐỐI BẢO TOÀN THÔNG SỐ RẬP CHUẨN CAD
@@ -1779,9 +1781,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         l_orig = float(row.get(actual_l_col, 0.0))
         w_orig = float(row.get(actual_w_col, 0.0))
-        net_area_raw = float(row.get("polygon_net_area", l_orig * w_orig * 0.78))
-        bbox_area_raw = l_orig * w_orig
         
+        # 🚨 CỨU HỘ DIỆN TÍCH: Nếu cột polygon_net_area bằng 0 hoặc bị trống, tự động tính diện tích hình hộp nhân với hệ số rập an toàn 0.76
+        net_area_raw = float(row.get("polygon_net_area", 0.0))
+        if net_area_raw <= 0.0:
+            net_area_raw = l_orig * w_orig * 0.76
+            
+        bbox_area_raw = l_orig * w_orig
         slenderness = l_orig / w_orig if w_orig > 0 else 1.0
         void_ratio = (bbox_area_raw - net_area_raw) / bbox_area_raw if bbox_area_raw > 0 else 0.0
         
@@ -1833,7 +1839,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         has_back_kw = any(k in comp_name_upper for k in ["BACK", "SAU"])
         
         if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 150.0:
-            # 🚨 1. CƯỞNG BỨC KHÓA LUẬT ÁO KHOÁC (JACKET / VEST GATE):
             if is_jacket_item:
                 if has_front_kw:
                     inferred_pcs = 2.0  
@@ -1841,7 +1846,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 elif has_back_kw:
                     inferred_pcs = 1.0 if w_prod > 20.0 and "SPLIT" not in comp_name_upper else 2.0
                     qty_confidence = 0.99
-            # 🚨 2. CƯỞNG BỨC KHÓA LUẬT QUẦN 
             elif is_trouser_item:
                 if has_front_kw or has_back_kw or any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG"]):
                     inferred_pcs = 2.0
@@ -1851,7 +1855,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     if has_front_kw: inferred_pcs, qty_confidence = (1.0 if is_wide_piece else 2.0), 0.95
                     elif has_back_kw: inferred_pcs, qty_confidence = (2.0 if w_prod < 16.0 else 1.0), 0.90
                     
-        # 🚨 CƯỞNG BỨC LUÔN KHÓA TAY ÁO CHẴN 2 MẢNH CHO 2 BÊN
         if any(k in comp_name_upper for k in ["SLEEVE", "TAY", "SIEEVE"]): 
             inferred_pcs = 2.0
             qty_confidence = 0.99
@@ -1863,13 +1866,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "class_confidence": class_confidence,
             "production_l": l_prod,
             "production_w": w_prod,
-            "production_net_area": net_area_raw,
+            "production_net_area": net_area_raw, # Đã bảo vệ chống sập số 0
             "inferred_pieces": final_pcs,
             "qty_confidence": qty_confidence,
             "component_name": comp_name_raw
         }
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
     # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (MÔ PHỎNG XẾP SƠ ĐỒ HÌNH HỌC)
     # =====================================================================
