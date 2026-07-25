@@ -148,6 +148,7 @@ else:
                     step_idx += 1
                 st.session_state["auto_cutting_results"] = calculated_steps
                  # KHỞI TẠO CÁC CỘT KỸ THUẬT MỞ RỘNG THEO MẪU NHÀ XƯỞNG
+          # KHỞI TẠO CÁC CỘT KỸ THUẬT MỞ RỘNG THEO MẪU NHÀ XƯỞNG
         tech_cols_factory = ["Số lớp", "Tổng SL Cắt", "Tổng SL Còn Lại", "Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]
         
         st.markdown("<p style='font-weight:700; font-size:14px; color:#1E3A8A; margin-top:15px;'>🏗️ TẦNG 1: TÁC NGHIỆP THỦ CÔNG (NGƯỜI DÙNG TỰ NHẬP TAY SƠ ĐỒ)</p>", unsafe_allow_html=True)
@@ -181,20 +182,25 @@ else:
         )
         st.session_state["manual_cutting_plan"] = edited_df_t1
 
-        # XỬ LÝ TOÁN HỌC ĐỐI CHIẾU SẢN LƯỢNG SAU KHI NGƯỜI DÙNG NHẬP TAY TẦNG 1
+        # XỬ LÝ TOÁN HỌC ĐỐI CHIẾU SẢN LƯỢNG AN TOÀN TUYỆT ĐỐI (VÁ LỖI SỐ THẬP PHÂN / CHUỖI TỪ DATA EDITOR)
         manual_totals = {sz: 0 for sz in active_sizes}
         for _, row in edited_df_t1.iterrows():
-            layers = int(row.get("Số lớp") or 0)
+            # Ép kiểu số lớp sang int
+            raw_layers = row.get("Số lớp")
+            layers = int(float(raw_layers)) if pd.notna(raw_layers) and str(raw_layers).strip() != "" else 0
+            
             for sz in active_sizes:
-                ratio = int(row.get(sz) or 0)
+                # Ép kiểu tỷ lệ phối size (ratios) sang int một cách an toàn nhất
+                raw_ratio = row.get(sz)
+                ratio = int(float(raw_ratio)) if pd.notna(raw_ratio) and str(raw_ratio).strip() != "" else 0
                 manual_totals[sz] += ratio * layers
 
-        # Tính toán lượng sản phẩm còn lại cần giải quyết cho Tầng 2
+        # Tính toán lượng sản phẩm còn lại cần giải quyết chuyển giao cho Tầng 2
         remaining_balance_t2 = {}
         for sz in active_sizes:
             orig_po = int(size_breakdown_main.get(sz, 0))
             remaining_balance_t2[sz] = max(0, orig_po - manual_totals[sz])
-                st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
+        st.markdown("<br><p style='font-weight:700; font-size:14px; color:#065F46;'>🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (THUẬT TOÁN VÉT SẢN LƯỢNG CÒN LẠI)</p>", unsafe_allow_html=True)
         
         trigger_t2_auto = st.button("⚡ KÍCH HOẠT TỰ ĐỘNG BẺ SƠ ĐỒ HÌNH THÁP CHO LƯỢNG CÒN LẠI", type="primary", use_container_width=True)
         
