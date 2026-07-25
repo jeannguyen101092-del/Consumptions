@@ -181,7 +181,6 @@ else:
             total_fabric_yds_final = total_fabric_m * 1.09361
             final_avg_yield = total_fabric_yds_final / (total_cut_pcs_sum if total_cut_pcs_sum > 0 else 1)
             
-            # Khối lưu kho tự động dữ liệu lên Supabase Database
             if st.button("💾 ĐẨY DỮ LIỆU TÁC NGHIỆP LÊN DATABASE SUPABASE", type="secondary", use_container_width=True):
                 if st.session_state.supabase:
                     try:
@@ -190,7 +189,6 @@ else:
                         st.success("🎉 Đã lưu kho dữ liệu lên hệ thống Supabase thành công!")
                     except Exception as e: st.error(f"Lỗi kết nối lưu trữ: {e}")
 
-            # --- GIẢI PHÁP VÁ LỖI XUẤT EXCEL MULTIINDEX CHUẨN THƯƠNG MẠI ---
             try:
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -199,7 +197,6 @@ else:
                     
                     df_flat_excel = df_final_report.copy()
                     df_flat_excel.to_excel(writer, sheet_name="BaoCao_TacNghiep", index=False, startrow=12)
-                    # Sử dụng OpenPyXL thiết lập cấu trúc 3 tầng đè lên bảng phẳng Excel
                     worksheet = writer.sheets["BaoCao_TacNghiep"]
                     level0_labels = ["DANH MỤC"] + [f"GIÀNG: 0" for _ in active_sizes] + ["THÔNG SỐ TÁC NGHIỆP" for _ in range(6)]
                     level1_labels = ["CHỈ SỐ"] + [str(sz) for sz in active_sizes] + ["Số lớp", "Số bàn", "Dài sơ đồ", "Số sp/SĐ", "Đ.Mức SĐ", "Vải cần (M)"]
@@ -209,10 +206,16 @@ else:
                     font_header = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
                     align_center = Alignment(horizontal="center", vertical="center")
                     
+                    # Vá lỗi logic gán hàng: Lặp chỉ số dòng thủ công rõ ràng để OpenPyXL thực thi đúng lệnh
                     for col_idx in range(1, worksheet.max_column + 1):
-                        for r, lbls in zip([10, 11, 12], [level0_labels, level1_labels, level2_labels]):
-                            cell = worksheet.cell(row=r, column=col_idx, value=lbls[col_idx-1])
-                            cell.fill = fill_header; cell.font = font_header; cell.alignment = align_center
+                        cell_l0 = worksheet.cell(row=10, column=col_idx, value=level0_labels[col_idx-1])
+                        cell_l1 = worksheet.cell(row=11, column=col_idx, value=level1_labels[col_idx-1])
+                        cell_l2 = worksheet.cell(row=12, column=col_idx, value=level2_labels[col_idx-1])
+                        
+                        for cell in [cell_l0, cell_l1, cell_l2]:
+                            cell.fill = fill_header
+                            cell.font = font_header
+                            cell.alignment = align_center
 
                     worksheet.merge_cells("B10:E10") 
                     worksheet.merge_cells("F10:K10") 
