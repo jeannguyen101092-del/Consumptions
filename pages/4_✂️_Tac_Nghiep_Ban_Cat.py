@@ -45,7 +45,7 @@ else:
             manual_totals[sz] += int(float(row.get(sz) or 0)) * lyr
 
     remaining_balance_t2 = {sz: max(0, int(size_breakdown_main[sz]) - manual_totals[sz]) for sz in active_sizes}
-    st.markdown("#### 🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (VÉT SẢN LƯỢNG CÒN LẠI)")
+        st.markdown("#### 🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (VÉT SẢN LƯỢNG CÒN LẠI)")
     if st.button("⚡ KÍCH HOẠT TỰ ĐỘNG VÉT HÌNH THÁP", type="primary", use_container_width=True) or st.session_state["auto_cutting_results"] is not None:
         if st.session_state["auto_cutting_results"] is None:
             bal = remaining_balance_t2.copy()
@@ -80,16 +80,21 @@ else:
             r_dict.update({"Dài SĐ YC (M)": m_l, "Hiệu suất SĐ (%)": f"{row.get('Hiệu suất SĐ (%)')}%", "Đầu bàn (M)": db, "SL Vải TT Cần Cắt": round((m_l+db)*lyr, 1), "Hiệu suất chung": "81.0%"})
             f_rows.append(r_dict)
 
-        f_rows.append({**{"BÀN CẮT/TÊN SĐ": "Dư lượng sau T1"}, **cur_bal})
+        # Tạo dòng Dư lượng sạch để tránh ép kiểu lỗi
+        bal_row = {"BÀN CẮT/TÊN SĐ": "Dư lượng sau T1", "Số lớp": "", "Tổng SL Cắt": ""}
+        for sz in active_sizes: bal_row[sz] = cur_bal[sz]
+        for c in ["Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]: bal_row[c] = ""
+        f_rows.append(bal_row)
 
+        # VÁ LỖI AN TOÀN TẠI ĐÂY: Kiểm tra chuỗi rỗng trước khi xử lý chuyển đổi kiểu số
         if st.session_state["auto_cutting_results"]:
             for item in st.session_state["auto_cutting_results"]:
-                lyr = int(item["Số lớp"])
+                raw_lyr = item["Sơ đồ / Trạng thái"] if "Dư lượng" in str(item.get("BÀN CẮT/TÊN SĐ")) else item.get("Số lớp", 0)
+                lyr = int(float(raw_lyr)) if pd.notna(raw_lyr) and str(raw_lyr).strip() != "" else 0
                 r_sum = sum(item["Ratios"].values())
                 r_dict = {"BÀN CẮT/TÊN SĐ": item["Sơ đồ / Trạng thái"], "Số lớp": lyr, "Tổng SL Cắt": r_sum * lyr}
                 for sz in active_sizes:
-                    val = int(item["Ratios"].get(sz, 0))
-                    r_dict[sz] = val
+                    r_dict[sz] = int(item["Ratios"].get(sz, 0))
                 r_dict.update({"Dài SĐ YC (M)": 9.6, "Hiệu suất SĐ (%)": "83.2%", "Đầu bàn (M)": 0.15, "SL Vải TT Cần Cắt": round(9.75*lyr, 1), "Hiệu suất chung": "81.5%"})
                 f_rows.append(r_dict)
 
@@ -103,7 +108,7 @@ else:
                 if "Dư lượng" in str(x.iloc[r, 0]): c.iloc[r, :] = 'background-color: #FEF08A; font-weight: 700;'
                 else:
                     for col in range(1, len(x.columns)):
-                        if col <= len(active_sizes) and int(float(x.iloc[r, col] or 0)) > 0:
+                        if col <= len(active_sizes) and str(x.iloc[r, col]).replace('.0','').isdigit() and int(float(x.iloc[r, col] or 0)) > 0:
                             c.iloc[r, col] = 'background-color: #FEF9C3; font-weight: 700;'
             return c
 
