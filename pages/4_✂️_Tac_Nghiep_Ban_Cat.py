@@ -45,7 +45,7 @@ else:
             manual_totals[sz] += int(float(row.get(sz) or 0)) * lyr
 
     remaining_balance_t2 = {sz: max(0, int(size_breakdown_main[sz]) - manual_totals[sz]) for sz in active_sizes}
-        st.markdown("#### 🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (VÉT SẢN LƯỢNG CÒN LẠI)")
+    st.markdown("#### 🤖 TẦNG 2: TÁC NGHIỆP TỰ ĐỘNG (VÉT SẢN LƯỢNG CÒN LẠI)")
     if st.button("⚡ KÍCH HOẠT TỰ ĐỘNG VÉT HÌNH THÁP", type="primary", use_container_width=True) or st.session_state["auto_cutting_results"] is not None:
         if st.session_state["auto_cutting_results"] is None:
             bal = remaining_balance_t2.copy()
@@ -67,41 +67,75 @@ else:
 
         f_rows = []
         cur_bal = {sz: int(size_breakdown_main[sz]) for sz in active_sizes}
+        
+        # 1. ĐỒNG BỘ TẦNG 1: Đưa dữ liệu nhập tay vào danh sách hiển thị
         for _, row in edited_df_t1.iterrows():
             lyr = int(float(row.get("Số lớp") or 0))
             m_l = float(row.get("Dài SĐ YC (M)") or 0.0)
             db = float(row.get("Đầu bàn (M)") or 0.0)
+            eff_sd = float(row.get("Hiệu suất SĐ (%)") or 82.5)
             r_sum = sum(int(float(row.get(sz) or 0)) for sz in active_sizes)
+            
             r_dict = {"BÀN CẮT/TÊN SĐ": row.get("BÀN CẮT/TÊN SĐ"), "Số lớp": lyr, "Tổng SL Cắt": r_sum * lyr}
             for sz in active_sizes:
                 val = int(float(row.get(sz) or 0))
                 r_dict[sz] = val
                 cur_bal[sz] = max(0, cur_bal[sz] - (val * lyr))
-            r_dict.update({"Dài SĐ YC (M)": m_l, "Hiệu suất SĐ (%)": f"{row.get('Hiệu suất SĐ (%)')}%", "Đầu bàn (M)": db, "SL Vải TT Cần Cắt": round((m_l+db)*lyr, 1), "Hiệu suất chung": "81.0%"})
+            
+            # Tính toán chỉ số hình học nhà xưởng cho Tầng 1
+            fabric_needed = (m_l + db) * lyr if lyr > 0 else 0.0
+            r_dict.update({
+                "TỔNG SL CÒN LẠI": "", 
+                "Dài SĐ YC (M)": m_l, 
+                "Hiệu suất SĐ (%)": f"{eff_sd}%" if m_l > 0 else "", 
+                "Đầu bàn (M)": db, 
+                "SL Vải TT Cần Cắt": round(fabric_needed, 1), 
+                "Hiệu suất chung": f"{round(eff_sd * 0.98, 1)}%" if m_l > 0 else ""
+            })
             f_rows.append(r_dict)
 
-        # Tạo dòng Dư lượng sạch để tránh ép kiểu lỗi
+        # 2. DÒNG CHUYỂN TIẾP: Dư lượng sản lượng sau Tầng 1
         bal_row = {"BÀN CẮT/TÊN SĐ": "Dư lượng sau T1", "Số lớp": "", "Tổng SL Cắt": ""}
         for sz in active_sizes: bal_row[sz] = cur_bal[sz]
-        for c in ["Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]: bal_row[c] = ""
+        for c in ["TỔNG SL CÒN LẠI", "Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]: bal_row[c] = ""
         f_rows.append(bal_row)
 
-        # VÁ LỖI AN TOÀN TẠI ĐÂY: Kiểm tra chuỗi rỗng trước khi xử lý chuyển đổi kiểu số
+        # 3. ĐỒNG BỘ TẦNG 2: Đưa dữ liệu tự động vét vào với cấu trúc tương tự Tầng 1
         if st.session_state["auto_cutting_results"]:
             for item in st.session_state["auto_cutting_results"]:
-                raw_lyr = item["Sơ đồ / Trạng thái"] if "Dư lượng" in str(item.get("BÀN CẮT/TÊN SĐ")) else item.get("Số lớp", 0)
-                lyr = int(float(raw_lyr)) if pd.notna(raw_lyr) and str(raw_lyr).strip() != "" else 0
+                lyr = int(item.get("Số lớp", 0))
                 r_sum = sum(item["Ratios"].values())
+                
                 r_dict = {"BÀN CẮT/TÊN SĐ": item["Sơ đồ / Trạng thái"], "Số lớp": lyr, "Tổng SL Cắt": r_sum * lyr}
                 for sz in active_sizes:
-                    r_dict[sz] = int(item["Ratios"].get(sz, 0))
-                r_dict.update({"Dài SĐ YC (M)": 9.6, "Hiệu suất SĐ (%)": "83.2%", "Đầu bàn (M)": 0.15, "SL Vải TT Cần Cắt": round(9.75*lyr, 1), "Hiệu suất chung": "81.5%"})
+                    val = int(item["Ratios"].get(sz, 0))
+                    r_dict[sz] = val
+                    cur_bal[sz] = max(0, cur_bal[sz] - (val * lyr))
+                
+                # Giả định thông số hình học giống hệt Tầng 1 để đồng bộ cột dữ liệu
+                m_l_est = round(max_table_length * 0.8, 2)
+                db_est = 0.15
+                eff_sd_est = 83.2
+                fabric_needed_est = (m_l_est + db_est) * lyr if lyr > 0 else 0.0
+                
+                r_dict.update({
+                    "TỔNG SL CÒN LẠI": sum(cur_bal.values()), 
+                    "Dài SĐ YC (M)": m_l_est, 
+                    "Hiệu suất SĐ (%)": f"{eff_sd_est}%", 
+                    "Đầu bàn (M)": db_est, 
+                    "SL Vải TT Cần Cắt": round(fabric_needed_est, 1), 
+                    "Hiệu suất chung": f"{round(eff_sd_est * 0.98, 1)}%"
+                })
                 f_rows.append(r_dict)
 
         df_rep = pd.DataFrame(f_rows)
-        w_cols = [("GỐC", "BÀN CẮT/TÊN SĐ")] + [("SẢN LƯỢNG", f"{s} ({size_breakdown_main[s]})") for s in active_sizes] + [("KỸ THUẬT", c) for c in ["Số lớp", "Tổng SL Cắt", "Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]]
+        
+        # Định nghĩa nhãn MultiIndex 2 tầng đồng nhất cho toàn bộ bảng
+        tech_columns_factory = ["Số lớp", "Tổng SL Cắt", "TỔNG SL CÒN LẠI", "Dài SĐ YC (M)", "Hiệu suất SĐ (%)", "Đầu bàn (M)", "SL Vải TT Cần Cắt", "Hiệu suất chung"]
+        w_cols = [("GỐC", "BÀN CẮT/TÊN SĐ")] + [("SẢN LƯỢNG", f"{s} ({size_breakdown_main[s]})") for s in active_sizes] + [("KỸ THUẬT", c) for c in tech_columns_factory]
         df_rep.columns = pd.MultiIndex.from_tuples(w_cols)
 
+        # Bộ lọc đổ màu đồ họa
         def style_g(x):
             c = pd.DataFrame('', index=x.index, columns=x.columns)
             for r in range(len(x)):
@@ -113,4 +147,4 @@ else:
             return c
 
         st.dataframe(df_rep.style.apply(style_g, axis=None), use_container_width=True, hide_index=True)
-        st.markdown("<style>th.col_heading.level0{background-color:#3B82F6!important;color:#FFF!important;}th.col_heading.level1{background-color:#EFF6FF!important;color:#1E3A8A!important;}</style>", unsafe_allow_html=True)
+        st.markdown("<style>th.col_heading.level0{background-color:#3B82F6!important;color:#FFF!important;}th.col_heading.level1{background-color:#EFF6FF!important;color:#1E3A8A!important;border:1px solid #CBD5E1!important;}</style>", unsafe_allow_html=True)
