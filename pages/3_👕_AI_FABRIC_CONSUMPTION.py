@@ -1899,8 +1899,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (CƯỠNG BỨC QUẦN TUYỆT ĐỐI)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HẠ TRẦN HIỆU SUẤT AN TOÀN)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
@@ -1915,7 +1915,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # LỆNH CƯỠNG BỨC TỐI CAO: KHÔNG THEO NHÃN AI CŨ, QUÉT THẲNG DATAFRAME ĐỂ ĐỊNH VỊ QUẦN
+    # LỆNH CƯỠNG BỨC: QUÉT THẲNG DATAFRAME ĐỂ ĐỊNH VỊ CHÍNH XÁC DÒNG QUẦN
     is_trouser = False
     for idx, r in df_bom.iterrows():
         c_name_check = str(r.get(comp_col_check, "")).upper() if 'comp_col_check' in locals() and comp_col_check in r else str(r.get("component_name", "")).upper()
@@ -1923,7 +1923,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             is_trouser = True
             break
 
-    # Ép bộ não AI phải khuất phục và đổi chữ hiển thị trên giao diện
+    # Đồng bộ nhãn loại hàng trên bộ não AI phục vụ UI báo cáo công ty
     ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"
     if "product_category_friendly" in ai_decision_d5:
         ai_decision_d5["product_category_friendly"] = "JEAN_LONG (Quần dài)"
@@ -1934,7 +1934,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {})
         
-        # Cưỡng bức đồng bộ lại nhóm phân loại FABRIC/LINING tránh bộ nhớ đệm bám lỗi
+        # Đồng bộ phân loại nhóm chất liệu tránh bám dính bộ nhớ đệm lỗi
         comp_name_str = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper()
         if any(k in comp_name_str for k in ["POCKET", "LÓT", "TÚI"]) and "LINING" in str(r.get(m_col,"")).upper() if 'm_col' in locals() else False:
             v_piece["inferred_class"] = "LINING"
@@ -1976,16 +1976,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
         
-        # BẺ GÃY HOÀN TOÀN LOGIC PHẠT: Ép mật độ nhảy vọt thẳng lên mức Quần lý tưởng
-        min_density_offset = 0.02
-        max_density_offset = 0.12  
+        # 📈 THUẬT TOÁN ĐIỀU CHỈNH HIỆU SUẤT ĐỘNG (HẠ NHIỆT VỀ THỰC TẾ SẢN XUẤT)
+        min_density_offset = -0.04
+        max_density_offset = 0.04  # Bóp chặt biên độ trần để ngăn hiệu suất vọt ảo
+        mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
-        if is_trouser:
-            real_fabric_density = max(real_fabric_density, 0.8150) 
-            real_fabric_density += 0.04
+        # Áp dụng hình phạt kích thước rập lớn thực tế của quần dài
+        size_penalty = 0.0
+        if mean_piece_area > 180.0:  
+            size_penalty = min(0.04, (mean_piece_area - 180.0) * 0.00015) 
+            real_fabric_density -= size_penalty  
+            min_density_offset -= size_penalty   
             
+        if is_trouser:
+            real_fabric_density += 0.02          # Chỉ cộng nhẹ +2% mật độ nền để an toàn vải
+            max_density_offset += 0.02           
+            
+        if is_dress_or_top and not is_trouser:
+            real_fabric_density -= 0.03          
+            min_density_offset -= 0.03           
+
         real_fabric_density = max(estimated_density_prior + min_density_offset, min(estimated_density_prior + max_density_offset, real_fabric_density))
-        real_fabric_density = max(0.8250, min(0.95, real_fabric_density)) 
+        
+        # 🚨 KHÓA TRẦN HIỆU SUẤT VẬT LÝ (PRODUCTION SAFE LOCK):
+        # Ép mật độ Quần dài chạy một cỡ bắt buộc nằm trong vùng thực tế an toàn từ 80.5% đến 84.5%
+        if is_trouser:
+            real_fabric_density = max(0.8050, min(0.8450, real_fabric_density))
+        else:
+            real_fabric_density = max(0.5800, min(0.9200, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
@@ -2011,7 +2029,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     })
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ DIỆN TÍCH LÊN UI)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ HIỂN THỊ)
     # =====================================================================
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
@@ -2047,7 +2065,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if virtual_pieces_layer[idx]["inferred_class"] == "FABRIC" else (lining_width if virtual_pieces_layer[idx]["inferred_class"] == "LINING" else fusing_width) for idx in df_bom.index]
     
-    # 🚨 ĐỒNG BỘ DIỆN TÍCH CỨU HỘ LÊN MÀN HÌNH UI (DÒNG LỆNH KHÓA CHẾT SỐ 0)
+    # Đồng bộ diện tích phôi rập cứu hộ lên màn hình giao diện
     if "polygon_net_area" in df_bom.columns:
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer[idx]["production_net_area"], 2) for idx in df_bom.index]
 
@@ -2056,7 +2074,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom.drop(index=accessory_indices, inplace=True, errors='ignore')
 
     if len(fabric_pieces_to_nest) > 0:
-        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ (Real Density): `{real_fabric_density*100:.2f}%` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds` (Đã đồng bộ hiển thị diện tích rập cứu hộ)")
+        st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ an toàn (Real Density): `{real_fabric_density*100:.2f}%` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds` (Đã hạ nhiệt trần hiệu suất phòng hụt vải)")
+
 
 
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
