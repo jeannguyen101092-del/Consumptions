@@ -342,30 +342,61 @@ with k_col4:
 
 
 
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (CẬP NHẬT BỘ GIÁM SÁT DUNG LƯỢNG KEY) ---
+st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
+if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
+    st.session_state.bom_data = {}
+    st.session_state.chat_history = []
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_name = ""
+    st.session_state.pdf_text_cache = None
+    if "processed_display_rows" in st.session_state: st.session_state.processed_display_rows = []
+    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+    if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
+    if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
+    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
+    st.rerun()
+
+# 🛠️ KHỐI HIỂN THỊ DUNG LƯỢNG KEY (API QUOTA MONITOR)
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### 🔑 API KEY CAPACITY (DUNG LƯỢNG KEY)")
+
+# Khởi tạo bộ đếm dung lượng tiêu hao trong bộ nhớ đệm
+if "api_calls_count" not in st.session_state:
+    st.session_state["api_calls_count"] = 0
+if "tokens_consumed" not in st.session_state:
+    st.session_state["tokens_consumed"] = 0
+
+# Tính toán dung lượng ước tính dựa trên dữ liệu văn bản thô Techpack đã quét
+if st.session_state.get("raw_pdf_text_extracted"):
+    # Quy đổi số ký tự văn bản sang đơn vị Tokens ngành AI
+    current_tokens = len(str(st.session_state["raw_pdf_text_extracted"])) // 4
+    if st.session_state["tokens_consumed"] == 0:
+        st.session_state["tokens_consumed"] = current_tokens
+        st.session_state["api_calls_count"] += 1
+
+# Thiết lập giới hạn dung lượng phòng vệ cho gói Free (15 lượt quét/phút, 1500 lượt/ngày)
+max_daily_calls = 1500
+remaining_calls = max(0, max_daily_calls - st.session_state["api_calls_count"])
+capacity_percentage = (remaining_calls / max_daily_calls) * 100
+
+# Vẽ thanh dung lượng trực quan lên giao diện màu xanh
+st.sidebar.progress(capacity_percentage / 100)
+st.sidebar.caption(f"🔋 Dung lượng khả dụng: `{capacity_percentage:.1f}%`")
+
+col_cap1, col_cap2 = st.sidebar.columns(2)
+with col_cap1:
+    st.metric("🔄 Lượt đã quét", f"{st.session_state['api_calls_count']} mã")
+with col_cap2:
+    st.metric("📊 Đã dùng (Tokens)", f"{st.session_state['tokens_consumed']:,}")
+
+# CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD) KHỐI CŨ CỦA BẠN VẪN GIỮ NGUYÊN PHÍA DƯỚI
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
 
-# 🛠️ ĐÃ CẬP NHẬT: Đổi nhãn hiển thị thành Xoay tự do 180 độ (Đầu đuôi tráo đầu, các chi tiết không cần cùng chiều)
-st.sidebar.checkbox(
-    "🔄 Cắt tự do (Cho phép xoay ngược 180°)", 
-    key="allow_rotation_90",  # Giữ nguyên key để không phải sửa các khối code trung gian khác
-    value=True,
-    help="Cho phép chi tiết xoay ngược đầu đuôi tự do. Trong một bộ không nhất thiết phải cùng chiều. Tối ưu sơ đồ khít nhất, định mức thấp nhất."
-)
-
-st.sidebar.checkbox(
-    "✂️ Cắt mỗi bộ 1 chiều (Nap Layout)", 
-    key="is_nap_layout",
-    help="Tất cả chi tiết trong 1 bộ rập phải xoay cùng 1 chiều dọc thớ vải."
-)
-
-st.sidebar.checkbox(
-    "🧵 Cắt tất cả các size 1 chiều (One-Way)", 
-    key="is_one_way_fabric",
-    help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
-)
-
-
+st.sidebar.checkbox("🔄 Cắt tự do (Xoay ngược 180°)", key="allow_rotation_90", value=True)
+st.sidebar.checkbox("✂️ Cắt mỗi bộ 1 chiều (Nap)", key="is_nap_layout")
+st.sidebar.checkbox("🧵 Tất cả size 1 chiều (One-Way)", key="is_one_way_fabric")
 
 # --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR (MÀU XANH NGỌC LAM) ---
 with st.sidebar:
@@ -583,7 +614,7 @@ import streamlit as st
 
 
 # =====================================================================
-# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI (ĐÃ SỬA LỖI KHỔ VẢI)
+# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI (ĐÃ TÍCH HỢP BỘ ĐO DUNG LƯỢNG KEY)
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -599,7 +630,6 @@ def execute_cached_gemini_scan(
     prompt_agent_2,
 ):
     """Hàm gọi AI quét TOÀN BỘ các trang trong file Techpack để bóc tách trọn
-
     vẹn cấu trúc Vải chính, Vải lót và Keo lót (Fusing).
     """
     import copy
@@ -733,13 +763,21 @@ def execute_cached_gemini_scan(
                     if width_match:
                         forced_width = float(width_match.group(2))
                 
-                # Gán thẳng khổ vải vừa quét động được vào dữ liệu chi tiết rập
                 row["fabric_width_inch"] = forced_width
             except Exception:
                 row["fabric_width_inch"] = float(active_width)
 
-    return blueprint_worker
+    # 🛠️ KÍCH HOẠT BỘ SNIFFER DUNG LƯỢNG KEY: Cộng dồn số lượt gọi API và đo tổng số Token tiêu hao thực tế
+    if "api_calls_count" not in st.session_state:
+        st.session_state["api_calls_count"] = 0
+    if "tokens_consumed" not in st.session_state:
+        st.session_state["tokens_consumed"] = 0
+        
+    st.session_state["api_calls_count"] += 1
+    # Công thức quy đổi ký tự văn bản thô dệt may sang Tokens tiêu hao trong mô hình LLM
+    st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
+    return blueprint_worker
 
 
 
