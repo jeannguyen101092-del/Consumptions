@@ -121,7 +121,7 @@ if "accumulated_bom_rows" not in st.session_state: st.session_state.accumulated_
 
 
 # =====================================================================
-# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS ĐỒNG BỘ MÀU SẮC & XỬ LÝ LỀ SIDEBAR
+# ĐOẠN 6a - PHẦN 2: BỘ CẤU HÌNH CSS ĐỒNG BỘ MÀU SẮC & XỬ LÝ LỀ SIDEBAR - BẢN TINH GỌN CHỐNG TRỐNG
 # =====================================================================
 st.markdown("""
 <style>
@@ -206,7 +206,7 @@ st.markdown("""
         border-radius: 6px !important;
     }
 
-        /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
+    /* 🛠️ MỞ KHÓA THANH CUỘN SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG (SỬA LỖI LẤP TÍNH NĂNG) */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
@@ -217,15 +217,14 @@ st.markdown("""
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
-        overflow-y: auto !important; /* 🛠️ SỬA TỪ hidden THÀNH auto ĐỂ MỞ KHÓA THANH CUỘN */
+        overflow-y: auto !important; /* Đã chuyển từ hidden thành auto để tự động xuất hiện thanh cuộn dọc */
         z-index: 99999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
         height: 100vh !important;
-        overflow-y: auto !important; /* 🛠️ SỬA TỪ hidden THÀNH auto ĐỂ MỞ KHÓA THANH CUỘN LỚP TRONG */
+        overflow-y: auto !important; /* Đã mở khóa lớp cuộn bên trong phôi RAM */
     }
-
 
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
@@ -265,7 +264,38 @@ st.markdown("""
         margin-bottom: 15px !important;
     }
     .sidebar-custom-card-history { padding: 6px 12px !important; }
-    .sidebar-divider { margin: 20px 0 12px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
+
+    /* 🛠️ ÉP THU HẸP KHOẢNG CÁCH DUNG LƯỢNG KEY TRÊN SIDEBAR - CHỐNG LÃNG PHÍ KHÔNG GIAN VÙNG TRỐNG */
+    [data-testid="stSidebar"] hr {
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+    }
+    [data-testid="stSidebar"] h5 {
+        margin-bottom: 2px !important;
+        padding-bottom: 0px !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stProgress"] {
+        margin-top: 2px !important;
+        margin-bottom: 2px !important;
+    }
+    [data-testid="stSidebar"] .stCaptionContainer {
+        margin-top: -4px !important;
+        margin-bottom: 4px !important;
+    }
+    /* Kéo giật khối ngang chứa 2 Metric (Số lượt quét và số Tokens) lên sát dải băng pin phía trên */
+    [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"] {
+        margin-top: -12px !important; 
+        gap: 4px !important; 
+    }
+    [data-testid="stSidebar"] div[data-testid="stMetricWidget"] {
+        padding-top: 0px !important;
+        padding-bottom: 0px !important;
+        margin-bottom: 0px !important;
+    }
+    [data-testid="stSidebar"] label[data-testid="stMetricLabel"] p {
+        font-size: 11px !important;
+    }
+    .sidebar-divider { margin: 12px 0 8px 0 !important; border: 0 !important; border-top: 1px solid #115e59 !important; }
 
     .kpi-box-flat-matrix { border-radius: 6px 6px 0 0 !important; padding: 10px 12px !important; text-align: center !important; box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important; box-sizing: border-box !important; }
     .kpi-num-flat-matrix { font-size: 16px !important; font-weight: 700 !important; color: #ffffff !important; font-family: 'Segoe UI', sans-serif !important; line-height: 1.2 !important; }
@@ -278,7 +308,7 @@ st.markdown("""
     .image-placeholder-box-flat { border: 1px solid #cbd5e1 !important; border-top: none !important; border-radius: 0 0 6px 6px !important; padding: 10px 5px !important; height: 140px !important; display: flex !important; align-items: center !important; justify-content: center !important; box-sizing: border-box !important; margin-bottom: 25px !important; background-color: #ffffff !important; overflow: hidden !important; }
     div[data-testid="stImage"] img { width: 100% !important; height: auto !important; }
     
-    /* 🛠️ SỬA DỨT ĐIỂM: Khử sạch và ẩn hoàn toàn cái icon rác ảnh vỡ nhỏ màu trắng ở giữa lề */
+    /* Khử và ẩn hoàn toàn cái icon rác ảnh vỡ nhỏ màu trắng ở giữa lề */
     [data-testid="stSidebar"] img, [data-testid="stSidebar"] div[data-testid="stImage"] { display: none !important; }
     .main-body-spacer, .sticky-top-container, div[smart-fixed-container], div[data-testid="stHorizontalBlock"]:empty { display: none !important; height: 0px !important; margin: 0 !important; padding: 0 !important; }
 </style>
