@@ -1930,17 +1930,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO THÔNG SỐ RẬP) - ĐÃ ĐẨY ĐỊNH MỨC VẢI LÓT & KEO
+    #    # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO TỪNG MÃ HÀNG - CO GIÃN THEO TRÍ TUỆ AI)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.75))
-    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.055)) # Hao hụt vải chính 5.5% theo Gerber
+    # Lấy mốc mật độ thông minh đã bóc tách đặc trưng hình học từ Đoạn 3.2 làm gốc
+    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.795))
+    # Hệ số hao hụt dạt đầu bàn cắt nền chuẩn thương mại 3%
+    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) 
     features = ai_decision_d5.get("geometry_features", {})
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
-    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
+    virtual_pieces_layer = ai_decision_d4 if 'ai_decision_d4' in locals() else ai_decision_d5.get("virtual_pieces_layer", {})
 
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
@@ -1953,10 +1955,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if any(k in c_name_check for k in ["PANT", "TROUSER", "QUAN", "QUẦN", "WAISTBAND", "LƯNG", "CẠP", "JEAN"]):
             is_trouser = True
             break
-
-    ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"
-    if "product_category_friendly" in ai_decision_d5:
-        ai_decision_d5["product_category_friendly"] = "JEAN_LONG (Quần dài)"
 
     total_fabric_net_area = 0.0
     fabric_pieces_to_nest = []
@@ -2010,13 +2008,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
         if is_trouser:
-            target_wastage = 1.055 
+            # ĐƯA HAO HỤT VỀ MỐC CHUẨN THƯƠNG MẠI 3% (CHỐNG LỖI CAO HƠN GERBER 5%)
+            target_wastage = 1.030 
+            
+            # GIẢI TOÁN MẬT ĐỘ CO GIÃN ĐỘNG THEO PHOM DÁNG RẬP THỰC TẾ
+            # Không gán cứng 82%. Lấy trực tiếp estimated_density_prior từ Đoạn 3.2 làm gốc để tự biến thiên theo mã hàng
             if mean_piece_area > 250.0:
                 size_penalty = (mean_piece_area - 250.0) * 0.00015
-                size_penalty = min(0.05, size_penalty) 
-                real_fabric_density = 0.7650 - size_penalty
+                size_penalty = min(0.04, size_penalty) 
+                real_fabric_density = estimated_density_prior - size_penalty
             else:
-                real_fabric_density = 0.7650  
+                real_fabric_density = estimated_density_prior
+                
+            # Đảm bảo mật độ thực tế luôn nằm trong giới hạn an toàn công nghiệp của sơ đồ quần Jean/Pants
+            real_fabric_density = max(0.7400, min(0.8850, real_fabric_density))
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
             real_fabric_density = max(0.5800, min(0.9000, real_fabric_density))
@@ -2032,9 +2037,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if v_piece.get("inferred_class") == "LINING":
             total_lining_net_area += v_piece.get("production_net_area", 1.0) * v_piece.get("inferred_pieces", 1.0)
 
-    # 🛠️ TỐI ƯU VẢI LÓT (LINING): Hạ hiệu suất từ 0.76 xuống 0.71 để kéo định mức lót tăng lên theo Gerber
+    # Đưa vải lót về mức thực tế 72%
     if total_lining_net_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_net_area / lining_width / 0.71
+        lining_sim_length = total_lining_net_area / lining_width / 0.72 
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
