@@ -710,7 +710,7 @@ def execute_cached_gemini_scan(
     """
     gemini_inputs.append(extended_prompt)
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(
         gemini_inputs,
         generation_config={
