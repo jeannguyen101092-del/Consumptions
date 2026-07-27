@@ -356,6 +356,23 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     st.rerun()
 
+# 🛠️ CHÈN BỔ SUNG: Khối cấu hình canh sợi sơ đồ CAD 1 chiều tự động co giãn định mức
+st.sidebar.markdown("---")
+st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
+
+st.sidebar.checkbox(
+    "✂️ Cắt mỗi bộ 1 chiều (Nap Layout)", 
+    key="is_nap_layout",
+    help="Tất cả chi tiết trong 1 bộ rập phải xoay cùng 1 chiều dọc thớ vải."
+)
+
+st.sidebar.checkbox(
+    "🧵 Cắt tất cả các size 1 chiều (One-Way)", 
+    key="is_one_way_fabric",
+    help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
+)
+
+
 # --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR (MÀU XANH NGỌC LAM) ---
 with st.sidebar:
     # -----------------------------------------------------------------
@@ -1930,12 +1947,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HỆ THỐNG KIỂM SOÁT SÀN ĐỘNG THEO PHOM DÁNG VÀ LOẠI HÀNG)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (TÍNH TOÁN SÀN ĐỘNG + CẤU HÌNH CẮT 1 CHIỀU CHUẨN CAD)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
+    # Kế thừa thông số cấu hình vải từ giao diện UI Streamlit hoặc Đoạn 2 gửi sang
+    rotation_freedom = st.session_state.get("allow_rotation_90", True)      
+    one_way_flag = st.session_state.get("is_one_way_fabric", False)  # Cắt TẤT CẢ các size 1 chiều
+    nap_layout_flag = st.session_state.get("is_nap_layout", False)   # Cắt MỖI BỘ 1 chiều (Way-by-way)
+
     # Lấy mốc mật độ thông minh đã bóc tách đặc trưng hình học từ Đoạn 3.2 làm gốc
     estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.795))
     # Hệ số hao hụt dạt đầu bàn cắt nền chuẩn thương mại 3%
@@ -2014,7 +2036,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
-        # 🚨 THUẬT TOÁN ĐIỀU PHỐI MẬT ĐỘ THEO SÀN ĐỘNG LOẠI HÀNG (DYN-FLOOR SOLVER)
+        # 🚨 THUẬT TOÁN ĐIỀU PHỐI MẬT ĐỘ THEO SÀN ĐỘNG VÀ CHẾ ĐỘ CẮT 1 CHIỀU
         if is_trouser:
             target_wastage = 1.030 
             if mean_piece_area > 250.0:
@@ -2024,22 +2046,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 real_fabric_density = estimated_density_prior
                 
-            # Mức sàn thấp nhất chấp nhận được của Quần Jean dài đại trà là 74%
-            real_fabric_density = max(0.7400, min(0.8850, real_fabric_density))
+            # ĐẶT MỨC SÀN THẤP NHẤT CHO QUẦN DÀI (CO GIÃN THEO THỚ VẢI)
+            min_floor_density = 0.7400
+            
+            # ➔ BỘ PHẠT KHÔNG GIAN CẮT 1 CHIỀU CHO QUẦN
+            if one_way_flag:
+                # Cắt tất cả các size 1 chiều: Hiệu suất sụt giảm mạnh từ 4% - 5%, hạ sàn bảo vệ xuống 70%
+                real_fabric_density -= 0.045
+                min_floor_density = 0.7000
+                target_wastage = max(target_wastage, 1.040) # Tăng hao hụt bàn cắt lên 4% cho an toàn
+            elif nap_layout_flag:
+                # Cắt mỗi bộ 1 chiều: Hiệu suất sụt giảm vừa phải từ 2% - 2.5%, hạ sàn xuống 72%
+                real_fabric_density -= 0.025
+                min_floor_density = 0.7200
+
+            real_fabric_density = max(min_floor_density, min(0.8850, real_fabric_density))
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
             
-            # 🛠️ CẤU HÌNH SÀN ĐỘNG PHÒNG VỆ (HẠ MỨC THẤP NHẤT ĐẠT ĐƯỢC):
-            # Tự động co giãn theo nhóm nhãn sản phẩm do bộ não AI phân tích ở Đoạn 3.1
+            # CẤU HÌNH SÀN ĐỘNG CHO ÁO (JACKET, SHIRT, DRESS)
             product_category = ai_decision_d5.get("product_category", "JACKET")
             if "JACKET" in str(product_category).upper():
-                min_floor_density = 0.7600  # Áo khoác Jacket phom to cồng kềnh, sàn tối thiểu giữ mức 76%
+                min_floor_density = 0.7600
             elif "SHIRT" in str(product_category).upper():
-                min_floor_density = 0.7900  # Áo sơ mi chi tiết phẳng nhỏ dễ đi sơ đồ, sàn tối thiểu giữ mức 79%
+                min_floor_density = 0.7900
             else:
-                min_floor_density = 0.6800  # Hàng thời trang suông xòe phức tạp, sàn thấp nhất hạ sâu về 68%
+                min_floor_density = 0.6800
                 
-            # Ép sàn bảo vệ động giúp thu ngắn sơ đồ, ngăn chặn hiện tượng vọt định mức áo lên cao
+            # ➔ BỘ PHẠT KHÔNG GIAN CẮT 1 CHIỀU CHO ÁO / ĐẦM VÁY
+            if one_way_flag:
+                # Tất cả các size 1 chiều: Giảm mật độ 5.0%, hạ sàn phòng vệ xuống tiếp 5.5%
+                real_fabric_density -= 0.050
+                min_floor_density -= 0.055
+                target_wastage = max(target_wastage, 1.045) # Tăng hao hụt áo lên 4.5%
+            elif nap_layout_flag:
+                # Mỗi bộ 1 chiều: Giảm mật độ 2.5%, hạ sàn phòng vệ xuống tiếp 3.0%
+                real_fabric_density -= 0.025
+                min_floor_density -= 0.030
+                
             real_fabric_density = max(min_floor_density, min(0.9000, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
@@ -2053,7 +2097,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if v_piece.get("inferred_class") == "LINING":
             total_lining_net_area += v_piece.get("production_net_area", 1.0) * v_piece.get("inferred_pieces", 1.0)
 
-    # Đưa vải lót về mức thực tế 72% để đồng bộ
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.72 
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
@@ -2065,6 +2108,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
         "total_lining_gross_yds": round(total_lining_gross_yds, 4)
     })
+
 
 
     # =====================================================================
