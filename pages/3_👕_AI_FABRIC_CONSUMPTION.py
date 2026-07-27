@@ -2196,7 +2196,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
        # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN)
+        # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN) - ĐÃ HIỆN CỘT DÀI/RỘNG
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     ai_decision_final = ctx.get("ai_expert_decision", {})
@@ -2214,7 +2215,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
     # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
-    # Triệt tiêu hoàn toàn lỗi nhận diện nhầm FUSING thành FABRIC làm lệch số 1.67 vs 1.63
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     
     # Nạp nhãn chất liệu chuẩn từ lớp phôi ảo trực tiếp vào một danh sách đồng bộ với df_bom
@@ -2254,7 +2254,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+    # 🛠️ SỬA LỖI ĐỒNG BỘ TÊN CỘT: Cập nhật tên mảng `ordered_cols` khớp chính xác 100% với Đoạn 5.1 để giao diện không lọc bỏ
+    ordered_cols = [
+        "_original_row_index", 
+        "Component Name", 
+        "Material Class", 
+        "Role/Piece Type", 
+        "Chiều dài rập (inch)",   # Đưa cột Chiều dài rập lên trước
+        "Chiều rộng rập (inch)",  # Đưa cột Chiều rộng rập lên trước
+        "Khổ vải sản xuất (inch)", 
+        "Size tính toán", 
+        "Số lượng rập", 
+        "polygon_net_area", 
+        "Gross Consumption"
+    ]
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
 
@@ -2269,11 +2282,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
         except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # Đổi tên key cố định để Streamlit giải phóng hoàn toàn bộ đệm kẹt hiển thị cũ
+    # 🛠️ CẤU HÌNH RENDER GRID: Khai báo định dạng số (format) cho 2 cột mới giúp hiển thị chuyên nghiệp hơn trên UI
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
             "_original_row_index": None, 
+            "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
+            "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
             "Material Class": st.column_config.SelectboxColumn(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
