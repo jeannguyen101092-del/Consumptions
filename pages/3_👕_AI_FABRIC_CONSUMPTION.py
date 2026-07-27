@@ -356,9 +356,16 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     st.rerun()
 
-# 🛠️ CHÈN BỔ SUNG: Khối cấu hình canh sợi sơ đồ CAD 1 chiều tự động co giãn định mức
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
+
+# 🛠️ CHÈN THÊM Ô CHECKBOX XOAY RẬP TỰ DO: Mặc định bật True để xếp khít sơ đồ
+st.sidebar.checkbox(
+    "🔄 Cắt tự do (Cho phép xoay chi tiết 90°)", 
+    key="allow_rotation_90",
+    value=True,
+    help="Cho phép chi tiết xoay ngang/dọc tự do để điền đầy khoảng trống sơ đồ, tối ưu hóa định mức ở mức thấp nhất."
+)
 
 st.sidebar.checkbox(
     "✂️ Cắt mỗi bộ 1 chiều (Nap Layout)", 
@@ -371,7 +378,6 @@ st.sidebar.checkbox(
     key="is_one_way_fabric",
     help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
 )
-
 
 # --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR (MÀU XANH NGỌC LAM) ---
 with st.sidebar:
