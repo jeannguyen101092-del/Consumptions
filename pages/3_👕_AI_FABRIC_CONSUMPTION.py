@@ -2025,7 +2025,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             real_fabric_density = max(0.7400, min(0.8850, real_fabric_density))
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
-            real_fabric_density = max(0.76, min(0.9000, real_fabric_density))
+            real_fabric_density = max(0.8, min(0.9000, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
