@@ -206,7 +206,7 @@ st.markdown("""
         border-radius: 6px !important;
     }
 
-    /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
+        /* KHÓA CHẶT SIDEBAR CỐ ĐỊNH BÊN TRÁI HỆ THỐNG */
     [data-testid="stSidebar"] {
         background-color: #0f766e !important; 
         color: #ffffff !important;
@@ -217,14 +217,15 @@ st.markdown("""
         min-width: 300px !important;
         max-width: 300px !important;
         height: 100vh !important;
-        overflow-y: hidden !important;
+        overflow-y: auto !important; /* 🛠️ SỬA TỪ hidden THÀNH auto ĐỂ MỞ KHÓA THANH CUỘN */
         z-index: 99999 !important;
     }
     
     [data-testid="stSidebar"] > div:first-child {
         height: 100vh !important;
-        overflow-y: hidden !important;
+        overflow-y: auto !important; /* 🛠️ SỬA TỪ hidden THÀNH auto ĐỂ MỞ KHÓA THANH CUỘN LỚP TRONG */
     }
+
 
     div[data-testid="stSidebarNav"] {
         font-size: 11px !important;
@@ -341,65 +342,29 @@ with k_col4:
 
 
 
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (BẢN MÀU XANH NGỌC LAM SÁNG RÕ) ---
-st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
-if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
-    st.session_state.bom_data = {}
-    st.session_state.chat_history = []
-    st.session_state.pdf_bytes = None
-    st.session_state.pdf_name = ""
-    st.session_state.pdf_text_cache = None
-    if "processed_display_rows" in st.session_state: st.session_state.processed_display_rows = []
-    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-    if "last_active_blueprint" in st.session_state: st.session_state.last_active_blueprint = None
-    if "raw_ai_debug_payload" in st.session_state: st.session_state.raw_ai_debug_payload = None
-    if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
-    st.rerun()
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
 
-# 🛠️ CHỈNH SỬA 1: Thu gọn tối đa tiêu đề hiển thị để không chiếm diện tích màn hình
+# 🛠️ ĐÃ CẬP NHẬT: Đổi nhãn hiển thị thành Xoay tự do 180 độ (Đầu đuôi tráo đầu, các chi tiết không cần cùng chiều)
 st.sidebar.checkbox(
-    "🔄 Cắt tự do (Xoay ngược 180°)", 
-    key="allow_rotation_90",  
+    "🔄 Cắt tự do (Cho phép xoay ngược 180°)", 
+    key="allow_rotation_90",  # Giữ nguyên key để không phải sửa các khối code trung gian khác
     value=True,
     help="Cho phép chi tiết xoay ngược đầu đuôi tự do. Trong một bộ không nhất thiết phải cùng chiều. Tối ưu sơ đồ khít nhất, định mức thấp nhất."
 )
 
 st.sidebar.checkbox(
-    "✂️ Cắt mỗi bộ 1 chiều (Nap)", 
+    "✂️ Cắt mỗi bộ 1 chiều (Nap Layout)", 
     key="is_nap_layout",
     help="Tất cả chi tiết trong 1 bộ rập phải xoay cùng 1 chiều dọc thớ vải."
 )
 
 st.sidebar.checkbox(
-    "🧵 Tất cả size 1 chiều (One-Way)", 
+    "🧵 Cắt tất cả các size 1 chiều (One-Way)", 
     key="is_one_way_fabric",
     help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
 )
 
-# 🛠️ CHỈNH SỬA 2: ÉP LỆNH CSS CƯỠNG BỨC - Mở khóa hoàn toàn thanh cuộn dọc (Scrollbar) cho Sidebar Streamlit
-st.markdown(
-    """
-    <style>
-        [data-testid="stSidebarUserContent"] {
-            padding-top: 1.5rem;
-            max-height: 100vh;
-            overflow-y: auto !important; /* Ép buộc thanh cuộn phải hiện ra khi tràn nội dung */
-        }
-        /* Làm đẹp thanh cuộn nhỏ gọn chuẩn công nghiệp */
-        [data-testid="stSidebarUserContent"]::-webkit-scrollbar {
-            width: 6px;
-        }
-        [data-testid="stSidebarUserContent"]::-webkit-scrollbar-thumb {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 
 # --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR (MÀU XANH NGỌC LAM) ---
