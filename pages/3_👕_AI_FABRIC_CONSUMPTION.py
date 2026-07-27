@@ -372,7 +372,7 @@ with k_col4:
 
 
 
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (CẬP NHẬT BỘ GIÁM SÁT DUNG LƯỢNG KEY) ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (CẬP NHẬT BỘ GIÁM SÁT DUNG LƯỢNG ĐỘNG CHO CẢ KEY MIỄN PHÍ VÀ KEY MUA) ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = {}
@@ -387,11 +387,10 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     if "pdf_page_one_image" in st.session_state: st.session_state.pdf_page_one_image = None
     st.rerun()
 
-# 🛠️ KHỐI HIỂN THỊ DUNG LƯỢNG KEY (API QUOTA MONITOR)
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 🔑 API KEY CAPACITY (DUNG LƯỢNG KEY)")
 
-# Khởi tạo bộ đếm dung lượng tiêu hao trong bộ nhớ đệm
+# Khởi tạo bộ đếm dung lượng tiêu hao thực tế trong màng RAM hệ thống
 if "api_calls_count" not in st.session_state:
     st.session_state["api_calls_count"] = 0
 if "tokens_consumed" not in st.session_state:
@@ -399,34 +398,55 @@ if "tokens_consumed" not in st.session_state:
 
 # Tính toán dung lượng ước tính dựa trên dữ liệu văn bản thô Techpack đã quét
 if st.session_state.get("raw_pdf_text_extracted"):
-    # Quy đổi số ký tự văn bản sang đơn vị Tokens ngành AI
     current_tokens = len(str(st.session_state["raw_pdf_text_extracted"])) // 4
     if st.session_state["tokens_consumed"] == 0:
         st.session_state["tokens_consumed"] = current_tokens
         st.session_state["api_calls_count"] += 1
 
-# Thiết lập giới hạn dung lượng phòng vệ cho gói Free (15 lượt quét/phút, 1500 lượt/ngày)
-max_daily_calls = 1500
-remaining_calls = max(0, max_daily_calls - st.session_state["api_calls_count"])
-capacity_percentage = (remaining_calls / max_daily_calls) * 100
+# 🛠️ CẤU HÌNH ĐỔI CHẾ ĐỘ KEY TỰ ĐỘNG (FREE TIERS VS PAY-AS-YOU-GO)
+# - Đổi thành True nếu bạn hoặc công ty dùng Key trả phí nạp tiền (Màn hình luôn báo đầy pin 100% xanh ngọc lam)
+# - Đổi thành False nếu dùng Key cá nhân Free (Thanh pin sẽ tự động tụt giảm cảnh báo lỗi 429)
+is_paid_key = True  
 
-# Vẽ thanh dung lượng trực quan lên giao diện màu xanh
-st.sidebar.progress(capacity_percentage / 100)
-st.sidebar.caption(f"🔋 Dung lượng khả dụng: `{capacity_percentage:.1f}%`")
+if is_paid_key:
+    # ➔ CHẾ ĐỘ KEY MUA: Mở khóa băng thông, hiển thị trạng thái Premium bảo vệ hệ thống
+    st.sidebar.progress(1.0) 
+    st.sidebar.caption("💳 **TÀI KHOẢN TRẢ PHÍ (PREMIUM KEY)** | Trạng thái: `BĂNG THÔNG MỞ RỘNG`")
+else:
+    # ➔ CHẾ ĐỘ KEY FREE: Tự co giãn và giảm dung lượng khả dụng theo giới hạn 1500 lượt của Google
+    max_daily_calls = 1500
+    capacity_percentage = (max(0, max_daily_calls - st.session_state["api_calls_count"]) / max_daily_calls) * 100
+    st.sidebar.progress(capacity_percentage / 100)
+    st.sidebar.caption(f"🔋 Dung lượng khả dụng (Free Tier): `{capacity_percentage:.1f}%`")
 
+# Hiển thị bộ đôi số liệu trực quan khít sát lề dải pin, chống lãng phí khoảng trống
 col_cap1, col_cap2 = st.sidebar.columns(2)
 with col_cap1:
     st.metric("🔄 Lượt đã quét", f"{st.session_state['api_calls_count']} mã")
 with col_cap2:
     st.metric("📊 Đã dùng (Tokens)", f"{st.session_state['tokens_consumed']:,}")
 
-# CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD) KHỐI CŨ CỦA BẠN VẪN GIỮ NGUYÊN PHÍA DƯỚI
+# CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD) CO GIÃN ĐỊNH MỨC THEO GERBER CỦA BẠN VẪN GIỮ NGUYÊN PHÍA DƯỚI
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
 
-st.sidebar.checkbox("🔄 Cắt tự do (Xoay ngược 180°)", key="allow_rotation_90", value=True)
-st.sidebar.checkbox("✂️ Cắt mỗi bộ 1 chiều (Nap)", key="is_nap_layout")
-st.sidebar.checkbox("🧵 Tất cả size 1 chiều (One-Way)", key="is_one_way_fabric")
+st.sidebar.checkbox(
+    "🔄 Cắt tự do (Xoay ngược 180°)", 
+    key="allow_rotation_90", 
+    value=True,
+    help="Cho phép chi tiết xoay ngược đầu đuôi tự do. Trong một bộ không nhất thiết phải cùng chiều. Tối ưu sơ đồ khít nhất, định mức thấp nhất."
+)
+st.sidebar.checkbox(
+    "✂️ Cắt mỗi bộ 1 chiều (Nap)", 
+    key="is_nap_layout",
+    help="Tất cả chi tiết trong 1 bộ rập phải xoay cùng 1 chiều dọc thớ vải."
+)
+st.sidebar.checkbox(
+    "🧵 Tất cả size 1 chiều (One-Way)", 
+    key="is_one_way_fabric",
+    help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
+)
+
 
 # --- TÍCH HỢP 3 Ý TƯỞNG TIỆN ÍCH DƯỚI NÚT CLEAR (MÀU XANH NGỌC LAM) ---
 with st.sidebar:
