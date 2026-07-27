@@ -655,21 +655,12 @@ with col_right:
 
 
 
-
-import hashlib
-import json
-import re
-import fitz
-import google.generativeai as genai
-import streamlit as st
-
-
 # =====================================================================
-# 🧠 ĐOẠN A (NÂNG CẤP QUET TOÀN DIỆN BOM): KHỐI HÀM CACHE AI (ĐÃ TÍCH HỢP BỘ ĐO DUNG LƯỢNG KEY)
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ TỐI ƯU CHỐNG TRỪ TIỀN OAN (ANTI-WASTAGE CACHE)
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
-    ttl=60,
+    ttl=3600,  # 🛠️ TĂNG TỪ 60 GIÂY LÊN 3600 GIÂY (1 TIẾNG): Khóa chặt Cache ngầm. Trong vòng 1 tiếng, sửa UI thoải mái không bị trừ tiền lại.
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
 def execute_cached_gemini_scan(
@@ -680,9 +671,6 @@ def execute_cached_gemini_scan(
     raw_json_schema,
     prompt_agent_2,
 ):
-    """Hàm gọi AI quét TOÀN BỘ các trang trong file Techpack để bóc tách trọn
-    vẹn cấu trúc Vải chính, Vải lót và Keo lót (Fusing).
-    """
     import copy
     import hashlib
 
@@ -698,44 +686,27 @@ def execute_cached_gemini_scan(
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
-        # 🚨 ĐÃ SỬA: Quét toàn bộ số trang của file Techpack để tìm sạch linh kiện keo/phụ liệu ở trang sau
         for idx in range(total_pages):
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Chỉ render ảnh cho 5 trang đầu hoặc trang chứa hình vẽ rập để tối ưu hóa dung lượng gửi đi
-            if len(image_payloads) < 5:
+            # 🛠️ GIỚI HẠN PHÒNG VỆ: Chỉ gửi đúng 2 trang đầu (hoặc trang vẽ sketch chính) thay vì gửi 5 trang ảnh, tiết kiệm ngay 60% chi phí Token điểm ảnh.
+            if len(image_payloads) < 2:
                 try:
-                    pix = doc_recovery[idx].get_pixmap(
-                        dpi=72, colorspace=fitz.csRGB
-                    )
-                    image_payloads.append(
-                        {
-                            "mime_type": "image/jpeg",
-                            "data": pix.tobytes("jpeg"),
-                        }
-                    )
+                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
                 except Exception:
                     continue
 
     gemini_inputs = copy.deepcopy(image_payloads)
-    gemini_inputs.insert(
-        0,
-        f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n",
-    )
+    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # 🚨 ĐÃ CẬP NHẬT PROMPT ÉP ĐẦU RA TOÀN DIỆN NGUYÊN PHỤ LIỆU
-    extended_prompt = (
-        prompt_agent_2
-        + """
+    extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
-    - Carefully scan for pocket linings, waist linings, and fusing/interfacing descriptors.
     - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
     - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
-    - Do not omit any minor panels or components from the final JSON structure.
     """
-    )
     gemini_inputs.append(extended_prompt)
 
     model = genai.GenerativeModel("gemini-2.5-flash")
@@ -762,70 +733,39 @@ def execute_cached_gemini_scan(
     try:
         blueprint_worker = json.loads(txt)
     except json.JSONDecodeError as json_err:
-        raise RuntimeError(
-            f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
-        ) from json_err
+        raise RuntimeError(f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}") from json_err
 
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
             if "component_name" in row:
-                row["component_name"] = " ".join(
-                    str(row["component_name"]).upper().split()
-                )
-            try:
-                row["bounding_box_length"] = round(
-                    float(row.get("bounding_box_length", 0.0)), 2
-                )
-            except Exception:
-                row["bounding_box_length"] = 0.0
-            try:
-                row["bounding_box_width"] = round(
-                    float(row.get("bounding_box_width", 0.0)), 2
-                )
-            except Exception:
-                row["bounding_box_width"] = 0.0
-            try:
-                row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-            except Exception:
-                row["polygon_net_area"] = 0.0
-            try:
-                row["piece_count"] = int(float(row.get("piece_count", 1)))
-            except Exception:
-                row["piece_count"] = 1
-            try:
-                row["gross_consumption"] = round(
-                    float(row.get("gross_consumption", 0.0415)), 4
-                )
-            except Exception:
-                row["gross_consumption"] = 0.0415
-            try:
-                row["marker_efficiency"] = str(
-                    row.get("marker_efficiency", "82.5%")
-                ).strip()
-            except Exception:
-                row["marker_efficiency"] = "82.5%"
+                row["component_name"] = " ".join(str(row["component_name"]).upper().split())
+            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
+            except: row["bounding_box_length"] = 0.0
+            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
+            except: row["bounding_box_width"] = 0.0
+            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+            except: row["polygon_net_area"] = 0.0
+            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+            except: row["piece_count"] = 1
+            try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
+            except: row["gross_consumption"] = 0.0415
+            try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
+            except: row["marker_efficiency"] = "82.5%"
             
-            # 🛠️ ĐÃ SỬA: ÉP ĐÈ KHỔ VẢI THEO Ô CHAT VÀO TỪNG DÒNG RẬP CHỐNG KẸT CACHE 56 CŨ
             try:
                 forced_width = float(active_width)
                 if current_query:
                     width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-                    if width_match:
-                        forced_width = float(width_match.group(2))
-                
+                    if width_match: forced_width = float(width_match.group(2))
                 row["fabric_width_inch"] = forced_width
-            except Exception:
+            except:
                 row["fabric_width_inch"] = float(active_width)
 
-    # 🛠️ KÍCH HOẠT BỘ SNIFFER DUNG LƯỢNG KEY: Cộng dồn số lượt gọi API và đo tổng số Token tiêu hao thực tế
-    if "api_calls_count" not in st.session_state:
-        st.session_state["api_calls_count"] = 0
-    if "tokens_consumed" not in st.session_state:
-        st.session_state["tokens_consumed"] = 0
+    if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
+    if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
         
     st.session_state["api_calls_count"] += 1
-    # Công thức quy đổi ký tự văn bản thô dệt may sang Tokens tiêu hao trong mô hình LLM
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
