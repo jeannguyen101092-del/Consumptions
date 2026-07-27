@@ -421,7 +421,7 @@ else:
 # Hiển thị bộ đôi số liệu trực quan khít sát lề dải pin, chống lãng phí khoảng trống dư thừa
 col_cap1, col_cap2 = st.sidebar.columns(2)
 with col_cap1:
-    st.metric("🔄 Lượt đã quét", f"{st.session_state['api_calls_count']} STYLE")
+    st.metric("🔄 Lượt đã quét", f"{st.session_state['api_calls_count']}")
 with col_cap2:
     st.metric("📊 Đã dùng (Tokens)", f"{st.session_state['tokens_consumed']:,}")
 
