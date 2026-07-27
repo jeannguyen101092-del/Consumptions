@@ -12,7 +12,7 @@ if "auto_cutting_results" not in st.session_state: st.session_state["auto_cuttin
 st.markdown('<h3 style="color: #1E3A8A;">📋 PHÂN HỆ TÁC NGHIỆP BÀN CẮT ĐA GIÀNG CHUẨN XƯỞNG</h3>', unsafe_allow_html=True)
 
 if not st.session_state["purchase_ready"]:
-    #file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng", type=["xlsx", "xls", "pdf"])
+   #file_sbd = st.file_uploader("📋 Chọn File SBD Số Lượng", type=["xlsx", "xls", "pdf"])
     if file_sbd and st.button("⚡ SỐ HÓA ĐƠN HÀNG", type="primary", use_container_width=True):
         st.session_state["sbd_parsed_data"] = {"style_id": "PPJ-DENIM-2026", "total_quantity": 3600, "size_breakdown": {"S": 400, "M": 1200, "L": 1400, "XL": 600}}
         st.session_state["purchase_ready"] = True
