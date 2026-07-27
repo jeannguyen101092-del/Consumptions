@@ -656,11 +656,11 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ TỐI ƯU CHỐNG TRỪ TIỀN OAN (ANTI-WASTAGE CACHE)
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ VÁ LỖI "genai is not defined" & CHỐNG HAO TIỀN
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
-    ttl=3600,  # 🛠️ TĂNG TỪ 60 GIÂY LÊN 3600 GIÂY (1 TIẾNG): Khóa chặt Cache ngầm. Trong vòng 1 tiếng, sửa UI thoải mái không bị trừ tiền lại.
+    ttl=3600,  # Khóa chặt bộ nhớ Cache trong 1 tiếng để sửa UI thoải mái không bị tính tiền lần 2
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
 def execute_cached_gemini_scan(
@@ -673,6 +673,7 @@ def execute_cached_gemini_scan(
 ):
     import copy
     import hashlib
+    import google.generativeai as genai  # 🛠️ CHÈN BỔ SUNG DÒNG NÀY ĐỂ TRIỆT TIÊU LỖI NAMEERROR TRÊN GIAO DIỆN
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -690,7 +691,7 @@ def execute_cached_gemini_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # 🛠️ GIỚI HẠN PHÒNG VỆ: Chỉ gửi đúng 2 trang đầu (hoặc trang vẽ sketch chính) thay vì gửi 5 trang ảnh, tiết kiệm ngay 60% chi phí Token điểm ảnh.
+            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
             if len(image_payloads) < 2:
                 try:
                     pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
