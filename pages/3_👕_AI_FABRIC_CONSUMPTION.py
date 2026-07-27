@@ -1899,14 +1899,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-      # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO THÔNG SỐ RẬP)
+         # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO THÔNG SỐ RẬP) - ĐÃ TỐI ƯU GERBER
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.78))
-    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.03))
+    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.79))
+    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.035)) # Đẩy hao hụt nền lên 3.5% cho an toàn đầu bàn cắt
     features = ai_decision_d5.get("geometry_features", {})
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
     virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
@@ -1931,9 +1931,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     total_fabric_net_area = 0.0
     fabric_pieces_to_nest = []
 
+    # 🛠️ SỬA LỖI HIỂN THỊ: Khởi tạo danh sách hứng dữ liệu dài/rộng nạp vào DataFrame hiển thị trên UI
+    list_lengths = []
+    list_widths = []
+
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {})
         
+        # Lấy thông số kích thước hình học từ bộ nhớ layer ngầm
+        p_length = float(v_piece.get("production_l", 0.0))
+        p_width = float(v_piece.get("production_w", 0.0))
+        list_lengths.append(round(p_length, 2) if p_length > 0 else "-")
+        list_widths.append(round(p_width, 2) if p_width > 0 else "-")
+
         # Đồng bộ phân loại nhóm chất liệu tránh bám dính bộ nhớ đệm lỗi
         comp_name_str = str(v_piece.get("component_name", r.get(comp_col_check, ""))).upper()
         if any(k in comp_name_str for k in ["POCKET", "LÓT", "TÚI"]) and "LINING" in str(r.get(m_col,"")).upper() if 'm_col' in locals() else False:
@@ -1951,13 +1961,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs_d5))
             total_fabric_net_area += net_area * current_pcs
             
-            if v_piece.get("production_l", 0) > 0:
+            if p_length > 0:
                 for _ in range(int(current_pcs)):
                     fabric_pieces_to_nest.append({
-                        "l": v_piece["production_l"], 
-                        "w": v_piece["production_w"], 
+                        "l": p_length, 
+                        "w": p_width, 
                         "area": net_area
                     })
+
+    # 🛠️ BƠM DỮ LIỆU KÍCH THƯỚC LÊN BẢNG HIỂN THỊ
+    df_bom["Chiều dài rập (inch)"] = list_lengths
+    df_bom["Chiều rộng rập (inch)"] = list_widths
 
     if len(fabric_pieces_to_nest) > 0 and current_fabric_width > 0:
         fabric_pieces_to_nest.sort(key=lambda x: x["area"], reverse=True)
@@ -1975,26 +1989,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         
-        # 🚨 THUẬT TOÁN ĐỘNG LỰC HỌC THÔNG SỐ (SIZE-DEPENDENT DENSITY SOLVER)
-        # Tính diện tích trung bình thật của một chi tiết vải chính trên sơ đồ
+        # 🚨 ĐIỀU CHỈNH THUẬT TOÁN THEO SÁT THỰC TẾ GERBER (Khắc phục lỗi tụt định mức)
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
         if is_trouser:
-            target_wastage = 1.015  # Ép chặt hao hụt sản xuất quần còn 1.5%
+            target_wastage = 1.035  # Tối ưu Gerber: Nâng hao hụt sản xuất quần lên mức thực tế 3.5% (bù đầu bàn cắt, xả vải)
             
-            # ĐỊNH VỊ ĐỘ PHẠT THEO THÔNG SỐ LỚN:
-            # Lấy mốc rập quần chuẩn trung bình là 250 inch vuông. 
-            # Cứ mỗi khi thông số rập tăng lên 100 inch vuông, hiệu suất sơ đồ tự động bị tụt giảm 1.5%
+            # Khống chế hiệu suất sơ đồ Jean thực tế (Gerber thường đạt 79% - 83.5% tùy phom)
+            # Mức nền chuẩn cho hàng nhỏ/trung bình hạ từ 87% về mức an toàn thực tế là 81.5%
             if mean_piece_area > 250.0:
                 size_penalty = (mean_piece_area - 250.0) * 0.00015
-                size_penalty = min(0.06, size_penalty) # Giới hạn mức phạt tụt hiệu suất tối đa là 6%
-                real_fabric_density = 0.8700 - size_penalty
+                size_penalty = min(0.05, size_penalty) 
+                real_fabric_density = 0.8150 - size_penalty
             else:
-                real_fabric_density = 0.8700  # Nếu là hàng thông số nhỏ, giữ nguyên mốc đỉnh 87%
+                real_fabric_density = 0.8150  
         else:
-            # Giữ nguyên logic tính toán nền cho các mặt hàng đầm/váy/áo khác
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
-            real_fabric_density = max(0.5800, min(0.9200, real_fabric_density))
+            real_fabric_density = max(0.5800, min(0.9000, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
@@ -2064,6 +2075,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ động theo thông số rập (Dynamic Density): `{real_fabric_density*100:.2f}%` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds`")
+
 
 
 
