@@ -1900,13 +1900,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
          # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO THÔNG SỐ RẬP) - FIX LỖI MẤT DỮ LIỆU
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO THÔNG SỐ RẬP) - ĐÃ ĐẨY ĐỊNH MỨC VẢI LÓT & KEO
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.77))
-    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.045)) # Giữ hao hụt 4.5% theo Gerber cho an toàn đầu bàn cắt
+    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.75))
+    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.055)) # Hao hụt vải chính 5.5% theo Gerber
     features = ai_decision_d5.get("geometry_features", {})
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
     virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
@@ -1958,7 +1959,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 for _ in range(int(current_pcs)):
                     fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area})
 
-    # Bơm thông số hình học vào DataFrame gốc phục vụ hiển thị
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
@@ -1980,13 +1980,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
         if is_trouser:
-            target_wastage = 1.045 
+            target_wastage = 1.055 
             if mean_piece_area > 250.0:
                 size_penalty = (mean_piece_area - 250.0) * 0.00015
                 size_penalty = min(0.05, size_penalty) 
-                real_fabric_density = 0.7950 - size_penalty
+                real_fabric_density = 0.7650 - size_penalty
             else:
-                real_fabric_density = 0.7950  # Ép mật độ 79.5% giúp tăng định mức tổng theo Gerber
+                real_fabric_density = 0.7650  
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
             real_fabric_density = max(0.5800, min(0.9000, real_fabric_density))
@@ -2002,8 +2002,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if v_piece.get("inferred_class") == "LINING":
             total_lining_net_area += v_piece.get("production_net_area", 1.0) * v_piece.get("inferred_pieces", 1.0)
 
+    # 🛠️ TỐI ƯU VẢI LÓT (LINING): Hạ hiệu suất từ 0.76 xuống 0.71 để kéo định mức lót tăng lên theo Gerber
     if total_lining_net_area > 0 and lining_width > 0:
-        lining_sim_length = total_lining_net_area / lining_width / 0.76
+        lining_sim_length = total_lining_net_area / lining_width / 0.71
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
     else:
         total_lining_gross_yds = 0.0
@@ -2017,14 +2018,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ HIỂN THỊ LUỒNG SẠCH)
     # =====================================================================
+    # 🛠️ TỐI ƯU MÉC/KEO (FUSING): Đẩy hệ số hao hụt từ 1.08 (8%) lên 1.15 (15%) để bù co rút nhiệt bàn ép
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
         bounding_box_area = l_prod * w_prod if (l_prod > 0 and w_prod > 0) else net_area
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         slenderness = (l_prod / w_prod) if w_prod > 0 else 1.0
         if slenderness >= 6.0 and void_ratio <= 0.12:
-            return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.08
-        return ((net_area * pcs) / fusing_width / round(0.72 - (void_ratio * 0.40), 3) / 36.0) * round(1.08 + (void_ratio * 0.25), 3)
+            return (bounding_box_area * pcs / fusing_width / 0.65 / 36.0) * 1.15
+        return ((net_area * pcs) / fusing_width / round(0.70 - (void_ratio * 0.40), 3) / 36.0) * round(1.15 + (void_ratio * 0.25), 3)
 
     calculated_total_fabric_net_area = sum([vp["production_net_area"] * vp["inferred_pieces"] for vp in virtual_pieces_layer.values() if vp["inferred_class"] == "FABRIC"])
 
