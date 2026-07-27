@@ -810,171 +810,126 @@ if safe_user_prompt:
     st.rerun()
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (BẢN UPDATE PROMPT CAD HÌNH HỌC): AI CORE ENGINE
+# 🟩 ĐOẠN 2 (PHẦN 1/2): BỘ LỌC ĐẦU VÀO & SCHEMA KHỬ SẠCH PHỤ LIỆU LOẠT LOẠT
 # =====================================================================
-
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
+    active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
 
-    # Bộ quét tự động tìm file PDF dự phòng từ bộ nhớ đệm dùng chung khi chuyển tab
-    active_pdf = st.session_state.get("pdf_bytes")
-    if active_pdf is None:
-        active_pdf = (
-            st.session_state.get("uploaded_file")
-            or st.session_state.get("current_pdf")
-            or st.session_state.get("pdf_data")
-        )
-
-    # 🛠️ TRÍCH XUẤT KHỔ VẢI ĐỘNG TỪ Ô CHAT ĐỂ BẺ GÃY SỐ 56 CỐ ĐỊNH
-    dynamic_width = 56.0  # Giá trị mặc định phòng hờ
-    target_size = "32"    # Cỡ mẫu mặc định
-    
+    dynamic_width, target_size = 58.0, "32"
     if current_query:
         import re
-        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-        if width_match:
-            dynamic_width = float(width_match.group(2))
-            
-        size_match = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
-        if size_match:
-            target_size = str(size_match.group(2))
+        w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        if w_m: dynamic_width = float(w_m.group(2))
+        s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
+        if s_m: target_size = str(s_m.group(2))
 
     if active_pdf is not None:
-        with st.spinner(
-            "🧠 AI Vision đang trích xuất và gắn nhãn rập cấu trúc kỹ thuật..."
-        ):
+        with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
             try:
-                # 1. JSON SCHEMA MỞ RỘNG MÁ TRẬN ĐA GIÁC CAD
+                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ (CHỈ QUÉT VẢI/KEO)
                 raw_json_schema = {
                     "type": "OBJECT",
                     "properties": {
-                        "detected_product_type": {
-                            "type": "STRING",
-                            "description": "Kiểu dáng sản phẩm, ví dụ: JEANS, JACKET, SHIRT",
-                        },
-                        "detected_base_size": {
-                            "type": "STRING",
-                            "description": "Size mẫu trích xuất, ví dụ: 32",
-                        },
+                        "detected_product_type": {"type": "STRING"},
+                        "detected_base_size": {"type": "STRING"},
                         "bom_rows": {
                             "type": "ARRAY",
-                            "description": "Danh sách chi tiết thông số hình học thô bóc tách từ Techpack",
                             "items": {
                                 "type": "OBJECT",
                                 "properties": {
-                                    "component_name": {
-                                        "type": "STRING",
-                                        "description": "Tên chi tiết rập gốc từ tài liệu",
+                                    "component_name": {"type": "STRING"},
+                                    "bounding_box_length": {"type": "NUMBER"},
+                                    "bounding_box_width": {"type": "NUMBER"},
+                                    "piece_shape": {"type": "STRING"},
+                                    "piece_function": {"type": "STRING"},
+                                    "fold_type": {"type": "STRING"},
+                                    # 🚨 CHỐNG RÁC DỮ LIỆU: Khống chế ENUM chỉ cho phép trả về phôi rập có diện tích rải sơ đồ
+                                    "material_zone": {"type": "STRING", "enum": ["SELF", "LINING", "INTERFACING", "RIB", "CONTRAST"]},
+                                    "grain_constraint": {"type": "STRING"},
+                                    "packing_priority": {"type": "INTEGER"},
+                                    "convex_fill_ratio": {"type": "NUMBER"},
+                                    "seam_allowance": {"type": "STRING"},
+                                    "mirror_piece": {"type": "BOOLEAN"},
+                                    "is_left_right_pair": {"type": "BOOLEAN"},
+                                    "requires_matching": {"type": "BOOLEAN"},
+                                    "critical_alignment": {"type": "STRING"},
+                                    "cut_quantity": {"type": "INTEGER"},
+                                    "grain_direction": {"type": "STRING"},
+                                    "rotation_allowed": {"type": "STRING"},
+                                    "edge_curvature": {"type": "STRING"},
+                                    "shape_complexity": {"type": "STRING"},
+                                    "inference_source": {"type": "STRING"},
+                                    "cad_reconstruction_score": {"type": "INTEGER"},
+                                    "field_confidence": {
+                                        "type": "OBJECT",
+                                        "properties": {"dimensions": {"type": "STRING"}, "geometry_shape": {"type": "STRING"}, "grain_alignment": {"type": "STRING"}},
+                                        "required": ["dimensions", "geometry_shape", "grain_alignment"]
                                     },
-                                    "material_class": {
-                                        "type": "STRING",
-                                        "description": "Allowed: FABRIC, LINING, FUSING, TAPE, ELASTIC, RIB, TRIM, THREAD, ACCESSORY",
-                                    },
-                                    "geometry_role": {
-                                        "type": "STRING",
-                                        "description": "Allowed: MAJOR_PANEL hoặc MINOR_COMPONENT",
-                                    },
-                                    "piece_type": {
-                                        "type": "STRING",
-                                        "description": "BẮT BUỘC phân loại nhãn rập chuẩn ngành.",
-                                    },
-                                    "uom": {
-                                        "type": "STRING",
-                                        "description": "Cố định: YDS",
-                                    },
-                                    "piece_count": {
-                                        "type": "INTEGER",
-                                        "description": "Số lượng rập chi tiết gốc (Pcs).",
-                                    },
-                                    "bounding_box_length": {
-                                        "type": "NUMBER",
-                                        "description": "Chiều dài chi tiết rập L-inch.",
-                                    },
-                                    "bounding_box_width": {
-                                        "type": "NUMBER",
-                                        "description": "Chiều rộng chi tiết rập W-inch.",
-                                    },
-                                    "data_confidence": {
-                                        "type": "STRING",
-                                        "description": "Allowed: HIGH, LOW",
-                                    },
-                                    "calculation_status": {
-                                        "type": "STRING",
-                                        "description": "Allowed: READY, MISSING_INPUT",
-                                    },
+                                    "shape_parameters": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "estimated_corner_points": {"type": "INTEGER"}, "dominant_axis": {"type": "STRING"},
+                                            "top_width_ratio": {"type": "NUMBER"}, "bottom_width_ratio": {"type": "NUMBER"},
+                                            "left_edge_profile": {"type": "STRING"}, "right_edge_profile": {"type": "STRING"},
+                                            "waist_curve_depth": {"type": "NUMBER"}, "hem_curve_depth": {"type": "NUMBER"}, "crotch_projection_ratio": {"type": "NUMBER"}
+                                        }
+                                    }
                                 },
-                                "required": [
-                                    "component_name",
-                                    "material_class",
-                                    "geometry_role",
-                                    "piece_type",
-                                    "uom",
-                                    "piece_count",
-                                    "bounding_box_length",
-                                    "bounding_box_width",
-                                    "data_confidence",
-                                    "calculation_status",
-                                ],
+                                "required": ["component_name", "bounding_box_length", "bounding_box_width", "piece_shape", "piece_function", "fold_type", "material_zone", "packing_priority", "convex_fill_ratio", "mirror_piece"],
                             },
                         },
                     },
-                    "required": [
-                        "detected_product_type",
-                        "detected_base_size",
-                        "bom_rows",
-                    ],
+                    "required": ["detected_product_type", "detected_base_size", "bom_rows"],
                 }
-                              # 2. PROMPT CHUYÊN GIA CAD TRÍCH XUẤT & SUY LUẬN KHÔNG GIAN RẬP - ĐÃ VÁ LỖI DIỆN TÍCH BẰNG 0
+                # =====================================================================
+                # 🟩 ĐOẠN 2 (PHẦN 2/2): PROMPT PHÒNG VỆ CHỐNG RÁC PHỤ LIỆU & AI EXECUTE
+                # =====================================================================
                 prompt_agent_2 = f"""
-                You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Your absolute priority is to extract or intelligently estimate the physical dimensions (Length, Width and Net Area in INCHES) for EVERY garment component found in the Techpack for the current target size.
+                You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Reconstruct the multi-layered CAD metadata for EVERY valid fabric/fusing piece in the Techpack for Size {target_size}.
                 
-                🚨 CRITICAL DIMENSION & AREA RETRIEVAL DIRECTIVES (ANTI-ZERO & DYNAMIC SIZE RULE):
-                1. DYNAMIC SIZE TARGET: Extract or estimate data specifically for the requested size: Size {target_size if 'target_size' in locals() else "32"}. Do NOT force base size 32 if the target size command requests a different size grade.
+                🚨 CRITICAL ACCESSORY OMISSION MANDATE (LỆNH KHỬ TRỪ PHỤ LIỆU):
+                - NEVER extract buttons, sewing threads, zippers, sliders, rivets, main labels, care labels, size tabs, hangtags, polybags, or any metal/plastic accessories.
+                - IGNORE them completely. They do NOT have marker dimensions or 2D polygon packing footprints.
+                - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), INTERFACING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
                 
-                2. PRIMARY SOURCE (TABLES): Search all pages for spec tables, graded measurement sheets, or marker detail blocks. Extract the exact 'bounding_box_length', 'bounding_box_width', and 'polygon_net_area' for each component.
+                🚨 SECTION 1: EXTRACT BOUNDING BOX (ANTI-ZERO RULE)
+                Extract/estimate exact 'bounding_box_length' and 'bounding_box_width' in INCHES. NEVER output 0.0.
                 
-                3. DETAILED NET AREA CALCULATION RULE (NEVER OUTPUT 0.0): 
-                   - You MUST provide a realistic non-zero value for 'polygon_net_area' (production_net_area) for EVERY component.
-                   - If the exact net area is not written in text, dynamically calculate it from your extracted length and width: polygon_net_area = length * width * bounding_box_efficiency_factor.
-                   - Apparel industry heuristic efficiency factor guidelines: Main panels (legs/backs) approx 0.72-0.76; Straight waistbands approx 0.95-1.00; Curved pieces/pockets approx 0.70-0.75.
-                   - A physical pattern component CANNOT have a net area of 0.0 or null.
+                🚨 SECTION 2: CAD GEOMETRIC SHAPE & METADATA
+                Map each valid component to:
+                - 'piece_shape': RECTANGLE, TRAPEZOID, TAPERED_PANEL, CURVED_PANEL, POCKET, WAISTBAND, COLLAR, SLEEVE, GUSSET.
+                - 'piece_function': PRIMARY, SECONDARY, REINFORCEMENT, DECORATIVE, LINING.
+                - 'fold_type': NONE, CENTER_FOLD, EDGE_FOLD, ON_FOLD.
+                - 'material_zone': SELF, LINING, INTERFACING, RIB, CONTRAST.
+                - 'packing_priority': 1 (Main Panels) to 5 (Small Filler Loops).
+                - 'convex_fill_ratio': RECTANGLE=0.98; Waistband=0.94; Curved/Tapered Panel=0.68-0.76; Pocket=0.82; Collar=0.60.
+                - 'mirror_piece': [true, false].
                 
-                4. SECONDARY SOURCE (PATTERN SKETCH ESTIMATION): If numerical dimensions are NOT explicitly written in a structured table, you MUST estimate the bounding rectangle directly from the technical flat sketches, drawings, or pattern diagrams.
-                   - Use the overall garment proportions and drawing scale to approximate the bounding box.
-                   - NEVER output 0.0 or null for 'bounding_box_width', 'bounding_box_length', or 'polygon_net_area'.
+                🚨 SECTION 3: 5 CRITICAL SOLVER FIELDS
+                - 'cut_quantity': Total physical pieces to be cut.
+                - 'grain_direction': VERTICAL, HORIZONTAL, BIAS.
+                - 'rotation_allowed': 0_DEG, 180_DEG, ANY.
+                - 'edge_curvature': LOW, MEDIUM, HIGH.
+                - 'shape_complexity': LOW, MEDIUM, HIGH.
                 
-                5. INDUSTRIAL GARMENT HEURISTIC BOUNDS (GUARDRAILS FOR JEANS/PANTS):
-                   If you must estimate from the sketch, apply these standard apparel industry geometric boundaries to prevent mathematically impossible zeros:
-                   - TROUSER_FRONT / TROUSER_BACK (Main Leg Panels): Length typically ranges between 35.0 to 45.0 inches. Width MUST be between 10.0 to 16.0 inches. Net Area MUST be around 350.0 to 550.0 sq inches.
-                   - WAISTBAND / LƯNG QUẦN: Length is tied to waist size (approx 30.0-35.0 inches). Width is 1.5 to 2.5 inches. Net Area MUST be around 50.0 to 85.0 sq inches.
-                   - POCKET BAG / LÓT TÚI: Length 10.0 to 13.0 inches, Width 6.0 to 8.0 inches. Net Area approx 60.0 to 90.0 sq inches.
-                   - COIN POCKET / FLAP / MINOR PIECES: Length 3.0 to 5.0 inches, Width 3.0 to 5.0 inches. Net Area approx 9.0 to 20.0 sq inches.
-                
-                6. DATA CONFIDENCE & STATUS LOGIC:
-                   - Set data_confidence = "HIGH" and calculation_status = "READY" ONLY if the numbers are explicitly extracted from text/tables.
-                   - Set data_confidence = "LOW" and calculation_status = "READY" if the dimensions/areas are mathematically estimated/reconstructed from the pattern sketch or garment guardrails.
-                
-                Ensure your output strictly adheres to the requested JSON structure. Every valid component must have non-zero geometric properties to allow proper 2D packing area calculation.
+                🚨 SECTION 4: RECONSTRUCTION & VALIDATION
+                Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
                 """
-
 
                 # 3. GỌI HÀM QUÉT AI CACHE VÀ TRUYỀN KHỔ VẢI ĐỘNG ĐÃ TRÍCH XUẤT
                 bom_data = execute_cached_gemini_scan(
-                    pdf_bytes=active_pdf,
-                    current_query=current_query,
-                    active_width=dynamic_width,  # ✅ ĐÃ SỬA: Thay số 56.0 cố định cũ bằng biến động dynamic_width
-                    target_size_cmd=target_size,
-                    raw_json_schema=raw_json_schema,
-                    prompt_agent_2=prompt_agent_2
+                    pdf_bytes=active_pdf, current_query=current_query,
+                    active_width=dynamic_width, target_size_cmd=target_size,
+                    raw_json_schema=raw_json_schema, prompt_agent_2=prompt_agent_2
                 )
                 
-                # Lưu kết quả bóc tách vào session_state
                 st.session_state["bom_data"] = bom_data
                 if bom_data and "bom_rows" in bom_data:
                     st.session_state["accumulated_bom_rows"] = bom_data["bom_rows"]
                 
                 st.session_state.ai_processing = False
-                st.success("✅ AI Core đã đồng bộ cấu trúc rập thành công!")
+                st.success("✅ AI Core đã lọc sạch phụ liệu và đồng bộ phôi rập thành công!")
                 st.rerun()
 
             except Exception as e:
@@ -982,7 +937,6 @@ if st.session_state.ai_processing:
                 st.error(f"❌ Lỗi xử lý AI Core Engine: {str(e)}")
                 import traceback
                 st.text(traceback.format_exc())
-
 
 
 
