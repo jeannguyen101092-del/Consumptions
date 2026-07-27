@@ -1930,8 +1930,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-      # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HIỆU SUẤT ĐỘNG THEO TỪNG MÃ HÀNG - CO GIÃN ĐỘNG)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (HỆ THỐNG KIỂM SOÁT SÀN ĐỘNG THEO PHOM DÁNG VÀ LOẠI HÀNG)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
@@ -2014,6 +2014,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
+        # 🚨 THUẬT TOÁN ĐIỀU PHỐI MẬT ĐỘ THEO SÀN ĐỘNG LOẠI HÀNG (DYN-FLOOR SOLVER)
         if is_trouser:
             target_wastage = 1.030 
             if mean_piece_area > 250.0:
@@ -2022,10 +2023,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 real_fabric_density = estimated_density_prior - size_penalty
             else:
                 real_fabric_density = estimated_density_prior
+                
+            # Mức sàn thấp nhất chấp nhận được của Quần Jean dài đại trà là 74%
             real_fabric_density = max(0.7400, min(0.8850, real_fabric_density))
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
-            real_fabric_density = max(0.8, min(0.9000, real_fabric_density))
+            
+            # 🛠️ CẤU HÌNH SÀN ĐỘNG PHÒNG VỆ (HẠ MỨC THẤP NHẤT ĐẠT ĐƯỢC):
+            # Tự động co giãn theo nhóm nhãn sản phẩm do bộ não AI phân tích ở Đoạn 3.1
+            product_category = ai_decision_d5.get("product_category", "JACKET")
+            if "JACKET" in str(product_category).upper():
+                min_floor_density = 0.7600  # Áo khoác Jacket phom to cồng kềnh, sàn tối thiểu giữ mức 76%
+            elif "SHIRT" in str(product_category).upper():
+                min_floor_density = 0.7900  # Áo sơ mi chi tiết phẳng nhỏ dễ đi sơ đồ, sàn tối thiểu giữ mức 79%
+            else:
+                min_floor_density = 0.6800  # Hàng thời trang suông xòe phức tạp, sàn thấp nhất hạ sâu về 68%
+                
+            # Ép sàn bảo vệ động giúp thu ngắn sơ đồ, ngăn chặn hiện tượng vọt định mức áo lên cao
+            real_fabric_density = max(min_floor_density, min(0.9000, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
@@ -2038,6 +2053,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if v_piece.get("inferred_class") == "LINING":
             total_lining_net_area += v_piece.get("production_net_area", 1.0) * v_piece.get("inferred_pieces", 1.0)
 
+    # Đưa vải lót về mức thực tế 72% để đồng bộ
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.72 
         total_lining_gross_yds = (lining_sim_length / 36.0) * target_wastage
@@ -2049,6 +2065,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
         "total_lining_gross_yds": round(total_lining_gross_yds, 4)
     })
+
 
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ HIỂN THỊ LUỒNG SẠCH)
