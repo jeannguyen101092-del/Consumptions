@@ -359,12 +359,12 @@ if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📏 CẤU HÌNH CANH SỢI SƠ ĐỒ (CAD)")
 
-# 🛠️ CHÈN THÊM Ô CHECKBOX XOAY RẬP TỰ DO: Mặc định bật True để xếp khít sơ đồ
+# 🛠️ ĐÃ CẬP NHẬT: Đổi nhãn hiển thị thành Xoay tự do 180 độ (Đầu đuôi tráo đầu, các chi tiết không cần cùng chiều)
 st.sidebar.checkbox(
-    "🔄 Cắt tự do (Cho phép xoay chi tiết 90°)", 
-    key="allow_rotation_90",
+    "🔄 Cắt tự do (Cho phép xoay ngược 180°)", 
+    key="allow_rotation_90",  # Giữ nguyên key để không phải sửa các khối code trung gian khác
     value=True,
-    help="Cho phép chi tiết xoay ngang/dọc tự do để điền đầy khoảng trống sơ đồ, tối ưu hóa định mức ở mức thấp nhất."
+    help="Cho phép chi tiết xoay ngược đầu đuôi tự do. Trong một bộ không nhất thiết phải cùng chiều. Tối ưu sơ đồ khít nhất, định mức thấp nhất."
 )
 
 st.sidebar.checkbox(
@@ -1954,25 +1954,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (TÍNH TOÁN SÀN ĐỘNG + CẤU HÌNH CẮT 1 CHIỀU CHUẨN CAD)
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (TÍNH TOÁN SÀN ĐỘNG + THƯỞNG MẬT ĐỘ XOAY TỰ DO 180°)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    # Kế thừa thông số cấu hình vải từ giao diện UI Streamlit hoặc Đoạn 2 gửi sang
+    # Kế thừa thông số cấu hình vải từ giao diện UI Streamlit vừa thiết lập
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
-    one_way_flag = st.session_state.get("is_one_way_fabric", False)  # Cắt TẤT CẢ các size 1 chiều
-    nap_layout_flag = st.session_state.get("is_nap_layout", False)   # Cắt MỖI BỘ 1 chiều (Way-by-way)
+    one_way_flag = st.session_state.get("is_one_way_fabric", False)  
+    nap_layout_flag = st.session_state.get("is_nap_layout", False)   
 
     # Lấy mốc mật độ thông minh đã bóc tách đặc trưng hình học từ Đoạn 3.2 làm gốc
     estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.795))
-    # Hệ số hao hụt dạt đầu bàn cắt nền chuẩn thương mại 3%
     target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) 
     features = ai_decision_d5.get("geometry_features", {})
     if not isinstance(features, dict): features = {}
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
     
-    # Ép đọc trực tiếp từ bộ nhớ gốc của hệ thống để triệt tiêu hoàn toàn lỗi kẹt vùng nhớ rỗng
     virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
     if not virtual_pieces_layer or not isinstance(virtual_pieces_layer, dict):
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2030,8 +2028,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         simulated_marker_length = max_piece_length 
         accumulated_width_used = 0.0
         for piece in fabric_pieces_to_nest:
-            p_len = min(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["l"]
-            p_wid = max(piece["l"], piece["w"]) if features.get("rotation_freedom", 1.0) == 1.0 else piece["w"]
+            # 🚨 CANH SỢI THẲNG SONG SONG: Giữ nguyên phom dài rộng dọc biên vải (Không xoay 90 độ phá thớ dọc)
+            p_len = piece["l"]
+            p_wid = piece["w"]
+            
             if accumulated_width_used + p_wid <= current_fabric_width:
                 accumulated_width_used += p_wid
                 if p_len > simulated_marker_length: simulated_marker_length = p_len
@@ -2042,7 +2042,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_marker_bounding_area = simulated_marker_length * current_fabric_width
         mean_piece_area = total_fabric_net_area / len(fabric_pieces_to_nest)
         
-        # 🚨 THUẬT TOÁN ĐIỀU PHỐI MẬT ĐỘ THEO SÀN ĐỘNG VÀ CHẾ ĐỘ CẮT 1 CHIỀU
+        # 🚨 THUẬT TOÁN ĐIỀU PHỐI MẬT ĐỘ THEO SÀN ĐỘNG VÀ XOAY TỰ DO DỌC BIÊN 180°
         if is_trouser:
             target_wastage = 1.030 
             if mean_piece_area > 250.0:
@@ -2052,25 +2052,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 real_fabric_density = estimated_density_prior
                 
-            # ĐẶT MỨC SÀN THẤP NHẤT CHO QUẦN DÀI (CO GIÃN THEO THỚ VẢI)
             min_floor_density = 0.7400
             
-            # ➔ BỘ PHẠT KHÔNG GIAN CẮT 1 CHIỀU CHO QUẦN
+            # ➔ CẤU HÌNH THƯỞNG DÂN ĐỊNH CHO XOAY TỰ DO ĐẦU ĐUÔI TRÁO ĐẦU (180 ĐỘ)
             if one_way_flag:
-                # Cắt tất cả các size 1 chiều: Hiệu suất sụt giảm mạnh từ 4% - 5%, hạ sàn bảo vệ xuống 70%
                 real_fabric_density -= 0.045
                 min_floor_density = 0.7000
-                target_wastage = max(target_wastage, 1.040) # Tăng hao hụt bàn cắt lên 4% cho an toàn
+                target_wastage = max(target_wastage, 1.040)
             elif nap_layout_flag:
-                # Cắt mỗi bộ 1 chiều: Hiệu suất sụt giảm vừa phải từ 2% - 2.5%, hạ sàn xuống 72%
                 real_fabric_density -= 0.025
                 min_floor_density = 0.7200
+            elif rotation_freedom and not nap_layout_flag and not one_way_flag:
+                # 🛠️ THƯỞNG KỊCH TRẦN CHO XOAY 180° KHÔNG CHUNG BỘ ĐỒNG CHIỀU:
+                # Tăng mạnh hiệu suất thêm 3.5% và nâng sàn phòng vệ lên 79.5% giúp ép ngắn chiều dài định mức tối đa
+                real_fabric_density += 0.035
+                min_floor_density = 0.7950
 
-            real_fabric_density = max(min_floor_density, min(0.8850, real_fabric_density))
+            real_fabric_density = max(min_floor_density, min(0.8950, real_fabric_density))
         else:
             real_fabric_density = total_fabric_net_area / total_marker_bounding_area if total_marker_bounding_area > 0 else estimated_density_prior
             
-            # CẤU HÌNH SÀN ĐỘNG CHO ÁO (JACKET, SHIRT, DRESS)
             product_category = ai_decision_d5.get("product_category", "JACKET")
             if "JACKET" in str(product_category).upper():
                 min_floor_density = 0.7600
@@ -2079,18 +2080,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 min_floor_density = 0.6800
                 
-            # ➔ BỘ PHẠT KHÔNG GIAN CẮT 1 CHIỀU CHO ÁO / ĐẦM VÁY
             if one_way_flag:
-                # Tất cả các size 1 chiều: Giảm mật độ 5.0%, hạ sàn phòng vệ xuống tiếp 5.5%
                 real_fabric_density -= 0.050
                 min_floor_density -= 0.055
-                target_wastage = max(target_wastage, 1.045) # Tăng hao hụt áo lên 4.5%
+                target_wastage = max(target_wastage, 1.045)
             elif nap_layout_flag:
-                # Mỗi bộ 1 chiều: Giảm mật độ 2.5%, hạ sàn phòng vệ xuống tiếp 3.0%
                 real_fabric_density -= 0.025
                 min_floor_density -= 0.030
+            elif rotation_freedom and not nap_layout_flag and not one_way_flag:
+                # Thưởng cắt tự do tráo đầu đuôi 180 độ cho Áo
+                real_fabric_density += 0.035
+                min_floor_density += 0.035
                 
-            real_fabric_density = max(min_floor_density, min(0.9000, real_fabric_density))
+            real_fabric_density = max(min_floor_density, min(0.9100, real_fabric_density))
         
         fabric_sim_length = total_fabric_net_area / current_fabric_width / real_fabric_density
         total_fabric_gross_yds = (fabric_sim_length / 36.0) * target_wastage
@@ -2114,7 +2116,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
         "total_lining_gross_yds": round(total_lining_gross_yds, 4)
     })
-
 
 
     # =====================================================================
