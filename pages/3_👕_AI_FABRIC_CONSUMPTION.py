@@ -371,8 +371,7 @@ with k_col4:
     st.markdown(f'<div class="image-placeholder-box-flat"><span style="{emoji_style}">🧵</span></div>', unsafe_allow_html=True)
 
 
-
-# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (TỰ ĐỘNG NHẬN DIỆN 100% KEY FREE HOẶC KEY MUA VIA GOOGLE API) ---
+# --- BẢNG ĐIỀU KHIỂN SIDEBAR MÁY CHỦ MỚI (CỐ ĐỊNH CHUẨN XÁC CHẾ ĐỘ KEY MUA - PREMIUM KEY ĐỒNG BỘ) ---
 st.sidebar.markdown("### ⚙️ ENGINE CONTROLS")
 if st.sidebar.button("🗑️ CLEAR SYSTEM MEMORY", use_container_width=True):
     st.session_state.bom_data = {}
@@ -403,41 +402,23 @@ if st.session_state.get("raw_pdf_text_extracted"):
         st.session_state["tokens_consumed"] = current_tokens
         st.session_state["api_calls_count"] += 1
 
-# 🚨 THUẬT TOÁN TỰ ĐỘNG DÒ TÌM LOẠI KEY TỪ MÁY CHỦ GOOGLE (AUTO KEY DETECTOR)
-@st.cache_data(ttl=300, show_spinner=False)
-def check_api_key_type_from_google():
-    """Gọi lệnh ngầm đến cổng kiểm toán Google để xác định loại Key trả phí hay Free."""
-    try:
-        # Thử lấy thông tin chi tiết của mô hình để kiểm tra quyền truy cập tài nguyên nâng cao
-        model_info = genai.get_model("models/gemini-2.5-flash")
-        
-        # Nếu tài khoản đã được kích hoạt Pay-as-you-go hoặc nạp tiền trả trước thành công,
-        # cổng API sẽ cho phép đọc các thuộc tính mở rộng hoặc không trả về lỗi giới hạn quota.
-        if hasattr(model_info, 'supported_generation_methods') and len(model_info.supported_generation_methods) > 0:
-            # Kiểm tra xem có cấu hình dự phòng nào chỉ định Key Free trong môi trường không
-            if st.secrets.get("API_TYPE") == "FREE":
-                return False
-            return True # Xác thực thành công: Đây là Key mua trả phí (Premium)
-    except Exception:
-        # Nếu Google từ chối lệnh trích xuất do tài khoản chưa nạp tiền hoặc bị bóp băng thông Free Tier
-        return False # Tự động hạ cấp về chế độ Key Free
-    return False
-
-# Thực thi lệnh kiểm tra tự động mà không cần người dùng can thiệp cấu hình thủ công
-is_paid_key = check_api_key_type_from_google()
+# 🚨 SỬA LỖI ĐỒNG BỘ: Ép cứng nhận diện chế độ Key mua (Premium) cho công ty
+# - Gán cứng True vì đây là Key mua đã nạp tiền/liên kết thẻ thanh toán của công ty bạn.
+# - Gán False nếu sau này bạn muốn đổi sang một mã Key cá nhân dùng thử miễn phí nào khác.
+is_paid_key = True  
 
 if is_paid_key:
-    # ➔ TỰ ĐỘNG BẬT CHẾ ĐỘ KEY MUA: Màn hình luôn báo đầy pin 100% xanh ngọc cực đẹp
+    # ➔ CHẾ ĐỘ KEY MUA: Mở khóa băng thông, màn hình luôn báo đầy pin 100% màu xanh ngọc lam sáng rõ
     st.sidebar.progress(1.0) 
-    st.sidebar.caption("💳 **TÀI KHOẢN TRẢ PHÍ (PREMIUM KEY)** | Trạng thái: `BĂNG THÔNG MỞ RỘNG`")
+    st.sidebar.caption("CN⚙️ **TÀI KHOẢN TRẢ PHÍ (PREMIUM KEY)** | Trạng thái: `BĂNG THÔNG MỞ RỘNG`")
 else:
-    # ➔ TỰ ĐỘNG HẠ CẤP VỀ KEY FREE: Kích hoạt thanh pin tự động tụt giảm theo mốc 1500 lượt của Google
+    # ➔ CHẾ ĐỘ KEY FREE: Tự động co giãn theo giới hạn 1500 lượt của Google
     max_daily_calls = 1500
     capacity_percentage = (max(0, max_daily_calls - st.session_state["api_calls_count"]) / max_daily_calls) * 100
     st.sidebar.progress(capacity_percentage / 100)
     st.sidebar.caption(f"🔋 Dung lượng khả dụng (Free Tier): `{capacity_percentage:.1f}%`")
 
-# Hiển thị bộ đôi số liệu trực quan khít sát lề dải pin, chống lãng phí khoảng trống
+# Hiển thị bộ đôi số liệu trực quan khít sát lề dải pin, chống lãng phí khoảng trống dư thừa
 col_cap1, col_cap2 = st.sidebar.columns(2)
 with col_cap1:
     st.metric("🔄 Lượt đã quét", f"{st.session_state['api_calls_count']} mã")
@@ -464,6 +445,7 @@ st.sidebar.checkbox(
     key="is_one_way_fabric",
     help="Ép toàn bộ chi tiết rập của mọi cỡ size quay chung về 1 hướng duy nhất (vải tuyết/nhung)."
 )
+
 
 
 
