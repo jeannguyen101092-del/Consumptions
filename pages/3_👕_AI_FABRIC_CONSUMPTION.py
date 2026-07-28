@@ -2287,6 +2287,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_class = str(v_piece.get("inferred_class", "")).upper().strip()
         return p_class
+    # =====================================================================
+    # 🔥 THÊM ĐOẠN NÀY VÀO CUỐI ĐOẠN 5.2 ĐỂ ĐẨY SỐ LÊN GIAO DIỆN UI 🔥
+    # =====================================================================
+    
+    # Tạo một danh sách để chứa kết quả Gross Consumption cho từng dòng rập
+    gross_consumption_list = []
+    
+    for idx, row in df_bom.iterrows():
+        p_class = core_engine_router(row, idx)
+        
+        # Mặc định tiêu hao của dòng này
+        row_gross = 0.0
+        
+        # Lấy số lượng chi tiết thực tế của dòng này sau nhảy size
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        pcs_base = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0)))
+        
+        # Logic đối xứng giống Đoạn 5.1
+        c_name_upper = str(row.get("component_name", "")).upper().strip()
+        if idx not in st.session_state.get("user_edited_pieces", {}):
+            if p_class == "LINING" and ("POCKET" in c_name_upper or "BAG" in c_name_upper) and "BACK" not in c_name_upper:
+                pcs_base = 2.0
+            elif p_class == "FUSING" and ("WAISTBAND" in c_name_upper or "FLY" in c_name_upper or "FACING" in c_name_upper):
+                pcs_base = 2.0
+                
+        total_pcs_for_row = pcs_base * size_scale_ratio
+        if p_class == "FABRIC" and float(v_piece.get("production_w", 0.0)) > 16.0: 
+            total_pcs_for_row *= 2.0
+
+        # Phân bổ định mức tổng (Gross Yds) dựa trên tỷ lệ diện tích đóng góp của chi tiết đó
+        if p_class == "FABRIC" and calculated_total_fabric_net_area > 0:
+            current_net_area = float(row.get("polygon_net_area", 0.0)) * total_pcs_for_row
+            row_gross = (current_net_area / calculated_total_fabric_net_area) * total_fabric_gross_yds
+            
+        elif p_class in ["LINING", "RIB"] and total_lining_net_area > 0:
+            current_net_area = float(row.get("polygon_net_area", 0.0)) * total_pcs_for_row
+            row_gross = (current_net_area / total_lining_net_area) * total_lining_gross_yds
+            
+        elif p_class in ["FUSING", "INTERLINING"] and total_fusing_net_area > 0:
+            current_net_area = float(row.get("polygon_net_area", 0.0)) * total_pcs_for_row
+            row_gross = (current_net_area / total_fusing_net_area) * total_fusing_gross_yds
+            
+        # Làm tròn đẹp 4 chữ số thập phân thương mại
+        gross_consumption_list.append(round(row_gross, 4))
+    
+    # Ép mảng kết quả vào đúng tên cột hiển thị trên giao diện của bạn
+    df_bom["Gross Consumption"] = gross_consumption_list
+
+    # Cập nhật bảng Summary phía trên giao diện (Đồng bộ cụm st.session_state để UI nhận diện)
+    st.session_state["summary_fabric_gross"] = round(total_fabric_gross_yds, 4)
+    st.session_state["summary_fusing_gross"] = round(total_fusing_gross_yds, 4)
+    st.session_state["summary_lining_gross"] = round(total_lining_gross_yds, 4)
 
    
 
