@@ -6,7 +6,6 @@ import streamlit as st
 import pandas as pd  # <--- Bắt buộc phải có dòng này
 import threading
 
-
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -657,14 +656,14 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V23) - ĐÃ PHÁ VỠ BẪY CACHE CŨ HOÀN TOÀN
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ VÁ LỖI "genai is not defined" & CHỐNG HAO TIỀN
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
     ttl=3600,  # Khóa chặt bộ nhớ Cache trong 1 tiếng để sửa UI thoải mái không bị tính tiền lần 2
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
-def execute_final_gerber_pure_scan(
+def execute_cached_gemini_scan(
     pdf_bytes,
     current_query,
     active_width,
@@ -674,10 +673,7 @@ def execute_final_gerber_pure_scan(
 ):
     import copy
     import hashlib
-    import json
-    import re
-    import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
-    import google.generativeai as genai
+    import google.generativeai as genai  # 🛠️ CHÈN BỔ SUNG DÒNG NÀY ĐỂ TRIỆT TIÊU LỖI NAMEERROR TRÊN GIAO DIỆN
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -703,14 +699,14 @@ def execute_final_gerber_pure_scan(
                 except Exception:
                     continue
 
-    gemini_inputs = list(image_payloads)
+    gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
     - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_class strictly as "LINING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
     """
     gemini_inputs.append(extended_prompt)
 
@@ -742,12 +738,9 @@ def execute_final_gerber_pure_scan(
 
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
-        
         for row in blueprint_worker.get("bom_rows", []):
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
-            
-            # Ép kiểu dữ liệu an toàn ban đầu
             try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
             except: row["bounding_box_length"] = 0.0
             try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
@@ -756,28 +749,6 @@ def execute_final_gerber_pure_scan(
             except: row["polygon_net_area"] = 0.0
             try: row["piece_count"] = int(float(row.get("piece_count", 1)))
             except: row["piece_count"] = 1
-            
-            comp_name = str(row.get("component_name", "")).upper()
-            mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
-            
-            # Sửa lỗi phân loại vật tư nghiêm ngặt cho Keo/Lót/Rib
-            if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
-                mat_class = "FUSING"
-            elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
-                mat_class = "LINING"
-            row["material_class"] = mat_class
-
-            # CHUẨN HÓA HÌNH HỌC PHẲNG: Gỡ hoàn toàn bẫy nhân đôi bề rộng của rập vải chính
-            if mat_class == "FABRIC" and row["bounding_box_width"] > 16.0:
-                row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
-                row["polygon_net_area"] = row["polygon_net_area"] / 2.0
-                row["piece_count"] = int(row["piece_count"] * 2)
-
-            # GEOMETRY GUARD: Khống chế diện tích tinh không cho lấn át diện tích hộp bao phẳng
-            bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
-            if row["polygon_net_area"] > bbox_area and bbox_area > 0:
-                row["polygon_net_area"] = bbox_area * (0.76 if mat_class == "FABRIC" else 0.85)
-
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
             except: row["gross_consumption"] = 0.0415
             try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
@@ -799,7 +770,6 @@ def execute_final_gerber_pure_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
 
 
 
@@ -840,7 +810,7 @@ if safe_user_prompt:
     st.rerun()
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V23 - CHUẨN ĐỒNG BỘ): SCHEMAS, PROMPTS & AI EXECUTE
+# 🟩 ĐOẠN 2 (PHẦN 1/2): BỘ LỌC ĐẦU VÀO & SCHEMA KHỬ SẠCH PHỤ LIỆU LOẠT LOẠT
 # =====================================================================
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
@@ -857,7 +827,7 @@ if st.session_state.ai_processing:
     if active_pdf is not None:
         with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
             try:
-                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ ĐÃ ĐỒNG BỘ THUẬT NGỮ
+                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ (CHỈ QUÉT VẢI/KEO)
                 raw_json_schema = {
                     "type": "OBJECT",
                     "properties": {
@@ -874,7 +844,8 @@ if st.session_state.ai_processing:
                                     "piece_shape": {"type": "STRING"},
                                     "piece_function": {"type": "STRING"},
                                     "fold_type": {"type": "STRING"},
-                                    "material_zone": {"type": "STRING", "enum": ["SELF", "LINING", "FUSING", "RIB", "CONTRAST"]},
+                                    # 🚨 CHỐNG RÁC DỮ LIỆU: Khống chế ENUM chỉ cho phép trả về phôi rập có diện tích rải sơ đồ
+                                    "material_zone": {"type": "STRING", "enum": ["SELF", "LINING", "INTERFACING", "RIB", "CONTRAST"]},
                                     "grain_constraint": {"type": "STRING"},
                                     "packing_priority": {"type": "INTEGER"},
                                     "convex_fill_ratio": {"type": "NUMBER"},
@@ -911,19 +882,16 @@ if st.session_state.ai_processing:
                     },
                     "required": ["detected_product_type", "detected_base_size", "bom_rows"],
                 }
-                
-                # 2. PROMPT CHỈ THỊ CHẶN LỖI PHÌNH TO BỀ RỘNG RẬP ĐƠN VÀ LỌC PHỤ LIỆU
+                # =====================================================================
+                # 🟩 ĐOẠN 2 (PHẦN 2/2): PROMPT PHÒNG VỆ CHỐNG RÁC PHỤ LIỆU & AI EXECUTE
+                # =====================================================================
                 prompt_agent_2 = f"""
                 You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Reconstruct the multi-layered CAD metadata for EVERY valid fabric/fusing piece in the Techpack for Size {target_size}.
                 
                 🚨 CRITICAL ACCESSORY OMISSION MANDATE (LỆNH KHỬ TRỪ PHỤ LIỆU):
                 - NEVER extract buttons, sewing threads, zippers, sliders, rivets, main labels, care labels, size tabs, hangtags, polybags, or any metal/plastic accessories.
                 - IGNORE them completely. They do NOT have marker dimensions or 2D polygon packing footprints.
-                - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), FUSING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
-                
-                🚨 CRITICAL SINGLE PIECE DIMENSION RULE (LUẬT RẬP ĐƠN CAD):
-                - 'bounding_box_width' MUST represent the width of ONE SINGLE physical piece (e.g., around 11-14 inches for a single front/back panel of long pants).
-                - NEVER combine or double the width of left and right symmetric panels into a single row width (Never output 25+ inches for a single panel width).
+                - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), INTERFACING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
                 
                 🚨 SECTION 1: EXTRACT BOUNDING BOX (ANTI-ZERO RULE)
                 Extract/estimate exact 'bounding_box_length' and 'bounding_box_width' in INCHES. NEVER output 0.0.
@@ -933,7 +901,7 @@ if st.session_state.ai_processing:
                 - 'piece_shape': RECTANGLE, TRAPEZOID, TAPERED_PANEL, CURVED_PANEL, POCKET, WAISTBAND, COLLAR, SLEEVE, GUSSET.
                 - 'piece_function': PRIMARY, SECONDARY, REINFORCEMENT, DECORATIVE, LINING.
                 - 'fold_type': NONE, CENTER_FOLD, EDGE_FOLD, ON_FOLD.
-                - 'material_zone': SELF, LINING, FUSING, RIB, CONTRAST.
+                - 'material_zone': SELF, LINING, INTERFACING, RIB, CONTRAST.
                 - 'packing_priority': 1 (Main Panels) to 5 (Small Filler Loops).
                 - 'convex_fill_ratio': RECTANGLE=0.98; Waistband=0.94; Curved/Tapered Panel=0.68-0.76; Pocket=0.82; Collar=0.60.
                 - 'mirror_piece': [true, false].
@@ -949,73 +917,73 @@ if st.session_state.ai_processing:
                 Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
                 """
 
-                # 3. GỌI HÀM QUÉT AI CACHE MỚI ĐÃ SỬA ĐỒNG BỘ TÊN HÀM V23
-                bom_data = execute_final_gerber_pure_scan(
+                # 3. GỌI HÀM QUÉT AI CACHE VÀ TRUYỀN KHỔ VẢI ĐỘNG ĐÃ TRÍCH XUẤT
+                bom_data = execute_cached_gemini_scan(
                     pdf_bytes=active_pdf, current_query=current_query,
                     active_width=dynamic_width, target_size_cmd=target_size,
                     raw_json_schema=raw_json_schema, prompt_agent_2=prompt_agent_2
                 )
                 
                 st.session_state["bom_data"] = bom_data
-                st.session_state.ai_processing = False 
+                if bom_data and "bom_rows" in bom_data:
+                    st.session_state["accumulated_bom_rows"] = bom_data["bom_rows"]
                 
-            except Exception as e:
-                st.error(f"❌ Lỗi xử lý trích xuất dữ liệu rập từ Gemini: {str(e)}")
                 st.session_state.ai_processing = False
+                st.success("✅ AI Core đã lọc sạch phụ liệu và đồng bộ phôi rập thành công!")
+                st.rerun()
+
+            except Exception as e:
+                st.session_state.ai_processing = False
+                st.error(f"❌ Lỗi xử lý AI Core Engine: {str(e)}")
+                import traceback
+                st.text(traceback.format_exc())
 
 
 
+
+import pandas as pd
+import streamlit as st
+import re
 
 def initialize_and_sync_parameters():
-    """Khối 1 (PHIÊN BẢN V21 - MASTER CONTROLLER): Đồng bộ thông số, chống bẫy ghi đè Cache AI"""
+    """Khối 1: Trích xuất và đồng bộ thông số vải, co rút, kích cỡ thời gian thực"""
     if not (st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows")):
         return None, None
         
     bom_source = st.session_state.get("bom_data", {})
     
-    # 1. Trích xuất văn bản từ ô chat câu lệnh người dùng
+    # 1. Trích xuất text từ ô chat câu lệnh người dùng
     user_query_text = ""
     if st.session_state.get("last_submitted_query"): 
-        user_query_text = str(st.session_state.get("last_submitted_query")).strip()
-    
-    # 2. Thiết lập thông số mặc định chuẩn từ tầng nhớ gốc
-    fabric_width = float(bom_source.get("fabric_width_inch", 58.0))
-    warp_shrinkage = float(bom_source.get("warp_shrinkage_percent", 0.0))
-    weft_shrinkage = float(bom_source.get("weft_shrinkage_percent", 0.0))
-    
-    # Đồng bộ Size: Ưu tiên lấy từ cấu hình động tầng ngoài để tránh bị Cache AI đè
-    detected_size = st.session_state.get("current_active_size", bom_source.get("detected_base_size", bom_source.get("calculated_on_size", "32")))
-    target_size = str(detected_size).upper().strip()
-    if not target_size: 
-        target_size = "32"
+        user_query_text = str(st.session_state.get("last_submitted_query"))
+    elif st.session_state.get("ie_workspace_static_chat_input_key"): 
+        user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key"))
+    if not user_query_text and st.session_state.get("chat_history"): 
+        user_query_text = str(st.session_state.chat_history[-1]["user"])
 
-    # 3. Quét thông số ép buộc từ chat bằng Regex nghiêm ngặt
+    # 2. Thiết lập thông số mặc định ban đầu từ file gốc
+    fabric_width = bom_source.get("fabric_width_inch", 56.0)
+    warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
+    weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
+    
+    detected_size = bom_source.get("detected_base_size", bom_source.get("calculated_on_size", "32"))
+    target_size = str(detected_size).upper()
+
+    # 3. Quét nhanh thông số ép buộc từ chat bằng Regex (nếu có)
     if user_query_text:
-        w_match = re.search(r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if w_match: 
-            fabric_width = float(w_match.group(2))
+        w_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if w_match: fabric_width = float(w_match.group(2))
         
-        warp_match = re.search(r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if warp_match: 
-            val = float(warp_match.group(2))
-            if val < 15.0: warp_shrinkage = val 
+        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if warp_match: warp_shrinkage = float(warp_match.group(2))
         
-        weft_match = re.search(r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if weft_match: 
-            val = float(weft_match.group(2))
-            if val < 15.0: weft_shrinkage = val
+        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
+        if weft_match: weft_shrinkage = float(weft_match.group(2))
+        
+        size_match = re.search(r"(cỡ|size)\s*([a-zA-Z0-9]+)", user_query_text, re.IGNORECASE)
+        if size_match: target_size = str(size_match.group(2)).upper()
 
-        size_match = re.search(r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b", user_query_text, re.IGNORECASE)
-        if size_match: 
-            target_size = str(size_match.group(2)).upper().strip()
-
-    # 4. GHI ĐÈ ĐỒNG BỘ LÊN TẦNG NGOÀI (Bảo vệ tham số không bị bộ nhớ đệm AI xóa mất)
-    st.session_state["current_active_width"] = fabric_width
-    st.session_state["current_active_size"] = target_size
-    st.session_state["current_warp_shrinkage"] = warp_shrinkage
-    st.session_state["current_weft_shrinkage"] = weft_shrinkage
-
-    # Duy trì cấu trúc dữ liệu cũ bên trong bom_data để đảm bảo không gãy logic các hàm phụ
+    # 4. Ghi đè đồng bộ các thông số vào bộ nhớ hệ thống
     bom_source["fabric_width_inch"] = fabric_width
     bom_source["usable_width_inch"] = fabric_width  
     bom_source["warp_shrinkage_percent"] = warp_shrinkage
@@ -1024,61 +992,52 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
-
 import re
 import streamlit as st
 
-def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_inferred_pcs=1.0):
-    """
-    Thuật toán quét Callout Văn bản PDF (PHIÊN BẢN V22 - CHỐNG BẪY NHÂN ĐÔI ĐỊNH MỨC CHI TIẾT)
-    Tự động phân tích lệnh kỹ thuật chuẩn CAD công nghiệp, đồng bộ với số lượng gốc của hệ thống.
+def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
+    """Thuật toán quét Callout Văn bản PDF: Tự động phân tích các lệnh kỹ thuật 
+    (CUT 2, PAIR, SELF, FUSE, MIRROR, FOLD) trực tiếp từ file PDF thay vì gán cứng.
     """
     if not raw_pdf_text:
         return {"layer_multiplier": 1, "is_paired": False, "calc_log": "Không tìm thấy dữ liệu văn bản thô PDF."}
         
-    # Chuẩn hóa chuỗi văn bản để làm sạch khoảng trắng rác
+    # Chuẩn hóa chuỗi văn bản để tìm kiếm không gian lân cận chi tiết rập
     text_clean = " ".join(str(raw_pdf_text).lower().split())
     comp_clean = str(component_name).lower().strip()
     
-    # Khai báo cấu trúc tham chiếu an toàn ban đầu
+    # Thiết lập cấu trúc mặc định theo quy chuẩn dệt may
     layer_multiplier = 1
     is_paired = False
-    calc_log = "AI đọc văn bản PDF: Đồng bộ trực tiếp theo kích thước phôi đơn của Techpack."
+    calc_log = "AI đọc văn bản PDF: Mặc định hệ số kết cấu đơn."
     
-    # Đưa biến số lượng gốc về kiểu số nguyên để kiểm tra an toàn
-    base_pcs = int(float(current_inferred_pcs or 1.0))
-    
-    # 1. Thuật toán quét vùng lân cận mở rộng (Mở rộng phạm vi lùi về trước 120 ký tự để bắt trọn Callout cột trước)
+    # 1. Thuật toán quét vùng lân cận (Window Scanning): Tìm kiếm Callout kỹ thuật xung quanh tên rập
     match_index = text_clean.find(comp_clean)
     if match_index != -1:
-        window_start = max(0, match_index - 120)
-        window_end = min(len(text_clean), match_index + 120)
+        # Cắt một đoạn văn bản xung quanh tên chi tiết (Phạm vi 150 ký tự) để tìm Callout chỉ định cắt
+        window_start = max(0, match_index - 50)
+        window_end = min(len(text_clean), match_index + 150)
         scan_window = text_clean[window_start:window_end]
         
-        # ➔ A. Quét lệnh số lượng cắt vật lý trực tiếp (Ví dụ: CUT 2, CẮT 2, SELF X2, SHELL=2)
-        cut_match = re.search(r'\b(cut|cắt|self|shell|qty)\s*(x\s*|\s*|\s*[:=]\s*)(\d+)\b', scan_window)
+        # ➔ A. Quét lệnh số lượng cắt trực tiếp (Ví dụ: CUT 2, CUT 4, CUT 6, SELF X2)
+        cut_match = re.search(r'(cut|cắt|self|shell)\s*(x\s*|\s*|\s*=\s*)(\d+)', scan_window)
         if cut_match:
             detected_qty = int(cut_match.group(3))
-            # CHỐNG GỘP KÉP: Chỉ cập nhật nếu số lượng nhận diện được lớn hơn dữ liệu nền hiện tại
-            if detected_qty > base_pcs:
-                layer_multiplier = max(1, detected_qty // base_pcs)
-                calc_log = f"Trích xuất Callout PDF: Phát hiện lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa)."
-            else:
-                layer_multiplier = 1
-                calc_log = f"Trích xuất Callout PDF: Khớp lệnh cắt gốc {detected_qty} chi tiết. Khóa hệ số chống nhân đôi định mức ảo."
+            layer_multiplier = detected_qty
+            calc_log = f"Trích xuất trực tiếp PDF Callout: Tìm thấy lệnh cắt {detected_qty} chi tiết."
             
-        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2, TRÁI PHẢI)
-        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "left/right", "trái/phải", "1l+1r"]):
+        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2)
+        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "x2"]):
             is_paired = True
-            # CHỈ NHÂN ĐÔI NẾU SỐ LƯỢNG GỐC TRONG TECHPACK BỊ THIẾU (BẰNG 1)
-            if base_pcs == 1 and layer_multiplier == 1:
+            # Nếu lệnh cắt chưa nhân đôi, tự động gán kết cấu cặp
+            if layer_multiplier == 1:
                 layer_multiplier = 2
-                calc_log = "Trích xuất Callout PDF: Phát hiện kết cấu cặp (PAIR). Kích hoạt bù phôi đối xứng đối với rập đơn."
+                calc_log = f"Trích xuất trực tiếp PDF Callout: Phát hiện cấu trúc đối xứng cặp (PAIR/MIRROR)."
                 
-        # ➔ C. Quét lệnh gập đôi vải rải sơ đồ (FOLD, GẬP ĐÔI)
-        if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi", "on fold"]):
-            # Bản chất gập đôi biên đối với sơ đồ phẳng là gộp chung đường cắt, giữ nguyên multiplier
-            calc_log += " | Ghi nhận chi tiết đi biên gập đôi (FOLD)."
+        # ➔ C. Quét lệnh gập đôi vải (FOLD, GẬP ĐÔI)
+        if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
+            layer_multiplier = max(layer_multiplier, 2)
+            calc_log += " | Phát hiện chi tiết đi biên gập đôi (FOLD)."
             
     return {
         "layer_multiplier": layer_multiplier,
@@ -1087,26 +1046,25 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     }
 
 
+import numpy as np
 
 import numpy as np
-import re
-import streamlit as st
 
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
-    """
-    Khối 2b Siêu Cấp (PHIÊN BẢN V23 - CHUẨN GERBER ENGINE): Mô phỏng toán học phi tuyến tính.
-    ĐÃ SỬA: Đảo ngược đồ thị hàm phạt Logistic và trung hòa hệ số hao hụt kép để ép định mức về đúng thực tế.
+    """Khối 2b Siêu Cấp: Mô phỏng hình học phi tuyến tính Gerber Core Engine.
+    ĐÃ ĐỒNG BỘ: Kết nối hoàn hảo với trường diện tích ước lượng của Khối 2a,
+    giúp giải phóng hàm toán học để định mức tự động nhảy lên con số thực tế 1.5 - 2.6 YDS.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or not ctx.get("stable_bom_list"):
-        return {"product_segmented": "GENERIC_TOP", "fabric_pattern": "SOLID", "actual_packing_density": 0.85, "global_gross_fabric_yds": 1.65, "major_shape_area": 0.0}
+        return {"product_segmented": "GENERIC_TOP", "fabric_pattern": "SOLID", "actual_packing_density": 0.80, "global_gross_fabric_yds": 1.85, "major_shape_area": 0.0}
 
     fabric_pattern = ctx["fabric_pattern"]
     fabric_width = ctx["fabric_width"]
     stable_bom = ctx["stable_bom_list"]
 
     # =====================================================================
-    # 1. ĐỌC DỮ LIỆU VÀ LÀM SẠCH KÍCH THƯỚC ĐƠN CHỐNG PHÌNH RẬP
+    # 1. ĐỌC DỮ LIỆU DIỆN TÍCH ĐỘNG TỪ BỘ PARSER KHỐI 2A
     # =====================================================================
     total_net_area = 0.0
     total_bbox_area = 0.0
@@ -1122,21 +1080,12 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             
         l_inch = float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
         w_inch = float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
-        
-        # HOTFIX HÌNH HỌC PHẲNG: Nếu rập bị phình to >16" do dữ liệu thô, tự động đưa về kích thước đơn
-        p_c_check = str(r.get("material_class", "FABRIC")).upper().strip()
-        if p_c_check == "FABRIC" and w_inch > 16.0:
-            w_inch = w_inch / 2.0
-            pcs = pcs * 2.0
-
         bbox_a = l_inch * w_inch
-        net_a = float(r.get("polygon_net_area", 0.0))
         
-        # Geometry Guard chống lỗi diện tích tinh lấn át hộp bao hình chữ nhật
-        if net_a > bbox_a and bbox_a > 0:
-            net_a = bbox_area * 0.76
+        # Đọc diện tích tịnh vừa được Khối 2a sinh ra
+        net_a = float(r.get("polygon_net_area", 0.0))
         if net_a <= 0:
-            net_a = bbox_a * 0.74 
+            net_a = bbox_a * 0.74 # Fallback an toàn nếu rập trống diện tích
             
         total_net_area += net_a * pcs
         total_bbox_area += bbox_a * pcs
@@ -1148,12 +1097,14 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
             })
 
     # =====================================================================
-    # 2. TRÍCH XUẤT ĐẶC TRƯNG HÌNH HỌC PHI TUYẾN TÍNH CHUẨN ĐỒ THỊ GERBER
+    # 2. TRÍCH XUẤT ĐẶC TRƯNG HÌNH HỌC PHI TUYẾN TÍNH CHUẨN GERBER ENGINE
     # =====================================================================
+    # Tự động phân loại rập lớn (Major) động dựa theo tỷ lệ đóng góp diện tích (>8%)
     major_threshold_area = total_net_area * 0.08 if total_net_area > 0 else 50.0
     major_pieces_list = [p for p in all_expanded_pieces if p["net_area"] > major_threshold_area]
     minor_pieces_list = [p for p in all_expanded_pieces if p["net_area"] <= major_threshold_area]
     
+    # Tính toán chính xác tỷ lệ phân mảnh dựa trên số lượng chiếc rập phụ thực tế
     fragmentation_ratio = len(minor_pieces_list) / total_piece_count if total_piece_count > 0 else 0.20
     bounding_box_fill = total_net_area / total_bbox_area if total_bbox_area > 0 else 0.72
 
@@ -1163,48 +1114,47 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         width_occupancy_ratio = avg_major_width / fabric_width
     else:
         avg_aspect_ratio = 1.8
-        width_occupancy_ratio = 0.25
+        width_occupancy_ratio = 0.28
 
     convexity_score = bounding_box_fill  
-    rotation_freedom_factor = 0.97 if "one-way" in str(user_query_text).lower() else 1.0
-    compactness_score = max(min(1.0 - (abs(avg_aspect_ratio - 1.0) * 0.03), 1.0), 0.70)
+    rotation_freedom_factor = 0.95 if "one-way" in str(user_query_text).lower() else 1.0
+    compactness_score = max(min(1.0 - (abs(avg_aspect_ratio - 1.0) * 0.05), 1.0), 0.60)
     
     minor_area_sum = sum(p["net_area"] for p in minor_pieces_list)
     small_piece_ratio = minor_area_sum / total_net_area if total_net_area > 0 else 0.15
     marker_fragmentation = total_piece_count / (total_net_area / 100.0) if total_net_area > 0 else 1.0
     edge_irregularity = 1.0 - convexity_score
 
-    # ĐÃ SỬA ĐỒ THỊ LOGISTIC CHUẨN: Chi tiết chiếm khổ vải nhỏ (<28%) được thưởng mật độ, chi tiết quá to (>40%) mới bị phạt
-    logistic_midpoint = 0.38
-    logistic_k = 12.0  
-    # Đổi dấu phạt thành hàm điều hướng tăng trưởng mật độ nền tự nhiên
-    width_penalty_logistic = 0.05 / (1.0 + np.exp(-logistic_k * (width_occupancy_ratio - logistic_midpoint)))
+    # Hàm Logistic Curve tính toán bộ phạt không gian khi rập to chiếm khổ vải lớn (>32%)
+    logistic_midpoint = 0.32
+    logistic_k = 18.0  
+    width_penalty_logistic = 0.08 / (1.0 + np.exp(-logistic_k * (width_occupancy_ratio - logistic_midpoint)))
 
     # =====================================================================
-    # 3. TÍNH TOÁN MẬT ĐỘ NÈN ĐỘNG CHUẨN CƠ ĐỒNG BỘ
+    # 3. TÍNH TOÁN MẬT ĐỘ NÈN ĐỘNG (DYNAMIC NESTING DENSITY)
     # =====================================================================
-    calculated_density = 0.72 + (bounding_box_fill * 0.14) + (compactness_score * 0.04)
-    nesting_efficiency_bonus = (small_piece_ratio * 0.04) + (fragmentation_ratio * 0.02)
+    calculated_density = 0.68 + (bounding_box_fill * 0.12) + (compactness_score * 0.04)
+    nesting_efficiency_bonus = (small_piece_ratio * 0.05) + (fragmentation_ratio * 0.03)
     actual_packing_density = (calculated_density + nesting_efficiency_bonus - width_penalty_logistic) * rotation_freedom_factor
-    actual_packing_density = max(min(actual_packing_density, 0.9450), 0.7600) # Nâng giới hạn sàn hiệu suất mô phỏng lên 76%
+    actual_packing_density = max(min(actual_packing_density, 0.92), 0.62)
 
     # =====================================================================
-    # 4. CHIỀU DÀI SƠ ĐỒ VÀ TRUNG HÒA HAO HỤT BÀN CẮT (LOẠI BỎ PHẠT TRÙNG)
+    # 4. TÍNH CHIỀU DÀI SƠ ĐỒ VÀ BỘ HAO HỤT KHÔNG GIAN SẢN XUẤT ĐỘNG
     # =====================================================================
     if total_net_area <= 0:
         total_net_area = ctx.get("major_shape_area", 0.0) + ctx.get("minor_shape_area", 0.0)
         
     simulated_length = (total_net_area / fabric_width) / actual_packing_density
-    simulated_length *= (1.0 + (edge_irregularity * 0.02))
+    simulated_length *= (1.0 + (edge_irregularity * 0.04)) * ctx.get("constraint_penalty", 1.0)
 
-    # Tối ưu lại đường cong hao hụt, khống chế biên độ dạt đầu khúc thương mại
+    # Hệ số hao hụt dạt đầu bàn cắt phi tuyến tính (Logistic) dựa trên chiều dài sơ đồ
     length_logistic_mid = 45.0  
-    length_k = -0.05
-    wastage_curve_factor = 0.005 + (0.04 / (1.0 + np.exp(-length_k * (simulated_length - length_logistic_mid))))
-    fabric_wastage_multiplier = 1.010 + wastage_curve_factor
+    length_k = -0.08
+    wastage_curve_factor = 0.01 + (0.15 / (1.0 + np.exp(-length_k * (simulated_length - length_logistic_mid))))
+    fabric_wastage_multiplier = 1.015 + wastage_curve_factor
     
-    # Quy đổi chiều dài sơ đồ ra Yards (Bỏ bớt dạt khúc inch lặp hai lần để tránh bug tăng định mức)
-    global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier
+    end_loss_inch = 1.5 + (marker_fragmentation * 0.05) + (width_occupancy_ratio * 1.5)
+    global_gross_fabric = (simulated_length / 36.0) * fabric_wastage_multiplier + (end_loss_inch / 36.0)
 
     # =====================================================================
     # 5. XỬ LÝ CHU KỲ VÂN VẢI ĐỘNG (NAP / PLAID)
@@ -1212,19 +1162,19 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     fabric_repeat_inch = float(ctx.get("fabric_repeat_inch", 4.0)) 
 
     if fabric_pattern == "NAP":
-        global_gross_fabric += (fabric_repeat_inch * 0.15 * (1.0 - small_piece_ratio)) / 36.0
+        global_gross_fabric += (fabric_repeat_inch * 0.35 * (1.0 - small_piece_ratio)) / 36.0
     elif fabric_pattern in ["PLAID", "STRIPE"]:
-        plaid_loss_ratio = (fabric_repeat_inch * 0.85) / simulated_length if simulated_length > 0 else 0.03
-        global_gross_fabric *= (1.0 + min(plaid_loss_ratio, 0.15))
+        plaid_loss_ratio = (fabric_repeat_inch * 1.35) / simulated_length if simulated_length > 0 else 0.05
+        global_gross_fabric *= (1.0 + min(plaid_loss_ratio, 0.35))
 
-    # Ép định mức sàn thực tế cho dòng hàng Jacket phòng vệ rập trống chi tiết
+    # Ép định mức tối thiểu thực tế cho dòng hàng Jacket người lớn phòng trường hợp rập bị thiếu chi tiết
     if "JACKET" in str(ctx.get("product_type", "")).upper() and global_gross_fabric < 1.2:
-        global_gross_fabric = 2.15
+        global_gross_fabric = 2.25
 
     major_area_sum = sum(p["net_area"] for p in major_pieces_list) if major_pieces_list else total_net_area
 
     return {
-        "product_segmented": ctx.get("product_type", "JEAN_LONG"), 
+        "product_segmented": ctx.get("product_type", "JACKET"), 
         "fabric_pattern": fabric_pattern,
         "actual_packing_density": actual_packing_density, 
         "global_gross_fabric_yds": global_gross_fabric,
@@ -1236,63 +1186,55 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
 import re
 import streamlit as st
 
-def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_inferred_pcs=1.0):
-    """
-    Thuật toán quét Callout văn bản PDF (PHIÊN BẢN V24 - ANTI-DOUBLE MULTIPLIER)
-    Tự động phân tích các lệnh kỹ thuật (CUT 2, PAIR, SELF, FUSE, MIRROR, FOLD).
-    ĐÃ SỬA: Thu hẹp màng quét để cô lập dòng, khóa chặt bộ nhân đôi nếu số lượng gốc đã đủ để tránh lỗi tăng ĐM ảo.
+def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text):
+    """Thuật toán quét Callout văn bản PDF: Tự động phân tích các lệnh kỹ thuật 
+    (CUT 2, PAIR, SELF, FUSE, MIRROR, FOLD) trực tiếp từ dữ liệu văn bản thô của Techpack.
+    ĐÃ NÂNG CẤP: Quét diện rộng bố cục bảng, chống sót lệnh x2 viết liền, bảo vệ định mức tổng.
     """
     if not raw_pdf_text:
         return {"layer_multiplier": 1, "is_paired": False, "calc_log": "CAD Fallback: Không tìm thấy dữ liệu văn bản thô PDF."}
         
-    # Chuẩn hóa chuỗi văn bản để làm sạch khoảng trắng rác
+    # Chuẩn hóa chuỗi văn bản để tìm kiếm không gian lân cận chi tiết rập
     text_clean = " ".join(str(raw_pdf_text).lower().split())
     comp_clean = str(component_name).lower().strip()
     
     # Thiết lập cấu trúc mặc định theo quy chuẩn dệt may
     layer_multiplier = 1
     is_paired = False
-    calc_log = "AI Engine: Mặc định đồng bộ trực tiếp theo số lượng phôi gốc từ sơ đồ Techpack."
-    
-    # Ép biến số lượng gốc về dạng số nguyên để kiểm tra an toàn hình học
-    base_pcs = int(float(current_inferred_pcs or 1.0))
+    calc_log = "AI Engine: Mặc định hệ số kết cấu đơn (Cut 1)."
     
     # Tìm vị trí xuất hiện của tên chi tiết rập trong file văn bản PDF Techpack
     match_index = text_clean.find(comp_clean)
     if match_index != -1:
-        # SỬA LỖI GÔM RÁC: Gom màng quét về trước 80 và sau 120 ký tự để ép chỉ quét trọn vẹn trong một dòng bảng BOM
-        window_start = max(0, match_index - 80)
-        window_end = min(len(text_clean), match_index + 120)
+        # 🛠️ TỐI ƯU 1: Mở rộng vùng quét lên trước 100 và sau 450 ký tự để bao phủ hết toàn bộ dòng dữ liệu trên bảng BOM
+        window_start = max(0, match_index - 100)
+        window_end = min(len(text_clean), match_index + 450)
         scan_window = text_clean[window_start:window_end]
         
-        # Regex bắt trọn cấu trúc ghi (CUT 2, CUT=2, SELF X2, PANEL X2, QTY: 2)
-        cut_match = re.search(r'(?:cut|cắt|self|shell|\bx\b|\bqty\b)\s*(?:x\s*|\s*|=\s*|[:\s]*|\(-\s*)(\d+)|(?:\s+|\()(\d+)(?:\s*pcs|\s*chi tiết|\))', scan_window)
+        # 🛠️ TỐI ƯU 2: Regex siêu cấp bắt trọn mọi kiểu ghi (CUT 2, CUT=2, SELF X2, PANEL X2, PANEL(2), PANEL-2)
+        # Bắt được cả chữ viết liền hoặc chỉ có ký tự số đặt trong ngoặc đơn lân cận tên rập
+        cut_match = re.search(r'(?:cut|cắt|self|shell|\bx\b|\bqty\b)\s*(?:x\s*|\s*|=\s*|\(-\s*)(\d+)|(?:\s+|\()(\d+)(?:\s*pcs|\s*chi tiết|\))', scan_window)
         
         if cut_match:
+            # Lấy nhóm dữ liệu số khớp được từ 1 trong 2 cấu trúc Regex trên
             detected_qty_str = cut_match.group(1) or cut_match.group(2)
             if detected_qty_str:
                 detected_qty = int(detected_qty_str)
-                
-                # CHỐNG LỖI NHÂN CHỒNG CHÉO: Chỉ nhân thêm hệ số nếu số lượng phát hiện được lớn hơn số lượng nền
-                if detected_qty > base_pcs:
-                    layer_multiplier = max(1, detected_qty // base_pcs)
-                    calc_log = f"Trích xuất Callout PDF: Tìm thấy lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa hệ số)."
-                else:
-                    layer_multiplier = 1
-                    calc_log = f"Trích xuất Callout PDF: Lệnh cắt {detected_qty} chi tiết trùng khớp dữ liệu nền. Khóa chống nhân đôi."
+                layer_multiplier = detected_qty
+                calc_log = f"Trích xuất trực tiếp PDF Callout: Tìm thấy lệnh số lượng {detected_qty} chi tiết."
             
         # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2)
-        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "1 pair"]):
+        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "1 pair", "x2"]):
             is_paired = True
-            # CHỈ ĐƯỢC PHÉP BÙ PHÔI ĐỐI XỨNG (X2) NẾU SỐ LƯỢNG GỐC TRONG TECHPACK ĐANG THIẾU (= 1)
-            if base_pcs == 1 and layer_multiplier == 1:
+            # Nếu lệnh cắt chưa nhân đôi, tự động gán kết cấu cặp sản xuất
+            if layer_multiplier == 1:
                 layer_multiplier = 2
-                calc_log = "Trích xuất Callout PDF: Phát hiện kết cấu cặp (PAIR) trên rập đơn. Kích hoạt đối xứng phôi phẳng."
+                calc_log = f"Trích xuất trực tiếp PDF Callout: Phát hiện cấu trúc đối xứng cặp (PAIR/MIRROR)."
                 
-        # ➔ C. Quét lệnh gập đôi vải bàn cắt (FOLD, GẬP ĐÔI)
+        # ➔ C. Quét lệnh gập đôi vải bàn cắt (FOLD, GẬP ĐÔI, OPEN FOLD)
         if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
-            # Sơ đồ phẳng dệt may giữ nguyên số lượng phôi, biên gập đôi chỉ thay đổi đường cắt của Gerber
-            calc_log += " | Ghi nhận chi tiết đi biên gập đôi (FOLD)."
+            layer_multiplier = max(layer_multiplier, 2)
+            calc_log += " | Phát hiện chi tiết đi biên gập đôi (FOLD)."
             
     return {
         "layer_multiplier": layer_multiplier,
@@ -1301,11 +1243,9 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     }
 
 
-
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
-    """
-    Khối 3 hoàn chỉnh (PHIÊN BẢN V25 - GEOMETRIC AREA SOLVER): Chuẩn hóa hình học phẳng dệt may.
-    ĐÃ SỬA: Triệt tiêu bẫy cộng biên rập ảo, khóa chống nhân đôi số lượng và đồng bộ nhãn vật tư thương mại.
+    """Khối 3 hoàn chỉnh kiến trúc mới: Python Geometric Area Solver.
+    ĐÃ ĐỒNG BỘ: Kết nối ma trận đa biến 14 lớp, đọc hiểu INTERFACING, RIB, CONTRAST.
     """
     total_fabric_piece_area = 0.0
     piece_calculated_data = []
@@ -1317,30 +1257,22 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         raw_l = safe_float(r.get("bounding_box_length", r.get("Dài (L-inch)", 0.0)))
         raw_w = safe_float(r.get("bounding_box_width", r.get("Rộng (W-inch)", 0.0)))
         
-        # Nhận diện chính xác tên chi tiết để phục vụ bộ lọc
-        comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
-        piece_shape = str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip()
-        piece_function = str(r.get("piece_function", "PRIMARY")).upper().strip()
-        fold_type = str(r.get("fold_type", "NONE")).upper().strip()
-        mat_zone = str(r.get("material_zone", "SELF")).upper().strip()
-        critical_alignment = str(r.get("critical_alignment", "NONE")).upper().strip()
-        packing_priority = safe_int(r.get("packing_priority", 3), default=3)
-        
-        # Nhận diện nhãn lớp vật tư thực tế đổ về từ Schema V20
-        if mat_zone in ["SELF", "FABRIC"]: r_material_class = "FABRIC"
-        elif mat_zone in ["FUSING", "INTERFACING", "INTERLINING", "MEX"]: r_material_class = "FUSING"
-        elif mat_zone in ["LINING", "POCKET", "RIB"]: r_material_class = "LINING"
-        else: r_material_class = "FABRIC"
-
-        # HOTFIX KÍCH THƯỚC BỀ RỘNG RẬP ĐƠN CHUẨN CAD
-        if r_material_class == "FABRIC" and raw_w > 16.0:
-            raw_w = raw_w / 2.0
-
-        # Đọc số lượng phôi gốc từ Techpack
         pcs = safe_int(r.get("original_piece_count", r.get("pcs_numeric", 1)))
         if "original_piece_count" not in r:
             r["original_piece_count"] = pcs
             
+        comp_name_raw = str(r.get("component_name", "UNNAMED")).upper().strip()
+        
+        # Đọc dữ liệu định danh cấu trúc hình học mới từ AI
+        piece_shape = str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip()
+        piece_function = str(r.get("piece_function", "PRIMARY")).upper().strip()
+        fold_type = str(r.get("fold_type", "NONE")).upper().strip()
+        mat_zone = str(r.get("material_zone", "SELF")).upper().strip()
+        grain_constraint = str(r.get("grain_constraint", "PREFERRED")).upper().strip()
+        packing_priority = safe_int(r.get("packing_priority", 3), default=3)
+        critical_alignment = str(r.get("critical_alignment", "NONE")).upper().strip()
+        
+        # Đọc trường số lượng và độ cong động
         cut_qty_ai = safe_int(r.get("cut_quantity", 1), default=1)
         ai_convex_ratio = safe_float(r.get("convex_fill_ratio", 0.74))
         if ai_convex_ratio <= 0 or ai_convex_ratio > 1.0:
@@ -1349,60 +1281,55 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         mirror_piece = r.get("mirror_piece", False)
 
         if raw_l > 0:
-            # 1. Áp thông số co rút dọc và ngang của cây vải nhà máy
+            # 1. Áp thông số co rút vải
             adj_l = raw_l * (1 + safe_float(warp_shrinkage) / 100.0)
             adj_w = raw_w * (1 + safe_float(weft_shrinkage) / 100.0) if raw_w > 0 else raw_w
             
-            # HOTFIX KHỐNG CHẾ CHIỀU DÀI RẬP THÂN (Nếu bị kéo giãn lố >46" do lỗi bóc tách cũ)
-            if r_material_class == "FABRIC" and adj_l > 46.0 and "PANEL" in comp_name_raw:
-                adj_l = adj_l * 0.82
-
-            # 2. CHỐNG BẪY NHÂN ĐÔI SỐ LƯỢNG KÉP: Khóa chặt hệ số nhân nếu dữ liệu nền đã đủ phôi rập
-            if cut_qty_ai > pcs:
-                layer_multiplier = max(1, cut_qty_ai // pcs)
-            else:
-                layer_multiplier = 1
-                
-            if mirror_piece and pcs == 1 and layer_multiplier == 1:
+            # 2. Đồng bộ số lượng cắt (Ưu tiên số lượng cắt thực tế cut_quantity của AI)
+            layer_multiplier = cut_qty_ai
+            calc_chain_log = f"Số lượng cắt: {layer_multiplier} chi tiết."
+            if mirror_piece and layer_multiplier == 1:
                 layer_multiplier = 2
+                calc_chain_log += " | Nhân đôi đối xứng."
 
-            # 3. Tính toán hệ số phom dáng hình học (Shape Factor) từ Convex Ratio động chuẩn CAD phẳng
+            # 3. Tính toán hệ số phom dáng hình học (Shape Factor) từ Convex Ratio động
             shape_factor = ai_convex_ratio
             if fold_type in ["ON_FOLD", "CENTER_FOLD"]:
-                shape_factor *= 0.96
+                shape_factor *= 0.98
             if critical_alignment in ["STRIPE", "PLAID"]:
-                shape_factor += 0.02
+                shape_factor += 0.03
                 
             if piece_function == "PRIMARY":
-                shape_factor = max(0.6400, min(0.8800, shape_factor))
+                shape_factor = max(0.6300, min(0.9200, shape_factor))
             elif piece_shape == "RECTANGLE":
                 shape_factor = 0.98
 
-            # 4. CHUẨN HÓA ĐƯỜNG MAY BIÊN RẬP (Bỏ hẳn mốc cộng khống 1.76" lãng phí cho các chi tiết đã ra rập thành phẩm)
-            # Chỉ bù hao hụt biên cắt cực nhỏ 0.15 inch chu vi nếu cần thiết
-            seamed_l = adj_l + 0.15
-            seamed_w = adj_w + 0.15 if raw_w > 0 else adj_w
+            # 4. Cộng thêm độ rộng đường may biên rập tiêu chuẩn (+0.88 inch)
+            sa_match = re.search(r'(\d+\.?\d*)', str(r.get("seam_allowance", "0.88")))
+            sa_val = float(sa_match.group(1)) if sa_match else 0.88
+            
+            seamed_l = adj_l + (sa_val * 2)
+            seamed_w = adj_w + (sa_val * 2) if raw_w > 0 else adj_w
             
             total_pcs_final = pcs * layer_multiplier
+            item_area = seamed_l * seamed_w * shape_factor * total_pcs_final
             
-            # GEOMETRY GUARD: Chặn đứng hiện tượng diện tích tinh lấn át hộp bao phẳng
-            bbox_area = seamed_l * seamed_w
-            calculated_net_area = bbox_area * shape_factor
-            if calculated_net_area > bbox_area:
-                calculated_net_area = bbox_area * 0.76
-                
-            item_area = calculated_net_area * total_pcs_final
+            # Đồng bộ chuẩn hóa nhóm chất liệu dệt thoi/dệt kim thương mại
+            # Ép ghi nhận INTERFACING tương đương FUSING để duy trì mạch chạy ngầm
+            if mat_zone == "SELF": r_material_class = "FABRIC"
+            elif mat_zone == "INTERFACING": r_material_class = "FUSING"
+            else: r_material_class = mat_zone
             
-            # Đồng bộ dữ liệu sạch hoàn toàn vào DataFrame của hệ thống
             r["material_class"] = r_material_class
             if r_material_class == "FABRIC": 
                 total_fabric_piece_area += item_area
             
+            # Đẩy ngược dữ liệu đã làm giàu vào DataFrame
             r["production_length"] = adj_l
             r["production_width"] = adj_w
             r["piece_count"] = total_pcs_final
             r["Số lượng rập"] = total_pcs_final
-            r["polygon_net_area"] = round(calculated_net_area, 2)
+            r["polygon_net_area"] = round(seamed_l * seamed_w * shape_factor, 2)
             r["calculation_status"] = "PROCESSED"
             r["cad_algorithm"] = f"Phom: {piece_shape} | Cấp ưu tiên: {packing_priority}"
             
@@ -1418,11 +1345,9 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
 
 
-
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
-    """
-    Khối 4 hoàn chỉnh (PHIÊN BẢN V26 - GERBER ALLOCATION ENGINE): Phân bổ định mức thương mại.
-    ĐÃ SỬA: Chuẩn hóa ma trận trọng số (Re-normalization) chống lọt ĐM và đồng bộ hóa độc lập Keo/Lót/Rib.
+    """Khối 4 hoàn chỉnh nâng cấp: Phân bổ định mức Gerber chuẩn xác.
+    ĐÃ ĐỒNG BỘ: Đọc hiểu và phân phối độc lập cho RIB, CONTRAST, FUSING, LINING.
     """
     base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0)
     if base_gross_fabric == 0.0:
@@ -1430,7 +1355,7 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     if base_gross_fabric == 0.0:
         base_gross_fabric = skyline_results.get("global_gross_fabric", 0.0)
         
-    product_segmented = skyline_results.get("product_segmented", "JEAN_LONG")
+    product_segmented = skyline_results.get("product_segmented", "CASUAL_TOP")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
     if actual_packing_density <= 0: actual_packing_density = 0.85
     
@@ -1438,25 +1363,10 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     usable_width = bom_source.get("fabric_width_inch", 58.0)
     if not isinstance(usable_width, (int, float)) or usable_width <= 0: usable_width = 58.0
     
-    # Đồng bộ khổ vải phụ thời gian thực từ bộ nhớ hệ thống
+    # Đồng bộ khổ vải phụ từ bộ nhớ hệ thống
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))
     
-    # ➔ BƯỚC 1: THUẬT TOÁN CHUẨN HÓA TRỌNG SỐ (RE-NORMALIZATION) CHO VẢI CHÍNH
-    # Quét trước một vòng để tính tổng diện tích sau khi nhân hệ số trọng số ưu tiên
-    weighted_area_sum = 0.0
-    for item in piece_calculated_data:
-        if "row_ref" not in item: continue
-        r = item["row_ref"]
-        mat_class_raw = str(item["mat_class_raw"]).upper().strip()
-        
-        if mat_class_raw == "FABRIC":
-            packing_priority = safe_int(r.get("packing_priority", 3), default=3)
-            # Áp trọng số gánh nền chuẩn dệt may (Rập to gánh nhiều hao hụt biên sơ đồ hơn)
-            weight_factor = 1.08 if packing_priority <= 2 else (0.88 if packing_priority >= 4 else 1.00)
-            weighted_area_sum += item["item_area"] * weight_factor
-
-    # ➔ BƯỚC 2: TIẾN HÀNH PHÂN BỔ ĐỊNH MỨC CHI TIẾT THEO TRỤC VẬT TƯ
     processed_rows = []
 
     for item in piece_calculated_data:
@@ -1469,69 +1379,61 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         raw_l = r.get("production_length", item.get("raw_l", 0.0))
         pcs = item["pcs_val"]
 
-        # Ép điều kiện so sánh chữ nghiêm ngặt (==) chống lỗi nhận diện nhầm dòng
-        if mat_class_raw == "FABRIC":
+        if "FABRIC" in mat_class_raw:
             packing_priority = safe_int(r.get("packing_priority", 3), default=3)
-            if total_fabric_piece_area > 0 and base_gross_fabric > 0 and weighted_area_sum > 0:
-                weight_factor = 1.08 if packing_priority <= 2 else (0.88 if packing_priority >= 4 else 1.00)
-                # Công thức chuẩn hóa: Trọng số của dòng chia cho Tổng trọng số toàn hệ thống
-                share_ratio = (item_area * weight_factor) / weighted_area_sum
+            if total_fabric_piece_area > 0 and base_gross_fabric > 0:
+                # Phân phối gánh nặng định mức nền theo cấp bậc ưu tiên rập lớn/rập phụ
+                weight_factor = 1.12 if packing_priority <= 2 else (0.85 if packing_priority >= 4 else 1.00)
+                share_ratio = (item_area / total_fabric_piece_area) * weight_factor
                 gross_consumption = round(base_gross_fabric * share_ratio, 4)
-                calc_chain = f"Gerber Fabric Re-normalized (Priority {packing_priority})"
+                calc_chain = f"Gerber Fabric Priority {packing_priority}"
             else:
                 estimated_base = ((item_area / usable_width) / 36.0) / actual_packing_density
-                gross_consumption = round(estimated_base * 1.030, 4) # Chỉ cộng hao hụt bàn cắt 3% chuẩn
+                gross_consumption = round(estimated_base * 1.045, 4)
                 calc_chain = f"CAD Geometry Fallback"
                     
-        elif mat_class_raw == "LINING":
-            # Định mức Lót túi tinh: Tính trực tiếp trên khổ vải lót thực tế + 3% hao hụt dạt khúc công ty
-            gross_consumption = round(((item_area / lining_width) / 36.0) * 1.030, 4)
+        elif "LINING" in mat_class_raw:
+            gross_consumption = round(((item_area / lining_width) / 36.0 / 0.72), 4)
             calc_chain = f"Sơ đồ LINING độc lập (Khổ {lining_width} inch)"
             
-        elif mat_class_raw == "FUSING":
-            # Định mức Méc keo tinh: Tính trực tiếp trên khổ vải keo thực tế + 3% hao hụt bàn cắt công ty
-            gross_consumption = round(((item_area / fusing_width) / 36.0) * 1.030, 4)
+        elif "FUSING" in mat_class_raw:
+            gross_consumption = round(((item_area / fusing_width) / 36.0 / 0.70 * 1.15), 4)
             calc_chain = f"Sơ đồ FUSING độc lập (Khổ {fusing_width} inch)"
             
         elif mat_class_raw in ["RIB", "CONTRAST"]:
-            # Định mức Vải phối / Phôi bo gân tính theo khổ vải chính chỉ định + 3% hao hụt
-            gross_consumption = round(((item_area / usable_width) / 36.0) * 1.030, 4)
+            # Định mức độc lập cho Vải bo (Rib) và Vải phối tính theo diện tích chiếm dụng phẳng + 5% hao hụt biên
+            gross_consumption = round(((item_area / usable_width) / 36.0 / 0.78 * 1.05), 4)
             calc_chain = f"Sơ đồ phối {mat_class_raw} độc lập"
         else:
-            gross_consumption, calc_chain = 0.0, f"Vật tư phụ mẫu hàng {product_segmented}."
+            gross_consumption, calc_chain = 0.0, f"Vật tư mẫu hàng {product_segmented}."
 
-        # Cập nhật kết quả đồng bộ lên DataFrame để đẩy ra bảng UI chi tiết
         r["Gross Consumption"] = gross_consumption
         item["row_ref"]["Gross Consumption"] = gross_consumption
-        r["Số lượng rập"] = f"{total_pcs_final if 'total_pcs_final' in locals() else (pcs * layer_multiplier)} Pcs"
+        r["Số lượng rập"] = f"{pcs * layer_multiplier} Pcs"
         
         processed_rows.append(r)
 
-    # Đồng bộ dữ liệu kiểm toán hệ thống ngược vào session_state để khóa chặt bộ nhớ màn hình hiển thị
     ctx = st.session_state.get("bom_data", {})
-    if isinstance(ctx, dict):
-        ctx["global_gross_fabric_yds"] = base_gross_fabric
-        ctx["actual_packing_density"] = actual_packing_density
-        st.session_state["bom_data"] = ctx
+    ctx["global_gross_fabric_yds"] = base_gross_fabric
+    ctx["actual_packing_density"] = actual_packing_density
+    st.session_state["bom_data"] = ctx
 
     st.session_state["processed_display_rows"] = processed_rows
     return processed_rows
-
 
 import io
 import re
 import numpy as np
 import pandas as pd
 import streamlit as st
-import hashlib # Bổ sung thư viện băm mã hóa để tránh lỗi NameError hệ thống cache
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 # =====================================================================
-# 🟩 ĐOẠN 1 (PHIÊN BẢN V21 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
+# 🟩 ĐOẠN 1: BỐC TÁCH THAM SỐ VÀ ĐỒNG BỘ CHÍNH XÁC SIZE MẪU (ĐÃ FIX KHỔ VẢI 58 & CHỐNG NHẢY SIZE)
 # =====================================================================
-chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
+chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower()
 
 def extract_param(pattern, text, session_key, default_val):
     match = re.search(pattern, text)
@@ -1541,69 +1443,58 @@ def extract_param(pattern, text, session_key, default_val):
         return val
     return float(st.session_state.get(session_key, default_val))
 
-# 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
-warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
-weft_shrink = extract_param(r'(co rút ngang|ngang)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
+# 1. Bốc tách tỷ lệ co rút vải
+warp_shrink = extract_param(r'(co rút dọc|dọc)\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
+weft_shrink = extract_param(r'(co rút ngang|ngang)\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
 
 ctx = st.session_state.get("bom_data", {})
 if not isinstance(ctx, dict): 
     ctx = {}
 
-# 🛠️ 2. SỬA TẬN GỐC LUỒNG BỐC SIZE: Bóc tách đơn nguyên để gỡ bẫy kẹt size 32
+# 🛠️ 2. SỬA TẬN GỐC LUỒNG BỐC SIZE: Ưu tiên bóc tách số size đơn (Ví dụ: 32, 30) để đồng bộ hoàn hảo với CAD Gerber
 detected_size_code = ""
 if ctx.get("detected_base_size") and str(ctx.get("detected_base_size")).strip() != "":
     detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
 elif ctx.get("base_size") and str(ctx.get("base_size")).strip() != "":
     detected_size_code = str(ctx.get("base_size")).upper().strip()
-elif ctx.get("calculated_on_size") and str(ctx.get("calculated_on_size")).strip() != "":
-    detected_size_code = str(ctx.get("calculated_on_size")).upper().strip()
 else:
-    # Quét nhanh lệnh đổi size từ chat (Ví dụ: "size 29" hoặc "cỡ 30")
-    size_match = re.search(r'\b(size|cỡ)\s*([a-zA-Z0-9]+)\b', chat_input_text)
+    # Quét tìm ký tự số size dạng đơn trước (ví dụ: size 32, size 30)
+    size_match = re.search(r'size\s*(\d+)', chat_input_text)
     if size_match:
-         detected_size_code = size_match.group(2).upper().strip()
+         detected_size_code = size_match.group(1).upper()
     else:
-         detected_size_code = "32" # Sàn dự phòng cuối cùng
+         # Nếu là chuỗi dài dạng 32x33, bóc lấy phần số đầu tiên (Size eo 32) để rập không bị lỗi diện tích bằng 0
+         long_size_match = re.search(r'size\s*(\d+x\d+)', chat_input_text)
+         detected_size_code = long_size_match.group(1).split('X')[0].upper() if long_size_match else "32"
 
-# Giải phóng chuỗi kích thước nhảy size phức tạp (Ví dụ: "32X33" -> lấy eo "32")
+# Rút gọn chuỗi size phức tạp về dạng số chuẩn (Ví dụ: "32X33" -> "32") giúp Regex Khối 3 và Khối 5 không bị crash
 if "X" in detected_size_code:
     detected_size_code = detected_size_code.split("X")[0].strip()
 
-# ĐỒNG BỘ LÊN TRỤC BIẾN MASTER NGOÀI VÀ TRONG ĐỂ KHÓA CHẶT BẢNG SIZE ĐOẠN 5.2
-st.session_state["current_active_size"] = detected_size_code
-st.session_state["target_size"] = detected_size_code
-st.session_state["detected_base_size"] = detected_size_code
-ctx["calculated_on_size"] = detected_size_code
 ctx["detected_base_size"] = detected_size_code
+st.session_state["detected_base_size"] = detected_size_code
+st.session_state["target_size"] = detected_size_code # Khóa đồng bộ cho Prompt Agent 2
 
-# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Giải phóng lệnh chặn ép khổ vải 55)
-fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fabric_width_inch", 58.0) 
-if fabric_width <= 0: 
+# 🚨 3. ĐỒNG BỘ KHỔ VẢI YÊU CẦU: Ép cứng mặc định về 58.0 inch, ghi đè triệt để vào bộ nhớ hệ thống
+fabric_width = extract_param(r'(?:khổ\s*vải|vải\s*khổ|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fabric_width_inch", 58.0) 
+if fabric_width <= 0 or fabric_width == 55.0: 
     fabric_width = 58.0
-
-# Lưu trữ trọn vẹn lên trục điều khiển Master ngoài để Đoạn 5.1 bóc tách khổ vải động linh hoạt
-st.session_state["current_active_width"] = fabric_width
 st.session_state["fabric_width_inch"] = fabric_width
 ctx["fabric_width_inch"] = fabric_width
 
-# 4. Trích xuất khổ vải Keo và khổ Vải lót độc lập
-fusing_width = extract_param(r'\b(khổ\s*keo|keo\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fusing_width_inch", 59.0)
+# Khổ keo và khổ lót độc lập
+fusing_width = extract_param(r'(?:khổ\s*keo|keo\s*khổ|dựng\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "fusing_width_inch", 59.0)
 if fusing_width <= 0: fusing_width = 59.0
 st.session_state["fusing_width_inch"] = fusing_width
 ctx["fusing_width_inch"] = fusing_width
 
-lining_width = extract_param(r'\b(khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "lining_width_inch", 57.0)
+lining_width = extract_param(r'(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)', chat_input_text, "lining_width_inch", 57.0)
 if lining_width <= 0: lining_width = 57.0
 st.session_state["lining_width_inch"] = lining_width
 ctx["lining_width_inch"] = lining_width
 
-# Đồng bộ hệ số co rút lên trục Master để bảo vệ Khối 3
-st.session_state["current_warp_shrinkage"] = warp_shrink
-st.session_state["current_weft_shrinkage"] = weft_shrink
-
-
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V21 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
+# 🟩 ĐOẠN 2: CHUẨN HÓA DỮ LIỆU ĐẦU VÀO VÀ ĐỒNG BỘ SỐ LƯỢNG RẬP CHI TIẾT - ĐÃ ĐỒNG BỘ KHÓA CO RÚT
 # =====================================================================
 import re
 import pandas as pd
@@ -1616,7 +1507,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
-    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JEAN_LONG"))).upper().strip()
+    prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JACKET"))).upper().strip()
     fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
@@ -1627,32 +1518,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[orig_l_col] = pd.to_numeric(df_bom[orig_l_col], errors='coerce').fillna(0.0)
     df_bom[orig_w_col] = pd.to_numeric(df_bom[orig_w_col], errors='coerce').fillna(0.0)
     
-    # Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học phẳng
+    # Trích xuất giữ lại cột số liệu gốc sạch trước khi giải toán hình học
     target_orig_gross_col = next((c for c in ["Gross Consumption", "gross_consumption", "allocated_gross"] if c in df_bom.columns), None)
     if target_orig_gross_col:
         df_bom["original_raw_gross"] = pd.to_numeric(df_bom[target_orig_gross_col], errors='coerce').fillna(0.0)
     else:
         df_bom["original_raw_gross"] = 0.0
 
-    # Khởi tạo bộ đệm lưu trữ chỉnh sửa loại vật liệu và số lượng của người dùng trên lưới UI
+    # Khởi tạo bộ đệm lưu trữ chỉnh sửa loại vật liệu của người dùng
     if "user_edited_materials" not in st.session_state:
         st.session_state["user_edited_materials"] = {}
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
 
-    # Ghi đè loại vật tư nếu người dùng tự thay đổi trên giao diện lưới
+    # Ghi đè loại vật tư nếu người dùng tự sửa tay trên lưới UI
     for idx, row in df_bom.iterrows():
         if idx in st.session_state["user_edited_materials"]:
             df_bom.at[idx, m_col] = st.session_state["user_edited_materials"][idx]
 
-    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CAD
+    # THUẬT TOÁN ĐỊNH DANH SỐ LƯỢNG RẬP CHUẨN CÔNG NGHIỆP
     def clean_precise_piece_count(row):
         comp_name = str(row.get("component_name", row.get("Component Name", ""))).upper().strip()
         pcs_raw_str = str(row.get(pcs_col, "1"))
         pcs_extracted = re.search(r'(\d+)', pcs_raw_str)
         pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
         
-        # 🛠️ CHỐNG LỖI NHÂN ĐÔI LŨY TIẾN: Giữ nguyên số lượng rập gốc nguyên bản từ file thô đầu vào
+        # 🛠️ SỬA LỖI NHÂN ĐÔI LŨY TIẾN: Giữ nguyên số lượng rập gốc ban đầu từ file, không ép cứng lên 4.0 
+        # để tránh bị hàm nhân đôi đối xứng cặp ở Khối 3 nhân chồng lên thành 8 chi tiết gây sập diện tích.
         return pcs_val
 
     df_bom["pcs_numeric"] = [
@@ -1662,29 +1554,42 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
     # =====================================================================
-    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (CHỐNG PHẠT SAI LỆCH)
+    # 🚨 NATURAL LANGUAGE PARSER ENGINE (BẮT KHỚP CHÍNH XÁC MÃ KHÓA CHAT CHUẨN)
     # =====================================================================
-    # Loại bỏ hoàn toàn Regex quét lại lỏng lẻo ở Đoạn 2 để triệt tiêu lỗi bắt nhầm số rác làm phóng đại rập dài 50"
-    
-    # Đọc đồng bộ thời gian thực từ các khóa Master an toàn đã được Đoạn 1 xử lý sạch sẽ
-    fabric_width = float(st.session_state.get("current_active_width", 58.0))
-    warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
-    weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
+    # 🛠️ ĐỒNG BỘ KHÓA BỘ NHỚ: Sửa toàn bộ tên khóa lưu trữ về "warp_shrinkage" và "weft_shrinkage" đồng quy với Đoạn 1
+    if "fabric_width_inch" not in st.session_state: st.session_state["fabric_width_inch"] = 58.0
+    if "warp_shrinkage" not in st.session_state: st.session_state["warp_shrinkage"] = 0.0
+    if "weft_shrinkage" not in st.session_state: st.session_state["weft_shrinkage"] = 0.0
 
-    # Khóa chặt lưu trữ đồng nhất trên toàn bộ hệ thống
-    st.session_state["fabric_width_inch"] = fabric_width
-    st.session_state["warp_shrinkage"] = warp_shrink
-    st.session_state["weft_shrinkage"] = weft_shrink
-    
-    ctx["fabric_width_inch"] = fabric_width
-    ctx["warp_shrinkage_percent"] = warp_shrink
-    ctx["weft_shrinkage_percent"] = weft_shrink
+    user_command = str(st.session_state.get("last_submitted_query", "")).lower().strip()
+
+    if user_command:
+        # A. Quét tìm cấu hình khổ vải chính
+        width_match = re.search(r'(?:kh\s*ổ|kho)\s*(\d+(?:\.\d+)?)', user_command)
+        if width_match:
+            st.session_state["fabric_width_inch"] = float(width_match.group(1))
+
+        # B. Quét tìm độ co rút sợi dọc (Ghi chuẩn vào khóa warp_shrinkage)
+        warp_match = re.search(r'(?:d\s*ọc|doc)\s*(\d+(?:\.\d+)?)', user_command)
+        if warp_match:
+            st.session_state["warp_shrinkage"] = float(warp_match.group(1))
+
+        # C. Quét tìm độ co rút sợi ngang (Ghi chuẩn vào khóa weft_shrinkage)
+        weft_match = re.search(r'(?:ngang)\s*(\d+(?:\.\d+)?)', user_command)
+        if weft_match:
+            st.session_state["weft_shrinkage"] = float(weft_match.group(1))
+
+    # Xuất bản giá trị ra hệ thống đồng bộ tuyệt đối cho Đoạn 3, 4, 5
+    fabric_width = float(st.session_state["fabric_width_inch"])
+    warp_shrink = float(st.session_state["warp_shrinkage"])
+    weft_shrink = float(st.session_state["weft_shrinkage"])
     # =====================================================================
-    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V21 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
+    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (BỘ PHÂN TÍCH LOẠI HÀNG CHUẨN) - TỐI ƯU HIỆU SUẤT GERBER
     # =====================================================================
     import pandas as pd
 
-    # 🛠️ TỐI ƯU GERBER THỰC TẾ: Barem mật độ cơ sở an toàn chuẩn phòng sơ đồ dệt thoi/dệt kim
+    # 🛠️ TỐI ƯU GERBER THỰC TẾ: Điều chỉnh hạ Barem mật độ cơ sở (Prior) của dòng quần Jean/Pants 
+    # từ 87.5% xuống mốc an toàn thực tế phòng cắt là 0.795 (79.5%) để kích định mức tổng không bị tụt thấp.
     COMPANY_DENSITY_PRIOR = {
         "SHIRT": 0.82, "JEAN_LONG": 0.795, "SHORT": 0.83, 
         "JACKET": 0.68, "VEST": 0.82, "TOPS_KNIT": 0.78, 
@@ -1695,34 +1600,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
     product_category = None
     
-    # 🧠 TẦNG 1: Gom toàn bộ văn bản danh sách linh kiện, loại bỏ ký tự rác để phân tích
+    # 🧠 TẦNG 1: Gom toàn bộ văn bản từ danh sách linh kiện trong file rập/BOM để AI phân tích từ khóa chuyên ngành
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
 
-    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa đặc trưng hình học độc lập
-    # Ưu tiên nhận diện dòng quần dài/quần short trước để tránh bẫy overlap từ khóa thân áo
+    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa để phân biệt rạch ròi giữa ÁO và QUẦN
     if any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
-        # Kiểm tra thêm từ khóa để phân biệt quần short và quần dài Jeans
-        if "SHORT" in prod_upper_name or "SHORT" in all_components_text:
-            product_category = "SHORT"
-        else:
-            product_category = "JEAN_LONG"
+        product_category = "JEAN_LONG"
         
-    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
-        # ĐÃ SỬA: Loại bỏ "BODY PANEL" ra khỏi bộ lọc JACKET để tránh bắt nhầm BODY FRONT/BACK PANEL của quần Jean
+    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC", "BODY PANEL"]):
         product_category = "JACKET"
         
-    # TẦNG 3: Nếu quét linh kiện rập trống, đọc tiêu đề sản phẩm trên Header Techpack
+    # TẦNG 3: Nếu quét linh kiện vẫn trống, AI sẽ đọc tiêu đề sản phẩm (Header Techpack)
     else:
         for k in COMPANY_DENSITY_PRIOR.keys():
             if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
                 product_category = k
                 break
-        
-        # Mặc định phòng hộ an toàn cho dòng quần dài đại trà của công ty PPJ Group
+        # Mặc định phòng hộ nếu file lỗi không có thông tin
         if product_category is None:
             product_category = "JEAN_LONG"
 
-    # 🧠 TẦNG 4: Chuẩn hóa chuỗi hiển thị thân thiện lên giao diện UI báo cáo kiểm toán
+    # 🧠 TẦNG 4: Đồng bộ chuỗi văn bản dịch thuật để AI xuất bản ra giao diện UI báo cáo
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
     elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm suông/Thời trang)"
@@ -1732,81 +1630,74 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
-    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI VÀO BỘ NHỚ HỆ THỐNG MASTER (CHỐNG LỖI CONTEXT BREAKDOWN)
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-        
-    ctx = st.session_state["bom_data"]
+    # Ghi giá trị phân tích sạch vào context vùng nhớ hệ thống để nuôi luồng Đoạn 4 và Đoạn 5
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
         ctx["ai_expert_decision"] = {}
         
     ctx["ai_expert_decision"]["product_category"] = product_category
     ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
-    ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     
-    # Đẩy lên trục biến tầng ngoài bảo vệ tham số nền cho Đoạn 5.1 gỡ nghẽn
-    st.session_state["current_estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
-    st.session_state["bom_data"] = ctx
+    # 🛠️ NẠP ĐỒNG BỘ ƯU TIÊN: Đưa thẳng mốc mật độ an toàn vừa cập nhật vào bộ nhớ đệm 
+    # giúp Đoạn 5.1 bốc đúng thông số nền, giải phóng hoàn toàn lỗi nghẽn định mức thấp.
+    ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     # =====================================================================
-    # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V21 - MASTER GEOMETRY Chống Lỗi Kích Thước): GEOMETRIC FEATURE ENGINE
+    # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR (VÁ LỖI VÙNG NHỚ & HIỆU SUẤT)
     # =====================================================================
     import numpy as np
 
-    # ĐỒNG BỘ CHUẨN XÁC: Định vị trực tiếp về cột dữ liệu gốc sạch đã được Đoạn 2 chuẩn hóa
+    # Tái định vị các cột dữ liệu hệ thống ngay trên đầu đoạn 3.2 để nuôi lệnh l_val
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    l_prod_col_check = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
-    w_prod_col_check = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
-    area_col_check = next((c for c in ["polygon_net_area", "net_area", "Diện tích (inch²)"] if c in df_bom.columns), "polygon_net_area")
-    m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
+    l_prod_col_check = "Dài sản xuất (L-inch)" if "Dài sản xuất (L-inch)" in df_bom.columns else (orig_l_col if 'orig_l_col' in locals() else "bounding_box_length")
+    w_prod_col_check = "Rộng sản xuất (W-inch)" if "Rộng sản xuất (W-inch)" in df_bom.columns else (orig_w_col if 'orig_w_col' in locals() else "bounding_box_width")
 
-    # Đọc đồng bộ thời gian thực từ các trục biến Master của Đoạn 1 để chống bẫy kẹt thông số cũ
-    fabric_width = float(st.session_state.get("current_active_width", 58.0))
+    # 🛠️ ĐỒNG BỘ CỘT DIỆN TÍCH: Tìm chính xác cột diện tích động để tránh lỗi đọc sót giá trị bằng 0
+    area_col_check = next((c for c in ["polygon_net_area", "net_area", "Diện tích (inch²)"] if c in df_bom.columns), "polygon_net_area")
+
+    # Truy xuất cấu hình sản xuất từ Streamlit UI
+    fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
     one_way_flag = st.session_state.get("is_one_way_fabric", False)          
     stripe_plaid_flag = st.session_state.get("is_stripe_plaid", False)       
     fabric_type = st.session_state.get("fabric_material_type", "WOVEN")       
 
-    # Đảm bảo context bom_data luôn tồn tại cấu trúc
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
-        ctx["ai_expert_decision"] = {}
-
-    product_category = ctx["ai_expert_decision"].get("product_category", "JEAN_LONG")
+    # Đọc lại nhãn loại hàng đã được Đoạn 3.1 lưu vào context
+    product_category = ctx["ai_expert_decision"]["product_category"]
     
+    # Khóa an toàn kiểm tra Barem, tránh lỗi sập KeyError nếu nhãn bị lệch dòng
+    if 'COMPANY_DENSITY_PRIOR' in locals() and product_category in COMPANY_DENSITY_PRIOR:
+        base_prior = COMPANY_DENSITY_PRIOR[product_category]
+    else:
+        base_prior = 0.7950 if product_category == "JEAN_LONG" else 0.78
+
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
 
-    piece_areas = []
-    total_pattern_pieces, total_pocket_pieces, max_piece_length = 0.0, 0.0, 0.0
+    piece_areas, piece_aspect_ratios, piece_void_ratios, piece_convex_hull_ratios = [], [], [], []
+    total_pattern_pieces, total_pocket_pieces, max_piece_length, symmetry_pieces_count = 0.0, 0.0, 0.0, 0.0
 
-    # 🛠️ BỘ PHÂN LOẠI CHẤT LIỆU LAYER TRÍ THỨC (ĐÃ SỬA: ĐỒNG BỘ CHO CẢ KEO, LÓT VÀ RIB)
+    # Hàm phân loại chất liệu layer tri thức phục vụ bóc tách đặc trưng sạch nhiễu
     def _d3_internal_material_classify(row, idx, prod_cat):
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][idx]).upper().strip()
-            
-        mat_str = str(row[m_col_check]).upper().strip() if m_col_check in row else ""
+        mat_str = str(row[m_col]).upper().strip() if 'm_col' in locals() and m_col in row else ""
         comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
+        role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
-        fusing_kws = ["FUSING", "INTERLINING", "INTERFACING", "KEO", "MEC", "MẾCH", "BOND", "ADHESIVE", "LOT KEO", "TRICOT"]
-        lining_kws = ["LINING", "LOT", "LÓT", "POCKETING", "MESH", "TAFFETA", "VAI LOT", "VẢI LÓT", "POCKET BAG"]
-        rib_kws = ["RIB", "BO GÂN", "BO", "CỔ BO", "TAY BO"]
+        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "MẾCH", "RIB", "BOND", "ADHESIVE", "LOT KEO", "TRICOT"]
+        lining_kws = ["LINING", "LOT", "LÓT", "POCKETING", "MESH", "TAFFETA", "VAI LOT", "VẢI LÓT"]
         
-        # Nếu là các chi tiết cạp quần, lưng quần, túi chính -> Ép về Vải chính (SELF) trừ khi có chữ FUSING rõ ràng
-        if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT", "POCKET"]) and not any(x in mat_str or x in comp_str for x in fusing_kws + lining_kws):
+        if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT"]) and not any(x in mat_str for x in ["MEC", "KEO", "FUSING"]):
             return "FABRIC"
             
         if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
-        if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
-        if any(k in mat_str or k in comp_str for k in rib_kws): return "LINING" # Luồng MaxRects phụ gộp RIB và LINING
+        if any(k in mat_str or k in comp_str or k in role_str for k in lining_kws): return "LINING"
         return "FABRIC"
 
     for idx, r in df_bom.iterrows():
         p_class_clean = _d3_internal_material_classify(r, idx, product_category)
         comp_name_clean = str(r.get(comp_col_check, "")).upper().strip()
         
-        mat_clean_str = str(r.get(m_col_check, "")).upper().strip() if m_col_check in r else ""
-        if any(x in comp_name_clean or x in mat_clean_str for x in ["BUTTON", "ZIP", "THREAD", "NÚT", "CHỈ", "RIVET", "LABEL", "NHÃN", "MÁC", "SHANK", "SLIDER", "PULLER", "ACCESSORY", "PHỤ LIỆU"]):
+        mat_clean_str = str(r.get(m_col, "")).upper().strip() if 'm_col' in locals() and m_col in r else ""
+        if any(x in comp_name_clean or x in mat_clean_str for x in ["BUTTON", "ZIP", "THREAD", "NÚT", "CHỈ", "RIVET", "LABEL", "ACCESSORY"]):
             continue
 
         try:
@@ -1815,7 +1706,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except:
             pcs_numeric_val = 1.0
 
-        if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT", "BAG"]):
+        if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT"]):
             total_pocket_pieces += float(st.session_state["user_edited_pieces"].get(idx, pcs_numeric_val))
 
         if p_class_clean in ["FABRIC", "FUSING", "LINING"]:
@@ -1823,6 +1714,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_pattern_pieces += current_pcs
             
             try:
+                # 🛠️ SỬA LỖI ĐỌC SAI CỘT DIỆN TÍCH: Sử dụng col_check động
                 net_area = float(r.get(area_col_check, 0.0))
                 if np.isnan(net_area): net_area = 0.0
             except:
@@ -1831,125 +1723,132 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             l_val = float(r.get(l_prod_col_check, 0.0))
             w_val = float(r.get(w_prod_col_check, 0.0))
             
-            # Khống chế kích thước rập đơn vải chính bị phình to bề rộng
-            if p_class_clean == "FABRIC" and w_val > 16.0:
-                w_val = w_val / 2.0
-                if net_area > 0: net_area = net_area / 2.0
-            
-            # Hình học Guard: Chống lỗi diện tích tinh lấn át hộp bao hình chữ nhật phẳng
-            bbox_area_check = l_val * w_val
-            if net_area > bbox_area_check and bbox_area_check > 0:
-                net_area = bbox_area_check * (0.76 if p_class_clean == "FABRIC" else 0.85)
-            
+            # Cứu hộ diện tích cục bộ nếu bị trống thông số hình học
             if net_area <= 0.0 and l_val > 0 and w_val > 0:
-                net_area = l_val * w_val * (0.76 if p_class_clean == "FABRIC" else 0.85)
+                net_area = l_val * w_val * 0.74
                 
+            bbox_area = l_val * w_val
+            
+            if current_pcs >= 2: symmetry_pieces_count += current_pcs
             if l_val > max_piece_length: max_piece_length = l_val
-            if net_area > 0:
+
+            if net_area > 0 and bbox_area > 0:
+                raw_ratio = l_val / w_val if w_val > 0 else 1.0
+                best_ratio = min(raw_ratio, 1.0 / raw_ratio) if rotation_freedom else raw_ratio
+                sim_convex_ratio = min(1.0, round(net_area / (bbox_area * 0.95), 4))
                 for _ in range(int(current_pcs)):
                     piece_areas.append(net_area)
+                    piece_aspect_ratios.append(best_ratio)
+                    piece_void_ratios.append((bbox_area - net_area) / bbox_area)
+                    piece_convex_hull_ratios.append(sim_convex_ratio)
 
-    # 🛠️ ĐỒNG BỘ SIÊU DỮ LIỆU SẠCH: Tạo gói dữ liệu Geometry Signature chuẩn xác
-    features = {
-        "total_pieces": float(total_pattern_pieces),
-        "largest_piece_area": float(max(piece_areas)) if piece_areas else 0.0,
-        "mean_piece_area": float(np.mean(piece_areas)) if piece_areas else 0.0,
-        "longest_piece_length": float(max_piece_length),
-        "fabric_width": float(fabric_width),
-        "rotation_freedom": 1.0 if rotation_freedom else 0.0,
-        "one_way_flag": 1.0 if one_way_flag else 0.0,
-        "stripe_plaid_flag": 1.0 if stripe_plaid_flag else 0.0,
-        "pocket_complexity": float(total_pocket_pieces)
-    }
+    features = {}
+    if len(piece_areas) > 0:
+        features["total_pieces"] = float(total_pattern_pieces)
+        features["largest_piece_area"] = float(max(piece_areas))
+        features["mean_piece_area"] = float(np.mean(piece_areas))
+        features["std_piece_area"] = float(np.std(piece_areas))
+        features["avg_aspect_ratio"] = float(np.mean(piece_aspect_ratios))
+        features["max_aspect_ratio"] = float(max(piece_aspect_ratios))
+        features["avg_void_ratio"] = float(np.mean(piece_void_ratios))
+        features["convex_hull_ratio"] = float(np.mean(piece_convex_hull_ratios))
+        features["width_utilization"] = float(max_piece_length / fabric_width) if fabric_width > 0 else 0.5
+        features["rotation_freedom"] = 1.0 if rotation_freedom else 0.0
+        features["symmetry_ratio"] = float(symmetry_pieces_count / total_pattern_pieces) if total_pattern_pieces > 0 else 1.0
+        features["fabric_width"] = float(fabric_width)
+        features["one_way_flag"] = 1.0 if one_way_flag else 0.0
+        features["stripe_plaid_flag"] = 1.0 if stripe_plaid_flag else 0.0
+        features["pocket_complexity"] = float(total_pocket_pieces)
+    else:
+        features = {k: 0.0 for k in ["total_pieces", "largest_piece_area", "mean_piece_area", "std_piece_area", "avg_aspect_ratio", "max_aspect_ratio", "avg_void_ratio", "convex_hull_ratio", "width_utilization", "rotation_freedom", "symmetry_ratio", "fabric_width", "one_way_flag", "stripe_plaid_flag", "pocket_complexity"]}
 
-    complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.2) + (total_pocket_pieces * 1.5)))
+    # 📈 TỐI ƯU TRỌNG SỐ DELTA: Kích hoạt tăng độ ưu tiên mật độ vùng xanh cho Quần dài
+    density_delta = ((features["total_pieces"] * 0.0004) - (features["avg_void_ratio"] * 0.06) - (features["one_way_flag"] * 0.02) - (features["stripe_plaid_flag"] * 0.03) + (features["rotation_freedom"] * 0.03) - (features["width_utilization"] * 0.01))
     
-    # Xuất bản và nạp toàn bộ siêu dữ liệu đồng quy vào bộ não hệ thống Master ngoài
-    ctx["ai_expert_decision"]["geometry_features"] = features
-    ctx["ai_expert_decision"]["longest_piece_length"] = max_piece_length
+    # 🛠️ SỬA LỖI CHẶN SÀN HIỆU SUẤT MẬT ĐỘ QUẦN JEAN: Hạ sàn ép cứng từ mốc 81.5% cũ xuống mốc 
+    # an toàn thực tế phòng cắt Jeans đại trà là 76.5% để giải phóng hoàn toàn chiều dài định mức sơ đồ.
+    if product_category == "JEAN_LONG":
+        estimated_density = max(0.7650, min(0.94, base_prior + density_delta))
+    else:
+        estimated_density = max(0.50, min(0.94, base_prior + density_delta))
+        
+    complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.0) + (features["avg_void_ratio"] * 50) + (total_pocket_pieces * 1.5)))
+    
+    # Đưa giá trị tính toán sạch vào bộ não hệ thống phục vụ Khối 5 bốc nạp hiển thị lên UI
+    ctx["ai_expert_decision"]["estimated_density_prior"] = round(estimated_density, 4)
     ctx["ai_expert_decision"]["complexity_score"] = complexity_score
-    
-    st.session_state["current_longest_piece_length"] = max_piece_length
-    st.session_state["bom_data"] = ctx
-        # =====================================================================
-     # =====================================================================
-    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V29 - AI SHAPE INFERENCE CHO PDF): AI VIRTUAL PIECE ENGINE
     # =====================================================================
-    import pandas as pd
-    import numpy as np
-
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (NO ACCESSORY) - FIX SẬP DIỆN TÍCH
+    # =====================================================================
+    pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-    m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
 
-    fabric_width = float(st.session_state.get("current_active_width", 58.0))
-    warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
-    weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
+    # 1. BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT CHIỀU DÀI / CHIỀU RỘNG GỐC CỦA FILE CAD
+    detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
+    detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
+    actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "bounding_box_length")
+    actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "bounding_box_width")
+
+    # Đọc thông số co rút thớ vải từ UI phục vụ nắn kích thước phôi ảo
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
     fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
-        ctx["ai_expert_decision"] = {}
+    # Kế thừa dữ liệu tiên nghiệm từ bộ não tri thức Đoạn 3
+    ai_decision_d4 = ctx.get("ai_expert_decision", {})
+    if not isinstance(ai_decision_d4, dict): ai_decision_d4 = {}
+    current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
+    prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
+
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
     virtual_pieces_layer = {}
+    p_length_list, p_width_list, p_area_list = [], [], []
 
+    # 🚨 BỘ KIỂM SOÁT VÀ PHÂN LOẠI CHỦNG LOẠI HÀNG TẬP TRUNG (ƯU TIÊN TUYỆT ĐỐI DÒNG QUẦN)
+    has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "POCKET", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
+    
+    if has_pant_components or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"]):
+        is_trouser_item = True
+        is_jacket_item = False
+        ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
+    else:
+        is_trouser_item = False
+        is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC", "KHOAC"])
+
+    # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ TUYỆT ĐỐI BẢO TOÀN THÔNG SỐ RẬP CHUẨN CAD
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
-        mat_str = str(row.get(m_col_check, "")).upper().strip()
         
-        if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "ACCESSORY"]):
-            p_class, class_confidence = "ACCESSORY", 1.0
-        elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]):
-            p_class, class_confidence = "FUSING", 1.0
-        elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]):
-            p_class, class_confidence = "LINING", 1.0
+        l_orig = float(row.get(actual_l_col, 0.0))
+        w_orig = float(row.get(actual_w_col, 0.0))
+        
+        # 🔍 BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (BỎ PHỤ LIỆU HOÀN TOÀN)
+        mat_str = str(row.get(m_col, "")).upper().strip() if 'm_col' in locals() and m_col in row else ""
+        
+        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
+            p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
+            class_confidence = 1.0
         else:
-            p_class, class_confidence = "FABRIC", 0.95
+            if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "RIVET", "ĐINH", "LABEL", "NHÃN", "MÁC", "SHANK", "SLIDER", "PULLER", "ACCESSORY", "PHỤ LIỆU"]):
+                p_class, class_confidence = "ACCESSORY", 1.0
+            elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT"]):
+                p_class, class_confidence = "FUSING", 1.0
+            elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT"]):
+                p_class, class_confidence = "LINING", 1.0
+            elif (l_orig / w_orig if w_orig > 0 else 1.0) >= 5.0 and (1.0 - (float(row.get("polygon_net_area", 0.0)) / (l_orig * w_orig)) if (l_orig * w_orig) > 0 else 0.0) <= 0.15 and l_orig > 0:
+                p_class, class_confidence = "FUSING", 0.90
+            elif float(row.get("polygon_net_area", 0.0)) < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
+                p_class, class_confidence = ("LINING", 0.88) if ("LINING" in mat_str or "LÓT" in comp_name_upper) else ("FABRIC", 0.75)
+            else:
+                p_class, class_confidence = "FABRIC", 0.95
 
-        l_orig = float(row.get("bounding_box_length", 0.0))
-        w_orig = float(row.get("bounding_box_width", 0.0))
-        net_area_real = float(row.get("polygon_net_area", 0.0))
-
-        if l_orig <= 0 or w_orig <= 0: continue
-
-        # 1. Aspect Ratio Correction (Sửa đảo trục canh sợi tự động)
-        if w_orig > l_orig:
-            l_orig, w_orig = w_orig, l_orig
-
-        # 2. Adaptive OBB Efficiency Inference (Suy diễn hình thái học động phi tuyến tính)
-        if net_area_real > 0:
-            current_factor = net_area_real / (l_orig * w_orig)
-            aspect_ratio = l_orig / w_orig
-            log_aspect = np.log1p(aspect_ratio)
-            
-            # Hàm nội suy động: Tự động điều chỉnh hiệu suất OBB trần dựa trên form dáng thực tế từ PDF
-            target_obb_eff = 0.88 - (0.05 * log_aspect) + (0.15 * current_factor)
-            target_obb_eff = max(0.6400, min(0.9200, target_obb_eff))
-
-            # 3. Bounding Box Correction (Nắn kích thước hộp bao rác AABB của mọi lớp vật tư)
-            if current_factor < target_obb_eff:
-                optimized_area = net_area_real / target_obb_eff
-                w_orig = (optimized_area / aspect_ratio) ** 0.5
-                l_orig = w_orig * aspect_ratio
-
-        # 4. Sửa lỗi trùng lặp số lượng chi tiết (Inferred Pieces chuẩn CAD)
-        raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
-        inferred_pcs = raw_pcs
-        if raw_pcs == 1.0 and p_class in ["FABRIC", "LINING"]:
-            if any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "BAG"]):
-                if not any(k in comp_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)"]):
-                    inferred_pcs = 2.0
-
-        final_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
-
-        # 5. Shrinkage Matrix Application (Áp thông số co rút thớ sợi sản xuất)
+        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat
         if p_class == "FABRIC":
-            w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else fabric_width
+            w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 58.0
             l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
         elif p_class == "FUSING":
             w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3) if w_orig > 0 else 59.0
@@ -1960,23 +1859,45 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        if net_area_real > (w_prod * l_prod):
-            net_area_real = w_prod * l_prod * 0.85
+        p_width_list.append(w_prod)
+        p_length_list.append(l_prod)
 
+        # 🛠️ SỬA SAI DIỆN TÍCH TỊNH: Đọc diện tích tịnh thực tế đã qua Khối 3 xử lý cộng co rút và đường may
+        net_area_raw = float(row.get("polygon_net_area", 0.0))
+        if net_area_raw <= 0.0:
+            # Fallback an toàn tuyệt đối từ kích thước sản xuất đã cộng co rút nếu dữ liệu thô lỗi
+            net_area_raw = round(l_prod * w_prod * 0.74, 2) if (l_prod > 0 and w_prod > 0) else 1.0
+
+        # Bước C: Suy luận số lượng mảnh rập thực nghiệm rải bàn cắt
+        raw_pcs = float(row.get("pcs_numeric", 1.0))
+        inferred_pcs = raw_pcs
+        qty_confidence = 1.0
+        
+        has_front_kw = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
+        has_back_kw = any(k in comp_name_upper for k in ["BACK", "SAU"])
+        
+        if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 10.0:
+            if is_trouser_item:
+                if has_front_kw or has_back_kw or any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL"]):
+                    inferred_pcs = 2.0
+                    qty_confidence = 0.99
+
+        # Lưu dữ liệu phôi ảo đồng bộ màng RAM hệ thống
+        final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
         virtual_pieces_layer[idx] = {
-            "inferred_class": p_class, "class_confidence": class_confidence,
-            "production_l": round(l_prod, 2), "production_w": round(w_prod, 2), 
-            "production_net_area": round(net_area_real, 2),
-            "inferred_pieces": final_pcs, "component_name": comp_name_raw
+            "inferred_class": p_class,
+            "class_confidence": class_confidence,
+            "production_l": l_prod,
+            "production_w": w_prod,
+            "production_net_area": net_area_raw, # Đã bảo vệ giá trị diện tích thực của CAD Gerber
+            "inferred_pieces": final_pcs,
+            "qty_confidence": qty_confidence,
+            "component_name": comp_name_raw
         }
 
-    for idx, vp in virtual_pieces_layer.items():
-        if idx in df_bom.index:
-            df_bom.at[idx, "Chiều dài rập (inch)"] = vp["production_l"]
-            df_bom.at[idx, "Chiều rộng rập (inch)"] = vp["production_w"]
-            df_bom.at[idx, "polygon_net_area"] = vp["production_net_area"]
+    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-      # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE (TÍNH TOÁN SÀN ĐỘNG + THƯỞNG MẬT ĐỘ XOAY TỰ DO 180°)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
@@ -2193,15 +2114,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if len(fabric_pieces_to_nest) > 0:
         st.success(f"🧩 **GEOMETRIC SOLVER KẾT QUẢ** | Mật độ sơ đồ chỉ định: `{real_fabric_density*100:.2f}%` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds`")
 
-        # =====================================================================
-    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
+
+
+    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
-        import io
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
-        from openpyxl.utils import get_column_letter
-
         output_stream = io.BytesIO()
         workbook = Workbook()
         
@@ -2217,12 +2134,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         bd_side = Side(style='thin', color='BDC3C7')
         bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
         
-        # 🔥 ĐỒNG BỘ AN TOÀN TRÁNH BẪY LỖI NAMEERROR KHI KẾ THỪA BIẾN NGOÀI TRONG HÀM
-        f_width_val = float(st.session_state.get("current_active_width", 58.0))
-        w_shrink_val = float(st.session_state.get("current_warp_shrinkage", 0.0))
-        h_shrink_val = float(st.session_state.get("current_weft_shrinkage", 0.0))
-        s_code_val = str(st.session_state.get("current_active_size", bom_ctx.get("detected_base_size", "32"))).upper().strip()
-
         # --- TAB 1: BOM SUMMARY ---
         w_s1 = workbook.active
         w_s1.title = "BOM Summary"
@@ -2237,8 +2148,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         m_data = [
             ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-            ("Size may mẫu (Sample Size):", s_code_val, "Khổ vải hữu dụng (Width):", f'{f_width_val}"'),
-            ("Co rút dọc (Warp Shrinkage):", f'{w_shrink_val}%', "Co rút ngang (Weft Shrinkage):", f'{h_shrink_val}%'),
+            ("Size may mẫu (Sample Size):", str(detected_size_code), "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
+            ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
             ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
         ]
         
@@ -2246,6 +2157,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột Tiêu đề
                 if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
@@ -2267,6 +2179,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột dữ liệu căn giữa
                 if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
@@ -2281,12 +2194,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_s2.sheet_view.showGridLines = True
         w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
         
-        # 🌟 ĐỒNG BỘ CHUẨN TÊN CỘT LƯỚI HIỂN THỊ TRÊN FILE EXCEL ĐỂ KHÔNG BỊ KHUYẾT SỐ LIỆU
-        det_hd = [
-            "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
-            "Size tính toán", "Số lượng rập", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", 
-            "polygon_net_area", "Gross Consumption"
-        ]
+        det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
         for c_idx, h_text in enumerate(det_hd, start=1):
             cell = w_s2.cell(row=3, column=c_idx, value=h_text)
             cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
@@ -2298,6 +2206,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
+                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột căn lề bảng chi tiết
                 if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
                 elif c_idx == 4 or c_idx == 5 or c_idx == 6:
@@ -2315,94 +2224,87 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         workbook.save(output_stream)
         output_stream.seek(0)
-        return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
-
-        # =====================================================================
+        return output_stream
+       # =====================================================================
+       # =====================================================================
+       # =====================================================================
     #    # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V38 - ĐỒNG BỘ MULTI-DENSITY SIÊU TINH GỌN PHẲNG)
+        # =====================================================================
+       # =====================================================================
+       # =====================================================================
+        # =====================================================================
+        # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (ĐỒNG BỘ SUMMARY KHÉP KÍN) - ĐÃ HIỆN CỘT DÀI/RỘNG
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
-    
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    
     ai_decision_final = ctx.get("ai_expert_decision", {})
+    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
+    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-    real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
+    prod_cat_ui = str(ai_decision_final.get("product_category", "JEAN_LONG")).upper().strip()
 
-    # Kế thừa dải số liệu từ bộ nhớ RAM Master của Đoạn 5.2 Phần B chuyển sang
-    s_fabric_gross = float(st.session_state.get("summary_fabric_gross", 1.4163))
-    s_fusing_gross = float(st.session_state.get("summary_fusing_gross", 0.0885))
-    s_lining_gross = float(st.session_state.get("summary_lining_gross", 0.2250))
-
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN CHUẨN KHỔ VẢI CHÍNH
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
+    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type if 'ai_product_type' in locals() else "JEAN_LONG")
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{0.8352 * 100:.2f}%") # Hiển thị mật độ vải chính chuẩn Gerber
+    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. DỰNG BẢNG TỔNG HỢP SUMMARY 3 DÒNG ĐỘC LẬP THEO MẬT ĐỘ RIÊNG BIỆT
+    # 🚨 ĐÃ SỬA CHÍNH XÁC: Ép bảng Summary phải nhóm dữ liệu theo đúng nhãn chất liệu của Mảnh ảo trong RAM
+    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
+    
+    # Nạp nhãn chất liệu chuẩn từ lớp phôi ảo trực tiếp vào một danh sách đồng bộ với df_bom
+    clean_materials_list = []
+    for idx in df_bom.index:
+        v_piece = virtual_pieces_layer.get(idx, {})
+        clean_materials_list.append(v_piece.get("inferred_class", "FABRIC"))
+        
+    df_bom["_temp_class"] = clean_materials_list
+    
+    if "Gross Consumption" not in df_bom.columns:
+        df_bom["Gross Consumption"] = 0.0
+
+    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+    cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
+    
     df_summary = pd.DataFrame({
-        "Phân loại vật tư": ["VẢI CHÍNH", "MÉC / KEO", "VẢI LÓT"],
-        "Material Class": ["FABRIC", "FUSING", "LINING"],
-        "Gross Consumption": [round(s_fabric_gross, 4), round(s_fusing_gross, 4), round(s_lining_gross, 4)],
+        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
+        "Material Class": summary_grouped["_temp_class"],
+        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
         "UOM": "YDS"
     })
 
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # 3. PHỤC HỒI NỀN LƯỚI CHI TIẾT VÀ PHÂN BỔ PHẲNG
     df_bom_display = df_bom.copy()
-    real_sync_width = float(st.session_state.get("current_active_width", 58.0))
-    c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
     
-    df_bom_display["Khổ vải sản xuất (inch)"] = real_sync_width
-    df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "30"))).upper().strip()
-    df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
-    df_bom_display["Role/Piece Type"] = "PRIMARY"
-    
-    clean_mats = []
-    for idx, row in df_bom_display.iterrows():
-        c_nm_up = str(row.get("Component Name", "")).upper().strip()
-        p_cls = "FABRIC"
-        if any(x in c_nm_up for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): p_cls = "FUSING"
-        elif any(x in c_nm_up for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING"]): p_cls = "LINING"
-        clean_mats.append(p_cls)
-    df_bom_display["Material Class"] = clean_mats
-    df_bom_display["Số lượng rập"] = [int(float(st.session_state.get("user_edited_pieces", {}).get(idx, r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
+    if "Calculated Width (Inch)" in df_bom_display.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1)
+    else:
+        df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("fabric_width_inch", 58.0))
+        
+    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "30"
+    df_bom_display["material_class"] = df_bom_display["_temp_class"]
+    df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "material_class": "Material Class", "geometry_role": "Role/Piece Type"})
+    df_bom_display["Số lượng rập"] = [float(st.session_state.get("user_edited_pieces", {}).get(idx, r["pcs_numeric"])) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Vòng lặp chia tỷ lệ phân bổ phẳng thông minh dựa trên diện tích tinh sạch từng nhóm chất liệu
-    final_gross_list = []
-    tot_fab_net_area = sum(float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0)) for idx, row in df_bom_display.iterrows() if str(row.get("Material Class")) == "FABRIC")
-    tot_lin_net_area = sum(float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0)) for idx, row in df_bom_display.iterrows() if str(row.get("Material Class")) == "LINING")
-    tot_fus_net_area = sum(float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0)) for idx, row in df_bom_display.iterrows() if str(row.get("Material Class")) == "FUSING")
-
-    for idx, row in df_bom_display.iterrows():
-        p_cls = str(row["Material Class"]).upper().strip()
-        r_area = float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0))
-        row_gross = 0.0
-        
-        if p_cls == "FABRIC" and tot_fab_net_area > 0:
-            row_gross = (r_area / tot_fab_net_area) * s_fabric_gross
-        elif p_cls == "LINING" and tot_lin_net_area > 0:
-            row_gross = (r_area / tot_lin_net_area) * s_lining_gross
-        elif p_cls == "FUSING" and tot_fus_net_area > 0:
-            row_gross = (r_area / tot_fus_net_area) * s_fusing_gross
-            
-        final_gross_list.append(round(row_gross, 4))
-    df_bom_display["Gross Consumption"] = final_gross_list
-
-    for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption"]:
-        if col in df_bom_display.columns:
-            df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
-
-    ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
+    # 🛠️ SỬA LỖI ĐỒNG BỘ TÊN CỘT: Cập nhật tên mảng `ordered_cols` khớp chính xác 100% với Đoạn 5.1 để giao diện không lọc bỏ
+    ordered_cols = [
+        "_original_row_index", 
+        "Component Name", 
+        "Material Class", 
+        "Role/Piece Type", 
+        "Chiều dài rập (inch)",   # Đưa cột Chiều dài rập lên trước
+        "Chiều rộng rập (inch)",  # Đưa cột Chiều rộng rập lên trước
+        "Khổ vải sản xuất (inch)", 
+        "Size tính toán", 
+        "Số lượng rập", 
+        "polygon_net_area", 
+        "Gross Consumption"
+    ]
     display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
     df_bom_display = df_bom_display[display_final_cols]
 
@@ -2412,34 +2314,40 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     with col_t2:
         try:
             if 'local_export_excel_ppj_format' in locals():
-                excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod if 'prod' in locals() else "JEAN", ctx, 0.8352)
+                excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, ui_display_density)
                 style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-                st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{style_name_clean}.xlsx", use_container_width=True)
-        except Exception as e: pass
+                st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
+        except Exception as e: st.error(f"Lỗi kết xuất Excel: {e}")
 
-    # RENDER GRID ĐỒNG BỘ CHI TIẾT KHÔNG BÁO LỖI CHỮ ĐỎ
+    # 🛠️ CẤU HÌNH RENDER GRID: Khai báo định dạng số (format) cho 2 cột mới giúp hiển thị chuyên nghiệp hơn trên UI
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
             "_original_row_index": None, 
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-            "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True),
-            "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
-            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1, max_value=40, step=1),
-            "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True)
-        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v21_master_match" 
+            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
+            "Material Class": st.column_config.SelectboxColumn(
+                "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
+                options=["FABRIC", "FUSING", "LINING", "ACCESSORY", "THREAD"], required=True
+            )
+        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v12_perfect_match" 
     )
 
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
-        if orig_idx in df_bom.index:
-            old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"]) if "pcs_numeric" in df_bom.columns else 1.0
-            new_pcs = float(row["Số lượng rập"])
-            if old_pcs != new_pcs:
-                st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-                has_changed = True
+        old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"])
+        new_pcs = float(row["Số lượng rập"])
+        if old_pcs != new_pcs:
+            st.session_state["user_edited_pieces"][orig_idx] = new_pcs
+            has_changed = True
+        old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip()
+        new_mat = str(row["Material Class"]).upper().strip()
+        if old_mat != new_mat:
+            st.session_state["user_edited_materials"][orig_idx] = new_mat
+            has_changed = True
+            
     if has_changed:
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
         st.rerun()
