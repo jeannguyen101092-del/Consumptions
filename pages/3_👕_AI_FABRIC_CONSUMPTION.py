@@ -2016,24 +2016,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
 
-    # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V25 - PHÂN RÃ BA HÀNH LANG VẬT TƯ): MULTI-MARKER PREPARATION
     # =====================================================================
     import json
 
+    # Đảm bảo context bom_data luôn tồn tại cấu trúc vùng nhớ sạch
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
         st.session_state["bom_data"] = {}
     ctx = st.session_state["bom_data"]
     
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+    if not isinstance(ai_decision_d5, dict): 
+        ai_decision_d5 = {}
         
     virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
     if not virtual_pieces_layer or not isinstance(virtual_pieces_layer, dict):
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
-    if not virtual_pieces_layer: virtual_pieces_layer = {}
+    if not virtual_pieces_layer: 
+        virtual_pieces_layer = {}
 
-    # Đồng bộ khổ vải sản xuất di động thời gian thực từ các trục Master ngoài
+    # ĐỒNG BỘ TUYỆT ĐỐI: Đọc đồng bộ thời gian thực từ các trục biến Master ngoài của Đoạn 1
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
@@ -2042,7 +2045,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     nap_layout_flag = st.session_state.get("is_nap_layout", False)   
     size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
 
-    # ĐÃ SỬA: Phân rã thành 3 mảng độc lập tuyệt đối để nạp cho 3 bộ động cơ MaxRects riêng biệt
+    # Phân rã thành 3 mảng độc lập tuyệt đối để nạp cho 3 bộ động cơ MaxRects riêng biệt
     fabric_unpaired_pieces = []
     fusing_unpaired_pieces = []
     lining_unpaired_pieces = []
@@ -2166,79 +2169,79 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
             return marker_len
 
-        # ➔ BỘ ĐỘNG CƠ 1: Giải sơ đồ VẢI CHÍNH độc lập tuyệt đối
-        fabric_marker_length = run_isolated_maxrects_solver(fabric_unpaired_pieces, current_fabric_width)
-        total_fabric_gross_yds = (fabric_marker_length / 36.0) * 1.030
+        # Tính toán độ dài độc lập cho 3 trục vật tư từ 3 mảng hoàn toàn cách ly
+        if len(fabric_unpaired_pieces) > 0 or len(fusing_unpaired_pieces) > 0 or len(lining_unpaired_pieces) > 0:
+            # ➔ BỘ ĐỘNG CƠ 1: Giải sơ đồ VẢI CHÍNH độc lập tuyệt đối
+            fabric_marker_length = run_isolated_maxrects_solver(fabric_unpaired_pieces, current_fabric_width)
+            total_fabric_gross_yds = (fabric_marker_length / 36.0) * 1.030
 
-        # ➔ BỘ ĐỘNG CƠ 2: Giải sơ đồ MÉC / KEO độc lập tuyệt đối
-        fusing_marker_length = run_isolated_maxrects_solver(fusing_unpaired_pieces, fusing_width)
-        total_fusing_gross_yds = (fusing_marker_length / 36.0) * 1.030
+            # ➔ BỘ ĐỘNG CƠ 2: Giải sơ đồ MÉC / KEO độc lập tuyệt đối
+            fusing_marker_length = run_isolated_maxrects_solver(fusing_unpaired_pieces, fusing_width)
+            total_fusing_gross_yds = (fusing_marker_length / 36.0) * 1.030
 
-        # ➔ BỘ ĐỘNG CƠ 3: Giải sơ đồ VẢI LÓT TÚI độc lập tuyệt đối
-        lining_marker_length = run_isolated_maxrects_solver(lining_unpaired_pieces, lining_width)
-        total_lining_gross_yds = (lining_marker_length / 36.0) * 1.030
+            # ➔ BỘ ĐỘNG CƠ 3: Giải sơ đồ VẢI LÓT TÚI độc lập tuyệt đối
+            lining_marker_length = run_isolated_maxrects_solver(lining_unpaired_pieces, lining_width)
+            total_lining_gross_yds = (lining_marker_length / 36.0) * 1.030
 
-        # Quy đổi ngược mật độ hiệu suất thực tế hiển thị giao diện UI
-        total_fabric_net_area = sum(p["area"] for p in fabric_unpaired_pieces)
-        real_fabric_density = total_fabric_net_area / (fabric_marker_length * current_fabric_width) if fabric_marker_length > 0 else 0.85
-        real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
-    else:
-        real_fabric_density, total_fabric_gross_yds, total_fusing_gross_yds, total_lining_gross_yds = 0.85, 0.0, 0.0, 0.0
+            # Quy đổi ngược mật độ hiệu suất thực tế hiển thị giao diện UI
+            total_fabric_net_area = sum(p["area"] for p in fabric_unpaired_pieces)
+            real_fabric_density = total_fabric_net_area / (fabric_marker_length * current_fabric_width) if fabric_marker_length > 0 else 0.85
+            real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
+        else:
+            real_fabric_density, total_fabric_gross_yds, total_fusing_gross_yds, total_lining_gross_yds = 0.85, 0.0, 0.0, 0.0
 
-    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
-        ctx["ai_expert_decision"] = {}
-    ctx["ai_expert_decision"].update({
-        "real_fabric_density": round(real_fabric_density, 4), 
-        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
-        "total_lining_gross_yds": round(total_lining_gross_yds, 4)
-    })
+        if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
+            ctx["ai_expert_decision"] = {}
+        ctx["ai_expert_decision"].update({
+            "real_fabric_density": round(real_fabric_density, 4), 
+            "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
+            "total_lining_gross_yds": round(total_lining_gross_yds, 4)
+        })
 
-    # =====================================================================
-    # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ CHI TIẾT THEO BAO PHÒNG CÔ LẬP)
-    # =====================================================================
-    # Quét tính toán tổng diện tích tinh sạch của từng nhóm vật tư trực tiếp theo bảng hiển thị UI
-    df_bom["polygon_net_area"] = pd.to_numeric(df_bom["polygon_net_area"], errors='coerce').fillna(0.0)
-    
-    total_fabric_net_sum = sum(float(p["area"]) for p in fabric_unpaired_pieces)
-    total_fusing_net_sum = sum(p["area"] for p in fusing_unpaired_pieces)
-    total_lining_net_sum = sum(p["area"] for p in lining_unpaired_pieces)
-
-    def core_engine_router(row, idx):
-        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
-        p_class = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
+        # =====================================================================
+        # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ CHI TIẾT THEO BAO PHÒNG CÔ LẬP)
+        # =====================================================================
+        df_bom["polygon_net_area"] = pd.to_numeric(df_bom["polygon_net_area"], errors='coerce').fillna(0.0)
         
-        final_pcs_sync = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0))) * size_scale_ratio
-        if p_class == "FABRIC" and float(v_piece.get("production_w", 0.0)) > 16.0:
-            final_pcs_sync = final_pcs_sync * 2.0 
+        total_fabric_net_sum = sum(float(p["area"]) for p in fabric_unpaired_pieces)
+        total_fusing_net_sum = sum(p["area"] for p in fusing_unpaired_pieces)
+        total_lining_net_sum = sum(p["area"] for p in lining_unpaired_pieces)
+
+        def core_engine_router(idx):
+            v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+            p_class = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
             
-        net_area = float(df_bom.at[idx, "polygon_net_area"] if idx in df_bom.index else 0.0)
-        
-        if p_class == "ACCESSORY": 
+            final_pcs_sync = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0))) * size_scale_ratio
+            if p_class == "FABRIC" and float(v_piece.get("production_w", 0.0)) > 16.0:
+                final_pcs_sync = final_pcs_sync * 2.0 
+                
+            net_area = float(df_bom.at[idx, "polygon_net_area"] if idx in df_bom.index else 0.0)
+            
+            if p_class == "ACCESSORY": 
+                return 0.0
+            elif p_class in ["FUSING", "INTERLINING"]:
+                if total_fusing_net_sum > 0: 
+                    return round(total_fusing_gross_yds * ((net_area * final_pcs_sync) / total_fusing_net_sum), 4)
+                return 0.0
+            elif p_class == "FABRIC":
+                # HÀNH LANG CÔ LẬP: Mẫu số tính dựa trên tổng diện tích vải chính, không liên can gì đến vải lót túi
+                if total_fabric_net_sum > 0: 
+                    return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / total_fabric_net_sum), 4)
+                return 0.0
+            elif p_class in ["LINING", "RIB"]:
+                if total_lining_net_sum > 0: 
+                    return round(total_lining_gross_yds * ((net_area * final_pcs_sync) / total_lining_net_sum), 4)
             return 0.0
-        elif p_class in ["FUSING", "INTERLINING"]:
-            if total_fusing_net_sum > 0: 
-                return round(total_fusing_gross_yds * ((net_area * final_pcs_sync) / total_fusing_net_sum), 4)
-            return 0.0
-        elif p_class == "FABRIC":
-            # HÀNH LANG CÔ LẬP: Mẫu số tính dựa trên tổng diện tích vải chính, không liên can gì đến vải lót túi
-            if total_fabric_net_sum > 0: 
-                return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / total_fabric_net_sum), 4)
-            return 0.0
-        elif p_class in ["LINING", "RIB"]:
-            if total_lining_net_sum > 0: 
-                return round(total_lining_gross_yds * ((net_area * final_pcs_sync) / total_lining_net_sum), 4)
-        return 0.0
 
-    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-    df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]) else fusing_width) for idx in df_bom.index]
+        df_bom["Gross Consumption"] = [core_engine_router(idx) for idx in df_bom.index]
+        df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]) else fusing_width) for idx in df_bom.index]
 
-    # Đồng bộ size tính toán thời gian thực bảo vệ lưới UI
-    real_sync_size = str(st.session_state.get("current_active_size", "32")).upper().strip()
-    df_bom["Size tính toán"] = [real_sync_size for _ in df_bom.index]
+        # Đồng bộ size tính toán thời gian thực bảo vệ lưới UI
+        real_sync_size = str(st.session_state.get("current_active_size", "32")).upper().strip()
+        df_bom["Size tính toán"] = [real_sync_size for _ in df_bom.index]
 
-    if len(fabric_unpaired_pieces) > 0:
-        st.success(f"💎 **CAD V25 TRIPLE MAXRECTS ENGINE ACTIVE** | Cô lập vách ngăn vật tư: `HOÀN TẤT` | Định mức vải chính tối ưu đứng im: `{total_fabric_gross_yds:.3f} Yds`")
-
+        if len(fabric_unpaired_pieces) > 0:
+            st.success(f"💎 **CAD V25 TRIPLE MAXRECTS ENGINE ACTIVE** | Khóa trục cô lập vật tư thành công | Định mức vải chính tối ưu đứng im: `{total_fabric_gross_yds:.3f} Yds`")
 
 
 
