@@ -2113,7 +2113,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         initial_horizon_length = max(20.0, total_net_sum / current_fabric_width)
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
         # =====================================================================
-        # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V21 - MASTER ALLOCATION): PURE MAXRECTS BSSF CORE & ROUTER
+        # =====================================================================
+        # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V22 - BIẾN VÁ PHÂN BỔ ĐỘC LẬP): PURE MAXRECTS BSSF CORE & ROUTER
         # =====================================================================
         placed_pieces = []
         overflow_minor_pieces = []
@@ -2136,7 +2137,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             best_short_side_fit = float('inf')
             best_w, best_l = orig_w, orig_l
 
-            # ĐỘNG CƠ MAXRECTS: Tìm ô trống ôm sát cạnh ngắn tối ưu (Best Short Side Fit)
             for s_idx, space in enumerate(spaces):
                 s_w, s_l = space["w"], space["l"]
                 for p_w, p_l in allowed_rotations:
@@ -2147,7 +2147,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                             best_space_idx = s_idx
                             best_w, best_l = p_w, p_l
 
-            # Đặt chi tiết vào tọa độ tối ưu vùng biên sơ đồ phẳng
             if best_space_idx != -1:
                 space = spaces.pop(best_space_idx)
                 posX, posY = space["x"], space["y"]
@@ -2156,13 +2155,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 if posY + best_l > simulated_marker_length:
                     simulated_marker_length = posY + best_l
 
-                # Chia cắt màng không gian trống MaxRects thành các ô chữ nhật tự do mới
                 if space["w"] - best_w > 0.01:
                     spaces.append({"x": posX + best_w, "y": posY, "w": space["w"] - best_w, "l": best_l})
                 if space["l"] - best_l > 0.01:
                     spaces.append({"x": posX, "y": posY + best_l, "w": space["w"], "l": space["l"] - best_l})
 
-                # KHỬ PHÂN MẢNH KHÔNG GIAN (MERGE FREE SPACE CHỐNG NGHẼN Ô TRỐNG)
                 i = 0
                 while i < len(spaces):
                     j = i + 1
@@ -2177,31 +2174,38 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 overflow_minor_pieces.append(g)
 
-        # Định mức lượng linh kiện nhỏ bị tràn vùng tự do an toàn (Hệ số lấp đầy thực tế thương mại 0.92)
         total_overflow_area = sum([float(m["area"]) for m in overflow_minor_pieces])
         overflow_added_len = (total_overflow_area / current_fabric_width) / 0.92 if current_fabric_width > 0 else 0.0
         simulated_marker_length += overflow_added_len
 
-        # DỌN SẠCH TOÀN BỘ CÁC HỆ SỐ PHẠT ẢO ĐỂ TRÁNH BUG NHÂN HAI LẦN HAO HỤT LÃNG PHÍ
-        total_all_net_area = sum(float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC")
+        total_all_net_area = sum(float(p["area"]) for p in raw_unpaired_pieces if g.get("material_class") == "FABRIC")
         real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.85
         real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
         
-        # CHỈ CỘNG HỆ SỐ HAO HỤT ĐẦU KHÚC BÀN CẮT NHÀ MÁY 3% THEO QUY TRÌNH TẠI ĐÂY
         total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
     else:
         real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.85, 0.0, 0.0
 
-    # Tính độc lập định mức tổng vật tư Lining / Rib dựa trên cấu trúc mảng quét đa chi tiết mới
-    total_lining_net_area = sum([float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") in ["LINING", "RIB"]])
+    # 1. Tính toán độc lập và áp dụng biến sửa tay của người dùng vào Tổng diện tích Lót/Rib thời gian thực
+    total_lining_net_area = 0.0
+    for idx_key, vp in virtual_pieces_layer.items():
+        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]:
+            sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0)))
+            total_lining_net_area += float(vp.get("production_net_area", 0.0)) * sync_pcs * size_scale_ratio
+            
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.80 
         total_lining_gross_yds = (lining_sim_length / 36.0) * 1.030
     else:
         total_lining_gross_yds = 0.0
 
-    # Tính độc lập định mức tổng vật tư Fusing dựa trên cấu trúc mảng quét đa chi tiết mới
-    total_fusing_net_area = sum([float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") in ["FUSING", "INTERLINING"]])
+    # 2. Tính toán độc lập và áp dụng biến sửa tay của người dùng vào Tổng diện tích Keo dán thời gian thực
+    total_fusing_net_area = 0.0
+    for idx_key, vp in virtual_pieces_layer.items():
+        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["FUSING", "INTERLINING"]:
+            sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0)))
+            total_fusing_net_area += float(vp.get("production_net_area", 0.0)) * sync_pcs * size_scale_ratio
+
     if total_fusing_net_area > 0 and fusing_width > 0:
         fusing_sim_length = total_fusing_net_area / fusing_width / 0.75
         total_fusing_gross_yds = (fusing_sim_length / 36.0) * 1.030
@@ -2216,18 +2220,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     })
 
     # =====================================================================
-    # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ CHI TIẾT ĐỊNH MỨC THƯƠNG MẠI)
+    # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ CHI TIẾT ĐỊNH MỨC ĐÃ KHÓA BIẾN CHÉO)
     # =====================================================================
-    calculated_total_fabric_net_area = sum([float(vp.get("production_net_area", 0.0)) * float(vp.get("inferred_pieces", 1.0)) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() == "FABRIC"])
+    # Đã sửa: Tính toán Tổng diện tích Vải chính mẫu số độc lập tuyệt đối có áp cờ sửa tay
+    calculated_total_fabric_net_area = 0.0
+    for idx_key, vp in virtual_pieces_layer.items():
+        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() == "FABRIC":
+            sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0)))
+            calculated_total_fabric_net_area += float(vp.get("production_net_area", 0.0)) * sync_pcs * size_scale_ratio
 
     def core_engine_router(row, idx):
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_class = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
         
-        # ĐÃ SỬA: Đọc số lượng rập thực tế sản xuất đã qua nhân hệ số size scale từ Đoạn 5.1 thay vì dùng pcs thô
-        final_pcs_sync = float(v_piece.get("inferred_pieces", 1.0)) * size_scale_ratio
+        # Đồng bộ chính xác số lượng chiếc rập đã nhân cỡ và nhận cờ sửa tay trực tiếp từ UI
+        final_pcs_sync = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0))) * size_scale_ratio
         if p_class == "FABRIC" and float(v_piece.get("production_w", 0.0)) > 16.0:
-            final_pcs_sync = final_pcs_sync * 2.0 # Bù hệ số chi tiết rập đơn vải chính
+            final_pcs_sync = final_pcs_sync * 2.0 
             
         net_area = float(df_bom.at[idx, "polygon_net_area"] if idx in df_bom.index else 1.0)
         
@@ -2236,9 +2245,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if total_fusing_net_area > 0: return round(total_fusing_gross_yds * ((net_area * final_pcs_sync) / total_fusing_net_area), 4)
             return 0.0
         elif p_class == "FABRIC":
-            # Điều chỉnh bóc tách mẫu số vải chính đã chuẩn hóa đơn nguyên
-            fabric_net_pieces_sum = calculated_total_fabric_net_area * size_scale_ratio
-            if fabric_net_pieces_sum > 0: return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / fabric_net_pieces_sum), 4)
+            # Khóa chặt luồng phân bổ: Mẫu số vải chính cô lập hoàn toàn, không bấu víu vào rập vải lót túi
+            if calculated_total_fabric_net_area > 0: return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / calculated_total_fabric_net_area), 4)
             return 0.0
         elif p_class in ["LINING", "RIB"]:
             if total_lining_net_area > 0: return round(total_lining_gross_yds * ((net_area * final_pcs_sync) / total_lining_net_area), 4)
@@ -2247,13 +2255,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]) else fusing_width) for idx in df_bom.index]
 
-    # ĐỐNG BỘ BIẾN SIZE MASTER NGOÀI: Giải phóng hoàn toàn bẫy kẹt size cứng số 32 trên UI
     real_sync_size = str(st.session_state.get("current_active_size", "32")).upper().strip()
     df_bom["Size tính toán"] = [real_sync_size for _ in df_bom.index]
 
     if len(raw_unpaired_pieces) > 0:
-        st.success(f"💎 **CAD V21 PURE MAXRECTS CORE COMPLETE** | Giải phóng kẹt Size: `{real_sync_size}` | Đồng bộ khổ vải động: `{current_fabric_width}\"` | Định mức vải chính tối ưu: `{total_fabric_gross_yds:.3f} Yds`")
-
+        st.success(f"💎 **CAD V22 INDEPENDENT MATERIAL ROUTER ACTIVE** | Khóa trục cô lập vật tư thành công | Định mức vải chính tối ưu ổn định: `{total_fabric_gross_yds:.3f} Yds`")
 
 
 
