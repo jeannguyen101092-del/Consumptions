@@ -2234,7 +2234,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for idx_key, vp in virtual_pieces_layer.items():
         if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]:
             row_bom = df_bom.loc[idx_key] if (not df_bom.empty and idx_key in df_bom.index) else {}
-            c_name = str(row_bom.get("component_name", "")).upper().strip() if row_bom else ""
+            
+            # 🔥 SỬA LỖI VALUEERROR: Kiểm tra độ dài đối tượng Series thay vì check "if row_bom"
+            c_name = str(row_bom.get("component_name", "")).upper().strip() if len(row_bom) > 0 else ""
             
             sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0)))
             if idx_key not in st.session_state.get("user_edited_pieces", {}):
@@ -2255,7 +2257,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for idx_key, vp in virtual_pieces_layer.items():
         if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["FUSING", "INTERLINING"]:
             row_bom = df_bom.loc[idx_key] if (not df_bom.empty and idx_key in df_bom.index) else {}
-            c_name = str(row_bom.get("component_name", "")).upper().strip() if row_bom else ""
+            
+            # 🔥 SỬA LỖI VALUEERROR: Kiểm tra độ dài đối tượng Series thay vì check "if row_bom"
+            c_name = str(row_bom.get("component_name", "")).upper().strip() if len(row_bom) > 0 else ""
             
             sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0)))
             if idx_key not in st.session_state.get("user_edited_pieces", {}):
