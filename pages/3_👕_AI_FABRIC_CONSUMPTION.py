@@ -2093,7 +2093,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: ADAPTIVE GERBER PACKER (VERSION MASTER V37 - NO CLAMP)
+    # 🟩 ĐOẠN 5.2 - PHẦN A: ADAPTIVE GERBER PACKER (VERSION MASTER V37 - FIXED SYNTAX)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2102,8 +2102,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # 🌟 ĐIỂM SỬA 1: GERBER MULTI-CRITERIA SORTING (ƯU TIÊN TUYỆT ĐỐI THEO TỶ LỆ KHUNG HÌNH VÀ DIỆN TÍCH GIẢM DẦN)
-    # Không chỉ sort theo Area, ép sort lồng thêm thuộc tính Trọng số Cặp (Priority) và Tỷ lệ khung hình thuôn dài Aspect Ratio
+    # GERBER MULTI-CRITERIA SORTING (ƯU TIÊN TUYỆT ĐỐI THEO TỶ LỆ KHUNG HÌNH VÀ DIỆN TÍCH GIẢM DẦN)
     raw_unpaired_pieces.sort(key=lambda x: (
         x.get('priority', 3), 
         -x['area'], 
@@ -2115,7 +2114,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         fab_pcs = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
         if fab_pcs and current_fabric_width > 0:
             total_bbox_area = sum(float(p["l"]) * float(p["w"]) for p in fab_pcs)
-            initial_horizon_length = (total_bbox_area / current_fabric_width) * 1.03  # Hạ trần an toàn xuống sát biên 3%
+            initial_horizon_length = (total_bbox_area / current_fabric_width) * 1.03  
         else:
             initial_horizon_length = 10000.0
 
@@ -2135,19 +2134,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         best_space_idx, best_w, best_l, best_fitness = -1, orig_w, orig_l, float('inf')
         p_class = g.get("material_class", "FABRIC")
 
-        # 🌟 ĐIỂM SỬA 3: ADAPTIVE WEIGHTS GENERATOR (TRỌNG SỐ BIẾN ĐỔI THEO CHU KỲ RẢI THỰC TẾ)
-        # Tính toán tỷ lệ chi tiết còn lại và chỉ số phân mảnh hộp tự do thời gian thực
+        # ADAPTIVE WEIGHTS GENERATOR (TRỌNG SỐ BIẾN ĐỔI THEO CHU KỲ RẢI THỰC TẾ)
         pieces_left_ratio = (total_initial_pieces_count - step_idx) / total_initial_pieces_count if total_initial_pieces_count > 0 else 0.0
-        
-        # Chỉ số phân mảnh Fragmentation Score (Dựa trên số lượng hình chữ nhật tự do đang có trong ma trận spaces)
         fragmentation_score = min(1.0, len(spaces) / 50.0)
 
-        # Thiết lập ma trận trọng số thích ứng tự biến đổi tự nhiên (Adaptive Weights)
         if p_class == "FABRIC" and (orig_l > 35.0 or orig_w > 35.0):
-            # Giai đoạn đầu xếp thân to: Ép chặt tọa độ dọc Y (w_y cao), tối ưu hóa diện tích bao hình chữ nhật BAF
             w_y, w_bssf, w_blsf, w_baf, w_contact = 0.40, 0.15, 0.10, 0.25, 0.10
         else:
-            # Giai đoạn sau xếp rập phụ / mếch keo: Khi độ phân mảnh tăng cao, đẩy mạnh trọng số hít biên chu vi (w_contact cao) để điền khoảng trống chết
             w_y = 0.10 + (0.10 * pieces_left_ratio)
             w_contact = 0.25 + (0.15 * fragmentation_score)
             w_bssf = 0.20
@@ -2160,31 +2153,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             for p_w, p_l in allowed_rotations:
                 if p_w <= s_w and p_l <= s_l:
-                    
-                    # Cân bằng thứ nguyên đồng nhất phi đơn vị [0.0 ~ 1.0] cho mọi chỉ số Heuristic
                     y_score = s_y / initial_horizon_length
                     bssf_score = min(s_w - p_w, s_l - p_l) / min(s_w, s_l)
                     blsf_score = max(s_w - p_w, s_l - p_l) / max(s_w, s_l)
                     baf_score = (space_area - (p_w * p_l)) / space_area
                     
-                    # 🌟 ĐIỂM SỬA 2: BOUNDARY CONTACT LENGTH (TÍNH CHU VI TIẾP XÚC BIÊN THỰC ĐẠI THEO ĐỘ DÀI CẠNH CHUẨN CAD)
+                    # BOUNDARY CONTACT LENGTH (TÍNH CHU VI TIẾP XÚC BIÊN THỰC ĐẠI THEO ĐỘ DÀI CẠNH)
                     contact_length = 0.0
                     if s_x == 0 or s_x + p_w == current_fabric_width: contact_length += p_l
                     if s_y == 0: contact_length += p_w
                     
-                    # Đo quét chiều dài đường biên tiếp xúc Rập - Rập thực tế phẳng
                     for p in placed_pieces:
-                        # Tiếp xúc biên dọc trục X
                         if p["x"] + p["w"] == s_x or s_x + p_w == p["x"]:
                             contact_length += max(0.0, min(s_y + p_l, p["y"] + p["l"]) - max(s_y, p["y"]))
-                        # Tiếp xúc biên ngang trục Y
                         if p["y"] + p["l"] == s_y or s_y + p_l == p["y"]:
                             contact_length += max(0.0, min(s_x + p_w, p["x"] + p["w"]) - max(s_x, p["x"]))
                             
                     max_possible_perimeter = 2 * (p_w + p_l)
                     norm_contact_score = min(1.0, contact_length / max_possible_perimeter)
                     
-                    # Tính toán tổng hợp điểm số thích ứng động (Adaptive Cost Function Score)
+                    # Adaptive Cost Function Score
                     fitness = (y_score * w_y) + (bssf_score * w_bssf) + (blsf_score * w_blsf) + (baf_score * w_baf) - (norm_contact_score * w_contact)
                     
                     if fitness < best_fitness:
@@ -2226,7 +2214,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     for idx, oth in enumerate(pruned):
                         if curr["x"] == oth["x"] and curr["w"] == oth["w"] and (curr["y"] + curr["l"] == oth["y"] or oth["y"] + oth["l"] == curr["y"]):
                             oth["y"], oth["l"] = min(curr["y"], oth["y"]), curr["l"] + oth["l"]; break
-                        if curr["y"] == notify_y := oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]):
+                        # 🔥 SỬA LỖI CÚ PHÁP: Tách phẳng biểu thức loại bỏ hoàn toàn toán tử gán nội hàm ":=" gây lỗi
+                        if curr["y"] == oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]):
                             oth["x"], oth["w"] = min(curr["x"], oth["x"]), curr["w"] + oth["w"]; break
                     else:
                         merged.append(curr)
@@ -2236,12 +2225,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             overflow_minor_pieces.append(g)
 
-    # 🌟 ĐIỂM SỬA 4: DENSITY THẬT TỰ NHIÊN 100% (HOÀN TOÀN KHÔNG DÙNG HÀM CLAMP ÉP SỐ)
+    # DENSITY THẬT TỰ NHIÊN 100% (HOÀN TOÀN KHÔNG DÙNG HÀM CLAMP ÉP SỐ)
     fab_placed_only = [p for p in placed_pieces if p.get("material_class") == "FABRIC"]
     fabric_base_length = max(float(p["y"]) + float(p["l"]) for p in fab_placed_only) if fab_placed_only else simulated_marker_length
     net_area_fab = sum(float(p["area"]) for p in fab_placed_only) if fab_placed_only else 1.0
     
-    # Mật độ lấp đầy thực tế sinh ra hoàn toàn tự nhiên từ hình học rải khít khao của V37
     real_fabric_density = net_area_fab / (fabric_base_length * current_fabric_width) if fabric_base_length > 0 else 0.83
     
     overflow_fab_area = sum(float(m["area"]) for m in overflow_minor_pieces if m.get("material_class") == "FABRIC")
