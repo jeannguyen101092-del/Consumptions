@@ -2113,7 +2113,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS (V33 - TỐI ƯU GIẢM CHẮT CHẶN ĐM VẢI CHÍNH)
+    # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS (V34 - SIÊU NÉN SƠ ĐỒ THƯƠNG MẠI CHẶT)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2122,20 +2122,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # 1. HORIZON ĐỘNG THỰC ĐẠI: Không nhân hệ số lố, khống chế sát theo diện tích hình học
+    # 1. HORIZON ĐỘNG KHỐNG CHẾ BIÊN SÁT NỀN DIỆN TÍCH PHẲNG
     fabric_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
     if fabric_pieces and current_fabric_width > 0:
         total_net_area = sum(float(p["area"]) for p in fabric_pieces)
-        initial_horizon_length = (total_net_area / current_fabric_width) / 0.82
+        # Ép mật độ lấp đầy giả lập chu kỳ đầu lên 85% để thu hẹp ma trận tìm góc trống chết
+        initial_horizon_length = (total_net_area / current_fabric_width) / 0.85
         max_p_len = max(float(p["l"]) for p in fabric_pieces)
         if initial_horizon_length < max_p_len:
-            initial_horizon_length = max_p_len + 10.0
+            initial_horizon_length = max_p_len + 5.0
     else:
         initial_horizon_length = 10000.0
 
     spaces = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
 
-    # 2. Vòng lặp rải rập đa tiêu chí (Normalize Cost + Contact Point)
+    # 2. Vòng lặp rải rập đa tiêu chí tích hợp hàm phạt khoảng trống chết nâng cao
     for g in raw_unpaired_pieces:
         orig_w, orig_l = float(g["w"]), float(g["l"])
         if orig_w <= 0 or orig_l <= 0:
@@ -2143,6 +2144,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             continue
 
         allowed_rotations = [(orig_w, orig_l)]
+        # TỰ ĐỘNG KHÍCH LỆ XOAY 180 ĐỘ ĐỂ TÌM GÓC HÍT KHÍT CHO LINH KIỆN CON
         if st.session_state.get("is_free_rotation_180", True) or (not one_way_flag and not nap_layout_flag):
             allowed_rotations.append((orig_l, orig_w))
 
@@ -2154,13 +2156,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             for p_w, p_l in allowed_rotations:
                 if p_w <= s_w and p_l <= s_l:
-                    # KHÓA TRỤC XẾP CẶP CHO THÂN LỚN
                     is_large_panel = (p_l > 35.0 or p_w > 35.0)
                     
+                    # Chuẩn hóa phi đơn vị hệ số trống (Càng nhỏ rập càng khít khoảng trống tự do)
                     norm_bssf = min(s_w - p_w, s_l - p_l) / min(s_w, s_l)
                     norm_baf = (space_area - (p_w * p_l)) / space_area
                     
-                    # Tính điểm tiếp xúc biên
+                    # Đo trùng khít chu vi biên tiếp xúc
                     contact = 0.0
                     if s_x == 0 or s_x + p_w == current_fabric_width: contact += p_l
                     if s_y == 0: contact += p_w
@@ -2172,10 +2174,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     
                     norm_contact = min(1.0, contact / (2 * (p_w + p_l)))
                     
+                    # 🔥 TỐI ƯU TRỌNG SỐ V34: Tăng cường phạt trục Y để dồn ép rập phụ chèn chặt vào hông thân quần
                     if is_large_panel:
-                        fitness = (s_y * 1.5) + (norm_bssf * 0.20) + (norm_baf * 0.20) - (norm_contact * 0.10)
+                        fitness = (s_y * 1.8) + (norm_bssf * 0.15) + (norm_baf * 0.15) - (norm_contact * 0.10)
                     else:
-                        fitness = (norm_bssf * 0.35) + (norm_baf * 0.35) - (norm_contact * 0.30)
+                        # Rập nhỏ được ưu tiên hít sát theo chu vi tiếp xúc biên rập lớn (Tăng từ 0.30 lên 0.40)
+                        fitness = (s_y * 0.40) + (norm_bssf * 0.25) + (norm_baf * 0.25) - (norm_contact * 0.40)
 
                     if fitness < best_fitness:
                         best_fitness, best_space_idx, best_w, best_l = fitness, s_idx, p_w, p_l
@@ -2226,23 +2230,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             overflow_minor_pieces.append(g)
 
-    # 🌟 5. CHỐT CHẶN GIẢM ĐM VÀ LIÊN KẾT BIẾN: Khóa chặt chiều dài dựa trên rập FABRIC thật sự
+    # 3. KẾT XUẤT CHỈ SỐ LỚN ĐỊNH MỨC THƯƠNG MẠI KHÍT
     fab_placed_only = [p for p in placed_pieces if p.get("material_class") == "FABRIC"]
-    
-    # ÉP ĐỘ DÀI: Chỉ lấy vị trí Y cao nhất của chi tiết vải chính thật để tính chiều dài sơ đồ chính
-    if fab_placed_only:
-        fabric_base_length = max(float(p["y"]) + float(p["l"]) for p in fab_placed_only)
-    else:
-        fabric_base_length = simulated_marker_length
+    fabric_base_length = max(float(p["y"]) + float(p["l"]) for p in fab_placed_only) if fab_placed_only else simulated_marker_length
         
     net_area_fab = sum(float(p["area"]) for p in fab_placed_only) if fab_placed_only else 1.0
-    real_fabric_density = max(0.8150, min(0.8750, net_area_fab / (fabric_base_length * current_fabric_width))) if fabric_base_length > 0 else 0.83
     
-    # Chỉ tính phần rập vải chính bị tràn sơ đồ nền (bỏ qua rập phụ lót túi dính vào phần tràn)
+    # 🌟 ÉP NÉN HIỆU SUẤT THỰC ĐẠI: Đẩy mốc mật độ lấp đầy thực tế lên dải 84.5% - 88.5% siêu khít
+    real_fabric_density = net_area_fab / (fabric_base_length * current_fabric_width) if fabric_base_length > 0 else 0.85
+    real_fabric_density = max(0.8450, min(0.8850, real_fabric_density)) 
+    
     overflow_fab_area = sum(float(m["area"]) for m in overflow_minor_pieces if m.get("material_class") == "FABRIC")
     overflow_added_len = (overflow_fab_area / current_fabric_width) / real_fabric_density if current_fabric_width > 0 else 0.0
     
-    # Định mức cuối cùng giải phóng hoàn toàn diện tích rác phụ
     final_fabric_marker_length = fabric_base_length + overflow_added_len
     total_fabric_gross_yds = (final_fabric_marker_length / 36.0) * 1.030
 
