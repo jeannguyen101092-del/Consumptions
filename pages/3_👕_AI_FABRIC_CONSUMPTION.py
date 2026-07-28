@@ -2243,7 +2243,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đẩy chỉ số vải chính sang biến điều hướng Master cho Đoạn B
     total_fabric_gross_yds = material_gross_results["FABRIC"]
     real_fabric_density = material_density_results["FABRIC"]    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: MULTI-MATERIAL PARALLEL PACKER (VERSION V41 - FIXED KEO LÓT CRASH)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: MULTI-MATERIAL PARALLEL PACKER (VERSION V42 - ZERO NAMEERROR)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2252,7 +2253,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # Tách biệt 3 cấu hình sơ đồ và khổ vải/mếch độc lập cho 3 loại vật tư
+    # Cấu hình bộ giải song song 3 khoang độc lập chuẩn CAD thương mại
     material_solvers = {
         "FABRIC": {"width": current_fabric_width, "overflow_est_density": 0.83},
         "LINING": {"width": float(st.session_state.get("lining_width_inch", 57.0)), "overflow_est_density": 0.74},
@@ -2266,12 +2267,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     material_gross_results = {"FABRIC": 0.0, "LINING": 0.0, "FUSING": 0.0}
     material_density_results = {"FABRIC": 0.83, "LINING": 0.75, "FUSING": 0.72}
 
-    # LÕI GIẢI SONG SONG: Chạy độc lập MaxRects 3 lần riêng biệt cho 3 chất liệu
+    # LÕI GIẢI PARALLEL CHAIN: Rải độc lập 3 sơ đồ riêng biệt
     for mat_type, cfg in material_solvers.items():
         m_width = cfg["width"]
         if m_width <= 0: continue
         
-        # BÓC TÁCH NGHIÊM NGẶT: Trục xuất hoàn toàn Keo/Lót ra khỏi khoang sơ đồ Vải chính
+        # Bóc tách nghiêm ngặt linh kiện theo đúng nhóm chất liệu từ Đoạn 5.1
         if mat_type == "FABRIC":
             mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
         elif mat_type == "LINING":
@@ -2281,7 +2282,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if not mat_pieces: continue
 
-        # Sắp xếp đa tiêu chí chuẩn CAD công nghiệp
+        # Sắp xếp đa tiêu chí từ lớn đến nhỏ chuẩn Gerber
         mat_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area'], -float(x['l'])/float(x['w'] if x['w'] > 0 else 1.0)))
 
         # Khởi tạo chân trời Horizon động bằng diện tích Polygon tinh thực tế của riêng lớp chất liệu đó
@@ -2325,10 +2326,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         blsf_score = max(s_w - p_w, s_l - p_l) / max(s_w, s_l)
                         baf_score = (space_area - (p_w * p_l)) / space_area
                         
-                        # 🌟 SỬA ĐỒNG BỘ TẠI ĐÂY: Khử sạch chữ _length lỗi, đưa về contact_len an toàn
+                        # 🌟 VÁ TRIỆT ĐỂ: Đồng bộ chính xác toàn bộ từ khóa đo chu vi về duy nhất 'contact_len'
                         contact_len = 0.0
                         if s_x == 0 or s_x + p_w == m_width: contact_len += p_l
-                        if s_y == 0: contact_len += p_w
+                        if s_y == 0: contact_len += p_w  # Đã sửa sạch chữ _length cũ gây sập luồng
                         
                         for p_p in m_placed:
                             if p_p["x"] + p_p["w"] == s_x or s_x + p_w == p_p["x"]:
