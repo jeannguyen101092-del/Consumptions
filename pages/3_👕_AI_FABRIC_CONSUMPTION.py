@@ -2321,9 +2321,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
    
 
 
-    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+        # =====================================================================
+    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
+        import io
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+        from openpyxl.utils import get_column_letter
+
         output_stream = io.BytesIO()
         workbook = Workbook()
         
@@ -2339,6 +2345,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         bd_side = Side(style='thin', color='BDC3C7')
         bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
         
+        # 🔥 ĐỒNG BỘ AN TOÀN TRÁNH BẪY LỖI NAMEERROR KHI KẾ THỪA BIẾN NGOÀI TRONG HÀM
+        f_width_val = float(st.session_state.get("current_active_width", 58.0))
+        w_shrink_val = float(st.session_state.get("current_warp_shrinkage", 0.0))
+        h_shrink_val = float(st.session_state.get("current_weft_shrinkage", 0.0))
+        s_code_val = str(st.session_state.get("current_active_size", bom_ctx.get("detected_base_size", "32"))).upper().strip()
+
         # --- TAB 1: BOM SUMMARY ---
         w_s1 = workbook.active
         w_s1.title = "BOM Summary"
@@ -2353,8 +2365,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         m_data = [
             ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-            ("Size may mẫu (Sample Size):", str(detected_size_code), "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
-            ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
+            ("Size may mẫu (Sample Size):", s_code_val, "Khổ vải hữu dụng (Width):", f'{f_width_val}"'),
+            ("Co rút dọc (Warp Shrinkage):", f'{w_shrink_val}%', "Co rút ngang (Weft Shrinkage):", f'{h_shrink_val}%'),
             ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
         ]
         
@@ -2362,7 +2374,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột Tiêu đề
                 if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
@@ -2384,7 +2395,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột dữ liệu căn giữa
                 if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
@@ -2399,7 +2409,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_s2.sheet_view.showGridLines = True
         w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
         
-        det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+        # 🌟 ĐỒNG BỘ CHUẨN TÊN CỘT LƯỚI HIỂN THỊ TRÊN FILE EXCEL ĐỂ KHÔNG BỊ KHUYẾT SỐ LIỆU
+        det_hd = [
+            "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
+            "Size tính toán", "Số lượng rập", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", 
+            "polygon_net_area", "Gross Consumption"
+        ]
         for c_idx, h_text in enumerate(det_hd, start=1):
             cell = w_s2.cell(row=3, column=c_idx, value=h_text)
             cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
@@ -2411,7 +2426,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột căn lề bảng chi tiết
                 if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
                 elif c_idx == 4 or c_idx == 5 or c_idx == 6:
@@ -2429,7 +2443,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         workbook.save(output_stream)
         output_stream.seek(0)
-        return output_stream
+        return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
+
        # =====================================================================
      # =====================================================================
     # 🟩 ĐOẠN 7 (VERSION V29 - CHỐNG SẬP RAM & PHỤC HỒI FULL LINH KIỆN CHI TIẾT)
