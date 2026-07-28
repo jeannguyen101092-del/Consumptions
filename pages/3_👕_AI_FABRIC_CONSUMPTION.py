@@ -1871,17 +1871,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
         # =====================================================================
-    # 🟩 ĐOẠN 4 (PHIÊN BẢN V23 - BẢO VỆ KẾT CẤU RẬP QUẦN CHUẨN CAD): AI VIRTUAL PIECE ENGINE
+      # =====================================================================
+    # 🟩 ĐOẠN 4 (PHIÊN BẢN V24 - KHÓA TỪ KHÓA NGHIÊM NGẶT CHỐNG LỆCH THÔNG SỐ): AI VIRTUAL PIECE ENGINE
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
 
-    # Bộ Sniffer định vị chính xác cột kích thước rập đơn sạch
     actual_l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)"] if c in df_bom.columns), "bounding_box_length")
     actual_w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)"] if c in df_bom.columns), "bounding_box_width")
 
-    # Đọc tham số Master điều khiển từ Đoạn 1
     fabric_width = float(st.session_state.get("current_active_width", 58.0))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
@@ -1907,10 +1906,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     is_trouser_item = (current_prod_cat in ["JEAN_LONG", "SHORT"])
 
-    # Mảng đệm trung gian phục vụ thuật toán nắn ngược chiều dài thân trước / thân sau
-    temp_panel_lengths = {"FRONT": 0.0, "BACK": 0.0}
+    # Mảng lưu trữ kích thước thực tế của rập chính để nắn cấu trúc
+    master_panel_lengths = {"FRONT": 0.0, "BACK": 0.0}
 
-    # 🚨 VÒNG LẶP TIỀN XỬ LÝ PHÔI ẢO VÀ LÀM SẠCH BIẾN RÁC
+    # 🚨 VÒNG LẶP TIỀN XỬ LÝ VÀ PHÂN LOẠI VẬT TƯ AN TOÀN CHỐNG NHẦM LẪN
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1934,14 +1933,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class, class_confidence = "FABRIC", 0.95
 
-        # HOTFIX 1: Triệt hạ lỗi phình chiều rộng rập vải chính > 16 inch
+        # ĐĂC TRỊ LỖI PHÌNH ĐÔ SAU (YOKE) VÀ ĐÁP TÚI (FACING)
+        # Khống chế kích thước đô sau (Yoke) và đáp lưng nếu AI đọc nhầm dòng cột làm phình chiều dài
+        if "YOKE" in comp_name_upper or "ĐÔ" in comp_name_upper or "ĐÔ SAU" in comp_name_upper:
+            if l_orig > 25.0: 
+                # Hoán đổi ngược lại kích thước chuẩn của miếng đô quần jean hình thang (~18" x 4.5")
+                swap_temp = l_orig
+                l_orig = w_orig if w_orig > 0 else 4.5
+                w_orig = swap_temp / 4.0 if swap_temp > 0 else 10.26
+
+        # HOTFIX 1: Triệt hạ lỗi phình chiều rộng rập vải chính đơn > 16 inch
         if p_class == "FABRIC" and w_orig > 16.0:
             w_orig = w_orig / 2.0
             if net_area_raw > 0: net_area_raw = net_area_raw / 2.0
 
-        # HOTFIX 2: Khống chế chiều dài trần rập thân quần dài đại trà (Tránh lỗi kéo giãn lố 44-50 inch)
-        if p_class == "FABRIC" and is_trouser_item and l_orig > 43.0 and "PANEL" in comp_name_upper:
-            l_orig = 39.5 # Gán về mốc chiều dài rập chuẩn công nghiệp của quần dài Jean cỡ 32 thành phẩm
+        # HOTFIX 2: Khống chế chiều dài trần rập thân quần dài đại trà (Tránh lỗi kéo giãn lố)
+        if p_class == "FABRIC" and is_trouser_item and l_orig > 45.0 and "LEG" in comp_name_upper:
+            l_orig = 39.5
 
         # Áp thông số co rút thớ sợi sản xuất trực tiếp từ trục Master
         if p_class == "FABRIC":
@@ -1956,12 +1964,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        # Ghi nhận dữ liệu thô để chạy bộ lọc thuật toán sửa lỗi hoán đổi dọc thân quần
-        if p_class == "FABRIC" and is_trouser_item:
-            if "FRONT" in comp_name_upper or "TRƯỚC" in comp_name_upper: temp_panel_lengths["FRONT"] = l_prod
-            if "BACK" in comp_name_upper or "SAU" in comp_name_upper: temp_panel_lengths["BACK"] = l_prod
+        # 🚨 NGHIÊM NGẶT KHÓA CHẶT TỪ KHÓA THÂN QUẦN CHÍNH XÁC (Chỉ nhận LEG PANEL để tránh lọt rác rập phụ)
+        if p_class == "FABRIC" and is_trouser_item and "LEG" in comp_name_upper:
+            if "FRONT" in comp_name_upper or "TRƯỚC" in comp_name_upper: 
+                master_panel_lengths["FRONT"] = l_prod if l_prod > 20.0 else 38.5
+            if "BACK" in comp_name_upper or "SAU" in comp_name_upper: 
+                master_panel_lengths["BACK"] = l_prod if l_prod > 20.0 else 40.5
 
-        # Hình học Guard khống chế diện tích tinh sạch của phôi ảo không lấn át hộp bao chữ nhật phẳng
         bbox_area_check = l_prod * w_prod
         if net_area_raw > bbox_area_check and bbox_area_check > 0:
             net_area_raw = bbox_area_check * (0.76 if p_class == "FABRIC" else 0.85)
@@ -1969,12 +1978,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if net_area_raw <= 0.0 and l_prod > 0 and w_prod > 0:
             net_area_raw = round(l_prod * w_prod * (0.76 if p_class == "FABRIC" else 0.85), 2)
 
-        # Suy luận số lượng mảnh rập rải sơ đồ thực nghiệm
         raw_pcs = float(row.get("pcs_numeric", 1.0))
         inferred_pcs = raw_pcs
         
         if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 10.0 and is_trouser_item:
-            if any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "FRONT", "BACK"]):
+            if any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL"]):
                 if raw_pcs == 1.0: inferred_pcs = 2.0
 
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
@@ -1984,22 +1992,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "inferred_pieces": final_pcs, "component_name": comp_name_raw
         }
 
-    # ➔ CAD STRUCTURE GUARD: SỬA LỖI HOÁN ĐỔI THÂN TRƯỚC / THÂN SAU TỰ ĐỘNG
-    # Nếu AI đọc bảng bị đảo ngược khiến thân trước dài hơn thân sau, hệ thống tự động bù dốc mông cân bằng hình học CAD
-    if trouser_item_flag if 'trouser_item_flag' in locals() else is_trouser_item:
-        f_len = temp_panel_lengths.get("FRONT", 0.0)
-        b_len = temp_panel_lengths.get("BACK", 0.0)
-        if f_len > 0 and b_len > 0 and f_len >= b_len:
-            # Tiến hành hoán đổi trả lại phom dáng chuẩn cho rập sản xuất công nghiệp
-            for idx, vp in virtual_pieces_layer.items():
-                c_name = str(vp.get("component_name", "")).upper()
-                if "FABRIC" in vp.get("inferred_class", ""):
-                    if "FRONT" in c_name or "TRƯỚC" in c_name:
-                        vp["production_l"] = round(b_len * 0.95, 2) # Thân trước ngắn hơn hạ đũng
-                        vp["production_net_area"] = round(vp["production_l"] * vp["production_w"] * 0.74, 2)
-                    if "BACK" in c_name or "SAU" in c_name:
-                        vp["production_l"] = round(f_len, 2)       # Thân sau gánh chiều dài tổng dốc mông
-                        vp["production_net_area"] = round(vp["production_l"] * vp["production_w"] * 0.76, 2)
+    # ➔ CAD STRUCTURE V24: Ép khống chế đồng bộ chiều dài thân quần Jeans thực tế thương mại
+    # Sửa triệt để lỗi đảo ngược thông số: Thân sau (Back) bắt buộc phải dài hơn Thân trước (Front) từ 1.5 - 2.0"
+    if is_trouser_item:
+        f_len = master_panel_lengths.get("FRONT", 0.0)
+        b_len = master_panel_lengths.get("BACK", 0.0)
+        
+        # Nếu dữ liệu thô bị gãy làm mất dấu hoặc hoán đổi sai lệch chiều dài thân trước chân không
+        if f_len < 20.0 or b_len < 20.0 or f_len >= b_len:
+            f_len = 38.8  # Đưa về barem rập chuẩn sản xuất quần jean size 32 mẫu
+            b_len = 40.6
+            
+        for idx, vp in virtual_pieces_layer.items():
+            c_name = str(vp.get("component_name", "")).upper()
+            if "FABRIC" in vp.get("inferred_class", "") and "LEG" in c_name:
+                if "FRONT" in c_name or "TRƯỚC" in c_name:
+                    vp["production_l"] = round(f_len, 2)
+                    vp["production_net_area"] = round(vp["production_l"] * vp["production_w"] * 0.74, 2)
+                if "BACK" in c_name or "SAU" in c_name:
+                    vp["production_l"] = round(b_len, 2)
+                    vp["production_net_area"] = round(vp["production_l"] * vp["production_w"] * 0.76, 2)
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
