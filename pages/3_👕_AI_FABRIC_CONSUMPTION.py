@@ -1866,11 +1866,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V10 - PHẦN 1): PAIR BUILDER & MAXRECTS INITIALIZATION
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
+    if not isinstance(ai_decision_d5, dict): 
+        ai_decision_d5 = {}
+        
     virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
     if not virtual_pieces_layer or not isinstance(virtual_pieces_layer, dict):
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
-    if not virtual_pieces_layer: virtual_pieces_layer = {}
+    if not virtual_pieces_layer: 
+        virtual_pieces_layer = {}
 
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
@@ -1893,15 +1896,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             shape_params = r.get("shape_parameters", {}) or {}
             for _ in range(int(pcs)):
                 raw_unpaired_pieces.append({
-                    "idx": idx, "l": p_len, "w": p_wid, "area": net_area, 
+                    "idx": idx, 
+                    "l": p_len, 
+                    "w": p_wid, 
+                    "area": net_area, 
                     "top_w": p_wid * float(shape_params.get("top_width_ratio", 0.75)), 
                     "bot_w": p_wid * float(shape_params.get("bottom_width_ratio", 0.85)),
-                    "convex": float(r.get("convex_fill_ratio", 0.74)), "mirror": r.get("mirror_piece", False),
-                    "pair_req": r.get("is_left_right_pair", False), "shape": str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip(),
-                    "function": str(r.get("piece_function", "PRIMARY")).upper().strip(), "priority": safe_int(r.get("packing_priority", 3), default=3),
-                    "left_profile": str(shape_params.get("left_edge_profile", "STRAIGHT")).upper(), "right_profile": str(shape_params.get("right_edge_profile", "STRAIGHT")).upper(),
-                    "curvature": str(r.get("edge_curvature", "MEDIUM")).upper(), "complexity": str(r.get("shape_complexity", "MEDIUM")).upper(),
-                    "grain": str(r.get("grain_constraint", "PREFERRED")).upper(), "dominant_axis": str(shape_params.get("dominant_axis", "VERTICAL")).upper()
+                    "convex": float(r.get("convex_fill_ratio", 0.74)), 
+                    "mirror": r.get("mirror_piece", False),
+                    "pair_req": r.get("is_left_right_pair", False), 
+                    "shape": str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip(),
+                    "function": str(r.get("piece_function", "PRIMARY")).upper().strip(), 
+                    "priority": safe_int(r.get("packing_priority", 3), default=3),
+                    "left_profile": str(shape_params.get("left_edge_profile", "STRAIGHT")).upper(), 
+                    "right_profile": str(shape_params.get("right_edge_profile", "STRAIGHT")).upper(),
+                    "curvature": str(r.get("edge_curvature", "MEDIUM")).upper(), 
+                    "complexity": str(r.get("shape_complexity", "MEDIUM")).upper(),
+                    "grain": str(r.get("grain_constraint", "PREFERRED")).upper(), 
+                    "dominant_axis": str(shape_params.get("dominant_axis", "VERTICAL")).upper()
                 })
 
     df_bom["Chiều dài rập (inch)"] = list_lengths
@@ -1938,12 +1950,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         paired_groups.sort(key=lambda x: (x["priority"], -x["area"]))
 
         # 2️⃣ ENGINE 2: KHỞI TẠO BẢN ĐỒ KHÔNG GIAN TỰ DO TRẦN (INITIAL FREE SPACE MANAGER)
-        # Bỏ hoàn toàn cấu trúc hàng (marker_rows). Ước lượng chiều dài trần ban đầu dựa trên tổng diện tích hộp bao
         total_bbox_sum = sum(g["l"] * g["w"] for g in paired_groups)
         initial_horizon_length = max(120.0, (total_bbox_sum / current_fabric_width) * 1.5)
         
         # Khởi tạo một vùng Free Rectangle cực đại duy nhất bao phủ toàn bộ khổ vải
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length, "area": current_fabric_width * initial_horizon_length}]
+
         # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHẦN A): MAXRECTS RECTANGLE PRUNING & BACKTRACKING CORE
         # =====================================================================
