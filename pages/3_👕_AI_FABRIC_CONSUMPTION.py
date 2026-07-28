@@ -2611,19 +2611,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
         st.rerun()
     # =====================================================================
-    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (HÀM VẼ MATPLOTLIB KHÔNG CẦN CÀI THƯ VIỆN)
+    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (HÀM VẼ HTML/SVG THUẦN CHỐNG LỖI THƯ VIỆN)
     # =====================================================================
     st.write("---")
     st.subheader("🗺️ AI Marker Layout Preview (Sơ Đồ Minh Họa Rải Rập 2D)")
 
     if 'placed_pieces' in locals() and len(placed_pieces) > 0 and 'final_fabric_marker_length' in locals():
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-
-        # 1. Khởi tạo khung bản vẽ phẳng hình chữ nhật
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # Bảng màu phẳng sạch lỗi
+        # Định nghĩa bảng màu trực quan cho từng nhóm vật tư
         color_map = {
             "FABRIC": "#1ABC9C",   # Xanh ngọc - vải chính
             "FUSING": "#E67E22",   # Màu cam - mếch/keo
@@ -2632,38 +2626,50 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "ACCESSORY": "#7F8C8D" # Xám - phụ liệu
         }
 
-        # 2. Vòng lặp quét vẽ từng mảnh rập mẫu lên sàn đồ họa
+        # Thiết lập tỉ lệ thu phóng hiển thị tự động để sơ đồ vừa vặn giao diện Web
+        scale_ratio = 850.0 / current_fabric_width if current_fabric_width > 0 else 15.0
+        svg_width = 850
+        svg_height = int(final_fabric_marker_length * scale_ratio)
+
+        # Khởi tạo chuỗi văn bản HTML/SVG nền
+        svg_content = f"""
+        <div style="background-color: #F8F9F9; padding: 10px; border: 1.5px solid #BDC3C7; border-radius: 4px; overflow-x: auto;">
+            <svg width="{svg_width}" height="{svg_height}" style="background-color: #FAFAFA; border: 1px dashed #7F8C8D;">
+        """
+
+        # Duyệt và tạo mã vẽ từng khối hộp hình chữ nhật rập mẫu phẳng
         for p in placed_pieces:
-            px, py, pw, pl = float(p["x"]), float(p["y"]), float(p["w"]), float(p["l"])
-            p_class = p.get("material_class", "FABRIC")
+            # Quy đổi hệ tọa độ thực tế inch sang hệ tọa độ điểm ảnh SVG (Pixel)
+            px = float(p["x"]) * scale_ratio
+            pw = float(p["w"]) * scale_ratio
+            pl = float(p["l"]) * scale_ratio
             
-            # Vẽ khối hộp rập mẫu
-            rect = patches.Rectangle(
-                (px, py), pw, pl, 
-                linewidth=1.0, 
-                edgecolor='#FFFFFF', 
-                facecolor=color_map.get(p_class, "#1ABC9C"), 
-                alpha=0.85
-            )
-            ax.add_patch(rect)
+            # Đảo ngược trục Y đồ họa SVG (Vẽ từ dưới lên trên đúng bản chất bàn cắt CAD)
+            py = svg_height - (float(p["y"]) * scale_ratio) - pl
+            
+            p_class = p.get("material_class", "FABRIC")
+            fill_color = color_map.get(p_class, "#1ABC9C")
+            
+            # Lấy tên linh kiện gốc từ RAM phôi ảo
+            v_p_info = virtual_pieces_layer.get(p["idx"], {}) if 'virtual_pieces_layer' in locals() else {}
+            c_name_display = v_p_info.get("component_name", f"Piece_{p['idx']}")
 
-        # 3. Cấu hình biên trục tọa độ khống chế phẳng chuẩn CAD Gerber
-        ax.set_xlim(0, current_fabric_width)
-        ax.set_ylim(0, final_fabric_marker_length)
-        ax.set_xlabel("Chiều rộng khổ vải (Width - inch)", fontsize=10, fontweight='bold')
-        ax.set_ylabel("Chiều dài sơ đồ (Length - inch)", fontsize=10, fontweight='bold')
-        
-        # Thêm lưới ô vuông kỹ thuật trực quan
-        ax.grid(True, linestyle='--', alpha=0.5, color='#BDC3C7')
-        ax.set_facecolor('#F8F9F9') # Nền xám nhạt phòng CAD
-        
-        # Bật hiển thị lưới khung
-        plt.tight_layout()
+            # Nhúng mã SVG hình khối chữ nhật kèm Tooltip gốc của trình duyệt (thẻ text/title)
+            svg_content += f"""
+                <rect x="{px}" y="{py}" width="{pw}" height="{pl}" 
+                      fill="{fill_color}" stroke="#FFFFFF" stroke-width="1.5" opacity="0.85">
+                    <title>{c_name_display} ({float(p['l']):.1f} x {float(p['w']):.1f} inch)</title>
+                </rect>
+            """
 
-        # Đẩy trực tiếp bản vẽ sơ đồ 2D lên giao diện Streamlit
-        st.pyplot(fig)
-        plt.close(fig) # Giải phóng bộ nhớ RAM hệ thống ngay lập tức
-        
-        st.caption(f"💡 Bản vẽ sơ đồ 2D minh họa. Chiều dài sơ đồ thực tế: <b>{final_fabric_marker_length:.2f} inch</b>.")
+        # Đóng thẻ đồ họa
+        svg_content += """
+            </svg>
+        </div>
+        """
+
+        # Sử dụng API lõi của Streamlit để render trực tiếp HTML/SVG gốc mà không dùng thư viện ngoài
+        st.components.v1.html(svg_content, height=svg_height + 40, scrolling=True)
+        st.caption(f"💡 Bản vẽ sơ đồ 2D minh họa. Chiều dài sơ đồ thực tế: <b>{final_fabric_marker_length:.2f} inch</b>. Di chuột vào từng khối để xem tên chi tiết.")
     else:
         st.warning("⚠️ Không thể dựng sơ đồ 2D do ma trận tọa độ rải rập phẳng đang trống.")
