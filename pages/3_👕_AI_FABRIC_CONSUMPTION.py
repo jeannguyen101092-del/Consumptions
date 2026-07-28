@@ -2016,15 +2016,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V28 - ĐỒNG BỘ TỪ KHÓA DIỆN TÍCH TINH): MULTI-MARKER PREPARATION
+    # 🟩 ĐOẠN 5.1 (BẢN V30 - PHÂN RÃ MẢNG PHÔI ẢO): MULTI-MARKER PREPARATION
     # =====================================================================
     import json
 
-    # Kiểm tra ngữ cảnh vùng nhớ an toàn tầng ngoài
+    # Bảo vệ cấu trúc ngữ cảnh vùng nhớ sạch tầng ngoài
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
         st.session_state["bom_data"] = {}
     ctx = st.session_state["bom_data"]
-    
+
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): 
         ai_decision_d5 = {}
@@ -2035,32 +2035,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not virtual_pieces_layer: 
         virtual_pieces_layer = {}
 
-    # Đọc tham số Master điều khiển thời gian thực
+    # Đọc tham số Master thời gian thực từ Đoạn 1 tầng ngoài
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
-    
+
     one_way_flag = st.session_state.get("is_one_way_fabric", False)  
     nap_layout_flag = st.session_state.get("is_nap_layout", False)   
     size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
 
-    # Khởi tạo 3 hành lang phân rã vật tư độc lập tuyệt đối
+    # Khởi tạo 3 hành lang phân rã độc lập tuyệt đối chống nhảy số chéo dây chuyền
     fabric_unpaired_pieces = []
     fusing_unpaired_pieces = []
     lining_unpaired_pieces = []
 
     list_lengths, list_widths = [], []
 
+    # Vòng lặp trích xuất và làm sạch hình học rập phẳng đơn nguyên bản chuẩn CAD
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
         p_len = float(v_piece.get("production_l", 0.0))
         p_wid = float(v_piece.get("production_w", 0.0))
-        
-        # SỬA LỖI NAME DISCONNECT: Bóc đúng nhãn diện tích tinh của phôi ảo từ RAM Đoạn 4 đổ sang
         net_area = float(v_piece.get("production_net_area", 0.0))
         
-        # Nhận số lượng chiếc rập thời gian thực được đồng bộ từ lưới chỉnh sửa UI
+        # Đồng bộ số lượng rập trực tiếp từ cờ sửa tay thời gian thực của người dùng trên lưới UI
         pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0)))
         pcs = pcs * size_scale_ratio
 
@@ -2068,7 +2067,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if not p_class_check: 
             p_class_check = str(r.get("material_class", "FABRIC")).upper().strip()
 
-        # Bộ lọc bảo vệ phom dáng rập quần Jean đơn nguyên bản chuẩn CAD phẳng
         if p_class_check == "FABRIC" and p_wid > 16.0:
             p_wid = p_wid / 2.0
             net_area = net_area / 2.0
@@ -2085,10 +2083,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_lengths.append(round(p_len, 2) if p_len > 0 else "-")
         list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
 
-        # Đẩy phôi đơn độc lập vào đúng mảng sơ đồ chỉ định
         if p_len > 0:
             piece_data = {"idx": idx, "l": p_len, "w": p_wid, "area": net_area, "material_class": p_class_check}
-            
             if p_class_check == "FABRIC":
                 for _ in range(int(pcs)): fabric_unpaired_pieces.append(piece_data)
             elif p_class_check in ["FUSING", "INTERLINING"]:
@@ -2099,18 +2095,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
         # =====================================================================
-        # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V28 - TÍNH ĐỊNH MỨC ĐỘC LẬP TỪ MẢNG SẠCH)
+        # 🟩 ĐOẠN 5.2 (BẢN V30 - BA ĐỘNG CƠ CÔ LẬP KHÔNG LỒNG HÀM): THREE INDEPENDENT ENGINES
         # =====================================================================
+        # Khai báo giá trị dự phòng ban đầu để triệt tiêu hoàn toàn lỗi biên dịch thụt lề
         total_fabric_gross_yds = 0.0
         total_fusing_gross_yds = 0.0
         total_lining_gross_yds = 0.0
         real_fabric_density = 0.85
 
-        # ➔ ĐỘNG CƠ SƠ ĐỒ 1: Đi sơ đồ độc lập cho VẢI CHÍNH (MaxRects BSSF)
+        # ➔ ĐỘNG CƠ SƠ ĐỒ 1: Giải sơ đồ độc lập cho VẢI CHÍNH (MaxRects BSSF Core)
         if len(fabric_unpaired_pieces) > 0 and current_fabric_width > 0:
             f_net_sum = sum(p["l"] * p["w"] for p in fabric_unpaired_pieces)
-            f_init_hor = max(20.0, f_net_sum / current_fabric_width)
-            f_spaces = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": f_init_hor}]
+            f_spaces = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": max(20.0, f_net_sum / current_fabric_width)}]
             f_marker_len = 0.0
             f_placed = 0
             f_sorted = sorted(fabric_unpaired_pieces, key=lambda x: (-x["area"], -x["l"]))
@@ -2118,7 +2114,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for g in f_sorted:
                 o_w, o_l = float(g["w"]), float(g["l"])
                 rotations = [(o_w, o_l)]
-                if not one_way_flag and not nap_layout_flag: rotations.append((o_l, o_w))
+                if not one_way_flag and not nap_layout_flag: 
+                    rotations.append((o_l, o_w))
                 b_idx, b_fit = -1, float('inf')
                 b_w_f, b_l_f = o_w, o_l
 
@@ -2126,13 +2123,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     for p_w, p_l in rotations:
                         if p_w <= sp["w"] and p_l <= sp["l"]:
                             fit = min(sp["w"] - p_w, sp["l"] - p_l)
-                            if fit < b_fit: b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
+                            if fit < b_fit: 
+                                b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
 
                 if b_idx != -1:
                     space = f_spaces.pop(b_idx)
-                    if space["y"] + b_l_f > f_marker_len: f_marker_len = space["y"] + b_l_f
-                    if space["w"] - b_w_f > 0.01: f_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_l_f})
-                    if space["l"] - b_l_f > 0.01: f_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
+                    if space["y"] + b_l_f > f_marker_len: 
+                        f_marker_len = space["y"] + b_l_f
+                    if space["w"] - b_w_f > 0.01: 
+                        f_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_l_f})
+                    if space["l"] - b_l_f > 0.01: 
+                        f_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
                     f_placed += 1
 
             if f_placed < len(f_sorted):
@@ -2143,11 +2144,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             real_fabric_density = f_net_total / (f_marker_len * current_fabric_width) if f_marker_len > 0 else 0.85
             real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
 
-        # ➔ ĐỘNG CƠ SƠ ĐỒ 2: Đi sơ đồ độc lập cho MÉC / KEO (MaxRects BSSF)
+        # ➔ ĐỘNG CƠ SƠ ĐỒ 2: Giải sơ đồ độc lập cho MÉC / KEO (MaxRects BSSF Core)
         if len(fusing_unpaired_pieces) > 0 and fusing_width > 0:
             fu_net_sum = sum(p["l"] * p["w"] for p in fusing_unpaired_pieces)
-            fu_init_hor = max(20.0, fu_net_sum / fusing_width)
-            fu_spaces = [{"x": 0.0, "y": 0.0, "w": fusing_width, "l": fu_init_hor}]
+            fu_spaces = [{"x": 0.0, "y": 0.0, "w": fusing_width, "l": max(20.0, fu_net_sum / fusing_width)}]
             fu_marker_len = 0.0
             fu_placed = 0
             fu_sorted = sorted(fusing_unpaired_pieces, key=lambda x: (-x["area"], -x["l"]))
@@ -2155,7 +2155,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for g in fu_sorted:
                 o_w, o_l = float(g["w"]), float(g["l"])
                 rotations = [(o_w, o_l)]
-                if not one_way_flag and not nap_layout_flag: rotations.append((o_l, o_w))
+                if not one_way_flag and not nap_layout_flag: 
+                    rotations.append((o_l, o_w))
                 b_idx, b_fit = -1, float('inf')
                 b_w_f, b_l_f = o_w, o_l
 
@@ -2163,24 +2164,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     for p_w, p_l in rotations:
                         if p_w <= sp["w"] and p_l <= sp["l"]:
                             fit = min(sp["w"] - p_w, sp["l"] - p_l)
-                            if fit < b_fit: b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
+                            if fit < b_fit: 
+                                b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
 
                 if b_idx != -1:
                     space = fu_spaces.pop(b_idx)
-                    if space["y"] + b_l_f > fu_marker_len: fu_marker_len = space["y"] + b_l_f
-                    if space["w"] - b_w_f > 0.01: fu_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_w_f})
-                    if space["l"] - b_l_f > 0.01: fu_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
+                    if space["y"] + b_l_f > fu_marker_len: 
+                        fu_marker_len = space["y"] + b_l_f
+                    if space["w"] - b_w_f > 0.01: 
+                        fu_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_l_f})
+                    if space["l"] - b_l_f > 0.01: 
+                        fu_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
                     fu_placed += 1
 
             if fu_placed < len(fu_sorted):
                 fu_marker_len += (sum(p["area"] for p in fu_sorted[fu_placed:]) / fusing_width) / 0.92
             total_fusing_gross_yds = (fu_marker_len / 36.0) * 1.030
 
-        # ➔ ĐỘNG CƠ SƠ ĐỒ 3: Đi sơ đồ độc lập cho VẢI LÓT TÚI (MaxRects BSSF)
+        # ➔ ĐỘNG CƠ SƠ ĐỒ 3: Giải sơ đồ độc lập cho VẢI LÓT TÚI (MaxRects BSSF Core)
         if len(lining_unpaired_pieces) > 0 and lining_width > 0:
             li_net_sum = sum(p["l"] * p["w"] for p in lining_unpaired_pieces)
-            li_init_hor = max(20.0, li_net_sum / lining_width)
-            li_spaces = [{"x": 0.0, "y": 0.0, "w": lining_width, "l": li_init_hor}]
+            li_spaces = [{"x": 0.0, "y": 0.0, "w": lining_width, "l": max(20.0, li_net_sum / lining_width)}]
             li_marker_len = 0.0
             li_placed = 0
             li_sorted = sorted(lining_unpaired_pieces, key=lambda x: (-x["area"], -x["l"]))
@@ -2188,7 +2192,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for g in li_sorted:
                 o_w, o_l = float(g["w"]), float(g["l"])
                 rotations = [(o_w, o_l)]
-                if not one_way_flag and not nap_layout_flag: rotations.append((o_l, o_w))
+                if not one_way_flag and not nap_layout_flag: 
+                    rotations.append((o_l, o_w))
                 b_idx, b_fit = -1, float('inf')
                 b_w_f, b_l_f = o_w, o_l
 
@@ -2196,20 +2201,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     for p_w, p_l in rotations:
                         if p_w <= sp["w"] and p_l <= sp["l"]:
                             fit = min(sp["w"] - p_w, sp["l"] - p_l)
-                            if fit < b_fit: b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
+                            if fit < b_fit: 
+                                b_fit, b_idx, b_w_f, b_l_f = fit, s_idx, p_w, p_l
 
                 if b_idx != -1:
                     space = li_spaces.pop(b_idx)
-                    if space["y"] + b_l_f > li_marker_len: li_marker_len = space["y"] + b_l_f
-                    if space["w"] - b_w_f > 0.01: li_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_w_f})
-                    if space["l"] - b_l_f > 0.01: li_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
+                    if space["y"] + b_l_f > li_marker_len: 
+                        li_marker_len = space["y"] + b_l_f
+                    if space["w"] - b_w_f > 0.01: 
+                        li_spaces.append({"x": space["x"] + b_w_f, "y": space["y"], "w": space["w"] - b_w_f, "l": b_w_f})
+                    if space["l"] - b_l_f > 0.01: 
+                        li_spaces.append({"x": space["x"], "y": space["y"] + b_l_f, "w": space["w"], "l": space["l"] - b_l_f})
                     li_placed += 1
 
             if li_placed < len(li_sorted):
                 li_marker_len += (sum(p["area"] for p in li_sorted[li_placed:]) / lining_width) / 0.92
             total_lining_gross_yds = (li_marker_len / 36.0) * 1.030
 
-        # Xuất bản dữ liệu kiểm toán lên context hệ thống
+        # Đồng bộ siêu dữ liệu lên ngữ cảnh bộ não hệ thống
         if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
             ctx["ai_expert_decision"] = {}
         ctx["ai_expert_decision"].update({
@@ -2219,9 +2228,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         })
 
         # =====================================================================
-        # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ CHI TIẾT ĐỊNH MỨC BIỆT LẬP CÔ LẬP)
+        # PUBLISHING CONSUMPTION ROUTER (CÔ LẬP VÁCH NGĂN VẬT TƯ ĐỒNG BỘ 100%)
         # =====================================================================
-        # Ép đồng bộ lại trường polygon_net_area hiển thị trên bảng UI theo mảng RAM sạch để gỡ nút thắt số 0
         clean_area_display = []
         for idx in df_bom.index:
             v_p = virtual_pieces_layer.get(idx, {})
@@ -2249,7 +2257,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return round(total_fusing_gross_yds * ((net_area * final_pcs_sync) / total_fusing_net_sum), 4)
                 return 0.0
             elif p_class == "FABRIC":
-                # HÀNH LANG CÔ LẬP TUYỆT ĐỐI: Mẫu số gánh độc lập, đứng im hoàn toàn khi sửa vải lót túi
                 if total_fabric_net_sum > 0: 
                     return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / total_fabric_net_sum), 4)
                 return 0.0
@@ -2262,7 +2269,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]) else fusing_width) for idx in df_bom.index]
 
         # Khóa đồng bộ size tính toán hiển thị bảng chi tiết
-        real_sync_size = str(st.session_state.get("current_active_size", "32")).upper().strip()
+
         df_bom["Size tính toán"] = [real_sync_size for _ in df_bom.index]
         st.success(f"💎 **CAD V27 TRIPLE MAXRECTS ENGINES COMPLETE** | Phẳng hóa cấu trúc lề: `THÀNH CÔNG` | Định mức vải chính tối ưu biệt lập: `{total_fabric_gross_yds:.3f} Yds`")
 
