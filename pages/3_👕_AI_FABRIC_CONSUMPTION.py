@@ -1862,9 +1862,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-        # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V10 - PHẦN 1): PAIR BUILDER & MAXRECTS INITIALIZATION
     # =====================================================================
+    
+    # Định nghĩa hàm convert dữ liệu an toàn ngay tại chỗ để sửa lỗi NameError
+    def safe_int(value, default=3):
+        try:
+            if value is None:
+                return default
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): 
         ai_decision_d5 = {}
@@ -1955,6 +1965,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # Khởi tạo một vùng Free Rectangle cực đại duy nhất bao phủ toàn bộ khổ vải
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length, "area": current_fabric_width * initial_horizon_length}]
+
 
         # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHẦN A): MAXRECTS RECTANGLE PRUNING & BACKTRACKING CORE
