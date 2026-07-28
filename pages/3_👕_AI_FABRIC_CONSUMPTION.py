@@ -2053,56 +2053,70 @@ def solve_maxrects_backtrack(paired_groups, free_rectangles, initial_length=0.0)
     return placed_pieces, overflow_pieces, max_marker_length
 
 
-# =====================================================================
-# 🟩 ĐOẠN 5.2 (PHẦN B): COST FUNCTION OPTIMIZER & CONSUMPTION PUBLISHING
-# =====================================================================
-if len(raw_unpaired_pieces) > 0 and current_fabric_width > 0:
-    # LÀM SẠCH DỮ LIỆU ĐẦU VÀO ĐỂ BẢO VỆ ĐỘNG CƠ TOÁN HỌC
-    for g in paired_groups:
-        g["w"] = float(g.get("w", 0.0) or 0.0)
-        g["l"] = float(g.get("l", 0.0) or 0.0)
-        g["area"] = float(g.get("area", 0.0) or 0.0)
+        # =====================================================================
+        # 🟩 ĐOẠN 5.2 (PHẦN B): COST FUNCTION OPTIMIZER & CONSUMPTION PUBLISHING
+        # =====================================================================
+        # LÀM SẠCH DỮ LIỆU ĐẦU VÀO ĐỂ BẢO VỆ ĐỘNG CƠ TOÁN HỌC
+        for g in paired_groups:
+            g["w"] = float(g.get("w", 0.0) or 0.0)
+            g["l"] = float(g.get("l", 0.0) or 0.0)
+            g["area"] = float(g.get("area", 0.0) or 0.0)
+            
+        for r in free_rectangles:
+            r["w"] = float(r.get("w", 0.0) or 0.0)
+            r["l"] = float(r.get("l", 0.0) or 0.0)
+            r["x"] = float(r.get("x", 0.0) or 0.0)
+            r["y"] = float(r.get("y", 0.0) or 0.0)
+
+        # Kích hoạt bộ động cơ đệ quy toán học phẳng MaxRects
+        _, overflow_minor_pieces, simulated_marker_length = solve_maxrects_backtrack(paired_groups, free_rectangles, 0.0)
+
+        # Xử lý lượng linh kiện phụ bị tràn vùng tự do nếu có
+        total_overflow_area = sum([float(m.get("area", 0.0) or 0.0) for m in overflow_minor_pieces])
+        overflow_added_len = (total_overflow_area / current_fabric_width) / 0.85 if current_fabric_width > 0 else 0.0
+        simulated_marker_length += overflow_added_len
+
+        # ĐÃ SỬA: Thuật toán cắt gọt không gian trống thừa để tránh bị phạt hiệu suất ảo
+        # Chỉ giữ lại phần không gian trống thực sự nằm xen kẽ giữa các chi tiết rập đã xếp
+        purged_free_rectangles = []
+        for g in free_rectangles:
+            g_y = float(g.get("y", 0.0) or 0.0)
+            g_l = float(g.get("l", 0.0) or 0.0)
+            g_w = float(g.get("w", 0.0) or 0.0)
+            
+            if g_y < simulated_marker_length:
+                # Nếu vùng trống kéo dài lố qua chiều dài sơ đồ thực, cắt ngắn nó lại
+                actual_l = min(g_l, simulated_marker_length - g_y)
+                if actual_l > 0:
+                    purged_free_rectangles.append({
+                        "w": g_w, "l": actual_l, "area": g_w * actual_l, "x": g.get("x", 0.0), "y": g_y
+                    })
         
-    for r in free_rectangles:
-        r["w"] = float(r.get("w", 0.0) or 0.0)
-        r["l"] = float(r.get("l", 0.0) or 0.0)
-        r["x"] = float(r.get("x", 0.0) or 0.0)
-        r["y"] = float(r.get("y", 0.0) or 0.0)
-
-    # Kích hoạt bộ động cơ đệ quy toán học phẳng MaxRects (Đã sửa lỗi)
-    _, overflow_minor_pieces, simulated_marker_length = solve_maxrects_backtrack(paired_groups, free_rectangles, 0.0)
-
-    # Xử lý lượng linh kiện phụ bị tràn vùng tự do nếu có
-    total_overflow_area = sum([float(m.get("area", 0.0) or 0.0) for m in overflow_minor_pieces])
-    overflow_added_len = (total_overflow_area / current_fabric_width) / 0.85 if current_fabric_width > 0 else 0.0
-    simulated_marker_length += overflow_added_len
-
-    # COST FUNCTION MARKER OPTIMIZER (LÕI ĐÁNH GIÁ ĐA BIẾN SÁT GERBER)
-    remaining_gap_sum = sum([float(g.get("area", 0.0) or 0.0) for g in free_rectangles])
-    
-    # Đo đạc vùng hao hụt khổ biên sơ đồ thực tế
-    valid_widths = [float(g.get("w", 0.0) or 0.0) for g in free_rectangles if float(g.get("y", 0.0) or 0.0) >= simulated_marker_length - 5.0]
-    max_free_w = max(valid_widths) if valid_widths else 0.0
-    unused_width_loss = (current_fabric_width - max_free_w) / current_fabric_width
-    
-    # Ma trận hàm phạt hồi quy thực tế phòng sơ đồ dệt thoi thương mại
-    cost_function_penalty = 1.0 + (remaining_gap_sum * 0.00012) + (unused_width_loss * 0.012)
-    if one_way_flag: 
-        cost_function_penalty += 0.045
-    elif nap_layout_flag: 
-        cost_function_penalty += 0.025
-    else: 
-        cost_function_penalty -= 0.025 # Thưởng tráo đầu 180° tự do kịch sàn
-    
-    simulated_marker_length *= max(0.9200, min(1.0800, cost_function_penalty))
-    
-    # Hệ số hao hụt dạt đầu khúc bàn cắt nền thương mại công ty 3%
-    total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
-    
-    # Quy đổi ngược mật độ hiệu suất thực tế hiển thị giao diện UI
-    total_all_net_area = sum(float(p.get("area", 0.0) or 0.0) for p in raw_unpaired_pieces)
-    real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.80
-    real_fabric_density = max(0.6500, min(0.9450, real_fabric_density))
+        # Đánh giá đa biến dựa trên mảng không gian trống thực tế sau khi co nền
+        remaining_gap_sum = sum([r["area"] for r in purged_free_rectangles])
+        
+        valid_widths = [r["w"] for r in purged_free_rectangles if r["y"] >= max(0.0, simulated_marker_length - 5.0)]
+        max_free_w = max(valid_widths) if valid_widths else 0.0
+        unused_width_loss = (current_fabric_width - max_free_w) / current_fabric_width
+        
+        # Ma trận hàm phạt hồi quy thực tế phòng sơ đồ dệt thoi thương mại
+        cost_function_penalty = 1.0 + (remaining_gap_sum * 0.00012) + (unused_width_loss * 0.012)
+        if one_way_flag: 
+            cost_function_penalty += 0.045
+        elif nap_layout_flag: 
+            cost_function_penalty += 0.025
+        else: 
+            cost_function_penalty -= 0.025 # Thưởng tráo đầu 180° tự do kịch sàn
+        
+        simulated_marker_length *= max(0.9200, min(1.0800, cost_function_penalty))
+        
+        # Hệ số hao hụt dạt đầu khúc bàn cắt nền thương mại công ty 3%
+        total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
+        
+        # CHÂN LÝ TOÁN HỌC PHẲNG: Quy đổi ngược mật độ hiệu suất thực tế hiển thị UI
+        total_all_net_area = sum(float(p.get("area", 0.0) or 0.0) for p in raw_unpaired_pieces)
+        real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.80
+        real_fabric_density = max(0.7200, min(0.9250, real_fabric_density)) # Nâng giới hạn sàn hiệu suất thực tế lên 72%
 else:
     real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.80, 0.0, 0.0
 
@@ -2114,7 +2128,6 @@ if total_lining_net_area > 0 and lining_width > 0:
 else:
     total_lining_gross_yds = 0.0
 
-# Khởi tạo bảo vệ cấu trúc từ điển tránh lỗi KeyError/AttributeError
 if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
     ctx["ai_expert_decision"] = {}
 
@@ -2129,7 +2142,6 @@ ctx["ai_expert_decision"].update({
 # =====================================================================
 def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
     if fusing_width <= 0: return 0.0
-    # SỬA LỖI BIẾN: Đổi p_wid thành w_prod để tính diện tích chuẩn xác
     bounding_box_area = float(l_prod) * float(w_prod) if (float(l_prod) > 0 and float(w_prod) > 0) else float(net_area)
     void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
     return ((net_area * pcs) / fusing_width / round(0.70 - (void_ratio * 0.40), 3) / 36.0) * 1.15
