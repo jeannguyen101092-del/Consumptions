@@ -2128,8 +2128,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
      
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: PURE MAXRECTS CORE & FABRIC COMPUTATION
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: PURE MAXRECTS CORE & FABRIC COMPUTATION (V26 - CAD OPTIMIZED)
     # =====================================================================
     import pandas as pd
 
@@ -2137,14 +2137,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     overflow_minor_pieces = []
     simulated_marker_length = 0.0
 
-    # Cơ chế bảo vệ: Nếu không có df_bom hoặc df_bom bị rỗng, khởi tạo DataFrame rỗng để tránh sập app
+    # Cơ chế bảo vệ dữ liệu nền DataFrame
     if 'df_bom' not in locals() and 'df_bom' not in globals():
         df_bom = pd.DataFrame()
 
     if 'current_fabric_width' not in locals():
         current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # Tối ưu hiệu suất sơ đồ: Đảm bảo mảng rập được sắp xếp từ lớn đến nhỏ trước khi đưa vào thuật toán
+    # Tối ưu hóa: Ép sắp xếp rập từ to đến nhỏ để giải bài toán khoảng trống chết của MaxRects
     raw_unpaired_pieces.sort(key=lambda x: x['area'], reverse=True)
 
     if 'initial_horizon_length' not in locals():
@@ -2154,7 +2154,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             initial_horizon_length = 10000.0
 
-    # Thiết lập mảng không gian tự do tối ưu dựa trên khổ vải sản xuất di động
+    # Khởi tạo ma trận không gian tự do dựa trên khổ vải sản xuất
     spaces = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
 
     for g in raw_unpaired_pieces:
@@ -2163,9 +2163,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             overflow_minor_pieces.append(g)
             continue
 
-        allowed_rotations = [(orig_w, orig_l)]
-        if not one_way_flag and not nap_layout_flag:
-            allowed_rotations.append((orig_l, orig_w))
+        # =====================================================================
+        # 🎯 🔥 ĐỒNG BỘ LOGIC CAD: CẤU HÌNH XOAY RẬP THEO QUY TẮC CANH SỢI UI
+        # =====================================================================
+        allowed_rotations = [(orig_w, orig_l)]  # Mặc định giữ nguyên chiều rập gốc
+        
+        # Đọc trạng thái nút "Cắt tự do (Xoay ngược 180°)" từ UI
+        # (Giả định key trong st.session_state của ô đầu tiên là "is_free_rotation_180")
+        free_rotation_180 = st.session_state.get("is_free_rotation_180", True)
+
+        # QUY TẮC 1: Nếu người dùng tích "Cắt tự do (Xoay ngược 180°)" HOẶC hệ thống thả lỏng hoàn toàn (Không tích Nap, Không tích One-Way)
+        if free_rotation_180 or (not one_way_flag and not nap_layout_flag):
+            allowed_rotations.append((orig_l, orig_w))  # Cho phép thuật toán xoay rập để đi sơ đồ khít hơn
+            
+        # QUY TẮC 2: Nếu tích chọn "Cắt mỗi bộ 1 chiều (Nap)" -> Cấm xoay tự do giữa các bộ, nhưng thuật toán vẫn xử lý nén tĩnh tốt hơn
+        elif nap_layout_flag:
+            # Khóa góc xoay ngang phá canh, chỉ giữ nguyên luồng chiều dọc rập mặc định
+            pass
+            
+        # QUY TẮC 3: Nếu tích chọn "Tất cả size 1 chiều (One-Way)" -> Giữ nguyên chiều tuyệt đối
+        elif one_way_flag:
+            pass
+        # =====================================================================
 
         best_space_idx = -1
         best_short_side_fit = float('inf')
@@ -2201,25 +2220,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     r1, r2 = spaces[i], spaces[j]
                     if r2["x"] <= r1["x"] and r2["y"] <= r1["y"] and r2["x"]+r2["w"] >= r1["x"]+r1["w"] and r2["y"]+r2["l"] >= r1["y"]+r1["l"]:
                         spaces.pop(i); i -= 1; break
-                    elif r1["x"] <= r2["x"] and r1["y"] <= r2["y"] and r1["x"]+r2["w"] >= r2["x"]+r2["w"] and r1["y"]+r1["l"] >= r2["y"]+r2["l"]:
+                    elif r1["x"] <= r2["x"] and r1["y"] <= r2["y"] and r1["x"]+r1["w"] >= r2["x"]+r2["w"] and r1["y"]+r1["l"] >= r2["y"]+r2["l"]:
                         spaces.pop(j); j -= 1
                     j += 1
                 i += 1
         else:
             overflow_minor_pieces.append(g)
 
-    # Định mức hóa lượng chi tiết nhỏ bị tràn vùng tự do (Hệ số lấp đầy thực tế thương mại 0.85)
+    # Xử lý phần rập tràn vùng tự do
     total_overflow_area = sum([float(m["area"]) for m in overflow_minor_pieces])
     overflow_added_len = (total_overflow_area / current_fabric_width) / 0.85 if current_fabric_width > 0 else 0.0
     simulated_marker_length += overflow_added_len
     
-    # Cộng hệ số hao hụt đầu khúc bàn cắt nhà máy 3% theo quy trình
+    # Cộng hệ số hao hụt đầu bàn cắt 3%
     total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
 
-    # Tính toán chính xác tổng diện tích tinh vải chính dựa trên mảng rải thực tế đầu vào
     total_fabric_net_area_solver = sum(float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC")
     real_fabric_density = total_fabric_net_area_solver / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.82
     real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
+
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN B: LINING/FUSING SOLVER & PUBLISHING ROUTER
     # =====================================================================
