@@ -2231,8 +2231,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     simulated_marker_length += (sum(float(m["area"]) for m in overflow_minor_pieces) / current_fabric_width) / real_fabric_density if current_fabric_width > 0 else 0.0
     total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
 
-      # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN V31 - SỬA LỖI PHÂN BỔ 0 ĐM)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN OVERRIDE TÁCH VẬT TƯ)
     # =====================================================================
     tot_ln_area, tot_fs_area, tot_fb_area = 0.0, 0.0, 0.0
     u_edit_pcs = st.session_state.get("user_edited_pieces", {})
@@ -2242,18 +2242,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if col in df_bom.columns:
             df_bom[col] = pd.to_numeric(df_bom[col], errors='coerce').fillna(0.0)
 
-    # Tự động dò tìm chính xác tên cột phân loại vật tư trên lưới của bạn (bất kể hoa/thường)
+    # Tự động dò tìm chính xác tên cột phân loại vật tư và tên linh kiện trên lưới UI
     m_class_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), None)
+    c_name_col = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 2. VÒNG LẶP SỬA LỖI ĐẦU: Gom diện tích đọc trực tiếp từ DataFrame để tránh lệch lớp phôi ảo
+    # 🔥 BƯỚC OVERRIDE: Ép tách phân loại vật tư chuẩn xác bằng tên linh kiện thực tế từ PDF
+    for idx, row in df_bom.iterrows():
+        c_nm_upper = str(row.get(c_name_col, "")).upper().strip()
+        
+        # Mặc định lấy lớp cũ
+        p_cls = "FABRIC"
+        
+        # Nếu tên linh kiện chứa từ khóa của keo/mếch dựng hình
+        if any(x in c_nm_upper for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "INTERFACING"]):
+            p_cls = "FUSING"
+        # Nếu tên linh kiện chứa từ khóa của lót túi/vải lót/bo gân
+        elif any(x in c_nm_upper for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]):
+            p_cls = "LINING"
+            
+        # Ghi nhận ngược lại DataFrame lưới UI để hiển thị trực quan cho người dùng xem
+        if m_class_col:
+            df_bom.at[idx, m_class_col] = p_cls
+
+    # 2. VÒNG LẶP GOM DIỆN TÍCH ĐỘC LẬP THEO TỪNG LỚP VẬT TƯ SAU KHI ĐÃ OVERRIDE TÁCH BIỆT
     for idx, row in df_bom.iterrows():
         v_pc = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_cls = str(row.get(m_class_col, "FABRIC")).upper().strip()
+        c_nm = str(row.get(c_name_col, "")).upper().strip()
         
-        # Đọc trực tiếp phân loại vật tư từ cột hiển thị trên lưới giao diện UI
-        p_cls = str(row.get(m_class_col, v_pc.get("inferred_class", "FABRIC"))).upper().strip() if m_class_col else "FABRIC"
-        c_nm = str(row.get("component_name", "")).upper().strip()
-        
-        # Đồng bộ số lượng chi tiết thực tế
         pcs = float(u_edit_pcs.get(idx, v_pc.get("inferred_pieces", 1.0)))
         if idx not in u_edit_pcs:
             if p_cls in ["LINING", "RIB"] and ("POCKET" in c_nm or "BAG" in c_nm) and "BACK" not in c_nm: pcs = 2.0
@@ -2262,18 +2278,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_area = float(row.get("polygon_net_area", 0.0))
         act_area = p_area * pcs * size_scale_ratio
         
-        # Gom diện tích đóng gói
+        # Gom diện tích riêng biệt vào từng khoang bộ nhớ vật tư, giải phóng cho vải chính
         if p_cls in ["LINING", "RIB"]: tot_ln_area += act_area
         elif p_cls in ["FUSING", "INTERLINING"]: tot_fs_area += act_area
         elif p_cls == "FABRIC": tot_fb_area += act_area
 
-    # 3. Quy đổi định mức tổng Gross Yds thương mại cho các nhóm vật tư phụ
+    # 3. Quy đổi định mức tổng Gross Yds độc lập cho các nhóm vật tư phụ
     tot_ln_yds = (tot_ln_area / lining_width / 0.80 / 36.0) * 1.030 if (tot_ln_area > 0 and lining_width > 0) else 0.0
     tot_fs_yds = (tot_fs_area / fusing_width / 0.75 / 36.0) * 1.030 if (tot_fs_area > 0 and fusing_width > 0) else 0.0
 
-    # Nếu mảng tính toán vải chính bị rỗng, cứu bằng tổng diện tích tinh vải chính thu được
-    if tot_fb_area <= 0 and 'total_fabric_net_area_solver' in locals():
-        tot_fb_area = total_fabric_net_area_solver
+    # Hiệu chỉnh lại simulated_marker_length vải chính (Trích xuất các linh kiện phụ đã tách ra khỏi sơ đồ vải chính)
+    if tot_fb_area > 0 and real_fabric_density > 0 and current_fabric_width > 0:
+        # Chiều dài sơ đồ thực tế chỉ chứa các chi tiết FABRIC thật sự
+        optimized_marker_len = (tot_fb_area / current_fabric_width) / real_fabric_density
+        total_fabric_gross_yds = (optimized_marker_len / 36.0) * 1.030
 
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"].update({
@@ -2283,12 +2301,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "total_fusing_gross_yds": round(tot_fs_yds, 4)
     })
 
-    # 4. Phân bổ trực tiếp chỉ số Gross Consumption cho từng dòng rập
+    # 4. Phân bổ chỉ số Gross Consumption cho từng dòng rập dựa trên mảng diện tích sạch
     gross_list = []
     for idx, row in df_bom.iterrows():
         v_pc = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
-        p_cls = str(row.get(m_class_col, v_pc.get("inferred_class", "FABRIC"))).upper().strip() if m_class_col else "FABRIC"
-        c_nm = str(row.get("component_name", "")).upper().strip()
+        p_cls = str(row.get(m_class_col, "FABRIC")).upper().strip()
+        c_nm = str(row.get(c_name_col, "")).upper().strip()
         
         pcs = float(u_edit_pcs.get(idx, v_pc.get("inferred_pieces", 1.0)))
         if idx not in u_edit_pcs:
@@ -2298,7 +2316,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         r_area = float(row.get("polygon_net_area", 0.0)) * pcs * size_scale_ratio
         row_gross = 0.0
         
-        # Thực hiện chia tỷ lệ phân bổ trên diện tích đóng góp thực tế
         if p_cls == "FABRIC" and tot_fb_area > 0: 
             row_gross = (r_area / tot_fb_area) * total_fabric_gross_yds
         elif p_cls in ["LINING", "RIB"] and tot_ln_area > 0: 
@@ -2308,7 +2325,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         gross_list.append(round(row_gross, 4))
 
-    # 5. Đẩy kết quả sạch lên cấu trúc lưới hiển thị UI của Streamlit
+    # 5. Cập nhật mảng giá trị định mức thương mại sạch lên giao diện
     df_bom["Gross Consumption"] = gross_list
     
     st.session_state.update({
@@ -2316,7 +2333,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "summary_fusing_gross": round(tot_fs_yds, 4),
         "summary_lining_gross": round(tot_ln_yds, 4)
     })
-
 
 
    
