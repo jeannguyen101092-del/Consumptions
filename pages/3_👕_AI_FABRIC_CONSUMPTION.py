@@ -1862,8 +1862,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-      # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V15 - SỬA TẬN GỐC DỮ LIỆU ĐẦU VÀO): DATA HOTFIX & PARSER
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V17 - CHUẨN ĐA VẬT TƯ & SIZE SCALE): DYNAMIC PARSER
     # =====================================================================
     import json
 
@@ -1884,22 +1884,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_unpaired_pieces = []
     list_lengths, list_widths = [], []
 
+    # ĐỒNG BỘ SIZE SCALE: Lấy tổng hệ số số lượng sản phẩm từ session_state (Mặc định là 1 nếu đi sơ đồ đơn)
+    size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
+
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_len, p_wid = float(v_piece.get("production_l", 0.0)), float(v_piece.get("production_w", 0.0))
         net_area, pcs = float(v_piece.get("production_net_area", 0.0)), float(v_piece.get("inferred_pieces", 1.0))
         
-        # HOTFIX DỮ LIỆU GỐC: Nếu bề rộng rập thân quần bị gộp sai thành >16 inch, tự động trả về kích thước đơn chuẩn CAD
-        p_class_check = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
+        # Nhận diện chính xác nhãn phân loại lớp vật tư
+        p_class_check = str(v_piece.get("inferred_class", "")).upper().strip()
+        if not p_class_check: 
+            p_class_check = str(r.get("material_class", "FABRIC")).upper().strip()
+
+        # Nhân số lượng chi tiết theo hệ số bảng size scale tương ứng
+        pcs = pcs * size_scale_ratio
+
+        # HOTFIX DỮ LIỆU THÔ: Nếu rập vải chính bị phình to do bẫy nhân đôi bề rộng trước đó, tự động chia đôi về nguyên bản
         if p_class_check == "FABRIC" and p_wid > 16.0:
             p_wid = p_wid / 2.0
-            net_area = net_area / 2.0 # Điều chỉnh lại diện tích tinh tương ứng của chi tiết đơn
-            pcs = pcs * 2.0           # Nhân đôi số lượng rập đơn để sơ đồ tự xếp cặp đối xứng
+            net_area = net_area / 2.0
+            pcs = pcs * 2.0
 
         list_lengths.append(round(p_len, 2) if p_len > 0 else "-")
         list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
 
-        if p_class_check == "FABRIC" and p_len > 0:
+        # ĐÃ SỬA: Chấp nhận nạp cả FABRIC, FUSING, INTERLINING, LINING, RIB vào lõi xếp sơ đồ phẳng
+        if p_class_check in ["FABRIC", "FUSING", "INTERLINING", "LINING", "RIB"] and p_len > 0:
             raw_params = r.get("shape_parameters", {})
             shape_params = {}
             if isinstance(raw_params, dict): shape_params = raw_params
@@ -1914,6 +1925,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     "l": p_len, 
                     "w": p_wid, 
                     "area": net_area,
+                    "material_class": p_class_check, # Đẩy nhãn vật tư vào mảng cấu trúc để Đoạn 5.2 phân luồng tính độc lập
                     "function": str(r.get("piece_function", "PRIMARY")).upper().strip(),
                     "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3
                 })
@@ -1928,7 +1940,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         initial_horizon_length = max(20.0, total_net_sum / current_fabric_width)
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
         # =====================================================================
-        # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V15 - CHUẨN CAD): PURE MAXRECTS BSSF CORE & ROUTER
+        # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V17 - ĐỒNG BỘ SIZE & ĐA VẬT TƯ CHUẨN CAD)
         # =====================================================================
         placed_pieces = []
         overflow_minor_pieces = []
@@ -1991,34 +2003,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         overflow_added_len = (total_overflow_area / current_fabric_width) / 0.92 if current_fabric_width > 0 else 0.0
         simulated_marker_length += overflow_added_len
 
-        total_all_net_area = sum(float(p["area"]) for p in raw_unpaired_pieces)
+        total_all_net_area = sum(float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC")
         real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.85
         real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
         
-        # TÍNH ĐỊNH MỨC VẢI CHÍNH THỰC TẾ (CHỈ CỘNG 3% HAO HỤT)
         total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
     else:
         real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.85, 0.0, 0.0
 
-    # TỐI ƯU LUỒNG LINING / RIB THỰC TẾ (Tính độc lập theo diện tích tinh chứ không bấu víu vào độ dài vải chính)
-    total_lining_net_area = sum([
-        float(vp.get("production_net_area", 0.0)) * float(vp.get("inferred_pieces", 1.0)) 
-        for vp in virtual_pieces_layer.values() 
-        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]
-    ])
+    # Tính độc lập định mức tổng vật tư Lining / Rib dựa trên cấu trúc mảng quét đa chi tiết mới
+    total_lining_net_area = sum([float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") in ["LINING", "RIB"]])
     if total_lining_net_area > 0 and lining_width > 0:
-        # Giả lập sơ đồ lót với hiệu suất đi bàn cắt chuẩn 80%
         lining_sim_length = total_lining_net_area / lining_width / 0.80 
         total_lining_gross_yds = (lining_sim_length / 36.0) * 1.030
     else:
         total_lining_gross_yds = 0.0
 
-    # TỐI ƯU LUỒNG FUSING THỰC TẾ (Tính độc lập tổng thể để kéo định mức keo lên chuẩn sản xuất)
-    total_fusing_net_area = sum([
-        float(vp.get("production_net_area", 0.0)) * float(vp.get("inferred_pieces", 1.0)) 
-        for vp in virtual_pieces_layer.values() 
-        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() in ["FUSING", "INTERLINING"]
-    ])
+    # Tính độc lập định mức tổng vật tư Fusing dựa trên cấu trúc mảng quét đa chi tiết mới
+    total_fusing_net_area = sum([float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") in ["FUSING", "INTERLINING"]])
     if total_fusing_net_area > 0 and fusing_width > 0:
         fusing_sim_length = total_fusing_net_area / fusing_width / 0.75
         total_fusing_gross_yds = (fusing_sim_length / 36.0) * 1.030
@@ -2057,11 +2059,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and str(virtual_pieces_layer.get(idx, {}).get("inferred_class", "")).upper().strip() in ["LINING", "RIB"]) else fusing_width) for idx in df_bom.index]
 
+    # ĐÃ SỬA: Đồng bộ cột Size tính toán lấy thời gian thực từ Khối 1 thay vì gán chết số 32
+    real_sync_size = str(st.session_state.get("bom_data", {}).get("calculated_on_size", "32")).upper()
+    df_bom["Size tính toán"] = [real_sync_size for _ in df_bom.index]
+
     if "polygon_net_area" in df_bom.columns:
         df_bom["polygon_net_area"] = [round(float(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0) or 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(float(row.get("polygon_net_area", 0.0) or 0.0), 2) for idx, row in df_bom.iterrows()]
 
     if len(raw_unpaired_pieces) > 0:
-        st.success(f"💎 **CAD V15 PURE ENGINE ACTIVE** | Bẻ chiều rộng phôi ảo: `HOÀN TẤT` | Cân đối định mức Keo/Lót: `ĐỒNG BỘ` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds`")
+        st.success(f"💎 **CAD V17 ENGINE COMPLETE** | Đồng bộ Size mục tiêu: `{real_sync_size}` | Định mức Vải chính: `{total_fabric_gross_yds:.3f} Yds` | Định mức Keo/Lót đã được kích hoạt tính toán độc lập!")
 
 
 
