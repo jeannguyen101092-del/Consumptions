@@ -2118,20 +2118,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
             v10_nesting_cache[state_key] = (False, pieces, current_max_y)
             return False, pieces, current_max_y
-        # =====================================================================
+               # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHẦN B): COST FUNCTION OPTIMIZER & CONSUMPTION PUBLISHING
         # =====================================================================
+        # LÀM SẠCH DỮ LIỆU (DATA CLEANING) ĐỂ KHẮC PHỤC LỖI TYPEERROR
+        for g in paired_groups:
+            g["w"] = float(g.get("w", 0.0) or 0.0)
+            g["l"] = float(g.get("l", 0.0) or 0.0)
+            g["area"] = float(g.get("area", 0.0) or 0.0)
+            
+        for r in free_rectangles:
+            r["w"] = float(r.get("w", 0.0) or 0.0)
+            r["l"] = float(r.get("l", 0.0) or 0.0)
+            r["x"] = float(r.get("x", 0.0) or 0.0)
+            r["y"] = float(r.get("y", 0.0) or 0.0)
+
         # Kích hoạt bộ động cơ đệ quy toán học phẳng MaxRects
         _, overflow_minor_pieces, simulated_marker_length = solve_maxrects_backtrack(paired_groups, free_rectangles, 0.0)
 
         # Xử lý lượng linh kiện phụ bị tràn vùng tự do nếu có
-        total_overflow_area = sum([m["area"] for m in overflow_minor_pieces])
+        total_overflow_area = sum([float(m.get("area", 0.0) or 0.0) for m in overflow_minor_pieces])
         overflow_added_len = (total_overflow_area / current_fabric_width) / 0.85 if current_fabric_width > 0 else 0.0
         simulated_marker_length += overflow_added_len
 
         # COST FUNCTION MARKER OPTIMIZER (LÕI ĐÁNH GIÁ ĐA BIẾN SÁT GERBER)
-        remaining_gap_sum = sum([g["area"] for g in free_rectangles])
-        unused_width_loss = (current_fabric_width - max([g["w"] for g in free_rectangles if g["y"] >= simulated_marker_length - 5.0] + [0.0])) / current_fabric_width
+        remaining_gap_sum = sum([float(g.get("area", 0.0) or 0.0) for g in free_rectangles])
+        
+        # Sửa lỗi logic lấy max đề phòng danh sách rỗng
+        valid_widths = [float(g.get("w", 0.0) or 0.0) for g in free_rectangles if float(g.get("y", 0.0) or 0.0) >= simulated_marker_length - 5.0]
+        max_free_w = max(valid_widths) if valid_widths else 0.0
+        unused_width_loss = (current_fabric_width - max_free_w) / current_fabric_width
         
         # Ma trận hàm phạt hồi quy thực tế phòng sơ đồ dệt thoi thương mại
         cost_function_penalty = 1.0 + (remaining_gap_sum * 0.00012) + (unused_width_loss * 0.012)
@@ -2145,14 +2161,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
         
         # CHÂN LÝ TOÁN HỌC PHẲNG: Quy đổi ngược mật độ hiệu suất thực tế hiển thị UI
-        total_all_net_area = sum(p["area"] for p in raw_unpaired_pieces)
+        total_all_net_area = sum(float(p.get("area", 0.0) or 0.0) for p in raw_unpaired_pieces)
         real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.80
         real_fabric_density = max(0.6500, min(0.9450, real_fabric_density))
     else:
         real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.80, 0.0, 0.0
 
     # Giả lập độc lập luồng sơ đồ Vải lót (Lining)
-    total_lining_net_area = sum([vp.get("production_net_area", 0.0) * vp.get("inferred_pieces", 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "LINING"])
+    total_lining_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "LINING"])
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.72 
         total_lining_gross_yds = (lining_sim_length / 36.0) * 1.030
@@ -2170,17 +2186,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
         if fusing_width <= 0: return 0.0
-        bounding_box_area = l_prod * w_prod if (l_prod > 0 and p_wid > 0) else net_area
+        # Fix lỗi biến p_wid chưa được khai báo cục bộ
+        bounding_box_area = float(l_prod) * float(w_prod) if (float(l_prod) > 0 and float(w_prod) > 0) else float(net_area)
         void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
         return ((net_area * pcs) / fusing_width / round(0.70 - (void_ratio * 0.40), 3) / 36.0) * 1.15
 
-    calculated_total_fabric_net_area = sum([vp.get("production_net_area", 0.0) * vp.get("inferred_pieces", 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "FABRIC"])
+    calculated_total_fabric_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "FABRIC"])
 
     def core_engine_router(row, idx):
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_class = v_piece.get("inferred_class", "FABRIC")
-        pcs = v_piece.get("inferred_pieces", 1.0)
-        net_area = v_piece.get("production_net_area", 1.0)
+        pcs = float(v_piece.get("inferred_pieces", 1.0) or 1.0)
+        net_area = float(v_piece.get("production_net_area", 1.0) or 1.0)
         
         if p_class == "ACCESSORY": return 0.0
         elif p_class == "FUSING": return round(dynamic_fusing_solver(v_piece.get("production_l", 0.0), v_piece.get("production_w", 0.0), net_area, pcs), 4)
@@ -2196,10 +2213,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "LINING") else fusing_width) for idx in df_bom.index]
     
     if "polygon_net_area" in df_bom.columns:
-        df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
+        df_bom["polygon_net_area"] = [round(float(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0) or 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(float(row.get("polygon_net_area", 0.0) or 0.0), 2) for idx, row in df_bom.iterrows()]
 
     if len(raw_unpaired_pieces) > 0:
         st.success(f"💎 **CAD V10 MAXRECTS SOLVER COMPLETE (10/10)** | Free Space Manager: `KÍCH HOẠT` | Hợp nhất đa hướng & Pruning: `ĐỒNG BỘ` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds`")
+
 
 
 
