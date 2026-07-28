@@ -2439,7 +2439,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
         # =====================================================================
      # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V23 - PHỤC HỒI FULL LINH KIỆN & ÉP ĐM THƯƠNG MẠI CHUẨN)
+    # =====================================================================
+    # 🟩 ĐOẠN 7 (VERSION V24 - CHÍNH XÁC CÚ PHÁP CƠ SỞ CHỐNG SYNTAXERROR)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     
@@ -2476,21 +2477,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     df_bom["_temp_class"] = clean_materials_list
     
-    # 🔥 BẢO VỆ TOÁN HỌC KHỐNG CHẾ SÀN: Định mức tổng của vải chính không bao giờ được phép nhỏ hơn chiều dài của rập BODY dài nhất
-    max_body_len = max(float(row.get("Chiều dài rập (inch)", 0.0)) for idx, row in df_bom.iterrows() if str(row.get("_temp_class")) == "FABRIC") if not df_bom.empty else 0.0
-    floor_gross_yds = ((max_body_len) / 36.0) * 1.030  # Chiều dài tối thiểu vật lý của sơ đồ
-    if total_fabric_gross_yds < floor_gross_yds:
+    # 🔥 SỬA LỖI CÚ PHÁP: Tách hàm tìm chiều dài rập vải chính lớn nhất an toàn
+    max_body_len = 0.0
+    if not df_bom.empty and "Chiều dài rập (inch)" in df_bom.columns:
+        fab_rows = df_bom[df_bom["_temp_class"] == "FABRIC"]
+        if not fab_rows.empty:
+            max_body_len = float(fab_rows["Chiều dài rập (inch)"].max())
+
+    floor_gross_yds = (max_body_len / 36.0) * 1.030  # Chiều dài tối thiểu vật lý của sơ đồ
+    if 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds < floor_gross_yds:
         total_fabric_gross_yds = floor_gross_yds * 1.12  # Cộng 12% biên phân bổ rập phụ điền vào khoảng trống
+
+    if "Gross Consumption" not in df_bom.columns:
+        df_bom["Gross Consumption"] = 0.0
 
     # 2. PHÂN BỔ ĐỒNG BỘ LÊN BẢNG TỔNG HỢP SUMMARY
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
     
+    # Định nghĩa giá trị mặc định cho các nhóm biến định mức phụ tránh NameError
+    s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0295), 4)
+    s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0874), 4)
+    s_fabric_gross = round(total_fabric_gross_yds, 4) if 'total_fabric_gross_yds' in locals() else 1.4500
+
     # Ép cập nhật giá trị tổng chuẩn vào bảng Summary phía trên
     df_summary = pd.DataFrame({
         "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
         "Material Class": summary_grouped["_temp_class"],
-        "Gross Consumption": summary_grouped["_temp_class"].map({"FABRIC": round(total_fabric_gross_yds, 4), "FUSING": round(st.session_state.get("summary_fusing_gross", 0.0295), 4), "LINING": round(st.session_state.get("summary_lining_gross", 0.0874), 4)}).fillna(0.0),
+        "Gross Consumption": summary_grouped["_temp_class"].map({"FABRIC": s_fabric_gross, "FUSING": s_fusing_gross, "LINING": s_lining_gross}).fillna(0.0),
         "UOM": "YDS"
     })
 
@@ -2512,11 +2526,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Tính lại cột tiêu hao chi tiết dựa trên định mức tổng vải chính đã khống chế sàn an toàn
     final_gross_list = []
     tot_fab_net_area = sum(float(row.get("polygon_net_area", 0.0)) for idx, row in df_bom.iterrows() if str(row.get("_temp_class")) == "FABRIC")
+    
     for idx, row in df_bom_display.iterrows():
         p_cls = str(row.get("Material Class")).upper().strip()
         r_area = float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0))
         if p_cls == "FABRIC" and tot_fab_net_area > 0:
-            final_gross_list.append(round((r_area / tot_fab_net_area) * total_fabric_gross_yds, 4))
+            final_gross_list.append(round((r_area / tot_fab_net_area) * s_fabric_gross, 4))
         else:
             final_gross_list.append(float(df_bom.at[idx, "Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0))
             
