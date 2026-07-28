@@ -2128,7 +2128,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
-        # =====================================================================
+         # =====================================================================
         # 🟩 ĐOẠN 5.2 - PHẦN A (PHIÊN BẢN V24): PURE MAXRECTS CORE & FABRIC COMPUTATION
         # =====================================================================
         placed_pieces = []
@@ -2201,12 +2201,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_fabric_net_area_solver = sum(float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC")
         real_fabric_density = total_fabric_net_area_solver / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.85
         real_fabric_density = max(0.7800, min(0.9550, real_fabric_density))
-    else:
-        real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.85, 0.0, 0.0
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN B (PHIÊN BẢN V24): LINING/FUSING SOLVER & PUBLISHING ROUTER
     # =====================================================================
     
+    # Khởi tạo giá trị an toàn tránh crash nếu Phần A rỗng
+    if 'real_fabric_density' not in locals(): real_fabric_density = 0.85
+    if 'total_fabric_gross_yds' not in locals(): total_fabric_gross_yds = 0.0
+    if 'simulated_marker_length' not in locals(): simulated_marker_length = 0.0
+
     # 1. Tính toán diện tích thực vải Lót (LINING/RIB) sau khi đã nhân bản chi tiết đối xứng từ Đoạn 5.1
     total_lining_net_area = 0.0
     for idx_key, vp in virtual_pieces_layer.items():
@@ -2255,6 +2258,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "total_lining_gross_yds": round(total_lining_gross_yds, 4),
         "total_fusing_gross_yds": round(total_fusing_gross_yds, 4)
     })
+
+    # =====================================================================
+    # PUBLISHING CONSUMPTION ROUTER (ĐỒNG BỘ HOÀN CHỈNH LƯỚI ĐẦU RA UI)
+    # =====================================================================
+    calculated_total_fabric_net_area = 0.0
+    for idx_key, vp in virtual_pieces_layer.items():
+        if isinstance(vp, dict) and str(vp.get("inferred_class", "")).upper().strip() == "FABRIC":
+            sync_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx_key, vp.get("inferred_pieces", 1.0))) * size_scale_ratio
+            if float(vp.get("production_w", 0.0)) > 16.0: 
+                sync_pcs *= 2.0
+            calculated_total_fabric_net_area += float(df_bom.at[idx_key, "polygon_net_area"] if idx_key in df_bom.index else 0.0) * sync_pcs
+
+    def core_engine_router(row, idx):
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_class = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
+        c_name = str(row.get("component_name", "")).upper().strip()
+        
+        final_pcs_sync = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0)))
+        
+        # Áp đặt lại logic số lượng cấu phần đối xứng nội tại của hàm Router phân bổ
+        if idx not in st.session_state.get("user_edited_pieces", {}):
+            if p_class == "LINING" and ("POCKET" in c_name or "BAG" in c_name) and "BACK" not in c_name:
+                final_pcs_sync = 2.0
+            elif p_class in ["FUSING", "INTERLINING"] and ("WAISTBAND" in c_name or "FLY" in c_name or "FACING" in c_name):
+                final_pcs_sync = 2.0
+                
+        final_pcs_sync = final_pcs_sync * size_scale_ratio
+        
+        if p_class == "FABRIC" and float(v_piece.get("production_w", 0.0)) > 16.0:
+            final_pcs_sync = final_pcs_sync * 2.0 
+            
+        net_area = float(df_bom.at[idx, "polygon_net_area"] if idx in df_bom.index else 0.0)
+        
+        if p_class == "ACCESSORY": 
+            return 0.0
+        elif p_class in ["FUSING", "INTERLINING"]:
+            if total_fusing_net_area > 0: 
+                return round(total_fusing_gross_yds * ((net_area * final_pcs_sync) / total_fusing_net_area), 4)
+            return 0.0
+        elif p_class in ["LINING", "RIB"]:
+            if total_lining_net_area > 0:
+                return round(total_lining_gross_yds * ((net_area * final_pcs_sync) / total_lining_net_area), 4)
+            return 0.0
+        elif p_class == "FABRIC":
+            if calculated_total_fabric_net_area > 0: 
+                return round(total_fabric_gross_yds * ((net_area * final_pcs_sync) / calculated_total_fabric_net_area), 4)
+            return 0.0
+        return 0.0
+
+    # Thực thi ánh xạ ngược kết quả tính toán phân bổ trực tiếp lên cột Gross Consumption của DataFrame
+    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+
 
     # =====================================================================
     # PUBLISHING CONSUMPTION ROUTER (ĐỒNG BỘ HOÀN CHỈNH LƯỚI ĐẦU RA UI)
