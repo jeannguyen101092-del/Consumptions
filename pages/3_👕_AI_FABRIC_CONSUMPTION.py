@@ -2263,20 +2263,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN V33 - ÉP ĐM KEO LÓT CHUẨN THÂN)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN CHUẨN HÓA AN TOÀN TUYỆT ĐỐI)
     # =====================================================================
     tot_fb_area, tot_ln_area, tot_fs_area = 0.0, 0.0, 0.0
     u_edit_pcs = st.session_state.get("user_edited_pieces", {})
 
-    # 1. ÉP TÁCH VẬT TƯ TRỰC TIẾP TRÊN LƯỚI UI THEO TÊN LINH KIỆN ĐỂ KHỬ LỖI TRÙNG LỚP FABRIC
+    # 1. Khử lỗi chữ hoặc dấu báo đỏ bằng cách ép kiểu số an toàn cho các cột lõi
+    for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area"]:
+        if col in df_bom.columns:
+            df_bom[col] = pd.to_numeric(df_bom[col], errors='coerce').fillna(0.0)
+
+    # Tự động dò tìm chính xác tên cột tên linh kiện sẵn có trên lưới UI
+    c_name_col = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+
+    # 2. VÒNG LẶP NGẦM: Bóc tách phân loại vật tư bằng tên linh kiện thực tế từ PDF
     for idx, row in df_bom.iterrows():
-        c_nm = str(row.get("Component Name", row.get("component_name", ""))).upper().strip()
-        p_cls = "FABRIC"
-        if any(x in c_nm for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): p_cls = "FUSING"
-        elif any(x in c_nm for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING"]): p_cls = "LINING"
+        c_nm = str(row.get(c_name_col, "")).upper().strip()
         
-        df_bom.at[idx, "Material Class"] = p_cls
+        # Nhận diện nhóm vật tư ngầm để tính toán diện tích
+        p_cls = "FABRIC"
+        if any(x in c_nm for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): 
+            p_cls = "FUSING"
+        elif any(x in c_nm for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING"]): 
+            p_cls = "LINING"
         
         # Tính diện tích đóng góp thực tế sau nhảy size
         pcs = float(u_edit_pcs.get(idx, 2.0 if p_cls in ["FABRIC", "LINING"] and any(x in c_nm for x in ["PANEL", "BAG"]) else 1.0))
@@ -2286,29 +2296,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         elif p_cls == "LINING": tot_ln_area += act_area
         elif p_cls == "FUSING": tot_fs_area += act_area
 
-    # 2. ÁP DỤNG ĐỒNG BỘ CÔNG THỨC HÌNH HỌC CỦA THÂN QUẦN (HIỆU SUẤT 82%) CHO CẢ KEO VÀ LÓT
-    # Tính toán tổng tiêu hao đại trà độc lập cho từng nhóm vật tư phụ
+    # 3. ÁP DỤNG ĐỒNG BỘ CÔNG THỨC HÌNH HỌC CỦA THÂN QUẦN (HIỆU SUẤT 82%) CHO CẢ KEO VÀ LÓT
     tot_ln_yds = ((tot_ln_area / lining_width / 0.82) / 36.0) * 1.030 if (tot_ln_area > 0 and lining_width > 0) else 0.0
     tot_fs_yds = ((tot_fs_area / fusing_width / 0.82) / 36.0) * 1.030 if (tot_fs_area > 0 and fusing_width > 0) else 0.0
 
-    # 3. TIẾN HÀNH PHÂN BỔ ĐỊNH MỨC SẠCH XUỐNG TỪNG DÒNG CHI TIẾT TRÊN LƯỚI
+    # 4. TIẾN HÀNH PHÂN BỔ ĐỊNH MỨC SẠCH XUỐNG TỪNG DÒNG CHI TIẾT TRÊN LƯỚI
     gross_list = []
     for idx, row in df_bom.iterrows():
-        p_cls = df_bom.at[idx, "Material Class"]
-        c_nm = str(row.get("Component Name", "")).upper().strip()
-        pcs = float(u_edit_pcs.get(idx, 2.0 if p_cls in ["FABRIC", "LINING"] and any(x in c_nm for x in ["PANEL", "BAG"]) else 1.0))
+        c_nm = str(row.get(c_name_col, "")).upper().strip()
         
+        # Nhận diện loại vật tư ngầm lúc phân bổ
+        p_cls = "FABRIC"
+        if any(x in c_nm for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): 
+            p_cls = "FUSING"
+        elif any(x in c_nm for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING"]): 
+            p_cls = "LINING"
+            
+        pcs = float(u_edit_pcs.get(idx, 2.0 if p_cls in ["FABRIC", "LINING"] and any(x in c_nm for x in ["PANEL", "BAG"]) else 1.0))
         r_area = float(row.get("polygon_net_area", 0.0)) * pcs * size_scale_ratio
         row_gross = 0.0
         
-        # Chia tỷ lệ tiêu hao theo đúng nhóm vật tư đã được bóc tách độc lập
-        if p_cls == "FABRIC" and tot_fb_area > 0: row_gross = (r_area / tot_fb_area) * total_fabric_gross_yds
-        elif p_cls == "LINING" and tot_ln_area > 0: row_gross = (r_area / tot_ln_area) * tot_ln_yds
-        elif p_cls == "FUSING" and tot_fs_area > 0: row_gross = (r_area / tot_fs_area) * tot_fs_yds
+        if p_cls == "FABRIC" and tot_fb_area > 0: 
+            row_gross = (r_area / tot_fb_area) * total_fabric_gross_yds
+        elif p_cls == "LINING" and tot_ln_area > 0: 
+            row_gross = (r_area / tot_ln_area) * tot_ln_yds
+        elif p_cls == "FUSING" and tot_fs_area > 0: 
+            row_gross = (r_area / tot_fs_area) * tot_fs_yds
         
         gross_list.append(round(row_gross, 4))
 
-    # 4. ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN LƯỚI VÀ BẢNG TỔNG HỢP SUMMARY
+    # 5. ĐẨY DỮ LIỆU ĐỒNG BỘ LÊN LƯỚI VÀ BẢNG TỔNG HỢP SUMMARY (TUYỆT ĐỐI KHÔNG SỬA TÊN CỘT GỐC)
     df_bom["Gross Consumption"] = gross_list
     st.session_state.update({
         "summary_fabric_gross": round(total_fabric_gross_yds, 4),
