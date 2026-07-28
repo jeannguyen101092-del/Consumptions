@@ -1897,8 +1897,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN SỬA LỖI ĐỊNH MỨC THÂN ÁO (FIXED PERFECT)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
@@ -1924,7 +1924,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # KHÓA CỨNG: Đây là mã hàng Áo khoác Jacket, tuyệt đối không chạy thuật toán của Quần để tránh lỗi khổ vải biên
+    # KHÓA CỨNG PHÒNG VỆ: Ép hệ thống nhận diện đây là ÁO JACKET, không chạy luồng Quần
     is_trouser = False
 
     # LÀM SẠCH BIẾN TÍCH LŨY: Khởi tạo mới hoàn toàn để chặn đứng rác lưu bộ nhớ cache khi Streamlit Rerun
@@ -1950,24 +1950,40 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Đồng bộ số lượng thực tế đang chọn vào lớp phôi ảo trong RAM
         v_piece["active_user_pieces"] = current_pcs 
 
-        # SỬA LỖI NHẬN DIỆN VẬT TƯ CHUẨN: Ưu tiên bóc tách Thân và Tay sang Vải chính
+        # =====================================================================
+        # LOẠI BỎ ĐOÁN MÒ: ĐỌC TRỰC TIẾP TỪ CỘT CHẤT LIỆU CỦA BẢNG BOM GỐC TRÊN UI
+        # =====================================================================
         p_class = st.session_state.get("user_edited_materials", {}).get(idx, None)
         if p_class is None:
-            comp_name_str = str(v_piece.get("component_name", r.get("component_name", ""))).upper()
+            # Lấy giá trị từ cột chất liệu hiện tại của bảng (bất kể viết hoa hay thường)
+            bom_material_class = str(r.get("Material Class", r.get("material_class", ""))).upper().strip()
+            comp_name_str = str(v_piece.get("component_name", r.get("component_name", ""))).upper().strip()
             
-            # Ép từ khóa phòng vệ: Tất cả các chi tiết chứa chữ Thân, Tay, Thân Trước, Thân Sau bắt buộc là VẢI CHÍNH
-            if any(k in comp_name_str for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY", "PANEL", "BELT"]):
+            # ƯU TIÊN 1: Đồng bộ trực tiếp nếu bảng BOM đã được gán loại vật tư rõ ràng
+            if bom_material_class in ["FABRIC", "VẢI CHÍNH", "MAIN"]:
                 p_class = "FABRIC"
-            elif any(k in comp_name_str for k in ["LINING", "LÓT", "LOT"]):
+            elif bom_material_class in ["LINING", "LÓT", "VẢI LÓT"]:
                 p_class = "LINING"
-            elif any(k in comp_name_str for k in ["TRICOT", "MEC", "KEO", "FUSING", "DỰNG"]):
+            elif bom_material_class in ["FUSING", "KEO", "MÉC", "MEC", "DỰNG", "INTERFACING"]:
                 p_class = "FUSING"
-            elif any(k in comp_name_str for k in ["RIB", "BO", "BO CỔ", "BO TAY"]):
+            elif bom_material_class in ["RIB", "BO"]:
                 p_class = "RIB"
-            elif any(k in comp_name_str for k in ["PHỐI", "COMBINATION", "CONTRAST", "PHOI"]):
-                p_class = "CONTRAST"
+            elif bom_material_class in ["ACCESSORY", "PHỤ LIỆU", "THREAD", "CHỈ"]:
+                p_class = "ACCESSORY"
             else:
-                p_class = "FABRIC"
+                # ƯU TIÊN 2: Luồng dự phòng bằng từ khóa chuẩn hóa nếu dòng đó trên BOM bị trống rỗng
+                if any(k in comp_name_str for k in ["INTERFACING", "TRICOT", "MEC", "KEO", "FUSING", "DỰNG", "INTERLINING", "FUSIBLE", "FUS"]):
+                    p_class = "FUSING"
+                elif any(k in comp_name_str for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY", "PANEL", "BELT"]):
+                    p_class = "FABRIC"
+                elif any(k in comp_name_str for k in ["LINING", "LÓT", "LOT"]):
+                    p_class = "LINING"
+                elif any(k in comp_name_str for k in [" RIB", "RIB ", "BO CỔ", "BO TAY", "BO LAI", "BO ĐAI"]) or comp_name_str == "BO":
+                    p_class = "RIB"
+                elif any(k in comp_name_str for k in ["PHỐI", "COMBINATION", "CONTRAST", "PHOI"]):
+                    p_class = "CONTRAST"
+                else:
+                    p_class = "FABRIC"
         
         v_piece["inferred_class"] = p_class
 
@@ -2040,6 +2056,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if total_lining_net_area > 0 and lining_width > 0:
         lining_sim_length = total_lining_net_area / lining_width / 0.78 
         total_lining_gross_yds = (lining_sim_length / 36.0) * 1.02
+
 
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ PHÂN BỔ ĐỊNH MỨC)
