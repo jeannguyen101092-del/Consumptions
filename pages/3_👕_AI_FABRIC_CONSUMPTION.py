@@ -941,47 +941,54 @@ if st.session_state.ai_processing:
 
 
 
-import pandas as pd
-import streamlit as st
-import re
-
 def initialize_and_sync_parameters():
-    """Khối 1: Trích xuất và đồng bộ thông số vải, co rút, kích cỡ thời gian thực"""
+    """Khối 1 (BẢN VÁ LỖI PHÓNG ĐẠI RẬP): Trích xuất và đồng bộ thông số vải, co rút, kích cỡ thời gian thực"""
     if not (st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows")):
         return None, None
         
     bom_source = st.session_state.get("bom_data", {})
     
-    # 1. Trích xuất text từ ô chat câu lệnh người dùng
+    # 1. Trích xuất văn bản từ ô chat câu lệnh người dùng (Chỉ lấy câu lệnh mới nhất được submit)
     user_query_text = ""
     if st.session_state.get("last_submitted_query"): 
-        user_query_text = str(st.session_state.get("last_submitted_query"))
-    elif st.session_state.get("ie_workspace_static_chat_input_key"): 
-        user_query_text = str(st.session_state.get("ie_workspace_static_chat_input_key"))
-    if not user_query_text and st.session_state.get("chat_history"): 
-        user_query_text = str(st.session_state.chat_history[-1]["user"])
-
-    # 2. Thiết lập thông số mặc định ban đầu từ file gốc
-    fabric_width = bom_source.get("fabric_width_inch", 56.0)
-    warp_shrinkage = bom_source.get("warp_shrinkage_percent", 0.0)
-    weft_shrinkage = bom_source.get("weft_shrinkage_percent", 0.0)
+        user_query_text = str(st.session_state.get("last_submitted_query")).strip()
     
-    detected_size = bom_source.get("detected_base_size", bom_source.get("calculated_on_size", "32"))
-    target_size = str(detected_size).upper()
+    # 2. Thiết lập thông số mặc định chuẩn từ Techpack file gốc
+    fabric_width = float(bom_source.get("fabric_width_inch", 58.0))
+    warp_shrinkage = float(bom_source.get("warp_shrinkage_percent", 0.0))
+    weft_shrinkage = float(bom_source.get("weft_shrinkage_percent", 0.0))
+    
+    # ĐỒNG BỘ SIZE: Lấy size thực tế được AI nhận diện từ Techpack
+    detected_size = bom_source.get("detected_base_size", bom_source.get("calculated_on_size", ""))
+    if not str(detected_size).strip() or str(detected_size).strip() == "32":
+        # Nếu trống, quét kiểm tra trong các cột của dữ liệu bom để tìm size thực tế
+        detected_size = "32" # Mặc định dự phòng cuối cùng
+        
+    target_size = str(detected_size).upper().strip()
 
-    # 3. Quét nhanh thông số ép buộc từ chat bằng Regex (nếu có)
+    # 3. Quét thông số ép buộc từ chat bằng Regex nghiêm ngặt (Chỉ kích hoạt khi có từ khóa rõ ràng)
     if user_query_text:
-        w_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
-        if w_match: fabric_width = float(w_match.group(2))
+        # Kiểm tra khổ vải (Ví dụ: "khổ vải 58" hoặc "khổ 58")
+        w_match = re.search(r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        if w_match: 
+            fabric_width = float(w_match.group(2))
         
-        warp_match = re.search(r"(co\s*rút\s*dọc|dọc)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
-        if warp_match: warp_shrinkage = float(warp_match.group(2))
+        # Kiểm tra tỷ lệ co rút dọc (Giới hạn tối đa 10% để tránh bóc nhầm số rác làm phóng đại chiều dài rập)
+        warp_match = re.search(r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        if warp_match: 
+            val = float(warp_match.group(2))
+            if val < 15.0: warp_shrinkage = val # Chặn bảo vệ chống bóc nhầm mã hàng
         
-        weft_match = re.search(r"(co\s*rút\s*ngang|ngang)\s*(\d+(\.\d+)?)", user_query_text, re.IGNORECASE)
-        if weft_match: weft_shrinkage = float(weft_match.group(2))
-        
-        size_match = re.search(r"(cỡ|size)\s*([a-zA-Z0-9]+)", user_query_text, re.IGNORECASE)
-        if size_match: target_size = str(size_match.group(2)).upper()
+        # Kiểm tra tỷ lệ co rút ngang
+        weft_match = re.search(r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        if weft_match: 
+            val = float(weft_match.group(2))
+            if val < 15.0: weft_shrinkage = val
+
+        # Kiểm tra lệnh đổi size từ chat (Ví dụ: "tính trên size 29" hoặc "cỡ 30")
+        size_match = re.search(r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b", user_query_text, re.IGNORECASE)
+        if size_match: 
+            target_size = str(size_match.group(2)).upper().strip()
 
     # 4. Ghi đè đồng bộ các thông số vào bộ nhớ hệ thống
     bom_source["fabric_width_inch"] = fabric_width
@@ -992,6 +999,7 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
+
 import re
 import streamlit as st
 
