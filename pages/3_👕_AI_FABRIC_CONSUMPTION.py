@@ -2092,72 +2092,62 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: MULTI-MATERIAL PARALLEL PACKER (VERSION MASTER V38)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: GERBER ACCUNEST PACKER (VERSION V46 - SIÊU TINH GỌN)
     # =====================================================================
     import pandas as pd
     import numpy as np
 
-    # Khởi tạo cấu hình ma trận khổ rộng và chốt chặn an toàn cho 3 loại vật tư
-    material_solvers = {
-        "FABRIC": {"width": float(st.session_state.get("current_active_width", 58.0)), "density_clamp_min": 0.8150},
-        "LINING": {"width": float(st.session_state.get("lining_width_inch", 57.0)), "density_clamp_min": 0.7200},
-        "FUSING": {"width": float(st.session_state.get("fusing_width_inch", 59.0)), "density_clamp_min": 0.6800}
-    }
+    placed_pieces, overflow_minor_pieces = [], []
+    if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     
-    # Khử lỗi chữ hoặc dấu gạch ngang trên lưới df_bom
+    # 1. Khống chế khổ cắt thực tế và thiết lập khoảng hở đầu dao cắt (Seam Gap)
+    w_fabric = float(st.session_state.get("current_active_width", 58.0))
+    seam_gap = 0.10 
+
     for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area"]:
-        if col in df_bom.columns:
-            df_bom[col] = pd.to_numeric(df_bom[col], errors='coerce').fillna(0.0)
+        if col in df_bom.columns: df_bom[col] = pd.to_numeric(df_bom[col], errors='coerce').fillna(0.0)
 
     material_gross_results = {"FABRIC": 0.0, "LINING": 0.0, "FUSING": 0.0}
     material_density_results = {"FABRIC": 0.83, "LINING": 0.75, "FUSING": 0.72}
-    placed_pieces = [] # Mảng Master chung lưu tọa độ rải để đồng bộ vẽ sơ đồ 2D SVG
 
-    # 🌟 CORE ENGINE LOOP: CHẠY THUẬT TOÁN 3 LẦN ĐỘC LẬP THEO TỪNG CHỦNG LOẠI VẬT TƯ
-    for mat_type, cfg in material_solvers.items():
+    # 2. Vòng lặp bộ giải sơ đồ song song 3 khoang chất liệu độc lập
+    for mat_type, cfg in {
+        "FABRIC": {"width": max(10.0, w_fabric - 0.5), "overflow_density": 0.80},
+        "LINING": {"width": max(10.0, float(st.session_state.get("lining_width_inch", 57.0)) - 0.5), "overflow_density": 0.70},
+        "FUSING": {"width": max(10.0, float(st.session_state.get("fusing_width_inch", 59.0)) - 0.5), "overflow_density": 0.68}
+    }.items():
         m_width = cfg["width"]
-        if m_width <= 0: continue
-        
-        # Bóc tách danh sách rập thuộc nhóm chất liệu đang duyệt
-        if mat_type == "FABRIC":
-            mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
-        elif mat_type == "LINING":
-            mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") in ["LINING", "RIB"]]
-        elif mat_type == "FUSING":
-            mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") in ["FUSING", "INTERLINING"]]
-            
+        if mat_type == "FABRIC": mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
+        elif mat_type == "LINING": mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") in ["LINING", "RIB"]]
+        elif mat_type == "FUSING": mat_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") in ["FUSING", "INTERLINING"]]
         if not mat_pieces: continue
 
-        # Sắp xếp đa tiêu chí chuẩn Gerber (Ưu tiên Trọng số Cặp -> Diện tích -> Tỷ lệ thuôn dài Aspect)
-        mat_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area'], -float(x['l'])/float(x['w'] if x['w']>0 else 1.0)))
+        mat_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area'], -float(x['l'])/float(x['w'] if x['w'] > 0 else 1.0)))
 
-        # Khống chế chân trời Horizon động sát nền diện tích phẳng
-        total_bbox_area = sum(float(p["l"]) * float(p["w"]) for p in mat_pieces)
-        initial_horizon_length = (total_bbox_area / m_width) * 1.03
+        # Khởi tạo chân trời Horizon nới lỏng dựa trên diện tích Polygon thực tế
+        initial_horizon_length = (sum(float(p["area"]) for p in mat_pieces) / m_width) * 1.18
         max_p_len = max(float(p["l"]) for p in mat_pieces)
         if initial_horizon_length < max_p_len: initial_horizon_length = max_p_len + 5.0
 
         spaces = [{"x": 0.0, "y": 0.0, "w": m_width, "l": initial_horizon_length}]
         m_placed, m_overflow, m_marker_length = [], [], 0.0
-        tot_pcs_count = len(mat_pieces)
+        tot_pcs = len(mat_pieces)
 
-        # Tiến hành nén phẳng MaxRects cục bộ cho sơ đồ hiện tại
         for step_idx, g in enumerate(mat_pieces):
-            orig_w, orig_l = float(g["w"]), float(g["l"])
+            orig_w = float(g["w"]) + (seam_gap * 2)
+            orig_l = float(g["l"]) + (seam_gap * 2)
             allowed_rotations = [(orig_w, orig_l)]
             if st.session_state.get("is_free_rotation_180", True) or (not one_way_flag and not nap_layout_flag):
                 allowed_rotations.append((orig_l, orig_w))
 
             best_space_idx, best_w, best_l, best_fitness = -1, orig_w, orig_l, float('inf')
-            pieces_left_ratio = (tot_pcs_count - step_idx) / tot_pcs_count if tot_pcs_count > 0 else 0.0
-            frag_score = min(1.0, len(spaces) / 50.0)
+            left_ratio, frag_score = (tot_pcs - step_idx) / tot_pcs, min(1.0, len(spaces) / 50.0)
 
-            # Trọng số hàm Cost Function thích ứng đổi biến động theo thời gian thực
-            if mat_type == "FABRIC" and (orig_l > 35.0 or orig_w > 35.0):
-                w_y, w_bssf, w_blsf, w_baf, w_contact = 0.40, 0.15, 0.10, 0.25, 0.10
+            # Phân bổ trọng số Cost Function thích ứng
+            if mat_type == "FABRIC" and (orig_l > 35.0 or orig_w > 35.0): w_y, w_bssf, w_blsf, w_baf, w_contact = 0.45, 0.15, 0.10, 0.20, 0.10
             else:
-                w_y = 0.10 + (0.10 * pieces_left_ratio)
+                w_y = 0.10 + (0.10 * left_ratio)
                 w_contact = 0.25 + (0.15 * frag_score)
                 w_bssf, w_blsf = 0.20, 0.15
                 w_baf = 1.0 - (w_y + w_contact + w_bssf + w_blsf)
@@ -2167,34 +2157,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 space_area = s_w * s_l
                 for p_w, p_l in allowed_rotations:
                     if p_w <= s_w and p_l <= s_l:
+                        # Thang đo phi đơn vị đồng nhất
                         y_score = s_y / initial_horizon_length
                         bssf_score = min(s_w - p_w, s_l - p_l) / min(s_w, s_l)
                         blsf_score = max(s_w - p_w, s_l - p_l) / max(s_w, s_l)
                         baf_score = (space_area - (p_w * p_l)) / space_area
                         
-                        # Boundary Contact Length: Tính chu vi hít biên tiếp xúc thực đại (Độ dài cạnh chuẩn CAD)
+                        # Boundary Contact Length (Đường biên tiếp xúc thực)
                         contact_len = 0.0
                         if s_x == 0 or s_x + p_w == m_width: contact_len += p_l
                         if s_y == 0: contact_len += p_w
                         for p_p in m_placed:
-                            if p_p["x"] + p_p["w"] == s_x or s_x + p_w == p_p["x"]:
-                                contact_len += max(0.0, min(s_y + p_l, p_p["y"] + p_p["l"]) - max(s_y, p_p["y"]))
-                            if p_p["y"] + p_p["l"] == s_y or s_y + p_l == p_p["y"]:
-                                contact_len += max(0.0, min(s_x + p_w, p_p["x"] + p_p["w"]) - max(s_x, p_p["x"]))
+                            if p_p["x"] + p_p["w"] == s_x or s_x + p_w == p_p["x"]: contact_len += max(0.0, min(s_y + p_l, p_p["y"] + p_p["l"]) - max(s_y, p_p["y"]))
+                            if p_p["y"] + p_p["l"] == s_y or s_y + p_l == p_p["y"]: contact_len += max(0.0, min(s_x + p_w, p_p["x"] + p_p["w"]) - max(s_x, p_p["x"]))
                                 
                         fitness = (y_score * w_y) + (bssf_score * w_bssf) + (blsf_score * w_blsf) + (baf_score * w_baf) - (min(1.0, contact_len / (2 * (p_w + p_l))) * w_contact)
-                        if fitness < best_fitness:
-                            best_fitness, best_space_idx, best_w, best_l = fitness, s_idx, p_w, p_l
+                        if fitness < best_fitness: best_fitness, best_space_idx, best_w, best_l = fitness, s_idx, p_w, p_l
 
-        # Vòng lặp rã 4 vùng MaxRects + Clip cắt giao nhau chồng lấn hình học 2D
             if best_space_idx != -1:
                 chosen = spaces.pop(best_space_idx)
                 posX, posY = chosen["x"], chosen["y"]
-                r_node = {"idx": g["idx"], "x": posX, "y": posY, "w": best_w, "l": best_l, "material_class": mat_type, "area": g.get("area", 0.0)}
-                m_placed.append(r_node)
-                placed_pieces.append(r_node) 
+                r_node = {"idx": g["idx"], "x": posX + seam_gap, "y": posY + seam_gap, "w": best_w - (seam_gap * 2), "l": best_l - (seam_gap * 2), "material_class": mat_type, "area": g.get("area", 0.0)}
+                m_placed.append(r_node); placed_pieces.append(r_node) 
                 m_marker_length = max(m_marker_length, posY + best_l)
 
+                # Phân rã MaxRects & Clip cắt giao nhau hình học phẳng
                 new_spaces, px1, py1, px2, py2 = [], posX, posY, posX + best_w, posY + best_l
                 for sp in spaces:
                     sx1, sy1, sx2, sy2 = sp["x"], sp["y"], sp["x"] + sp["w"], sp["y"] + sp["l"]
@@ -2205,7 +2192,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         if px1 > sx1: new_spaces.append({"x": sx1, "y": sy1, "w": px1 - sx1, "l": sp["l"]})
                         if px2 < sx2: new_spaces.append({"x": px2, "y": sy1, "w": sx2 - px2, "l": sp["l"]})
 
-                # Subsumption Pruning & Recursive Merge đệ quy liên tục đến khi stable
                 pruned = []
                 for i, r1 in enumerate(new_spaces):
                     if not any(r2["x"] <= r1["x"] and r2["y"] <= r1["y"] and r2["x"]+r2["w"] >= r1["x"]+r1["w"] and r2["y"]+r2["l"] >= r1["y"]+r1["l"] for j, r2 in enumerate(new_spaces) if i != j): pruned.append(r1)
@@ -2215,35 +2201,70 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     while pruned:
                         curr = pruned.pop(0)
                         for idx, oth in enumerate(pruned):
-                            if curr["x"] == oth["x"] and curr["w"] == oth["w"] and (curr["y"] + curr["l"] == oth["y"] or oth["y"] + oth["l"] == curr["y"]):
-                                oth["y"], oth["l"] = min(curr["y"], oth["y"]), curr["l"] + oth["l"]; break
-                            if curr["y"] == oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]):
-                                oth["x"], oth["w"] = min(curr["x"], oth["x"]), curr["w"] + oth["w"]; break
+                            if curr["x"] == oth["x"] and curr["w"] == oth["w"] and (curr["y"] + curr["l"] == oth["y"] or oth["y"] + oth["l"] == curr["y"]): oth["y"], oth["l"] = min(curr["y"], oth["y"]), curr["l"] + oth["l"]; break
+                            if curr["y"] == oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]): oth["x"], oth["w"] = min(curr["x"], oth["x"]), curr["w"] + oth["w"]; break
                         else: merged.append(curr)
                     pruned = merged
                     if len(pruned) == last_len: break
                 spaces = pruned
-            else:
-                m_overflow.append(g)
+            else: m_overflow.append(g)
 
-        # Tính toán mật độ Density thực tế tự nhiên sinh ra từ hình học xếp khít
+        # Trích xuất Density tự nhiên và tạo sơ đồ phụ thứ hai (Marker Chain) cho rập tràn
         m_base_len = max(float(p["y"]) + float(p["l"]) for p in m_placed) if m_placed else m_marker_length
         m_net_area = sum(float(p["area"]) for p in m_placed) if m_placed else 1.0
-        m_density = m_net_area / (m_base_len * m_width) if m_base_len > 0 else 0.80
-        
-        m_density = max(cfg["density_clamp_min"], min(0.9450, m_density))
-        material_density_results[mat_type] = m_density
+        material_density_results[mat_type] = m_net_area / (m_base_len * m_width) if m_base_len > 0 else 0.82
 
         m_overflow_area = sum(float(m["area"]) for m in m_overflow)
-        m_added_len = (m_overflow_area / m_width) / m_density if m_width > 0 else 0.0
-        
-        # Lưu kết quả Gross Consumption độc lập (Cộng 3% hệ số hao hụt bàn cắt đầu khúc)
-        material_gross_results[mat_type] = (((m_base_len + m_added_len) / 36.0) * 1.030)
+        secondary_marker_len = (m_overflow_area / m_width) / cfg["overflow_density"] if (m_overflow_area > 0 and m_width > 0) else 0.0
+        material_gross_results[mat_type] = (((m_base_len + secondary_marker_len) / 36.0) * 1.030)
 
-    # Đẩy chỉ số vải chính sang biến điều hướng Master cho Đoạn B
     total_fabric_gross_yds = material_gross_results["FABRIC"]
-    real_fabric_density = material_density_results["FABRIC"]    # =====================================================================
-   
+    real_fabric_density = material_density_results["FABRIC"]
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (VERSION V46 - SIÊU TINH GỌN)
+    # =====================================================================
+    u_edit_pcs = st.session_state.get("user_edited_pieces", {})
+    
+    # Đồng bộ giá trị định mức tổng độc lập lên bộ nhớ RAM Master ngoài
+    st.session_state["summary_fabric_gross"] = round(total_fabric_gross_yds, 4)
+    st.session_state["summary_fusing_gross"] = round(material_gross_results["FUSING"], 4)
+    st.session_state["summary_lining_gross"] = round(material_gross_results["LINING"], 4)
+
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ctx["ai_expert_decision"].update({
+        "real_fabric_density": round(real_fabric_density, 4), 
+        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
+        "total_lining_gross_yds": round(material_gross_results["LINING"], 4), 
+        "total_fusing_gross_yds": round(material_gross_results["FUSING"], 4)
+    })
+
+    c_name_col_raw = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    gross_list = []
+    
+    # Tính mẫu số diện tích tinh đóng góp thực tế từ mảng rải hình học phẳng sạch của Phần A
+    tot_fb_net = sum(float(p["area"]) for p in placed_pieces if p["material_class"] == "FABRIC")
+    tot_ln_net = sum(float(p["area"]) for p in placed_pieces if p["material_class"] == "LINING")
+    tot_fs_net = sum(float(p["area"]) for p in placed_pieces if p["material_class"] == "FUSING")
+
+    for idx, row in df_bom.iterrows():
+        c_nm = str(row.get(c_name_col_raw, "")).upper().strip()
+        p_cls = "FABRIC"
+        if any(x in c_nm for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): p_cls = "FUSING"
+        elif any(x in c_nm for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING"]): p_cls = "LINING"
+        
+        pcs = float(u_edit_pcs.get(idx, 2.0 if p_cls in ["FABRIC", "LINING"] and any(x in c_nm for x in ["PANEL", "BAG"]) else 1.0))
+        r_area = float(row.get("polygon_net_area", 0.0)) * pcs * size_scale_ratio
+        row_gross = 0.0
+        
+        # Phân bổ phẳng cục bộ theo đúng khoang vật tư bóc tách
+        if p_cls == "FABRIC" and tot_fb_net > 0: row_gross = (r_area / tot_fb_net) * total_fabric_gross_yds
+        elif p_cls == "LINING" and tot_ln_net > 0: row_gross = (r_area / tot_ln_net) * material_gross_results["LINING"]
+        elif p_cls == "FUSING" and tot_fs_net > 0: row_gross = (r_area / tot_fs_net) * material_gross_results["FUSING"]
+        
+        gross_list.append(round(row_gross, 4))
+
+    df_bom["Gross Consumption"] = gross_list
+
 
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
