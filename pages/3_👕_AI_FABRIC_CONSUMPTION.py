@@ -2440,7 +2440,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
      # =====================================================================
     # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V24 - CHÍNH XÁC CÚ PHÁP CƠ SỞ CHỐNG SYNTAXERROR)
+    # 🟩 ĐOẠN 7 (VERSION V25 - HOÀN THIỆN CÚ PHÁP CƠ SỞ CHUẨN SYNTAX)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     
@@ -2465,7 +2465,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # 1. BÓC TÁCH CHẤT LIỆU NGẦM CHUẨN CAD
     clean_materials_list = []
-    c_name_col_raw = next((c_for_check in ["component_name", "Component Name", "Component_Name"] if c_for_check in df_bom.columns), "component_name")
+    # 🔥 SỬA LỖI CÚ PHÁP: Khôi phục cấu trúc generator expression chuẩn (thêm chữ "c_for_check for")
+    c_name_col_raw = next((c_for_check for c_for_check in ["component_name", "Component Name", "Component_Name"] if c_for_check in df_bom.columns), "component_name")
     
     for idx, row in df_bom.iterrows():
         c_nm_upper = str(row.get(c_name_col_raw, "")).upper().strip()
@@ -2477,16 +2478,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     df_bom["_temp_class"] = clean_materials_list
     
-    # 🔥 SỬA LỖI CÚ PHÁP: Tách hàm tìm chiều dài rập vải chính lớn nhất an toàn
+    # Tìm chiều dài rập vải chính lớn nhất an toàn
     max_body_len = 0.0
     if not df_bom.empty and "Chiều dài rập (inch)" in df_bom.columns:
         fab_rows = df_bom[df_bom["_temp_class"] == "FABRIC"]
         if not fab_rows.empty:
             max_body_len = float(fab_rows["Chiều dài rập (inch)"].max())
 
-    floor_gross_yds = (max_body_len / 36.0) * 1.030  # Chiều dài tối thiểu vật lý của sơ đồ
+    floor_gross_yds = (max_body_len / 36.0) * 1.030  
     if 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds < floor_gross_yds:
-        total_fabric_gross_yds = floor_gross_yds * 1.12  # Cộng 12% biên phân bổ rập phụ điền vào khoảng trống
+        total_fabric_gross_yds = floor_gross_yds * 1.12  
 
     if "Gross Consumption" not in df_bom.columns:
         df_bom["Gross Consumption"] = 0.0
@@ -2495,12 +2496,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
     
-    # Định nghĩa giá trị mặc định cho các nhóm biến định mức phụ tránh NameError
     s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0295), 4)
     s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0874), 4)
     s_fabric_gross = round(total_fabric_gross_yds, 4) if 'total_fabric_gross_yds' in locals() else 1.4500
 
-    # Ép cập nhật giá trị tổng chuẩn vào bảng Summary phía trên
     df_summary = pd.DataFrame({
         "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
         "Material Class": summary_grouped["_temp_class"],
@@ -2557,7 +2556,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except Exception as e: 
             st.error(f"Lỗi kết xuất Excel thương mại: {e}")
 
-    # RENDER GRID ĐỒNG BỘ: Trả lại full lưới linh kiện không lỗi chữ đỏ
+    # RENDER GRID ĐỒNG BỘ: Hiển thị mượt mà
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
