@@ -2611,13 +2611,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
         st.rerun()
     # =====================================================================
-    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (HÀM VẼ HTML/SVG THUẦN CHỐNG LỖI THƯ VIỆN)
+      # =====================================================================
+    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (V36 - TỰ ĐỘNG PHÂN RÃ SIÊU RẬP PAIR)
     # =====================================================================
     st.write("---")
     st.subheader("🗺️ AI Marker Layout Preview (Sơ Đồ Minh Họa Rải Rập 2D)")
 
     if 'placed_pieces' in locals() and len(placed_pieces) > 0 and 'final_fabric_marker_length' in locals():
-        # Định nghĩa bảng màu trực quan cho từng nhóm vật tư
         color_map = {
             "FABRIC": "#1ABC9C",   # Xanh ngọc - vải chính
             "FUSING": "#E67E22",   # Màu cam - mếch/keo
@@ -2631,45 +2631,61 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         svg_width = 850
         svg_height = int(final_fabric_marker_length * scale_ratio)
 
-        # Khởi tạo chuỗi văn bản HTML/SVG nền
         svg_content = f"""
         <div style="background-color: #F8F9F9; padding: 10px; border: 1.5px solid #BDC3C7; border-radius: 4px; overflow-x: auto;">
             <svg width="{svg_width}" height="{svg_height}" style="background-color: #FAFAFA; border: 1px dashed #7F8C8D;">
         """
 
-        # Duyệt và tạo mã vẽ từng khối hộp hình chữ nhật rập mẫu phẳng
+        # Duyệt qua từng khối rập đã rải được từ Đoạn 5.2
         for p in placed_pieces:
-            # Quy đổi hệ tọa độ thực tế inch sang hệ tọa độ điểm ảnh SVG (Pixel)
-            px = float(p["x"]) * scale_ratio
-            pw = float(p["w"]) * scale_ratio
-            pl = float(p["l"]) * scale_ratio
-            
-            # Đảo ngược trục Y đồ họa SVG (Vẽ từ dưới lên trên đúng bản chất bàn cắt CAD)
-            py = svg_height - (float(p["y"]) * scale_ratio) - pl
-            
+            orig_x = float(p["x"])
+            orig_y = float(p["y"])
+            orig_w = float(p["w"])
+            orig_l = float(p["l"])
             p_class = p.get("material_class", "FABRIC")
             fill_color = color_map.get(p_class, "#1ABC9C")
             
-            # Lấy tên linh kiện gốc từ RAM phôi ảo
+            # Lấy thông tin rập mẫu gốc từ bộ nhớ RAM phôi ảo
             v_p_info = virtual_pieces_layer.get(p["idx"], {}) if 'virtual_pieces_layer' in locals() else {}
             c_name_display = v_p_info.get("component_name", f"Piece_{p['idx']}")
+            prod_w_orig = float(v_piece.get("production_w", orig_w)) # Chiều rộng gốc của 1 rập đơn lẻ
 
-            # Nhúng mã SVG hình khối chữ nhật kèm Tooltip gốc của trình duyệt (thẻ text/title)
-            svg_content += f"""
-                <rect x="{px}" y="{py}" width="{pw}" height="{pl}" 
-                      fill="{fill_color}" stroke="#FFFFFF" stroke-width="1.5" opacity="0.85">
-                    <title>{c_name_display} ({float(p['l']):.1f} x {float(p['w']):.1f} inch)</title>
-                </rect>
-            """
+            # 🌟 ĐỘT PHÁ LOGIC: TỰ ĐỘNG PHÂN RÃ KHỐI GỘP ĐÔI (SIDE-BY-SIDE PAIR) KHI VẼ
+            # Nếu chiều rộng của khối rải lớn gấp đôi chiều rộng rập đơn gốc -> Đây là siêu rập đã được gom cặp
+            if orig_w > (prod_w_orig * 1.5) and orig_w > 15.0:
+                half_w = orig_w / 2.0
+                
+                # Tách làm 2 rập đơn lẻ xếp song song để vẽ lên SVG
+                sub_pieces = [
+                    {"x": orig_x, "y": orig_y, "w": half_w, "l": orig_l, "name": f"{c_name_display} (Vế Trái)"},
+                    {"x": orig_x + half_w, "y": orig_y, "w": half_w, "l": orig_l, "name": f"{c_name_display} (Vế Phải)"}
+                ]
+            else:
+                # Nếu là rập đơn lẻ bình thường, giữ nguyên cấu trúc vẽ tuần tự
+                sub_pieces = [{"x": orig_x, "y": orig_y, "w": orig_w, "l": orig_l, "name": c_name_display}]
 
-        # Đóng thẻ đồ họa
+            # Tiến hành render thực tế các chi tiết sau khi đã rã siêu rập
+            for sub in sub_pieces:
+                px = sub["x"] * scale_ratio
+                pw = sub["w"] * scale_ratio
+                pl = sub["l"] * scale_ratio
+                
+                # Đảo ngược trục đồ họa SVG (Vẽ hít sát đáy từ dưới lên trên chuẩn máy cắt)
+                py = svg_height - (sub["y"] * scale_ratio) - pl
+                
+                svg_content += f"""
+                    <rect x="{px}" y="{py}" width="{pw}" height="{pl}" 
+                          fill="{fill_color}" stroke="#FFFFFF" stroke-width="1.2" opacity="0.85">
+                        <title>{sub['name']} ({sub['l']:.1f} x {sub['w']:.1f} inch)</title>
+                    </rect>
+                """
+
         svg_content += """
             </svg>
         </div>
         """
 
-        # Sử dụng API lõi của Streamlit để render trực tiếp HTML/SVG gốc mà không dùng thư viện ngoài
         st.components.v1.html(svg_content, height=svg_height + 40, scrolling=True)
-        st.caption(f"💡 Bản vẽ sơ đồ 2D minh họa. Chiều dài sơ đồ thực tế: <b>{final_fabric_marker_length:.2f} inch</b>. Di chuột vào từng khối để xem tên chi tiết.")
+        st.caption(f"💡 Bản vẽ sơ đồ rải rập 2D tự động phân rã cặp thân. Chiều dài sơ đồ thực tế: <b>{final_fabric_marker_length:.2f} inch</b>. Di chuột vào từng mảnh để xem thông tin vế cắt may.")
     else:
         st.warning("⚠️ Không thể dựng sơ đồ 2D do ma trận tọa độ rải rập phẳng đang trống.")
