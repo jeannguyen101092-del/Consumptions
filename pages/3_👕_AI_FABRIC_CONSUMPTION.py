@@ -1870,8 +1870,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V17 - CHUẨN ĐA VẬT TƯ & SIZE SCALE): DYNAMIC PARSER
+      # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V18 - HOTFIX DIỆN TÍCH TINH & ĐỒNG BỘ SIZE SCALE)
     # =====================================================================
     import json
 
@@ -1892,7 +1892,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_unpaired_pieces = []
     list_lengths, list_widths = [], []
 
-    # ĐỒNG BỘ SIZE SCALE: Lấy tổng hệ số số lượng sản phẩm từ session_state (Mặc định là 1 nếu đi sơ đồ đơn)
+    # ĐỒNG BỘ SIZE SCALE: Lấy tổng hệ số số lượng sản phẩm từ bộ nhớ hệ thống
     size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
 
     for idx, r in df_bom.iterrows():
@@ -1900,7 +1900,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_len, p_wid = float(v_piece.get("production_l", 0.0)), float(v_piece.get("production_w", 0.0))
         net_area, pcs = float(v_piece.get("production_net_area", 0.0)), float(v_piece.get("inferred_pieces", 1.0))
         
-        # Nhận diện chính xác nhãn phân loại lớp vật tư
         p_class_check = str(v_piece.get("inferred_class", "")).upper().strip()
         if not p_class_check: 
             p_class_check = str(r.get("material_class", "FABRIC")).upper().strip()
@@ -1908,16 +1907,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Nhân số lượng chi tiết theo hệ số bảng size scale tương ứng
         pcs = pcs * size_scale_ratio
 
-        # HOTFIX DỮ LIỆU THÔ: Nếu rập vải chính bị phình to do bẫy nhân đôi bề rộng trước đó, tự động chia đôi về nguyên bản
+        # HOTFIX KÍCH THƯỚC BỀ RỘNG RẬP ĐƠN CHUẨN CAD
         if p_class_check == "FABRIC" and p_wid > 16.0:
             p_wid = p_wid / 2.0
             net_area = net_area / 2.0
             pcs = pcs * 2.0
 
+        # HOTFIX DIỆN TÍCH TINH (GEOMETRY GUARD): Khống chế không cho diện tích tinh lớn hơn diện tích hộp bao phẳng
+        bbox_area = p_len * p_wid
+        if net_area > bbox_area and bbox_area > 0:
+            # Nếu bị lỗi nhân dồn diện tích tinh từ trước, tự động đưa về tỷ lệ khít 85% chuẩn của rập thân quần dài
+            net_area = bbox_area * 0.85
+
         list_lengths.append(round(p_len, 2) if p_len > 0 else "-")
         list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
 
-        # ĐÃ SỬA: Chấp nhận nạp cả FABRIC, FUSING, INTERLINING, LINING, RIB vào lõi xếp sơ đồ phẳng
         if p_class_check in ["FABRIC", "FUSING", "INTERLINING", "LINING", "RIB"] and p_len > 0:
             raw_params = r.get("shape_parameters", {})
             shape_params = {}
@@ -1933,13 +1937,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     "l": p_len, 
                     "w": p_wid, 
                     "area": net_area,
-                    "material_class": p_class_check, # Đẩy nhãn vật tư vào mảng cấu trúc để Đoạn 5.2 phân luồng tính độc lập
+                    "material_class": p_class_check,
                     "function": str(r.get("piece_function", "PRIMARY")).upper().strip(),
                     "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3
                 })
 
+    # Ghi nhận lại mảng thông số hình học sạch lên DataFrame để hiển thị giao diện UI chi tiết chuẩn xác
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
+    
+    # Ép cập nhật lại trường polygon_net_area sạch để tránh lỗi router phân bổ định mức chi tiết
+    clean_net_areas = []
+    for idx in df_bom.index:
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_c = str(v_piece.get("inferred_class", "")).upper().strip()
+        p_w = float(v_piece.get("production_w", 0.0))
+        p_l = float(v_piece.get("production_l", 0.0))
+        n_a = float(v_piece.get("production_net_area", 0.0))
+        
+        if p_c == "FABRIC" and p_w > 16.0:
+            p_w = p_w / 2.0
+            n_a = n_a / 2.0
+            
+        b_area = p_w * p_l
+        if n_a > b_area and b_area > 0:
+            n_a = b_area * 0.85
+        clean_net_areas.append(round(n_a, 2))
+    df_bom["polygon_net_area"] = clean_net_areas
 
     if len(raw_unpaired_pieces) > 0 and current_fabric_width > 0:
         raw_unpaired_pieces.sort(key=lambda x: (x["priority"], -x["area"], -x["l"]))
@@ -1947,6 +1971,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_net_sum = sum(p["l"] * p["w"] for p in raw_unpaired_pieces)
         initial_horizon_length = max(20.0, total_net_sum / current_fabric_width)
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
+
         # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V17 - ĐỒNG BỘ SIZE & ĐA VẬT TƯ CHUẨN CAD)
         # =====================================================================
