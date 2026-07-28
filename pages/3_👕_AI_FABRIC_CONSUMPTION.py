@@ -2318,7 +2318,7 @@ def core_engine_router(row, idx):
         return 0.0
     return 0.0
 
-df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+ df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
 
    
 
