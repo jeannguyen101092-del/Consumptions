@@ -2575,9 +2575,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
 
-       # =====================================================================
-    # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V35 - SIÊU TINH GỌN - BỎ SƠ ĐỒ 2D)
+        # =====================================================================
+    # 🟩 ĐOẠN 7 (VERSION V37 - PRESENTATION LAYER CHUẨN - ĐỒNG BỘ ENGINE ĐOẠN 5)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     
@@ -2586,40 +2585,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx = st.session_state["bom_data"]
     
     ai_decision_final = ctx.get("ai_expert_decision", {})
-    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.795))
-    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
-    
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
     real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
 
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN
+    # 🌟 ĐỒNG BỘ BIẾN THỰC ĐẠI: Lấy 100% mật độ sinh ra tự nhiên từ kết quả rải của Lõi MaxRects Đoạn 5.2
+    if 'real_fabric_density' in locals() and float(real_fabric_density) > 0:
+        ui_display_density = float(real_fabric_density)
+    else:
+        ui_display_density = float(st.session_state.get("real_fabric_density", 0.8152))
+
+    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN UI
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density * 100:.2f}%")
+    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
     u_edit_pcs = st.session_state.get("user_edited_pieces", {})
     
-    # 2. KHÓA TRẦN ĐỊNH MỨC THEO CHIỀU DÀI THÂN LỚN NHẤT THỰC TẾ
-    max_body_len = 48.00
-    if not df_bom.empty and "Chiều dài rập (inch)" in df_bom.columns:
-        df_bom["Chiều dài rập (inch)"] = pd.to_numeric(df_bom["Chiều dài rập (inch)"], errors='coerce').fillna(0.0)
-        max_body_len = float(df_bom["Chiều dài rập (inch)"].max())
-        if max_body_len <= 0: max_body_len = 48.00
-
-    # Khóa barem sản xuất khít khao: Thân quần dài nhất 48" + biên đệm 1.5"
-    marker_fabric_length_inch = max_body_len + 1.5
-    s_fabric_gross = round((marker_fabric_length_inch / 36.0) * 1.030, 4) # Chốt chuẩn 1.4158 YDS
+    # 🌟 TUÂN THỦ TÁCH LỚP KIẾN TRÚC: Thừa kế trực tiếp 100% kết quả từ Lõi toán Engine Đoạn 5
+    # Tuyệt đối không tính toán lại dựa trên chiều dài rập lớn nhất hay hằng số kinh nghiệm
+    s_fabric_gross = float(st.session_state.get("summary_fabric_gross", 1.4163))
     s_fusing_gross = float(st.session_state.get("summary_fusing_gross", 0.0885))
     s_lining_gross = float(st.session_state.get("summary_lining_gross", 0.2250))
 
-    if s_fusing_gross <= 0.04: s_fusing_gross = 0.0885
-    if s_lining_gross <= 0.09: s_lining_gross = 0.2250
-
-    # 3. DỰNG BẢNG TỔNG HỢP SUMMARY 3 DÒNG ĐỘC LẬP
+    # 2. DỰNG BẢNG TỔNG HỢP SUMMARY 3 DÒNG ĐỘC LẬP TỪ KẾT QUẢ CỦA ENGINE
     df_summary = pd.DataFrame({
         "Phân loại vật tư": ["VẢI CHÍNH", "MÉC / KEO", "VẢI LÓT"],
         "Material Class": ["FABRIC", "FUSING", "LINING"],
@@ -2630,16 +2622,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # 4. PHỤC HỒI NỀN LƯỚI CHI TIẾT VÀ PHÂN BỔ PHẲNG
+    # 3. PHỤC HỒI NỀN LƯỚI CHI TIẾT VÀ PHÂN BỔ DÒNG THEO TỶ LỆ DIỆN TÍCH THỰC TẾ TỪ ENGINE
     df_bom_display = df_bom.copy()
     real_sync_width = float(st.session_state.get("current_active_width", 58.0))
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
     
     df_bom_display["Khổ vải sản xuất (inch)"] = real_sync_width
-    df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "32"))).upper().strip()
+    df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "30"))).upper().strip()
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     
+    # Đồng bộ làm sạch nhãn phân loại vật tư lên lưới UI hiển thị
     clean_mats = []
     for idx, row in df_bom_display.iterrows():
         c_nm_up = str(row.get("Component Name", "")).upper().strip()
@@ -2651,7 +2644,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Số lượng rập"] = [int(float(st.session_state.get("user_edited_pieces", {}).get(idx, r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Vòng lặp chia tỷ lệ phân bổ phẳng thông minh dựa trên diện tích tinh sạch
+    # Vòng lặp chia tỷ lệ phân bổ chi tiết dựa trên tổng diện tích tinh sạch thu được sau rải sơ đồ ở Đoạn 5.2
     final_gross_list = []
     tot_fab_net_area = sum(float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0)) for idx, row in df_bom_display.iterrows() if str(row.get("Material Class")) == "FABRIC")
     tot_lin_net_area = sum(float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0)) for idx, row in df_bom_display.iterrows() if str(row.get("Material Class")) == "LINING")
@@ -2683,7 +2676,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
     
-    # 5. NÚT DOWNLOAD EXCEL THƯƠNG MẠI
+    # 4. NÚT DOWNLOAD EXCEL ĐỒNG BỘ GIÁ TRỊ THỰC TẾ TỪ ENGINE
     with col_t2:
         try:
             if 'local_export_excel_ppj_format' in locals():
@@ -2706,7 +2699,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v21_master_match" 
     )
 
-    # Đọc ghi nhận thay đổi của người dùng từ lưới UI
+    # Luồng xử lý dữ liệu khi người dùng hiệu chỉnh trên lưới
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
