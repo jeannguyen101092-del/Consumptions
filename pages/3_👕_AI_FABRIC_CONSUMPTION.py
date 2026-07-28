@@ -1862,9 +1862,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V11 - CHUẨN CAD GERBER): PAIR BUILDER & DYNAMIC CONFIG
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V13 - CHUẨN CAD GERBER): PAIR BUILDER & SAFE PARSER
     # =====================================================================
+    import json # Khai báo thư viện để giải mã dữ liệu cấu trúc đề phòng chuỗi JSON thô
+
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
@@ -1890,10 +1892,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
 
         if v_piece.get("inferred_class", "FABRIC") == "FABRIC" and p_len > 0:
-            shape_params = r.get("shape_parameters", {}) or {}
+            # BẢO VỆ AN TOÀN CHỐNG LỖI ATTRIBUTEERROR: Giải mã chuỗi sang Dictionary chuẩn xác
+            raw_params = r.get("shape_parameters", {})
+            shape_params = {}
+            if isinstance(raw_params, dict):
+                shape_params = raw_params
+            elif isinstance(raw_params, str) and raw_params.strip():
+                try:
+                    shape_params = json.loads(raw_params)
+                except Exception:
+                    shape_params = {}
+            if not isinstance(shape_params, dict): 
+                shape_params = {}
+
             for _ in range(int(pcs)):
                 raw_unpaired_pieces.append({
-                    "idx": idx, "l": p_len, "w": p_wid, "area": net_area, 
+                    "idx": idx, 
+                    "l": p_len, 
+                    "w": p_wid, 
+                    "area": net_area, 
                     "pair_req": r.get("is_left_right_pair", False), 
                     "shape": str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip(),
                     "function": str(r.get("piece_function", "PRIMARY")).upper().strip(), 
@@ -1907,7 +1924,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
     if len(raw_unpaired_pieces) > 0 and current_fabric_width > 0:
-        # 1️⃣ ENGINE 1: CAD PROFILE-BASED PAIR BUILDER (Ghép cặp dựa trên biên dạng lồi lõm)
+        # 1️⃣ ENGINE 1: CAD PROFILE-BASED PAIR BUILDER
         paired_groups = []
         visited_indices = set()
         for i in range(len(raw_unpaired_pieces)):
@@ -1919,7 +1936,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     if j in visited_indices: continue
                     p2 = raw_unpaired_pieces[j]
                     if p1["idx"] == p2["idx"] or (p1["shape"] == p2["shape"] and p1["function"] == "PRIMARY" and p2["function"] == "PRIMARY"):
-                        # Thực tế CAD: Nếu biên dạng thẳng xếp đan xen đối đầu chỉ tốn 82%~85% tổng bề rộng bbox
                         blend_ratio = 0.84 if (p1["left_profile"] == "STRAIGHT" or p1["right_profile"] == "STRAIGHT") else 0.90
                         paired_groups.append({
                             "idx": p1["idx"], "w": (p1["w"] + p2["w"]) * blend_ratio, "l": max(p1["l"], p2["l"]), "area": p1["area"] + p2["area"],
@@ -1935,10 +1951,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         paired_groups.sort(key=lambda x: (x["priority"], -x["area"]))
 
-        # 2️⃣ ENGINE 2: KHỞI TẠO KHÔNG GIAN TỰ DO GỐC (Bỏ hoàn toàn hệ số nhân 1.05 lãng phí)
+        # 2️⃣ ENGINE 2: KHỞI TẠO KHÔNG GIAN TỰ DO GỐC
         total_bbox_sum = sum(g["l"] * g["w"] for g in paired_groups)
         initial_horizon_length = max(10.0, total_bbox_sum / current_fabric_width)
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
+
                # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHIÊN BẢN V12): MAXRECTS BSSF OPTIMIZER & ADVANCED ROUTER
         # =====================================================================
