@@ -2431,8 +2431,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
        # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V27 - PHỤC HỒI HOÀN TOÀN TẤT CẢ CHI TIẾT TỪ RAM)
+    # =====================================================================
+    # 🟩 ĐOẠN 7 (VERSION V28 - PHỤC HỒI FULL LINH KIỆN & KHÓA AN TOÀN RAM BỘ NHỚ)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     
@@ -2458,22 +2458,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đọc lớp phôi ảo gốc từ RAM hệ thống (Nơi lưu trữ đầy đủ 100% linh kiện ban đầu)
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 
-    # 🌟 ĐIỂM ĐỘT PHÁ 1: TỰ ĐỘNG XÂY DỰNG LẠI LƯỚI TỪ PHÔI ẢO GỐC ĐỂ CỨU CÁC DÒNG RẬP BỊ MẤT
+    # 🌟 ĐỒNG BỘ KHÓA KHỞI TẠO BIẾN TRÁNH BẪY LỖI NAMEERROR KHI CHẠY LƯỚI RECONSTRUCT
+    u_edit_pcs = st.session_state.get("user_edited_pieces", {})
+
     reconstructed_rows = []
     tot_fab_net_area = 0.0
 
-    # Khởi tạo giá trị tổng an toàn
-    s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0150), 4)
-    s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0821), 4)
-    s_fabric_gross = round(total_fabric_gross_yds, 4) if 'total_fabric_gross_yds' in locals() else 1.5420
+    # Khởi tạo giá trị định mức nền tổng thương mại an toàn từ Đoạn 5.2 chuyển sang
+    s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0295), 4)
+    s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0874), 4)
+    
+    # Ép khống chế an toàn: Định mức tổng vải chính (FABRIC) phải lấy từ kết quả sơ đồ MaxRects thực tế ở đoạn 5.2
+    s_fabric_gross = round(total_fabric_gross_yds, 4) if ('total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0) else round(st.session_state.get("summary_fabric_gross", 1.4500), 4)
 
-    # Quét qua toàn bộ khoang lưu trữ linh kiện trong bộ nhớ RAM
+    # Quét qua toàn bộ khoang lưu trữ linh kiện trong bộ nhớ RAM sạch
     for idx_key, vp in virtual_pieces_layer.items():
         if not isinstance(vp, dict): continue
         c_nm_raw = str(vp.get("component_name", "Component")).strip()
         c_nm_upper = c_nm_raw.upper()
         
-        # Phân loại sạch sẽ
+        # Tháp lọc bóc tách nhóm chất liệu độc lập
         p_cls = "FABRIC"
         if any(x in c_nm_upper for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): p_cls = "FUSING"
         elif any(x in c_nm_upper for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]): p_cls = "LINING"
@@ -2497,10 +2501,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "_net_row_area": p_area * pcs
         })
 
-    # Tạo dựng DataFrame hiển thị chi tiết mới hoàn toàn sạch lỗi mất dòng
-    df_bom_display = pd.DataFrame(reconstructed_rows)
+    # Dựng bảng hiển thị mới hoàn toàn để bung full linh kiện
+    if reconstructed_rows:
+        df_bom_display = pd.DataFrame(reconstructed_rows)
+    else:
+        df_bom_display = pd.DataFrame(columns=["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Số lượng rập", "Gross Consumption"])
 
-    # 🌟 ĐIỂM ĐỘT PHÁ 2: PHÂN BỔ ĐỊNH MỨC CHI TIẾT SẠCH, KHÔNG BỊ TRÙNG LẶP HOẶC VỌT LỐ SỐ
+    # Phân bổ định mức chi tiết sạch dựa trên tỷ lệ diện tích đóng góp thực tế
     final_gross_list = []
     for idx, row in df_bom_display.iterrows():
         p_cls = row["Material Class"]
@@ -2526,13 +2533,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_bom.at[orig_idx, "Gross Consumption"] = row["Gross Consumption"]
             df_bom.at[orig_idx, "_temp_class"] = row["Material Class"]
 
-    # 2. PHÂN BỔ ĐỒNG BỘ LÊN BẢNG TỔNG HỢP SUMMARY
-    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index() if "_temp_class" in df_bom.columns else pd.DataFrame()
-    cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
-    
+    # 2. PHÂN BỔ ĐỒNG BỘ LÊN BẢNG TỔNG HỢP SUMMARY 3 DÒNG ĐỘC LẬP
     df_summary = pd.DataFrame({
-        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC") if not summary_grouped.empty else ["VẢI CHÍNH", "MÉC / KEO", "VẢI LÓT"],
-        "Material Class": summary_grouped["_temp_class"] if not summary_grouped.empty else ["FABRIC", "FUSING", "LINING"],
+        "Phân loại vật tư": ["VẢI CHÍNH", "MÉC / KEO", "VẢI LÓT"],
+        "Material Class": ["FABRIC", "FUSING", "LINING"],
         "Gross Consumption": [s_fabric_gross, s_fusing_gross, s_lining_gross],
         "UOM": "YDS"
     })
@@ -2565,7 +2569,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except Exception as e: 
             st.error(f"Lỗi kết xuất Excel thương mại: {e}")
 
-    # RENDER GRID ĐỒNG BỘ: Đầy đủ 100% chi tiết rập mẫu không thiếu một mảnh nào
+    # RENDER GRID ĐỒNG BỘ MƯỢT MÀ
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
