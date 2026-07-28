@@ -1872,8 +1872,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
         # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 4 (PHIÊN BẢN V28 - AI SHAPE INFERENCE CHO PDF): AI VIRTUAL PIECE ENGINE
+     # =====================================================================
+    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V29 - AI SHAPE INFERENCE CHO PDF): AI VIRTUAL PIECE ENGINE
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -1884,7 +1884,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     fabric_width = float(st.session_state.get("current_active_width", 58.0))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
-
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
     fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
@@ -1903,12 +1902,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         comp_name_upper = comp_name_raw.upper().strip()
         mat_str = str(row.get(m_col_check, "")).upper().strip()
         
-        # 1. Phân loại cấu trúc phân nhóm vật tư chuẩn
         if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "ACCESSORY"]):
             p_class, class_confidence = "ACCESSORY", 1.0
         elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]):
             p_class, class_confidence = "FUSING", 1.0
-        elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "RIB"]):
+        elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]):
             p_class, class_confidence = "LINING", 1.0
         else:
             p_class, class_confidence = "FABRIC", 0.95
@@ -1917,53 +1915,39 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_orig = float(row.get("bounding_box_width", 0.0))
         net_area_real = float(row.get("polygon_net_area", 0.0))
 
-        if l_orig <= 0 or w_orig <= 0:
-            continue
+        if l_orig <= 0 or w_orig <= 0: continue
 
-        # 🌟 ĐIỂM 1: KHẮC PHỤC ĐẢO TRỤC TỰ ĐỘNG KHÔNG PHỤ THUỘC TÊN CHI TIẾT
-        # Trong hệ thống hình học phẳng ngành may, trục dọc (chiều dài L) luôn luôn là trục ưu tiên lớn hơn trục ngang
+        # 1. Aspect Ratio Correction (Sửa đảo trục canh sợi tự động)
         if w_orig > l_orig:
             l_orig, w_orig = w_orig, l_orig
 
-        # 🌟 ĐIỂM 2 & 4: STATISTICAL SHAPE INFERENCE ENGINE (MÔ HÌNH SUY DIỄN HÌNH THÁI HỌC KHÔNG KHÓA CỨNG)
+        # 2. Adaptive OBB Efficiency Inference (Suy diễn hình thái học động phi tuyến tính)
         if net_area_real > 0:
-            current_bbox_area = l_orig * w_orig
-            current_factor = net_area_real / current_bbox_area
+            current_factor = net_area_real / (l_orig * w_orig)
             aspect_ratio = l_orig / w_orig
-
-            # Thuật toán suy diễn hình thái học (Morphological Inference):
-            # Tính toán độ lệch OBB thực tế dựa trên tương quan Log-Scale giữa Tỷ lệ khung hình và Mật độ lấp đầy hiện tại
-            # Tránh việc cố định hệ số, cho phép co giãn động theo form dáng thực tế trích xuất từ PDF
             log_aspect = np.log1p(aspect_ratio)
             
-            # Hàm nội suy động toán học CAD phẳng: 
-            # Rập càng thuôn dài (log_aspect lớn) -> Mật độ lấp đầy trần thực tế càng giảm (Do biên cong lồi lõm)
-            # Rập càng vuông vắn (log_aspect nhỏ) -> Mật độ lấp đầy trần càng tiến sát về dạng chữ nhật phẳng
+            # Hàm nội suy động: Tự động điều chỉnh hiệu suất OBB trần dựa trên form dáng thực tế từ PDF
             target_obb_eff = 0.88 - (0.05 * log_aspect) + (0.15 * current_factor)
-            
-            # Khống chế biên toán học an toàn tuyệt đối theo tiêu chuẩn hình học phẳng (Dải hiệu dụng 0.64 đến 0.92)
             target_obb_eff = max(0.6400, min(0.9200, target_obb_eff))
 
-            # 🌟 ĐIỂM 3: ÁP DỤNG ĐỒNG BỘ CHO TẤT CẢ CÁC PHÂN LỚP VẬT TƯ (FABRIC, LINING, FUSING)
-            # Nếu mật độ hiện tại nhỏ hơn mật độ suy diễn mục tiêu chứng tỏ hộp bao AABB trong PDF đang bị phình rác
+            # 3. Bounding Box Correction (Nắn kích thước hộp bao rác AABB của mọi lớp vật tư)
             if current_factor < target_obb_eff:
                 optimized_area = net_area_real / target_obb_eff
                 w_orig = (optimized_area / aspect_ratio) ** 0.5
                 l_orig = w_orig * aspect_ratio
 
-        # 🌟 ĐIỂM 5: KHẮC PHỤC TRIỆT ĐỂ LỖI ĐÙM SỐ LƯỢNG CHI TIẾT (INFERRED PIECES CHUẨN CAD)
-        raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng", 1.0)))
+        # 4. Sửa lỗi trùng lặp số lượng chi tiết (Inferred Pieces chuẩn CAD)
+        raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
         inferred_pcs = raw_pcs
-        
-        # Chỉ tự động nâng lên 2 chi tiết nếu tên mang tính chất danh từ bộ chung VÀ hoàn toàn không có hậu tố phân vế Trái/Phải
         if raw_pcs == 1.0 and p_class in ["FABRIC", "LINING"]:
-            if any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "POCKET BAG", "LÓT TÚI"]):
+            if any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "BAG"]):
                 if not any(k in comp_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)"]):
                     inferred_pcs = 2.0
 
         final_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
 
-        # Áp thông số co rút thớ sợi sản xuất trực tiếp từ trục Master ngoài
+        # 5. Shrinkage Matrix Application (Áp thông số co rút thớ sợi sản xuất)
         if p_class == "FABRIC":
             w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else fabric_width
             l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
@@ -1976,26 +1960,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        # Khống chế diện tích tinh thực tế bảo toàn tuyệt đối thuộc tính rập mẫu
         if net_area_real > (w_prod * l_prod):
-            net_area_real = w_prod * l_prod * target_obb_eff
+            net_area_real = w_prod * l_prod * 0.85
 
         virtual_pieces_layer[idx] = {
-            "inferred_class": p_class, 
-            "class_confidence": class_confidence,
-            "production_l": round(l_prod, 2), 
-            "production_w": round(w_prod, 2), 
+            "inferred_class": p_class, "class_confidence": class_confidence,
+            "production_l": round(l_prod, 2), "production_w": round(w_prod, 2), 
             "production_net_area": round(net_area_real, 2),
-            "inferred_pieces": final_pcs, 
-            "component_name": comp_name_raw
+            "inferred_pieces": final_pcs, "component_name": comp_name_raw
         }
 
-    # Đồng bộ lưu trữ ngược lại bảng df_bom chính để hiển thị trực quan đồng bộ lên lưới phẳng UI
     for idx, vp in virtual_pieces_layer.items():
         if idx in df_bom.index:
             df_bom.at[idx, "Chiều dài rập (inch)"] = vp["production_l"]
             df_bom.at[idx, "Chiều rộng rập (inch)"] = vp["production_w"]
             df_bom.at[idx, "polygon_net_area"] = vp["production_net_area"]
+
          # =====================================================================
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V26 - FIX CHI TIẾT VƯỢT KHỔ & ÉP KHÍT SƠ ĐỒ THÂN)
     # =====================================================================
@@ -2112,8 +2092,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
 
-      # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS (V34 - SIÊU NÉN SƠ ĐỒ THƯƠNG MẠI CHẶT)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: ADAPTIVE GERBER PACKER (VERSION MASTER V37 - NO CLAMP)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2122,33 +2102,57 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # 1. HORIZON ĐỘNG KHỐNG CHẾ BIÊN SÁT NỀN DIỆN TÍCH PHẲNG
-    fabric_pieces = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
-    if fabric_pieces and current_fabric_width > 0:
-        total_net_area = sum(float(p["area"]) for p in fabric_pieces)
-        # Ép mật độ lấp đầy giả lập chu kỳ đầu lên 85% để thu hẹp ma trận tìm góc trống chết
-        initial_horizon_length = (total_net_area / current_fabric_width) / 0.85
-        max_p_len = max(float(p["l"]) for p in fabric_pieces)
-        if initial_horizon_length < max_p_len:
-            initial_horizon_length = max_p_len + 5.0
-    else:
-        initial_horizon_length = 10000.0
+    # 🌟 ĐIỂM SỬA 1: GERBER MULTI-CRITERIA SORTING (ƯU TIÊN TUYỆT ĐỐI THEO TỶ LỆ KHUNG HÌNH VÀ DIỆN TÍCH GIẢM DẦN)
+    # Không chỉ sort theo Area, ép sort lồng thêm thuộc tính Trọng số Cặp (Priority) và Tỷ lệ khung hình thuôn dài Aspect Ratio
+    raw_unpaired_pieces.sort(key=lambda x: (
+        x.get('priority', 3), 
+        -x['area'], 
+        -float(x['l']) / float(x['w'] if x['w'] > 0 else 1.0)
+    ))
+
+    # Dynamic Horizon Generator (Định luật bảo toàn diện tích 2D phẳng sát nền)
+    if 'initial_horizon_length' not in locals():
+        fab_pcs = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
+        if fab_pcs and current_fabric_width > 0:
+            total_bbox_area = sum(float(p["l"]) * float(p["w"]) for p in fab_pcs)
+            initial_horizon_length = (total_bbox_area / current_fabric_width) * 1.03  # Hạ trần an toàn xuống sát biên 3%
+        else:
+            initial_horizon_length = 10000.0
 
     spaces = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length}]
+    total_initial_pieces_count = len(raw_unpaired_pieces)
 
-    # 2. Vòng lặp rải rập đa tiêu chí tích hợp hàm phạt khoảng trống chết nâng cao
-    for g in raw_unpaired_pieces:
+    for step_idx, g in enumerate(raw_unpaired_pieces):
         orig_w, orig_l = float(g["w"]), float(g["l"])
         if orig_w <= 0 or orig_l <= 0:
             overflow_minor_pieces.append(g)
             continue
 
         allowed_rotations = [(orig_w, orig_l)]
-        # TỰ ĐỘNG KHÍCH LỆ XOAY 180 ĐỘ ĐỂ TÌM GÓC HÍT KHÍT CHO LINH KIỆN CON
         if st.session_state.get("is_free_rotation_180", True) or (not one_way_flag and not nap_layout_flag):
             allowed_rotations.append((orig_l, orig_w))
 
         best_space_idx, best_w, best_l, best_fitness = -1, orig_w, orig_l, float('inf')
+        p_class = g.get("material_class", "FABRIC")
+
+        # 🌟 ĐIỂM SỬA 3: ADAPTIVE WEIGHTS GENERATOR (TRỌNG SỐ BIẾN ĐỔI THEO CHU KỲ RẢI THỰC TẾ)
+        # Tính toán tỷ lệ chi tiết còn lại và chỉ số phân mảnh hộp tự do thời gian thực
+        pieces_left_ratio = (total_initial_pieces_count - step_idx) / total_initial_pieces_count if total_initial_pieces_count > 0 else 0.0
+        
+        # Chỉ số phân mảnh Fragmentation Score (Dựa trên số lượng hình chữ nhật tự do đang có trong ma trận spaces)
+        fragmentation_score = min(1.0, len(spaces) / 50.0)
+
+        # Thiết lập ma trận trọng số thích ứng tự biến đổi tự nhiên (Adaptive Weights)
+        if p_class == "FABRIC" and (orig_l > 35.0 or orig_w > 35.0):
+            # Giai đoạn đầu xếp thân to: Ép chặt tọa độ dọc Y (w_y cao), tối ưu hóa diện tích bao hình chữ nhật BAF
+            w_y, w_bssf, w_blsf, w_baf, w_contact = 0.40, 0.15, 0.10, 0.25, 0.10
+        else:
+            # Giai đoạn sau xếp rập phụ / mếch keo: Khi độ phân mảnh tăng cao, đẩy mạnh trọng số hít biên chu vi (w_contact cao) để điền khoảng trống chết
+            w_y = 0.10 + (0.10 * pieces_left_ratio)
+            w_contact = 0.25 + (0.15 * fragmentation_score)
+            w_bssf = 0.20
+            w_blsf = 0.15
+            w_baf = 1.0 - (w_y + w_contact + w_bssf + w_blsf)
 
         for s_idx, space in enumerate(spaces):
             s_w, s_l, s_x, s_y = space["w"], space["l"], space["x"], space["y"]
@@ -2156,31 +2160,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             for p_w, p_l in allowed_rotations:
                 if p_w <= s_w and p_l <= s_l:
-                    is_large_panel = (p_l > 35.0 or p_w > 35.0)
                     
-                    # Chuẩn hóa phi đơn vị hệ số trống (Càng nhỏ rập càng khít khoảng trống tự do)
-                    norm_bssf = min(s_w - p_w, s_l - p_l) / min(s_w, s_l)
-                    norm_baf = (space_area - (p_w * p_l)) / space_area
+                    # Cân bằng thứ nguyên đồng nhất phi đơn vị [0.0 ~ 1.0] cho mọi chỉ số Heuristic
+                    y_score = s_y / initial_horizon_length
+                    bssf_score = min(s_w - p_w, s_l - p_l) / min(s_w, s_l)
+                    blsf_score = max(s_w - p_w, s_l - p_l) / max(s_w, s_l)
+                    baf_score = (space_area - (p_w * p_l)) / space_area
                     
-                    # Đo trùng khít chu vi biên tiếp xúc
-                    contact = 0.0
-                    if s_x == 0 or s_x + p_w == current_fabric_width: contact += p_l
-                    if s_y == 0: contact += p_w
+                    # 🌟 ĐIỂM SỬA 2: BOUNDARY CONTACT LENGTH (TÍNH CHU VI TIẾP XÚC BIÊN THỰC ĐẠI THEO ĐỘ DÀI CẠNH CHUẨN CAD)
+                    contact_length = 0.0
+                    if s_x == 0 or s_x + p_w == current_fabric_width: contact_length += p_l
+                    if s_y == 0: contact_length += p_w
+                    
+                    # Đo quét chiều dài đường biên tiếp xúc Rập - Rập thực tế phẳng
                     for p in placed_pieces:
+                        # Tiếp xúc biên dọc trục X
                         if p["x"] + p["w"] == s_x or s_x + p_w == p["x"]:
-                            contact += min(s_y + p_l, p["y"] + p["l"]) - max(s_y, p["y"])
+                            contact_length += max(0.0, min(s_y + p_l, p["y"] + p["l"]) - max(s_y, p["y"]))
+                        # Tiếp xúc biên ngang trục Y
                         if p["y"] + p["l"] == s_y or s_y + p_l == p["y"]:
-                            contact += min(s_x + p_w, p["x"] + p["w"]) - max(s_x, p["x"])
+                            contact_length += max(0.0, min(s_x + p_w, p["x"] + p["w"]) - max(s_x, p["x"]))
+                            
+                    max_possible_perimeter = 2 * (p_w + p_l)
+                    norm_contact_score = min(1.0, contact_length / max_possible_perimeter)
                     
-                    norm_contact = min(1.0, contact / (2 * (p_w + p_l)))
+                    # Tính toán tổng hợp điểm số thích ứng động (Adaptive Cost Function Score)
+                    fitness = (y_score * w_y) + (bssf_score * w_bssf) + (blsf_score * w_blsf) + (baf_score * w_baf) - (norm_contact_score * w_contact)
                     
-                    # 🔥 TỐI ƯU TRỌNG SỐ V34: Tăng cường phạt trục Y để dồn ép rập phụ chèn chặt vào hông thân quần
-                    if is_large_panel:
-                        fitness = (s_y * 1.8) + (norm_bssf * 0.15) + (norm_baf * 0.15) - (norm_contact * 0.10)
-                    else:
-                        # Rập nhỏ được ưu tiên hít sát theo chu vi tiếp xúc biên rập lớn (Tăng từ 0.30 lên 0.40)
-                        fitness = (s_y * 0.40) + (norm_bssf * 0.25) + (norm_baf * 0.25) - (norm_contact * 0.40)
-
                     if fitness < best_fitness:
                         best_fitness, best_space_idx, best_w, best_l = fitness, s_idx, p_w, p_l
 
@@ -2190,11 +2196,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             placed_pieces.append({
                 "idx": g["idx"], "x": posX, "y": posY, "w": best_w, "l": best_l,
-                "material_class": g.get("material_class", "FABRIC"), "area": g.get("area", 0.0)
+                "material_class": p_class, "area": g.get("area", 0.0)
             })
             simulated_marker_length = max(simulated_marker_length, posY + best_l)
 
-            # Phân rã 4 vùng MaxRects & Clip chồng lấn chuẩn hình học
+            # Phân rã 4 vùng MaxRects & Clip chồng lấn chuẩn hình học phẳng
             new_spaces, px1, py1, px2, py2 = [], posX, posY, posX + best_w, posY + best_l
             for sp in spaces:
                 sx1, sy1, sx2, sy2 = sp["x"], sp["y"], sp["x"] + sp["w"], sp["y"] + sp["l"]
@@ -2206,13 +2212,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     if px1 > sx1: new_spaces.append({"x": sx1, "y": sy1, "w": px1 - sx1, "l": sp["l"]})
                     if px2 < sx2: new_spaces.append({"x": px2, "y": sy1, "w": sx2 - px2, "l": sp["l"]})
 
-            # Lọc hình lọt thỏm (Subsumption)
+            # Subsumption Pruning (Lọc hình lọt lòng)
             pruned = []
             for i, r1 in enumerate(new_spaces):
                 if not any(r2["x"] <= r1["x"] and r2["y"] <= r1["y"] and r2["x"]+r2["w"] >= r1["x"]+r1["w"] and r2["y"]+r2["l"] >= r1["y"]+r1["l"] for j, r2 in enumerate(new_spaces) if i != j):
                     pruned.append(r1)
 
-            # Gộp không gian trống liền kề đệ quy
+            # Vòng lặp Gộp vùng trống liền kề đệ quy (Recursive Merge)
             while True:
                 last_len, merged = len(pruned), []
                 while pruned:
@@ -2220,7 +2226,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     for idx, oth in enumerate(pruned):
                         if curr["x"] == oth["x"] and curr["w"] == oth["w"] and (curr["y"] + curr["l"] == oth["y"] or oth["y"] + oth["l"] == curr["y"]):
                             oth["y"], oth["l"] = min(curr["y"], oth["y"]), curr["l"] + oth["l"]; break
-                        if curr["y"] == oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]):
+                        if curr["y"] == notify_y := oth["y"] and curr["l"] == oth["l"] and (curr["x"] + curr["w"] == oth["x"] or oth["x"] + oth["w"] == curr["x"]):
                             oth["x"], oth["w"] = min(curr["x"], oth["x"]), curr["w"] + oth["w"]; break
                     else:
                         merged.append(curr)
@@ -2230,15 +2236,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             overflow_minor_pieces.append(g)
 
-    # 3. KẾT XUẤT CHỈ SỐ LỚN ĐỊNH MỨC THƯƠNG MẠI KHÍT
+    # 🌟 ĐIỂM SỬA 4: DENSITY THẬT TỰ NHIÊN 100% (HOÀN TOÀN KHÔNG DÙNG HÀM CLAMP ÉP SỐ)
     fab_placed_only = [p for p in placed_pieces if p.get("material_class") == "FABRIC"]
     fabric_base_length = max(float(p["y"]) + float(p["l"]) for p in fab_placed_only) if fab_placed_only else simulated_marker_length
-        
     net_area_fab = sum(float(p["area"]) for p in fab_placed_only) if fab_placed_only else 1.0
     
-    # 🌟 ÉP NÉN HIỆU SUẤT THỰC ĐẠI: Đẩy mốc mật độ lấp đầy thực tế lên dải 84.5% - 88.5% siêu khít
-    real_fabric_density = net_area_fab / (fabric_base_length * current_fabric_width) if fabric_base_length > 0 else 0.85
-    real_fabric_density = max(0.8450, min(0.8850, real_fabric_density)) 
+    # Mật độ lấp đầy thực tế sinh ra hoàn toàn tự nhiên từ hình học rải khít khao của V37
+    real_fabric_density = net_area_fab / (fabric_base_length * current_fabric_width) if fabric_base_length > 0 else 0.83
     
     overflow_fab_area = sum(float(m["area"]) for m in overflow_minor_pieces if m.get("material_class") == "FABRIC")
     overflow_added_len = (overflow_fab_area / current_fabric_width) / real_fabric_density if current_fabric_width > 0 else 0.0
