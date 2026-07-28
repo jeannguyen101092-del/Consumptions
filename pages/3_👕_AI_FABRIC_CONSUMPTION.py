@@ -2127,7 +2127,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS CHUẨN CAD (TỐI GIẢN & HIỆU SUẤT CAO)
+    # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS CHUẨN CAD (V30 - FIXED GEOMETRY CLIP)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2136,7 +2136,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'df_bom' not in locals(): df_bom = pd.DataFrame()
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
 
-    # 1. Khởi tạo Horizon Động (Tối ưu hóa không gian nền từ Đoạn 4)
+    # 1. Khởi tạo Horizon Động dựa trên tổng diện tích Bounding Box
     if 'initial_horizon_length' not in locals():
         fab_pcs = [p for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC"]
         if fab_pcs and current_fabric_width > 0:
@@ -2187,11 +2187,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             placed_pieces.append({"idx": g["idx"], "x": posX, "y": posY, "w": best_w, "l": best_l})
             simulated_marker_length = max(simulated_marker_length, posY + best_l)
 
-            # 3. Phân rã 4 vùng MaxRects & Clip chồng lấn
+            # 3. 🔥 SỬA LỖI LÕI: Phân rã 4 vùng MaxRects & Clip chồng lấn chuẩn hình học 2D phẳng
             new_spaces, px1, py1, px2, py2 = [], posX, posY, posX + best_w, posY + best_l
             for sp in spaces:
                 sx1, sy1, sx2, sy2 = sp["x"], sp["y"], sp["x"] + sp["w"], sp["y"] + sp["l"]
-                if px1 >= sx2 or px2 <= sx1 or py1 >= sy2 or px2 <= sx1: # Sửa lỗi kiểm tra giao nhau trục Y
+                
+                # Sửa chính xác điều kiện kiểm tra không giao nhau trục X và Y
+                if px1 >= sx2 or px2 <= sx1 or py1 >= sy2 or py2 <= sy1: 
                     new_spaces.append(sp)
                 else:
                     if py1 > sy1: new_spaces.append({"x": sx1, "y": sy1, "w": sp["w"], "l": py1 - sy1})
@@ -2199,7 +2201,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     if px1 > sx1: new_spaces.append({"x": sx1, "y": sy1, "w": px1 - sx1, "l": sp["l"]})
                     if px2 < sx2: new_spaces.append({"x": px2, "y": sy1, "w": sx2 - px2, "l": sp["l"]})
 
-            # Subsumption Pruning (Lọc hình lọt thỏm)
+            # Subsumption Pruning (Lọc hình tự do nằm lọt lòng hình khác)
             pruned = []
             for i, r1 in enumerate(new_spaces):
                 if not any(r2["x"] <= r1["x"] and r2["y"] <= r1["y"] and r2["x"]+r2["w"] >= r1["x"]+r1["w"] and r2["y"]+r2["l"] >= r1["y"]+r1["l"] for j, r2 in enumerate(new_spaces) if i != j):
@@ -2223,11 +2225,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             overflow_minor_pieces.append(g)
 
-    # 5. Kết xuất kết quả hiệu suất thực tế
+    # 5. Kết xuất chỉ số định mức thực tế cuối cùng
     net_area_fab = sum(float(p["area"]) for p in raw_unpaired_pieces if p.get("material_class") == "FABRIC")
     real_fabric_density = net_area_fab / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.85
     simulated_marker_length += (sum(float(m["area"]) for m in overflow_minor_pieces) / current_fabric_width) / real_fabric_density if current_fabric_width > 0 else 0.0
     total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
+
      # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN FIX LỖI ST.DATA_EDITOR)
     # =====================================================================
