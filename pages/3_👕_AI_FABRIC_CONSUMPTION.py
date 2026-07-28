@@ -2233,10 +2233,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     simulated_marker_length += (sum(float(m["area"]) for m in overflow_minor_pieces) / current_fabric_width) / real_fabric_density if current_fabric_width > 0 else 0.0
     total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN SIÊU RÚT GỌN)
+    # 🟩 ĐOẠN 5.2 - PHẦN B: PUBLISHING ROUTER (PHIÊN BẢN SỬA LỖI ĐỊNH DẠNG SỐ UI)
     # =====================================================================
     tot_ln_area, tot_fs_area, tot_fb_area = 0.0, 0.0, 0.0
     u_edit_pcs = st.session_state.get("user_edited_pieces", {})
+
+    # 🛠️ BỘ LỌC KHỬ LỖI CHỮ HOẶC DẤU BÁO ĐỎ TRÊN GIAO DIỆN STREAMLIT
+    for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area"]:
+        if col in df_bom.columns:
+            df_bom[col] = pd.to_numeric(df_bom[col], errors='coerce').fillna(0.0)
 
     # 1. Khởi tạo & Vòng lặp Gom diện tích đóng góp động (Tối ưu hóa gộp nhóm)
     for k, vp in virtual_pieces_layer.items():
@@ -2251,6 +2256,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if p_cls in ["LINING", "RIB"] and ("POCKET" in c_nm or "BAG" in c_nm) and "BACK" not in c_nm: pcs = 2.0
             elif p_cls in ["FUSING", "INTERLINING"] and any(x in c_nm for x in ["WAISTBAND", "FLY", "FACING"]): pcs = 2.0
         
+        # Đọc an toàn từ df_bom sau khi đã được ép kiểu số sạch sẽ
         p_area = float(df_bom.at[k, "polygon_net_area"]) if (not df_bom.empty and k in df_bom.index) else float(vp.get("production_net_area", 0.0))
         act_area = p_area * pcs * size_scale_ratio
         
@@ -2275,6 +2281,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_cls = str(v_pc.get("inferred_class", "")).upper().strip() if isinstance(v_pc, dict) else "FABRIC"
         c_nm = str(row.get("component_name", "")).upper().strip()
         
+        # Trả lại đúng phân loại loại vật tư lên lưới UI để tránh bị biến hết thành FABRIC
+        df_bom.at[idx, "Material Class"] = p_cls
+        
         pcs = float(u_edit_pcs.get(idx, v_pc.get("inferred_pieces", 1.0))) if isinstance(v_pc, dict) else 1.0
         if idx not in u_edit_pcs:
             if p_cls in ["LINING", "RIB"] and ("POCKET" in c_nm or "BAG" in c_nm) and "BACK" not in c_nm: pcs = 2.0
@@ -2291,12 +2300,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Đẩy kết quả cuối cùng lên cấu trúc lưới hiển thị UI của Streamlit
     df_bom["Gross Consumption"] = gross_list
+    
+    # Đồng bộ các trục biến session_state để hiển thị lên bảng Summary phía trên cùng
     st.session_state.update({
         "summary_fabric_gross": round(total_fabric_gross_yds, 4),
         "summary_fusing_gross": round(tot_fs_yds, 4),
         "summary_lining_gross": round(tot_ln_yds, 4)
     })
-
 
    
 
