@@ -2610,70 +2610,60 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if has_changed:
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
         st.rerun()
-     # =====================================================================
-    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (VẼ SƠ ĐỒ RẢI RẬP 2D TRỰC QUAN)
+    # =====================================================================
+    # 🎨 ĐOẠN 7.1: AI MARKER LAYOUT PREVIEW (HÀM VẼ MATPLOTLIB KHÔNG CẦN CÀI THƯ VIỆN)
     # =====================================================================
     st.write("---")
     st.subheader("🗺️ AI Marker Layout Preview (Sơ Đồ Minh Họa Rải Rập 2D)")
 
-    # Kiểm tra nếu mảng đặt rập từ Đoạn 5.2 tồn tại dữ liệu hình học
-    if 'placed_pieces' in locals() and len(placed_pieces) > 0 and final_fabric_marker_length > 0:
-        import plotly.graph_objects as go
+    if 'placed_pieces' in locals() and len(placed_pieces) > 0 and 'final_fabric_marker_length' in locals():
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
 
-        # 1. Thiết lập khung nền sơ đồ (Chiều rộng = Khổ vải, Chiều dài = Chiều dài sơ đồ thực tế)
-        fig = go.Figure()
+        # 1. Khởi tạo khung bản vẽ phẳng hình chữ nhật
+        fig, ax = plt.subplots(figsize=(10, 6))
         
-        # Định nghĩa bảng màu trực quan cho từng nhóm vật tư để phân biệt trên sơ đồ
+        # Bảng màu phẳng sạch lỗi
         color_map = {
-            "FABRIC": "#1ABC9C",       # Xanh ngọc cho vải chính
-            "FUSING": "#E67E22",       # Màu cam cho mếch/keo
-            "LINING": "#3498DB",       # Xanh dương cho vải lót túi
-            "THREAD": "#9B59B6",       # Tím cho chỉ may
-            "ACCESSORY": "#7F8C8D"     # Xám cho phụ liệu
+            "FABRIC": "#1ABC9C",   # Xanh ngọc - vải chính
+            "FUSING": "#E67E22",   # Màu cam - mếch/keo
+            "LINING": "#3498DB",   # Xanh dương - lót túi
+            "THREAD": "#9B59B6",   # Tím - chỉ may
+            "ACCESSORY": "#7F8C8D" # Xám - phụ liệu
         }
 
-        # 2. Vòng lặp vẽ từng miếng rập phẳng lên ma trận tọa độ Plotly
+        # 2. Vòng lặp quét vẽ từng mảnh rập mẫu lên sàn đồ họa
         for p in placed_pieces:
             px, py, pw, pl = float(p["x"]), float(p["y"]), float(p["w"]), float(p["l"])
             p_class = p.get("material_class", "FABRIC")
             
-            # Lấy tên linh kiện gốc từ bộ nhớ phôi ảo để hiển thị nhãn khi di chuột vào (Hover)
-            v_p_info = virtual_pieces_layer.get(p["idx"], {})
-            c_name_display = v_p_info.get("component_name", f"Piece_{p['idx']}")
-
-            # Thêm hình chữ nhật đại diện cho rập mẫu lên sơ đồ phẳng
-            fig.add_shape(
-                type="rect",
-                x0=px, y0=py, x1=px + pw, y1=py + pl,
-                line=dict(color="#FFFFFF", width=1.5), # Đường viền trắng mảnh phân tách rập
-                fillcolor=color_map.get(p_class, "#1ABC9C"),
-                opacity=0.85
+            # Vẽ khối hộp rập mẫu
+            rect = patches.Rectangle(
+                (px, py), pw, pl, 
+                linewidth=1.0, 
+                edgecolor='#FFFFFF', 
+                facecolor=color_map.get(p_class, "#1ABC9C"), 
+                alpha=0.85
             )
-            
-            # Thêm điểm dữ liệu ẩn để hiển thị Tooltip (nhãn thông tin) khi di chuột vào chi tiết rập
-            fig.add_trace(go.Scatter(
-                x=[px + pw/2], y=[py + pl/2],
-                text=[f"<b>{c_name_display}</b><br>Kích thước: {pl:.2f} x {pw:.2f} inch<br>Vị trí: X={px:.1f}, Y={py:.1f}"],
-                mode="markers",
-                marker=dict(size=1, color="rgba(0,0,0,0)"),
-                hoverinfo="text",
-                showlegend=False
-            ))
+            ax.add_patch(rect)
 
-        # 3. Cấu hình giao diện trục tọa độ phẳng chuẩn CAD Gerber/Lectra
-        fig.update_layout(
-            xaxis=dict(title="<b>Chiều rộng khổ vải (Width - inch)</b>", range=[0, current_fabric_width], fixedrange=True, dtick=10),
-            yaxis=dict(title="<b>Chiều dài sơ đồ (Length - inch)</b>", range=[0, final_fabric_marker_length], fixedrange=True, dtick=20),
-            margin=dict(l=40, r=40, t=10, bottom=40),
-            height=600,
-            width=900,
-            plot_bgcolor="#F8F9F9", # Nền xám nhạt chuẩn phòng kỹ thuật
-            hovermode="closest"
-        )
+        # 3. Cấu hình biên trục tọa độ khống chế phẳng chuẩn CAD Gerber
+        ax.set_xlim(0, current_fabric_width)
+        ax.set_ylim(0, final_fabric_marker_length)
+        ax.set_xlabel("Chiều rộng khổ vải (Width - inch)", fontsize=10, fontweight='bold')
+        ax.set_ylabel("Chiều dài sơ đồ (Length - inch)", fontsize=10, fontweight='bold')
+        
+        # Thêm lưới ô vuông kỹ thuật trực quan
+        ax.grid(True, linestyle='--', alpha=0.5, color='#BDC3C7')
+        ax.set_facecolor('#F8F9F9') # Nền xám nhạt phòng CAD
+        
+        # Bật hiển thị lưới khung
+        plt.tight_layout()
 
-        # Hiển thị biểu đồ sơ đồ trực quan lên giao diện Streamlit
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption(f"💡 Hướng dẫn xem: Các khối màu đại diện cho rập mẫu (Xanh ngọc là Vải chính). Chiều dài sơ đồ thực tế hiện tại là <b>{final_fabric_marker_length:.2f} inch</b> (~{total_fabric_gross_yds:.4f} YDS).")
+        # Đẩy trực tiếp bản vẽ sơ đồ 2D lên giao diện Streamlit
+        st.pyplot(fig)
+        plt.close(fig) # Giải phóng bộ nhớ RAM hệ thống ngay lập tức
+        
+        st.caption(f"💡 Bản vẽ sơ đồ 2D minh họa. Chiều dài sơ đồ thực tế: <b>{final_fabric_marker_length:.2f} inch</b>.")
     else:
-        st.warning("⚠️ Không thể dựng sơ đồ 2D do ma trận tọa độ hình học phẳng đang bị trống. Hãy kiểm tra lại dữ liệu kích thước rập đầu vào.")
-
+        st.warning("⚠️ Không thể dựng sơ đồ 2D do ma trận tọa độ rải rập phẳng đang trống.")
