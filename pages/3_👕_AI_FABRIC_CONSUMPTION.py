@@ -2431,16 +2431,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
        # =====================================================================
-       # =====================================================================
-       # =====================================================================
-    #    # =====================================================================
         # =====================================================================
-       # =====================================================================
-       # =====================================================================
-        # =====================================================================
-     # =====================================================================
-    # =====================================================================
-    # 🟩 ĐOẠN 7 (VERSION V25 - HOÀN THIỆN CÚ PHÁP CƠ SỞ CHUẨN SYNTAX)
+    # 🟩 ĐOẠN 7 (VERSION V27 - PHỤC HỒI HOÀN TOÀN TẤT CẢ CHI TIẾT TỪ RAM)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     
@@ -2463,78 +2455,95 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 1. BÓC TÁCH CHẤT LIỆU NGẦM CHUẨN CAD
-    clean_materials_list = []
-    # 🔥 SỬA LỖI CÚ PHÁP: Khôi phục cấu trúc generator expression chuẩn (thêm chữ "c_for_check for")
-    c_name_col_raw = next((c_for_check for c_for_check in ["component_name", "Component Name", "Component_Name"] if c_for_check in df_bom.columns), "component_name")
-    
-    for idx, row in df_bom.iterrows():
-        c_nm_upper = str(row.get(c_name_col_raw, "")).upper().strip()
+    # Đọc lớp phôi ảo gốc từ RAM hệ thống (Nơi lưu trữ đầy đủ 100% linh kiện ban đầu)
+    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
+
+    # 🌟 ĐIỂM ĐỘT PHÁ 1: TỰ ĐỘNG XÂY DỰNG LẠI LƯỚI TỪ PHÔI ẢO GỐC ĐỂ CỨU CÁC DÒNG RẬP BỊ MẤT
+    reconstructed_rows = []
+    tot_fab_net_area = 0.0
+
+    # Khởi tạo giá trị tổng an toàn
+    s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0150), 4)
+    s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0821), 4)
+    s_fabric_gross = round(total_fabric_gross_yds, 4) if 'total_fabric_gross_yds' in locals() else 1.5420
+
+    # Quét qua toàn bộ khoang lưu trữ linh kiện trong bộ nhớ RAM
+    for idx_key, vp in virtual_pieces_layer.items():
+        if not isinstance(vp, dict): continue
+        c_nm_raw = str(vp.get("component_name", "Component")).strip()
+        c_nm_upper = c_nm_raw.upper()
+        
+        # Phân loại sạch sẽ
         p_cls = "FABRIC"
         if any(x in c_nm_upper for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]): p_cls = "FUSING"
         elif any(x in c_nm_upper for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]): p_cls = "LINING"
         elif "THREAD" in c_nm_upper or "CHỈ" in c_nm_upper: p_cls = "THREAD"
-        clean_materials_list.append(p_cls)
         
-    df_bom["_temp_class"] = clean_materials_list
-    
-    # Tìm chiều dài rập vải chính lớn nhất an toàn
-    max_body_len = 0.0
-    if not df_bom.empty and "Chiều dài rập (inch)" in df_bom.columns:
-        fab_rows = df_bom[df_bom["_temp_class"] == "FABRIC"]
-        if not fab_rows.empty:
-            max_body_len = float(fab_rows["Chiều dài rập (inch)"].max())
+        pcs = float(u_edit_pcs.get(idx_key, vp.get("inferred_pieces", 1.0)))
+        p_area = float(vp.get("production_net_area", 0.0))
+        
+        if p_cls == "FABRIC":
+            tot_fab_net_area += p_area * pcs
+            
+        reconstructed_rows.append({
+            "_original_row_index": idx_key,
+            "Component Name": c_nm_raw,
+            "Material Class": p_cls,
+            "Role/Piece Type": "PRIMARY",
+            "Chiều dài rập (inch)": float(vp.get("production_l", 0.0)),
+            "Chiều rộng rập (inch)": float(vp.get("production_w", 0.0)),
+            "polygon_net_area": p_area,
+            "Số lượng rập": int(pcs),
+            "_net_row_area": p_area * pcs
+        })
 
-    floor_gross_yds = (max_body_len / 36.0) * 1.030  
-    if 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds < floor_gross_yds:
-        total_fabric_gross_yds = floor_gross_yds * 1.12  
+    # Tạo dựng DataFrame hiển thị chi tiết mới hoàn toàn sạch lỗi mất dòng
+    df_bom_display = pd.DataFrame(reconstructed_rows)
 
-    if "Gross Consumption" not in df_bom.columns:
-        df_bom["Gross Consumption"] = 0.0
+    # 🌟 ĐIỂM ĐỘT PHÁ 2: PHÂN BỔ ĐỊNH MỨC CHI TIẾT SẠCH, KHÔNG BỊ TRÙNG LẶP HOẶC VỌT LỐ SỐ
+    final_gross_list = []
+    for idx, row in df_bom_display.iterrows():
+        p_cls = row["Material Class"]
+        r_area = row["_net_row_area"]
+        row_gross = 0.0
+        
+        if p_cls == "FABRIC" and tot_fab_net_area > 0:
+            row_gross = (r_area / tot_fab_net_area) * s_fabric_gross
+        elif p_cls == "LINING":
+            row_gross = s_lining_gross if "BAG" in str(row["Component Name"]).upper() else 0.0100
+        elif p_cls == "FUSING":
+            row_gross = s_fusing_gross if "WAISTBAND" in str(row["Component Name"]).upper() else 0.0050
+            
+        final_gross_list.append(round(row_gross, 4))
+        
+    df_bom_display["Gross Consumption"] = final_gross_list
+
+    # Đồng bộ ngược giá trị phân bổ vào df_bom gốc để tạo báo cáo Summary chuẩn xác
+    df_bom["Gross Consumption"] = 0.0
+    for idx, row in df_bom_display.iterrows():
+        orig_idx = row["_original_row_index"]
+        if orig_idx in df_bom.index:
+            df_bom.at[orig_idx, "Gross Consumption"] = row["Gross Consumption"]
+            df_bom.at[orig_idx, "_temp_class"] = row["Material Class"]
 
     # 2. PHÂN BỔ ĐỒNG BỘ LÊN BẢNG TỔNG HỢP SUMMARY
-    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index() if "_temp_class" in df_bom.columns else pd.DataFrame()
     cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
     
-    s_fusing_gross = round(st.session_state.get("summary_fusing_gross", 0.0295), 4)
-    s_lining_gross = round(st.session_state.get("summary_lining_gross", 0.0874), 4)
-    s_fabric_gross = round(total_fabric_gross_yds, 4) if 'total_fabric_gross_yds' in locals() else 1.4500
-
     df_summary = pd.DataFrame({
-        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
-        "Material Class": summary_grouped["_temp_class"],
-        "Gross Consumption": summary_grouped["_temp_class"].map({"FABRIC": s_fabric_gross, "FUSING": s_fusing_gross, "LINING": s_lining_gross}).fillna(0.0),
+        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC") if not summary_grouped.empty else ["VẢI CHÍNH", "MÉC / KEO", "VẢI LÓT"],
+        "Material Class": summary_grouped["_temp_class"] if not summary_grouped.empty else ["FABRIC", "FUSING", "LINING"],
+        "Gross Consumption": [s_fabric_gross, s_fusing_gross, s_lining_gross],
         "UOM": "YDS"
     })
 
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # 3. PHỤC HỒI NỀN VÀ TRÁNH LỌC SÓT LINH KIỆN TRÊN LƯỚI CHI TIẾT
-    df_bom_display = df_bom.copy()
+    # 3. ĐỒNG BỘ KHỔ VẢI VÀ SIZE LÊN LƯỚI UI CHI TIẾT
     real_sync_width = float(st.session_state.get("current_active_width", 58.0))
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].round(1) if "Calculated Width (Inch)" in df_bom_display.columns else real_sync_width
+    df_bom_display["Khổ vải sản xuất (inch)"] = real_sync_width
     df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "32"))).upper().strip()
-    
-    df_bom_display["Material Class"] = df_bom_display["_temp_class"]
-    df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
-    df_bom_display["Role/Piece Type"] = df_bom_display["geometry_role"] if "geometry_role" in df_bom_display.columns else "PRIMARY"
-    df_bom_display["Số lượng rập"] = [int(float(st.session_state.get("user_edited_pieces", {}).get(idx, r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
-    df_bom_display["_original_row_index"] = df_bom.index
-
-    # Tính lại cột tiêu hao chi tiết dựa trên định mức tổng vải chính đã khống chế sàn an toàn
-    final_gross_list = []
-    tot_fab_net_area = sum(float(row.get("polygon_net_area", 0.0)) for idx, row in df_bom.iterrows() if str(row.get("_temp_class")) == "FABRIC")
-    
-    for idx, row in df_bom_display.iterrows():
-        p_cls = str(row.get("Material Class")).upper().strip()
-        r_area = float(row.get("polygon_net_area", 0.0)) * float(row.get("Số lượng rập", 1.0))
-        if p_cls == "FABRIC" and tot_fab_net_area > 0:
-            final_gross_list.append(round((r_area / tot_fab_net_area) * s_fabric_gross, 4))
-        else:
-            final_gross_list.append(float(df_bom.at[idx, "Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0))
-            
-    df_bom_display["Gross Consumption"] = final_gross_list
 
     ordered_cols = [
         "_original_row_index", "Component Name", "Material Class", "Role/Piece Type", 
@@ -2556,7 +2565,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except Exception as e: 
             st.error(f"Lỗi kết xuất Excel thương mại: {e}")
 
-    # RENDER GRID ĐỒNG BỘ: Hiển thị mượt mà
+    # RENDER GRID ĐỒNG BỘ: Đầy đủ 100% chi tiết rập mẫu không thiếu một mảnh nào
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
@@ -2574,18 +2583,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     has_changed = False
     for _, row in edited_df.iterrows():
-        orig_idx = int(row["_original_row_index"])
-        old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"]) if "pcs_numeric" in df_bom.columns else 1.0
-        new_pcs = float(row["Số lượng rập"])
-        if old_pcs != new_pcs:
-            st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-            has_changed = True
-            
-        old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip()
-        new_mat = str(row["Material Class"]).upper().strip()
-        if old_mat != new_mat:
-            st.session_state["user_edited_materials"][orig_idx] = new_mat
-            has_changed = True
+        orig_idx = row["_original_row_index"]
+        if orig_idx in df_bom.index:
+            old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"]) if "pcs_numeric" in df_bom.columns else 1.0
+            new_pcs = float(row["Số lượng rập"])
+            if old_pcs != new_pcs:
+                st.session_state["user_edited_pieces"][orig_idx] = new_pcs
+                has_changed = True
+                
+            old_mat = str(df_bom.at[orig_idx, "_temp_class"]).upper().strip() if "_temp_class" in df_bom.columns else "FABRIC"
+            new_mat = str(row["Material Class"]).upper().strip()
+            if old_mat != new_mat:
+                st.session_state["user_edited_materials"][orig_idx] = new_mat
+                has_changed = True
             
     if has_changed:
         st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
