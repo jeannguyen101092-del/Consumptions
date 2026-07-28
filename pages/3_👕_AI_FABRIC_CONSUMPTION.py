@@ -1865,16 +1865,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V10 - PHẦN 1): PAIR BUILDER & MAXRECTS INITIALIZATION
     # =====================================================================
-    
-    # Định nghĩa hàm convert dữ liệu an toàn ngay tại chỗ để sửa lỗi NameError
-    def safe_int(value, default=3):
-        try:
-            if value is None:
-                return default
-            return int(float(value))
-        except (ValueError, TypeError):
-            return default
-
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): 
         ai_decision_d5 = {}
@@ -1917,7 +1907,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     "pair_req": r.get("is_left_right_pair", False), 
                     "shape": str(r.get("piece_shape", "TAPERED_PANEL")).upper().strip(),
                     "function": str(r.get("piece_function", "PRIMARY")).upper().strip(), 
-                    "priority": safe_int(r.get("packing_priority", 3), default=3),
+                    "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3,
                     "left_profile": str(shape_params.get("left_edge_profile", "STRAIGHT")).upper(), 
                     "right_profile": str(shape_params.get("right_edge_profile", "STRAIGHT")).upper(),
                     "curvature": str(r.get("edge_curvature", "MEDIUM")).upper(), 
@@ -1956,103 +1946,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 })
                 visited_indices.add(i)
 
-        # Sắp xếp danh sách phôi tổng hợp theo thứ tự ưu tiên gánh nền chuẩn dệt may (Priority 1 -> 5)
         paired_groups.sort(key=lambda x: (x["priority"], -x["area"]))
 
-        # 2️⃣ ENGINE 2: KHỞI TẠO BẢN ĐỒ KHÔNG GIAN TỰ DO TRẦN (INITIAL FREE SPACE MANAGER)
+        # 2️⃣ ENGINE 2: KHỞI TẠO KHÔNG GIAN TỰ DO
         total_bbox_sum = sum(g["l"] * g["w"] for g in paired_groups)
-        initial_horizon_length = max(120.0, (total_bbox_sum / current_fabric_width) * 1.5)
-        
-        # Khởi tạo một vùng Free Rectangle cực đại duy nhất bao phủ toàn bộ khổ vải
+        initial_horizon_length = max(30.0, (total_bbox_sum / current_fabric_width) * 1.05)
         free_rectangles = [{"x": 0.0, "y": 0.0, "w": current_fabric_width, "l": initial_horizon_length, "area": current_fabric_width * initial_horizon_length}]
-
-
-        # =====================================================================
-# 🟩 ĐỘNG CƠ TOÁN HỌC: SOLVE MAXRECTS BACKTRACK (BẢN VÁ LỖI TYPEERROR)
-# =====================================================================
-def solve_maxrects_backtrack(paired_groups, free_rectangles, initial_length=0.0):
-    """
-    Bộ động cơ đệ quy toán học phẳng xếp chi tiết rập vào không gian tự do.
-    Đã được tích hợp bộ lọc ép kiểu dữ liệu an toàn để chặn đứng lỗi TypeError.
-    """
-    placed_pieces = []
-    overflow_pieces = []
-    max_marker_length = float(initial_length)
-
-    # Tạo bản sao sâu để tránh làm thay đổi mảng gốc trong session_state
-    spaces = []
-    for r in free_rectangles:
-        spaces.append({
-            "x": float(r.get("x", 0.0) or 0.0),
-            "y": float(r.get("y", 0.0) or 0.0),
-            "w": float(r.get("w", 0.0) or 0.0),
-            "l": float(r.get("l", 0.0) or 0.0),
-            "area": float(r.get("area", 0.0) or 0.0)
-        })
-
-    for g in paired_groups:
-        piece_w = float(g.get("w", 0.0) or 0.0)
-        piece_l = float(g.get("l", 0.0) or 0.0)
-        piece_area = float(g.get("area", 0.0) or 0.0)
-
-        # Trường hợp chi tiết rập bị lỗi dữ liệu hoặc kích thước bằng 0
-        if piece_w <= 0 or piece_l <= 0:
-            overflow_pieces.append(g)
-            continue
-
-        placed = False
-        # Duyệt qua các vùng trống tìm vị trí tối ưu (Best-Fit L-Position)
-        for space in spaces:
-            space_w = float(space.get("w", 0.0) or 0.0)
-            space_l = float(space.get("l", 0.0) or 0.0)
-
-            # SỬA LỖI GỐC: So sánh trực tiếp bằng số thực (float) đã làm sạch
-            if piece_w <= space_w and piece_l <= space_l:
-                # Tính toán tọa độ đặt phôi sơ đồ giả lập
-                posX = float(space.get("x", 0.0))
-                posY = float(space.get("y", 0.0))
-                
-                placed_pieces.append({
-                    "idx": g.get("idx"),
-                    "x": posX,
-                    "y": posY,
-                    "w": piece_w,
-                    "l": piece_l
-                })
-                
-                # Cập nhật chiều dài sơ đồ thực tế đạt được
-                if posY + piece_l > max_marker_length:
-                    max_marker_length = posY + piece_l
-
-                # Chia tách vùng không gian trống còn lại theo thuật toán MaxRects chuẩn
-                if space_w - piece_w > 0.01:
-                    spaces.append({
-                        "x": posX + piece_w,
-                        "y": posY,
-                        "w": space_w - piece_w,
-                        "l": piece_l,
-                        "area": (space_w - piece_w) * piece_l
-                    })
-                if space_l - piece_l > 0.01:
-                    spaces.append({
-                        "x": posX,
-                        "y": posY + piece_l,
-                        "w": space_w,
-                        "l": space_l - piece_l,
-                        "area": space_w * (space_l - piece_l)
-                    })
-
-                # Loại bỏ vùng trống cũ đã bị chiếm dụng khỏi danh sách quản lý
-                spaces.remove(space)
-                placed = True
-                break
-
-        if not placed:
-            overflow_pieces.append(g)
-
-    return placed_pieces, overflow_pieces, max_marker_length
-
-
         # =====================================================================
         # 🟩 ĐOẠN 5.2 (PHẦN B): COST FUNCTION OPTIMIZER & CONSUMPTION PUBLISHING
         # =====================================================================
@@ -2068,110 +1967,128 @@ def solve_maxrects_backtrack(paired_groups, free_rectangles, initial_length=0.0)
             r["x"] = float(r.get("x", 0.0) or 0.0)
             r["y"] = float(r.get("y", 0.0) or 0.0)
 
-        # Kích hoạt bộ động cơ đệ quy toán học phẳng MaxRects
-        _, overflow_minor_pieces, simulated_marker_length = solve_maxrects_backtrack(paired_groups, free_rectangles, 0.0)
+        # HOÀN THIỆN ĐỘNG CƠ TOÁN HỌC MAXRECTS NỘI BỘ VÀ XẾP PHÔI
+        placed_pieces = []
+        overflow_minor_pieces = []
+        simulated_marker_length = 0.0
+        
+        spaces = []
+        for r in free_rectangles:
+            spaces.append({"x": float(r["x"]), "y": float(r["y"]), "w": float(r["w"]), "l": float(r["l"]), "area": float(r["area"])})
+
+        for g in paired_groups:
+            p_w, p_l, p_area = float(g["w"]), float(g["l"]), float(g["area"])
+            if p_w <= 0 or p_l <= 0:
+                overflow_minor_pieces.append(g)
+                continue
+            placed = False
+            for space in spaces:
+                s_w, s_l = float(space["w"]), float(space["l"])
+                if p_w <= s_w and p_l <= s_l:
+                    posX, posY = float(space["x"]), float(space["y"])
+                    placed_pieces.append({"idx": g["idx"], "x": posX, "y": posY, "w": p_w, "l": p_l})
+                    if posY + p_l > simulated_marker_length:
+                        simulated_marker_length = posY + p_l
+                    if s_w - p_w > 0.01:
+                        spaces.append({"x": posX + p_w, "y": posY, "w": s_w - p_w, "l": p_l, "area": (s_w - p_w) * p_l})
+                    if s_l - p_l > 0.01:
+                        spaces.append({"x": posX, "y": posY + p_l, "w": s_w, "l": s_l - p_l, "area": s_w * (s_l - p_l)})
+                    spaces.remove(space)
+                    placed = True
+                    break
+            if not placed:
+                overflow_minor_pieces.append(g)
 
         # Xử lý lượng linh kiện phụ bị tràn vùng tự do nếu có
         total_overflow_area = sum([float(m.get("area", 0.0) or 0.0) for m in overflow_minor_pieces])
         overflow_added_len = (total_overflow_area / current_fabric_width) / 0.85 if current_fabric_width > 0 else 0.0
         simulated_marker_length += overflow_added_len
 
-        # ĐÃ SỬA: Thuật toán cắt gọt không gian trống thừa để tránh bị phạt hiệu suất ảo
-        # Chỉ giữ lại phần không gian trống thực sự nằm xen kẽ giữa các chi tiết rập đã xếp
+        # Thuật toán co nền triệt tiêu không gian trống ảo thừa
         purged_free_rectangles = []
-        for g in free_rectangles:
-            g_y = float(g.get("y", 0.0) or 0.0)
-            g_l = float(g.get("l", 0.0) or 0.0)
-            g_w = float(g.get("w", 0.0) or 0.0)
-            
-            if g_y < simulated_marker_length:
-                # Nếu vùng trống kéo dài lố qua chiều dài sơ đồ thực, cắt ngắn nó lại
-                actual_l = min(g_l, simulated_marker_length - g_y)
+        for sp in spaces:
+            s_y, s_l, s_w = float(sp["y"]), float(sp["l"]), float(sp["w"])
+            if s_y < simulated_marker_length:
+                actual_l = min(s_l, simulated_marker_length - s_y)
                 if actual_l > 0:
-                    purged_free_rectangles.append({
-                        "w": g_w, "l": actual_l, "area": g_w * actual_l, "x": g.get("x", 0.0), "y": g_y
-                    })
-        
-        # Đánh giá đa biến dựa trên mảng không gian trống thực tế sau khi co nền
+                    purged_free_rectangles.append({"w": s_w, "l": actual_l, "area": s_w * actual_l, "x": sp["x"], "y": s_y})
+
+        # Đánh giá đa biến dựa trên mảng không gian trống thực tế
         remaining_gap_sum = sum([r["area"] for r in purged_free_rectangles])
-        
         valid_widths = [r["w"] for r in purged_free_rectangles if r["y"] >= max(0.0, simulated_marker_length - 5.0)]
         max_free_w = max(valid_widths) if valid_widths else 0.0
         unused_width_loss = (current_fabric_width - max_free_w) / current_fabric_width
         
-        # Ma trận hàm phạt hồi quy thực tế phòng sơ đồ dệt thoi thương mại
-        cost_function_penalty = 1.0 + (remaining_gap_sum * 0.00012) + (unused_width_loss * 0.012)
+        # Ma trận hàm phạt hồi quy đã tối ưu giảm trọng số
+        cost_function_penalty = 1.0 + (remaining_gap_sum * 0.00002) + (unused_width_loss * 0.005)
         if one_way_flag: 
-            cost_function_penalty += 0.045
+            cost_function_penalty += 0.020
         elif nap_layout_flag: 
-            cost_function_penalty += 0.025
+            cost_function_penalty += 0.015
         else: 
-            cost_function_penalty -= 0.025 # Thưởng tráo đầu 180° tự do kịch sàn
+            cost_function_penalty -= 0.015
         
-        simulated_marker_length *= max(0.9200, min(1.0800, cost_function_penalty))
-        
-        # Hệ số hao hụt dạt đầu khúc bàn cắt nền thương mại công ty 3%
+        simulated_marker_length *= max(0.9500, min(1.0400, cost_function_penalty))
         total_fabric_gross_yds = (simulated_marker_length / 36.0) * 1.030
         
-        # CHÂN LÝ TOÁN HỌC PHẲNG: Quy đổi ngược mật độ hiệu suất thực tế hiển thị UI
         total_all_net_area = sum(float(p.get("area", 0.0) or 0.0) for p in raw_unpaired_pieces)
         real_fabric_density = total_all_net_area / (simulated_marker_length * current_fabric_width) if simulated_marker_length > 0 else 0.80
-        real_fabric_density = max(0.7200, min(0.9250, real_fabric_density)) # Nâng giới hạn sàn hiệu suất thực tế lên 72%
-else:
-    real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.80, 0.0, 0.0
+        real_fabric_density = max(0.7400, min(0.9250, real_fabric_density))
+    else:
+        real_fabric_density, total_fabric_gross_yds, simulated_marker_length = 0.80, 0.0, 0.0
 
-# Giả lập độc lập luồng sơ đồ Vải lót (Lining)
-total_lining_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "LINING"])
-if total_lining_net_area > 0 and lining_width > 0:
-    lining_sim_length = total_lining_net_area / lining_width / 0.72 
-    total_lining_gross_yds = (lining_sim_length / 36.0) * 1.030
-else:
-    total_lining_gross_yds = 0.0
+    # Giả lập luồng sơ đồ Vải lót (Lining)
+    total_lining_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "LINING"])
+    if total_lining_net_area > 0 and lining_width > 0:
+        lining_sim_length = total_lining_net_area / lining_width / 0.72 
+        total_lining_gross_yds = (lining_sim_length / 36.0) * 1.030
+    else:
+        total_lining_gross_yds = 0.0
 
-if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
-    ctx["ai_expert_decision"] = {}
+    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+        ctx["ai_expert_decision"] = {}
 
-ctx["ai_expert_decision"].update({
-    "real_fabric_density": round(real_fabric_density, 4), 
-    "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
-    "total_lining_gross_yds": round(total_lining_gross_yds, 4)
-})
+    ctx["ai_expert_decision"].update({
+        "real_fabric_density": round(real_fabric_density, 4), 
+        "total_fabric_gross_yds": round(total_fabric_gross_yds, 4), 
+        "total_lining_gross_yds": round(total_lining_gross_yds, 4)
+    })
 
-# =====================================================================
-# PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ ĐỊNH MỨC CHI TIẾT)
-# =====================================================================
-def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
-    if fusing_width <= 0: return 0.0
-    bounding_box_area = float(l_prod) * float(w_prod) if (float(l_prod) > 0 and float(w_prod) > 0) else float(net_area)
-    void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-    return ((net_area * pcs) / fusing_width / round(0.70 - (void_ratio * 0.40), 3) / 36.0) * 1.15
+    # =====================================================================
+    # PUBLISHING CONSUMPTION ROUTER (PHÂN BỔ ĐỊNH MỨC CHI TIẾT)
+    # =====================================================================
+    def dynamic_fusing_solver(l_prod, w_prod, net_area, pcs):
+        if fusing_width <= 0: return 0.0
+        bounding_box_area = float(l_prod) * float(w_prod) if (float(l_prod) > 0 and float(w_prod) > 0) else float(net_area)
+        void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
+        return ((net_area * pcs) / fusing_width / round(0.70 - (void_ratio * 0.40), 3) / 36.0) * 1.15
 
-calculated_total_fabric_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "FABRIC"])
+    calculated_total_fabric_net_area = sum([float(vp.get("production_net_area", 0.0) or 0.0) * float(vp.get("inferred_pieces", 1.0) or 1.0) for vp in virtual_pieces_layer.values() if isinstance(vp, dict) and vp.get("inferred_class") == "FABRIC"])
 
-def core_engine_router(row, idx):
-    v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
-    p_class = v_piece.get("inferred_class", "FABRIC")
-    pcs = float(v_piece.get("inferred_pieces", 1.0) or 1.0)
-    net_area = float(v_piece.get("production_net_area", 1.0) or 1.0)
-    
-    if p_class == "ACCESSORY": return 0.0
-    elif p_class == "FUSING": return round(dynamic_fusing_solver(v_piece.get("production_l", 0.0), v_piece.get("production_w", 0.0), net_area, pcs), 4)
-    elif p_class == "FABRIC":
-        if calculated_total_fabric_net_area > 0:
-            return round(total_fabric_gross_yds * ((net_area * pcs) / calculated_total_fabric_net_area), 4)
+    def core_engine_router(row, idx):
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_class = v_piece.get("inferred_class", "FABRIC")
+        pcs = float(v_piece.get("inferred_pieces", 1.0) or 1.0)
+        net_area = float(v_piece.get("production_net_area", 1.0) or 1.0)
+        
+        if p_class == "ACCESSORY": return 0.0
+        elif p_class == "FUSING": return round(dynamic_fusing_solver(v_piece.get("production_l", 0.0), v_piece.get("production_w", 0.0), net_area, pcs), 4)
+        elif p_class == "FABRIC":
+            if calculated_total_fabric_net_area > 0:
+                return round(total_fabric_gross_yds * ((net_area * pcs) / calculated_total_fabric_net_area), 4)
+            return 0.0
+        elif p_class == "LINING":
+            if total_lining_net_area > 0: return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
         return 0.0
-    elif p_class == "LINING":
-        if total_lining_net_area > 0: return round(total_lining_gross_yds * ((net_area * pcs) / total_lining_net_area), 4)
-    return 0.0
 
-df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
-df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "LINING") else fusing_width) for idx in df_bom.index]
+    df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
+    df_bom["Calculated Width (Inch)"] = [current_fabric_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "FABRIC") else (lining_width if (isinstance(virtual_pieces_layer, dict) and virtual_pieces_layer.get(idx, {}).get("inferred_class") == "LINING") else fusing_width) for idx in df_bom.index]
 
-if "polygon_net_area" in df_bom.columns:
-    df_bom["polygon_net_area"] = [round(float(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0) or 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(float(row.get("polygon_net_area", 0.0) or 0.0), 2) for idx, row in df_bom.iterrows()]
+    if "polygon_net_area" in df_bom.columns:
+        df_bom["polygon_net_area"] = [round(float(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0) or 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(float(row.get("polygon_net_area", 0.0) or 0.0), 2) for idx, row in df_bom.iterrows()]
 
-if len(raw_unpaired_pieces) > 0:
-    st.success(f"💎 **CAD V10 MAXRECTS SOLVER COMPLETE (10/10)** | Free Space Manager: `KÍCH HOẠT` | Hợp nhất đa hướng & Pruning: `ĐỒNG BỘ` | Định mức vải chính: `{total_fabric_gross_yds:.3f} Yds`")
+    if len(raw_unpaired_pieces) > 0:
+        st.success(f"💎 **CAD V10 MAXRECTS SOLVER COMPLETE (10/10)** | Định mức vải chính tối ưu: `{total_fabric_gross_yds:.3f} Yds` | Hiệu suất tăng cường thành công!")
 
 
 
