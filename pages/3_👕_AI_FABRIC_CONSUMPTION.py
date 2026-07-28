@@ -2017,12 +2017,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V22 - HOÀN CHỈNH KIẾN TRÚC MASTER): MAXRECTS PREPARATION
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V22 - SỬA LỖI ĐỊNH MỨC BẰNG 0): MAXRECTS PREPARATION
     # =====================================================================
     import json
-    import math  # Thêm thư viện toán học để xử lý làm tròn trần thông minh
+    import math  
 
-    # Đảm bảo context bom_data luôn tồn tại cấu trúc vùng nhớ sạch
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
         st.session_state["bom_data"] = {}
     ctx = st.session_state["bom_data"]
@@ -2037,7 +2036,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not virtual_pieces_layer: 
         virtual_pieces_layer = {}
 
-    # ĐỒNG BỘ TUYỆT ĐỐI: Đọc đồng bộ thời gian thực từ các trục biến Master ngoài của Đoạn 1
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
@@ -2048,18 +2046,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_unpaired_pieces = []
     list_lengths, list_widths = [], []
 
-    # ĐỒNG BỘ SIZE SCALE LŨY TIẾN: Hệ số nhân số lượng sản phẩm từ bộ nhớ hệ thống
     size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
 
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
-        # Gọi chính xác tên từ khóa phôi ảo full chữ đã được Đoạn 4 xử lý sạch co rút
         p_len = float(v_piece.get("production_l", 0.0))
         p_wid = float(v_piece.get("production_w", 0.0))
-        net_area = float(v_piece.get("production_net_area", 0.0))
         
-        # Tử số chi tiết động: Đồng bộ với cờ sửa tay số lượng rập trực tiếp của người dùng trên lưới UI
+        # 🌟 SỬA TẠI ĐÂY: Lấy diện tích net, nếu bằng 0 hoặc rỗng thì tự tính bằng Dài x Rộng rập
+        net_area = float(v_piece.get("production_net_area", 0.0))
+        if net_area <= 0:
+            net_area = float(df_bom.at[idx, "polygon_net_area"] if "polygon_net_area" in df_bom.columns else 0.0)
+        if net_area <= 0:
+            net_area = p_len * p_wid * 0.85  # Giả lập diện tích tinh chiếm 85% diện tích hình chữ nhật bao quanh
+        
         pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0)))
         
         c_name_upper = str(r.get("component_name", "")).upper().strip()
@@ -2067,22 +2068,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if not p_class_check: 
             p_class_check = str(r.get("material_class", "FABRIC")).upper().strip()
 
-        # =====================================================================
-        # 🔥 CORE HOTFIX: LOGIC ĐỐI XỨNG CẶP CHI TIẾT (AN ĐOÀN CHO LÓT VÀ KEO)
-        # =====================================================================
-        # Nếu người dùng chưa can thiệp sửa tay số lượng chi tiết trên lưới UI (mặc định hệ thống đoán ra = 1)
         if idx not in st.session_state.get("user_edited_pieces", {}):
-            # Nhóm 1: Vải Lót túi trước, đáp túi trước (Luôn luôn tồn tại 2 bên trái/phải trên 1 sản phẩm hoàn chỉnh)
             if p_class_check == "LINING" and ("POCKET" in c_name_upper or "BAG" in c_name_upper) and "BACK" not in c_name_upper:
                 pcs = 2.0
-            # Nhóm 2: Keo cạp, keo dựng túi hoặc đáp khóa đối xứng cần cắt đôi mảnh
             elif p_class_check == "FUSING" and ("WAISTBAND" in c_name_upper or "FLY" in c_name_upper or "FACING" in c_name_upper):
                 pcs = 2.0
 
-        # Nhân quy đổi số lượng chi tiết sơ đồ theo hệ số bảng cỡ nhảy size
         pcs = pcs * size_scale_ratio
 
-        # HOTFIX HÌNH HỌC PHẲNG: Khống chế hiển thị rập đơn sạch sẽ (Bảo vệ hình học phẳng)
         if p_class_check == "FABRIC" and p_wid > 16.0:
             p_wid = p_wid / 2.0
             net_area = net_area / 2.0
@@ -2099,7 +2092,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_lengths.append(round(p_len, 2) if p_len > 0 else "-")
         list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
 
-        # Nạp đa vật tư làm sạch rác (FABRIC, FUSING, LINING, RIB) vào mảng rải thuật toán phẳng MaxRects
+        # Cập nhật ngược lại giá trị diện tích đã xử lý an toàn vào df_bom để hiển thị lên bảng UI
+        if "polygon_net_area" in df_bom.columns:
+            df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
+
         if p_class_check in ["FABRIC", "FUSING", "INTERLINING", "LINING", "RIB"] and p_len > 0:
             raw_params = r.get("shape_parameters", {})
             shape_params = {}
@@ -2113,7 +2109,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if not isinstance(shape_params, dict): 
                 shape_params = {}
 
-            # Dùng math.ceil để chống mất mát rập khi số pcs bị lẻ sau khi nhân hệ số tỷ lệ size_scale_ratio
             loop_pcs = int(math.ceil(pcs))
             for _ in range(loop_pcs):
                 raw_unpaired_pieces.append({
@@ -2126,8 +2121,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3
                 })
 
+    # 🌟 SẮP XẾP RẬP TỪ LỚN ĐẾN NHỎ ĐỂ THUẬT TOÁN MAXRECTS CHẠY ĐẠT HIỆU SUẤT ĐỊNH MỨC CAO NHẤT
+    raw_unpaired_pieces.sort(key=lambda x: x['area'], reverse=True)
+
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
+
      
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN A (PHIÊN BẢN V24): PURE MAXRECTS CORE & FABRIC COMPUTATION
