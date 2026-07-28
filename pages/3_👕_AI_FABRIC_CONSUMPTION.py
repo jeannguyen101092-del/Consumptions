@@ -1997,7 +1997,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_bom.at[idx, "Chiều rộng rập (inch)"] = vp["production_w"]
             df_bom.at[idx, "polygon_net_area"] = vp["production_net_area"]
     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V23 - TÍCH HỢP AI PAIR BUILDER CORE): MAXRECTS PREPARATION
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V24 - SỬA TRIỆT ĐỂ LỖI KÍCH THƯỚC BẰNG 0): MAXRECTS PREPARATION
     # =====================================================================
     import json
     import math  
@@ -2028,17 +2028,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     size_scale_ratio = float(st.session_state.get("total_marker_bundle_ratio", 1.0))
 
+    # Tự động bắt tên cột kích thước bất kể biến động ngôn ngữ khi trích xuất PDF Techpack
+    l_col = next((c for c in ["bounding_box_length", "Dài (L-inch)", "Chiều dài rập (inch)"] if c in df_bom.columns), None)
+    w_col = next((c for c in ["bounding_box_width", "Rộng (W-inch)", "Chiều rộng rập (inch)"] if c in df_bom.columns), None)
+
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
+        # 🌟 CƠ CHẾ DÒ TÌM ĐA TẦNG: Cứu dữ liệu kích thước rập thoát khỏi số 0
         p_len = float(v_piece.get("production_l", 0.0))
+        if p_len <= 0 and l_col:
+            p_len = float(r.get(l_col, 0.0))
+            
         p_wid = float(v_piece.get("production_w", 0.0))
-        
+        if p_wid <= 0 and w_col:
+            p_wid = float(r.get(w_col, 0.0))
+            
         net_area = float(v_piece.get("production_net_area", 0.0))
         if net_area <= 0:
-            net_area = float(df_bom.at[idx, "polygon_net_area"] if "polygon_net_area" in df_bom.columns else 0.0)
-        if net_area <= 0:
-            net_area = p_len * p_wid * 0.85  
+            net_area = float(r.get("polygon_net_area", 0.0))
+            
+        # Tự động bù bình diện tích tinh từ hộp bao hình chữ nhật nếu PDF bị khuyết ô diện tích
+        if net_area <= 0 and p_len > 0 and p_wid > 0:
+            p_class_tmp = str(v_piece.get("inferred_class", r.get("material_class", "FABRIC"))).upper().strip()
+            net_area = p_len * p_wid * (0.76 if "FABRIC" in p_class_tmp else 0.85)
         
         pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("inferred_pieces", 1.0)))
         
@@ -2055,81 +2068,57 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         pcs = pcs * size_scale_ratio
 
-        # Đồng bộ làm sạch dữ liệu phẳng
+        # Đồng bộ hình học phẳng cho rập vải chính bản rộng
         if p_class_check == "FABRIC" and p_wid > 16.0:
             p_wid = p_wid / 2.0
             net_area = net_area / 2.0
             pcs = pcs * 2.0
 
-        list_lengths.append(round(p_len, 2) if p_len > 0 else "-")
-        list_widths.append(round(p_wid, 2) if p_wid > 0 else "-")
+        # Lưu trữ kết quả an toàn dạng số vào mảng hiển thị lên lưới giao diện
+        list_lengths.append(round(p_len, 2) if p_len > 0 else 0.0)
+        list_widths.append(round(p_wid, 2) if p_wid > 0 else 0.0)
 
-        if "polygon_net_area" in df_bom.columns:
-            df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
+        # Cập nhật trực tiếp giá trị đã xử lý an toàn vào df_bom nền để đẩy số lên UI
+        df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
 
         if p_class_check in ["FABRIC", "FUSING", "INTERLINING", "LINING", "RIB"] and p_len > 0:
             loop_pcs = int(math.ceil(pcs))
             
-            # =====================================================================
-            # 🌟 ĐỘT PHÁ KIẾN TRÚC: MODULE AI PAIR BUILDER (GOM CẶP ĐỐI XỨNG PHẲNG)
-            # =====================================================================
-            # Nếu linh kiện thuộc loại vải chính/vải lót lớn và có số lượng tồn tại theo cặp chẵn (Ví dụ: Thân quần x2)
+            # 🌟 TÍCH HỢP AI PAIR BUILDER: Gom cặp chi tiết đối xứng trái/phải lớn để tránh không gian chết
             if p_class_check in ["FABRIC", "LINING"] and loop_pcs >= 2 and p_len > 15.0:
                 num_pairs = loop_pcs // 2
                 remainder_pcs = loop_pcs % 2
                 
-                # Thực hiện cấu hình hộp bao gộp đôi tĩnh (Static Dual-Packing Box Optimization)
-                # Cấu hình A: Xếp song song cạnh (Side-by-Side)
-                w_side = p_wid * 2
-                l_side = p_len
-                
-                # Cấu hình B: Xếp nối đầu (End-to-End)
-                w_end = p_wid
-                l_end = p_len * 2
-                
-                # Tiêu chuẩn Gerber: Lựa chọn cấu hình ghép cặp không vượt quá biên khổ vải sản xuất
-                if w_side <= current_fabric_width:
-                    best_paired_w = w_side
-                    best_paired_l = l_side
+                # Tính cấu hình ghép đôi khít biên khổ vải
+                if (p_wid * 2) <= current_fabric_width:
+                    best_paired_w, best_paired_l = p_wid * 2, p_len
                 else:
-                    best_paired_w = w_end
-                    best_paired_l = l_end
+                    best_paired_w, best_paired_l = p_wid, p_len * 2
                     
-                # Đẩy siêu rập đã đóng gói (Super Paired Piece) vào bộ giải
                 for _ in range(num_pairs):
                     raw_unpaired_pieces.append({
-                        "idx": idx, 
-                        "l": best_paired_l, 
-                        "w": best_paired_w, 
-                        "area": net_area * 2, # X2 diện tích tinh đóng góp
-                        "material_class": p_class_check,
-                        "function": str(r.get("piece_function", "PRIMARY")).upper().strip(),
-                        "priority": 1 # Nâng độ ưu tiên xếp trước để chiếm chỗ lớn ổn định sơ đồ
+                        "idx": idx, "l": best_paired_l, "w": best_paired_w, "area": net_area * 2,
+                        "material_class": p_class_check, "priority": 1 
                     })
-                
-                # Xử lý nốt các chi tiết đơn lẻ bị lẻ cặp nếu có
                 for _ in range(remainder_pcs):
                     raw_unpaired_pieces.append({
                         "idx": idx, "l": p_len, "w": p_wid, "area": net_area,
-                        "material_class": p_class_check,
-                        "function": str(r.get("piece_function", "PRIMARY")).upper().strip(),
-                        "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3
+                        "material_class": p_class_check, "priority": 3
                     })
             else:
-                # Đối với mếch keo hoặc rập nhỏ lẻ, giữ nguyên quy trình nạp đơn chuỗi tuần tự
                 for _ in range(loop_pcs):
                     raw_unpaired_pieces.append({
                         "idx": idx, "l": p_len, "w": p_wid, "area": net_area,
-                        "material_class": p_class_check,
-                        "function": str(r.get("piece_function", "PRIMARY")).upper().strip(),
-                        "priority": int(float(r.get("packing_priority", 3))) if str(r.get("packing_priority", "")).replace(".","").isdigit() else 3
+                        "material_class": p_class_check, "priority": 3
                     })
 
-    # 🌟 SẮP XẾP SƠ ĐỒ ĐA CẤU TRÚC (ƯU TIÊN THEO ĐỘ ƯU TIÊN PAIR RỒI ĐẾN DIỆN TÍCH GIẢM DẦN)
-    raw_unpaired_pieces.sort(key=lambda x: (x['priority'], -x['area']))
+    # Sắp xếp đa cấu trúc: Ưu tiên siêu rập đã gom cặp xếp trước, sau đó sắp theo diện tích giảm dần
+    raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
 
+    # Đồng bộ dữ liệu dạng số sạch sẽ ngược lại df_bom để st.data_editor hiển thị chuẩn xác
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
+
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN A: CORE MAXRECTS CHUẨN CAD (TỐI GIẢN & HIỆU SUẤT CAO)
     # =====================================================================
