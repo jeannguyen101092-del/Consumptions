@@ -2008,8 +2008,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_lining_density, total_lining_gross_yds = calculate_marker_metrics(lining_pieces_to_nest, total_lining_net_area, lining_width, estimated_density_prior, target_wastage)
     real_fusing_density, total_fusing_gross_yds = calculate_marker_metrics(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, estimated_density_prior, target_wastage)
 
-         # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ HIỂN THỊ SỐ ĐÚNG)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (TỐI ƯU ĐỊNH MỨC KEO LÓT)
     # =====================================================================
     net_areas = {"FABRIC": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0}
     for idx, r in df_bom.iterrows():
@@ -2027,37 +2027,50 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if p_cls == "ACCESSORY": return 0.0
         
-        # Vải chính & Vải phối
+        # 2.1. VẢI CHÍNH & VẢI PHỐI
         if p_cls in ["FABRIC", "CONTRAST"]:
             if net_areas["FABRIC"] > 0 and 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0:
                 return round(total_fabric_gross_yds * ((net_area * pcs) / net_areas["FABRIC"]), 4)
             return round((((net_area * pcs) / current_fabric_width / 0.78) / 36.0) * target_wastage, 4) if current_fabric_width > 0 else 0.0
             
-        # Vải lót (+30% hao hụt)
+        # 2.2. VẢI LÓT (+30% hao hụt)
         if p_cls == "LINING":
             if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals() and total_lining_gross_yds > 0:
                 return round(total_lining_gross_yds * ((net_area * pcs) / net_areas["LINING"]) * 1.30, 4)
             return round((((net_area * pcs) / lining_width / 0.80) / 36.0) * target_wastage * 1.30, 4) if lining_width > 0 else 0.0
             
-        # Keo lót (+30% hao hụt)
+        # 2.3. KEO LÓT / MẾCH DỰNG (FUSING): Đã cấu trúc lại thuật toán hình học đơn lẻ sát thực tế xưởng
         if p_cls == "FUSING":
-            if net_areas["FUSING"] > 0 and 'total_fusing_gross_yds' in locals() and total_fusing_gross_yds > 0:
-                return round(total_fusing_gross_yds * ((net_area * pcs) / net_areas["FUSING"]) * 1.30, 4)
-            b_area = (v.get("production_l", 0.0) * v.get("production_w", 0.0)) if v.get("production_l", 0.0) > 0 else net_area
-            void_r = (b_area - net_area) / b_area if b_area > 0 else 0.0
-            eff_dens = round(0.70 - (void_r * 0.40), 3)
-            return round((((net_area * pcs) / fusing_width / eff_dens / 36.0) * round(1.15 + (void_r * 0.25), 3)) * 1.30, 4) if fusing_width > 0 else 0.0
+            # Nếu có kích thước dài rộng của rập keo, tính theo hộp bao (Bounding Box) để tính toán phần vải thừa rác cắt mếch
+            p_len = float(v.get("production_l", 0.0))
+            p_wid = float(v.get("production_w", 0.0))
+            
+            if p_len > 0 and p_wid > 0 and fusing_width > 0:
+                # Tính diện tích hình chữ nhật bao quanh chi tiết rập keo
+                bounding_box_area = p_len * p_wid
+                # Hệ số sử dụng mếch dựng thực tế xưởng may thường thấp (khoảng 68%) do mếch cắt vụn nhiều
+                fusing_density = 0.68 
+                fusing_gross = ((bounding_box_area * pcs) / fusing_width / fusing_density / 36.0) * 1.30
+                return round(fusing_gross, 4)
+            
+            # Khôi phục phòng vệ nếu dòng keo bị mất thông số dài rộng rập CAD
+            if fusing_width > 0:
+                return round((((net_area * pcs) / fusing_width / 0.65) / 36.0) * 1.30, 4)
+            return 0.0
 
-        # Bo Rib (+30% hao hụt)
+        # 2.4. BO TĂM (RIB): Ăn theo công thức tính toán nâng cao của nhóm keo lót phụ trợ
         if p_cls == "RIB":
-            if net_areas["RIB"] > 0 and 'total_fusing_gross_yds' in locals() and total_fusing_gross_yds > 0 and net_areas["FUSING"] > 0:
-                rib_share_ratio = (net_area * pcs) / (net_areas["FUSING"] + net_areas["RIB"])
-                return round(total_fusing_gross_yds * rib_share_ratio * 1.30, 4)
-            return round(((((net_area * pcs) / fusing_width / 0.72) / 36.0) * 1.12) * 1.30, 4) if fusing_width > 0 else 0.0
+            p_len = float(v.get("production_l", 0.0))
+            p_wid = float(v.get("production_w", 0.0))
+            if p_len > 0 and p_wid > 0 and fusing_width > 0:
+                return round(((p_len * p_wid * pcs) / fusing_width / 0.70 / 36.0) * 1.30, 4)
+            if fusing_width > 0:
+                return round((((net_area * pcs) / fusing_width / 0.70) / 36.0) * 1.30, 4)
+            return 0.0
             
         return 0.0
 
-    # Đẩy dữ liệu định mức thực tế vào DataFrame
+    # Đẩy dữ liệu định mức thực tế đã được nâng hệ số vào DataFrame
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     
     # Đồng bộ khổ vải hiển thị
@@ -2067,21 +2080,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "polygon_net_area" in df_bom.columns:
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
 
-    # =====================================================================
-    # 🚨 ĐỒNG BỘ HIỂN THỊ: BỐC CHÍNH XÁC TỔNG THỰC TẾ ĐÃ TÍNH TỪ BẢNG DƯỚI LÊN
-    # =====================================================================
+    # Đồng bộ hiển thị: Bốc chính xác tổng thực tế từ cột chi tiết dưới lên dòng màu xanh
     if len(fabric_pieces_to_nest) > 0:
-        # Cộng tổng thực tế của toàn bộ các dòng FABRIC ở cột Gross Consumption
         real_fabric_sum = df_bom[df_bom["Calculated Width (Inch)"] == current_fabric_width]["Gross Consumption"].sum()
         real_lining_sum = df_bom[df_bom["Calculated Width (Inch)"] == lining_width]["Gross Consumption"].sum()
-        real_fusing_sum = df_bom[df_bom["Calculated Width (Inch)"] == fusing_width]["Gross Consumption"].sum()
+        real_fusing_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("inferred_class") == "FUSING"])
+        real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("inferred_class") == "RIB"])
 
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
-        if real_lining_sum > 0:
-            msg += f" | Lót (+30%): `{real_lining_sum:.3f} Yds`"
-        if real_fusing_sum > 0:
-            msg += f" | Keo mếch (+30%): `{real_fusing_sum:.3f} Yds`"
-            
+        if real_lining_sum > 0: msg += f" | Lót (+30%): `{real_lining_sum:.3f} Yds`"
+        if real_fusing_sum > 0: msg += f" | Keo mếch (+30%): `{real_fusing_sum:.3f} Yds`"
+        if real_rib_sum > 0: msg += f" | Bo Rib (+30%): `{real_rib_sum:.3f} Yds`"
         st.success(msg)
 
 
