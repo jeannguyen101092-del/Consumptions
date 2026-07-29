@@ -1613,13 +1613,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     fabric_width = float(st.session_state["fabric_width_inch"])
     warp_shrink = float(st.session_state["warp_shrinkage"])
     weft_shrink = float(st.session_state["weft_shrinkage"])
-    # =====================================================================
-    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER (BỘ PHÂN TÍCH LOẠI HÀNG CHUẨN) - TỐI ƯU HIỆU SUẤT GERBER
+        # =====================================================================
+    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER - BẢN SỬA LỖI NHẬN DIỆN ĐẦM
     # =====================================================================
     import pandas as pd
 
-    # 🛠️ TỐI ƯU GERBER THỰC TẾ: Điều chỉnh hạ Barem mật độ cơ sở (Prior) của dòng quần Jean/Pants 
-    # từ 87.5% xuống mốc an toàn thực tế phòng cắt là 0.795 (79.5%) để kích định mức tổng không bị tụt thấp.
+    # Barem mật độ cơ sở an toàn thực tế phòng cắt
     COMPANY_DENSITY_PRIOR = {
         "SHIRT": 0.82, "JEAN_LONG": 0.795, "SHORT": 0.83, 
         "JACKET": 0.68, "VEST": 0.82, "TOPS_KNIT": 0.78, 
@@ -1630,47 +1629,52 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
     product_category = None
     
-    # 🧠 TẦNG 1: Gom toàn bộ văn bản từ danh sách linh kiện trong file rập/BOM để AI phân tích từ khóa chuyên ngành
+    # 🧠 TẦNG 1: Gom văn bản chi tiết và tiêu đề mã hàng để quét tổng hợp
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
+    combined_search_text = f"{all_components_text} {prod_upper_name}"
 
-    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa để phân biệt rạch ròi giữa ÁO và QUẦN
-    if any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
+    # 🧠 TẦNG 2: ƯU TIÊN SỐ 1 - NHẬN DIỆN VÁY / ĐẦM (Bao gồm đầm suông, đầm xòe, váy thời trang)
+    if any(x in combined_search_text for x in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI", "TÙNG VÁY", "SQUARE NECK"]):
+        product_category = "DRESS_FLARE"
+        
+    elif any(x in combined_search_text for x in ["SKIRT", "CHÂN VÁY", "VÁY"]):
+        product_category = "SKIRT"
+
+    # 🧠 TẦNG 3: NHẬN DIỆN ÁO (JACKET/SHIRT) - Đã loại bỏ chữ BODY PANEL khỏi bộ quét độc quyền
+    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
+        product_category = "JACKET"
+
+    # 🧠 TẦNG 4: NHẬN DIỆN QUẦN LONG PANTS / JEANS
+    elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG"]):
         product_category = "JEAN_LONG"
         
-    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC", "BODY PANEL"]):
-        product_category = "JACKET"
-        
-    # TẦNG 3: Nếu quét linh kiện vẫn trống, AI sẽ đọc tiêu đề sản phẩm (Header Techpack)
+    # TẦNG DỰ PHÒNG CUỐI CÙNG: Đối chiếu thủ công nếu bộ quét linh kiện bị trống
     else:
         for k in COMPANY_DENSITY_PRIOR.keys():
-            if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
+            if k in prod_upper_name:
                 product_category = k
                 break
-        # Mặc định phòng hộ nếu file lỗi không có thông tin
         if product_category is None:
             product_category = "JEAN_LONG"
 
-    # 🧠 TẦNG 4: Đồng bộ chuỗi văn bản dịch thuật để AI xuất bản ra giao diện UI báo cáo
+    # 🧠 TẦNG 5: Đồng bộ chuỗi văn bản hiển thị báo cáo ra giao diện UI
     if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
     elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
-    elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm suông/Thời trang)"
+    elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm xoè/Đầm suông Thời trang)"
     elif product_category == "SKIRT": ai_product_type = "SKIRT (Chân váy)"
     elif product_category == "TOPS_KNIT": ai_product_type = "TOPS_KNIT (Áo thun/Polo)"
     elif product_category == "SHIRT": ai_product_type = "SHIRT (Áo sơ mi)"
     elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
-    # Ghi giá trị phân tích sạch vào context vùng nhớ hệ thống để nuôi luồng Đoạn 4 và Đoạn 5
+    # Ghi nhận kết quả phân tích sạch vào vùng nhớ hệ thống context
     if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict): 
         ctx["ai_expert_decision"] = {}
         
     ctx["ai_expert_decision"]["product_category"] = product_category
     ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
-    
-    # 🛠️ NẠP ĐỒNG BỘ ƯU TIÊN: Đưa thẳng mốc mật độ an toàn vừa cập nhật vào bộ nhớ đệm 
-    # giúp Đoạn 5.1 bốc đúng thông số nền, giải phóng hoàn toàn lỗi nghẽn định mức thấp.
     ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
-    # =====================================================================
+
        # =====================================================================
     # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR - FIXED FOR SKIRT/DRESS
     # =====================================================================
