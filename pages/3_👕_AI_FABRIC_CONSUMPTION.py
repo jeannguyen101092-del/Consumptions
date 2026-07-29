@@ -1777,25 +1777,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đưa giá trị tính toán sạch vào bộ não hệ thống phục vụ Khối 5 bốc nạp hiển thị lên UI
     ctx["ai_expert_decision"]["estimated_density_prior"] = round(estimated_density, 4)
     ctx["ai_expert_decision"]["complexity_score"] = complexity_score
-    # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR (NO ACCESSORY) - FIX SẬP DIỆN TÍCH
+        # =====================================================================
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - FIXED PERFECT
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. BỘ SNIFFER DÒ TÌM CHÍNH XÁC CỘT CHIỀU DÀI / CHIỀU RỘNG GỐC CỦA FILE CAD
     detected_l_col = next((c for c in ["Dài gốc (inch)", "orig_l", "original_length", "length_inch", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Rộng gốc (inch)", "orig_w", "original_width", "width_inch", "Width"] if c in df_bom.columns), None)
     actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "bounding_box_length")
     actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "bounding_box_width")
 
-    # Đọc thông số co rút thớ vải từ UI phục vụ nắn kích thước phôi ảo
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
     fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # Kế thừa dữ liệu tiên nghiệm từ bộ não tri thức Đoạn 3
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d4, dict): ai_decision_d4 = {}
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
@@ -1807,46 +1804,43 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
 
-    # 🚨 BỘ KIỂM SOÁT VÀ PHÂN LOẠI CHỦNG LOẠI HÀNG TẬP TRUNG (ƯU TIÊN TUYỆT ĐỐI DÒNG QUẦN)
     has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "POCKET", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
     
     if has_pant_components or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"]):
         is_trouser_item = True
-        is_jacket_item = False
+        if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
         ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
     else:
         is_trouser_item = False
-        is_jacket_item = any(k in current_prod_cat or k in prod_upper_name for k in ["JACKET", "VEST", "ÁO KHOÁC", "KHOAC"])
 
-    # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ TUYỆT ĐỐI BẢO TOÀN THÔNG SỐ RẬP CHUẨN CAD
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
-        
         l_orig = float(row.get(actual_l_col, 0.0))
         w_orig = float(row.get(actual_w_col, 0.0))
+        mat_str = str(row.get(m_col, row.get("Material Class", row.get("material_class", "")))).upper().strip() if 'm_col' in locals() or "Material Class" in row or "material_class" in row else ""
         
-        # 🔍 BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (BỎ PHỤ LIỆU HOÀN TOÀN)
-        mat_str = str(row.get(m_col, "")).upper().strip() if 'm_col' in locals() and m_col in row else ""
+        # --- ƯU TIÊN SỐ 1: BẢO VỆ TUYỆT ĐỐI CHỈNH SỬA TAY CỦA USER HOẶC GIÁ TRỊ TRÊN TABLE UI ---
+        p_class = st.session_state["user_edited_materials"].get(idx, None)
+        if p_class is None and mat_str in ["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"]:
+            p_class = mat_str
+            
+        class_confidence = 1.0
         
-        if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
-            p_class = str(st.session_state["user_edited_materials"][idx]).upper().strip()
-            class_confidence = 1.0
-        else:
-            if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "RIVET", "ĐINH", "LABEL", "NHÃN", "MÁC", "SHANK", "SLIDER", "PULLER", "ACCESSORY", "PHỤ LIỆU"]):
-                p_class, class_confidence = "ACCESSORY", 1.0
+        # Luồng dự phòng tự động đoán từ khóa (chỉ chạy khi cả hai phía trên đều rỗng)
+        if p_class is None:
+            if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "RIVET", "LABEL", "NHÃN", "ACCESSORY", "PHỤ LIỆU"]):
+                p_class = "ACCESSORY"
             elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT"]):
-                p_class, class_confidence = "FUSING", 1.0
-            elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT"]):
-                p_class, class_confidence = "LINING", 1.0
-            elif (l_orig / w_orig if w_orig > 0 else 1.0) >= 5.0 and (1.0 - (float(row.get("polygon_net_area", 0.0)) / (l_orig * w_orig)) if (l_orig * w_orig) > 0 else 0.0) <= 0.15 and l_orig > 0:
-                p_class, class_confidence = "FUSING", 0.90
-            elif float(row.get("polygon_net_area", 0.0)) < 150.0 and any(k in comp_name_upper for k in ["POCKET", "TÚI", "WELT", "BAG"]):
-                p_class, class_confidence = ("LINING", 0.88) if ("LINING" in mat_str or "LÓT" in comp_name_upper) else ("FABRIC", 0.75)
+                p_class = "FUSING"
+            elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT", "BAG", "BAO TÚI"]):
+                p_class = "LINING"
+            elif float(row.get("polygon_net_area", 0.0)) < 150.0 and any(k in comp_name_upper for k in ["BAG", "BAO TÚI"]):
+                p_class = "LINING"
             else:
-                p_class, class_confidence = "FABRIC", 0.95
+                p_class = "FABRIC"
 
-        # Bước B: Áp thông số co rút sợi sản xuất trực tiếp từ thớ lệnh chat
+        # Tính toán co rút sản xuất
         if p_class == "FABRIC":
             w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 58.0
             l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
@@ -1862,44 +1856,35 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
-        # 🛠️ SỬA SAI DIỆN TÍCH TỊNH: Đọc diện tích tịnh thực tế đã qua Khối 3 xử lý cộng co rút và đường may
         net_area_raw = float(row.get("polygon_net_area", 0.0))
         if net_area_raw <= 0.0:
-            # Fallback an toàn tuyệt đối từ kích thước sản xuất đã cộng co rút nếu dữ liệu thô lỗi
             net_area_raw = round(l_prod * w_prod * 0.74, 2) if (l_prod > 0 and w_prod > 0) else 1.0
 
-        # Bước C: Suy luận số lượng mảnh rập thực nghiệm rải bàn cắt
         raw_pcs = float(row.get("pcs_numeric", 1.0))
         inferred_pcs = raw_pcs
         qty_confidence = 1.0
         
-        has_front_kw = any(k in comp_name_upper for k in ["FRONT", "TRƯỚC"])
-        has_back_kw = any(k in comp_name_upper for k in ["BACK", "SAU"])
-        
-        if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 10.0:
-            if is_trouser_item:
-                if has_front_kw or has_back_kw or any(k in comp_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL"]):
-                    inferred_pcs = 2.0
-                    qty_confidence = 0.99
+        if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 10.0 and is_trouser_item:
+            if any(k in comp_name_upper for k in ["FRONT", "TRƯỚC", "BACK", "SAU", "LEG", "THAN", "ỐNG", "PANEL"]):
+                inferred_pcs = 2.0
+                qty_confidence = 0.99
 
-        # Lưu dữ liệu phôi ảo đồng bộ màng RAM hệ thống
         final_pcs = float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs))
         virtual_pieces_layer[idx] = {
             "inferred_class": p_class,
             "class_confidence": class_confidence,
             "production_l": l_prod,
             "production_w": w_prod,
-            "production_net_area": net_area_raw, # Đã bảo vệ giá trị diện tích thực của CAD Gerber
+            "production_net_area": net_area_raw,
             "inferred_pieces": final_pcs,
             "qty_confidence": qty_confidence,
             "component_name": comp_name_raw
         }
 
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-
-       # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -1910,18 +1895,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) 
     max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
     
-    virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {}) if not isinstance(ai_decision_d5.get("virtual_pieces_layer"), dict) else ai_decision_d5.get("virtual_pieces_layer", {})
+    virtual_pieces_layer = ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    if not isinstance(virtual_pieces_layer, dict) or not virtual_pieces_layer:
+        virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
     if not isinstance(virtual_pieces_layer, dict): virtual_pieces_layer = {}
 
+    # Thiết lập khổ vải chuẩn từ màn hình cấu hình đầu vào (inch)
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 56.0)) 
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # TỰ ĐỘNG NHẬN DIỆN SẢN PHẨM (QUẦN VS ÁO) QUA TÊN TRÊN UI TRÁNH KHÓA CỨNG
-    product_category = str(ai_decision_d5.get("product_category", "JACKET")).upper()
-    ui_product_name = str(st.session_state.get("product_name", "")).upper()
-    is_trouser = any(k in ui_product_name or k in product_category for k in ["JEAN", "TROUSER", "PANT", "QUẦN"])
+    # TỰ ĐỘNG KẾ THỪA CHỦNG LOẠI HÀNG TỪ ĐOẠN 4 QUA BIẾN CONTEXT (KHÔNG KHÓA CỨNG ÁO)
+    product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
+    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category)
 
+    # Khởi tạo danh sách tích lũy sạch 3 nhóm vật tư chặn rác cache
     total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
     fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
     list_lengths, list_widths, list_updated_pieces = [], [], []
@@ -1936,25 +1924,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_updated_pieces.append(current_pcs)
         v_piece["active_user_pieces"] = current_pcs 
 
-        p_class = st.session_state.get("user_edited_materials", {}).get(idx, None)
+        # --- ĐỒNG BỘ CHẤT LIỆU ƯU TIÊN TUYỆT ĐỐI TỪ KẾT QUẢ ĐÃ XỬ LÝ CỦA ĐOẠN 4 ---
+        p_class = v_piece.get("inferred_class", None)
+        
+        # Luồng dự phòng kiểm tra lại UI nếu lớp phôi ảo trong tầng RAM bị rỗng
         if p_class is None:
-            bom_mat = str(r.get("Material Class", r.get("material_class", ""))).upper().strip()
-            comp_name = str(v_piece.get("component_name", r.get("component_name", ""))).upper().strip()
-            if bom_mat in ["FABRIC", "VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
-            elif bom_mat in ["LINING", "LÓT", "VẢI LÓT"]: p_class = "LINING"
-            elif bom_mat in ["FUSING", "KEO", "MÉC", "MEC", "DỰNG", "INTERFACING"]: p_class = "FUSING"
-            elif bom_mat in ["RIB", "BO"]: p_class = "RIB"
-            elif bom_mat in ["ACCESSORY", "PHỤ LIỆU", "THREAD", "CHỈ"]: p_class = "ACCESSORY"
-            else:
-                if any(k in comp_name for k in ["INTERFACING", "TRICOT", "MEC", "KEO", "FUSING", "DỰNG", "FUS"]): p_class = "FUSING"
-                elif any(k in comp_name for k in ["LINING", "LÓT", "LOT"]): p_class = "LINING"
-                elif any(k in comp_name for k in ["FRONT", "BACK", "BODY", "THÂN", "SLEEVE", "TAY", "WAISTBAND", "POCKET"]): p_class = "FABRIC"
-                elif any(k in comp_name for k in [" RIB", "RIB ", "BO "]) or comp_name == "BO": p_class = "RIB"
-                else: p_class = "FABRIC"
+            p_class = st.session_state.get("user_edited_materials", {}).get(idx, None)
+        if p_class is None:
+            bom_mat_class = str(r.get("Material Class", r.get("material_class", ""))).upper().strip()
+            if bom_mat_class in ["FABRIC", "VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
+            elif bom_mat_class in ["LINING", "LÓT", "VẢI LÓT"]: p_class = "LINING"
+            elif bom_mat_class in ["FUSING", "KEO", "MÉC", "MEC", "DỰNG", "INTERFACING"]: p_class = "FUSING"
+            elif bom_mat_class in ["RIB", "BO"]: p_class = "RIB"
+            elif bom_mat_class in ["ACCESSORY", "PHỤ LIỆU", "THREAD", "CHỈ"]: p_class = "ACCESSORY"
+            else: p_class = "FABRIC"
         
         v_piece["inferred_class"] = p_class
         net_area = float(v_piece.get("production_net_area", 0.0)) if float(v_piece.get("production_net_area", 0.0)) > 0 else 1.0
         
+        # Tích lũy diện tích và rập phẳng vào đúng nhóm phân loại đã được bảo vệ từ Đoạn 4
         if p_class == "FABRIC":
             total_fabric_net_area += net_area * current_pcs
             if p_length > 0 and p_width > 0:
@@ -1970,6 +1958,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Chiều dài rập (inch)"], df_bom["Chiều rộng rập (inch)"], df_bom["Số lượng rập"] = list_lengths, list_widths, list_updated_pieces 
 
+    # HÀM GIẢ LẬP SƠ ĐỒ ĐA VẬT TƯ RÚT GỌN TỐI ƯU
     def calculate_marker_metrics(pieces_list, net_area, marker_width, base_density, target_wastage_factor):
         if len(pieces_list) == 0 or marker_width <= 0: return base_density, 0.0
         pieces_list.sort(key=lambda x: x["area"], reverse=True)
@@ -1997,12 +1986,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         real_density = max(min_floor_density, min(0.9100, real_density))
         return real_density, ((net_area / marker_width / real_density) / 36.0) * target_wastage_factor
 
+    # CHẠY ĐỒNG THỜI 3 ENGINE MÔ PHỎNG SƠ ĐỒ ĐỘC LẬP THEO PHÂN LOẠI MỚI
     real_fabric_density, total_fabric_gross_yds = calculate_marker_metrics(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, estimated_density_prior, target_wastage)
     real_lining_density, total_lining_gross_yds = calculate_marker_metrics(lining_pieces_to_nest, total_lining_net_area, lining_width, estimated_density_prior, target_wastage)
     real_fusing_density, total_fusing_gross_yds = calculate_marker_metrics(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, estimated_density_prior, target_wastage)
-
-     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (TỐI GIẢN & ĐỒNG BỘ)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI)
     # =====================================================================
     net_areas = {"FABRIC": 0.0, "LINING": 0.0, "FUSING": 0.0}
     for idx, r in df_bom.iterrows():
@@ -2021,16 +2010,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if p_cls == "ACCESSORY": return 0.0
         
+        # 1. Định tuyến phân bổ cho nhóm Vải chính & Vải phối
         if p_cls in ["FABRIC", "CONTRAST"]:
             if net_areas["FABRIC"] > 0 and 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0:
                 return round(total_fabric_gross_yds * ((net_area * pcs) / net_areas["FABRIC"]), 4)
             return round((((net_area * pcs) / current_fabric_width / 0.78) / 36.0) * target_wastage, 4) if current_fabric_width > 0 else 0.0
             
+        # 2. Định tuyến phân bổ cho nhóm Vải lót (Đã vá đồng bộ hoàn toàn với bao túi túi trước)
         if p_cls == "LINING":
-            if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals():
+            if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals() and total_lining_gross_yds > 0:
                 return round(total_lining_gross_yds * ((net_area * pcs) / net_areas["LINING"]), 4)
-            return 0.0
+            # Luồng dự phòng nếu sơ đồ tổng vải lót gặp sự cố, tự động phân bổ theo diện tích đơn lẻ
+            return round((((net_area * pcs) / lining_width / 0.80) / 36.0) * target_wastage, 4) if lining_width > 0 else 0.0
             
+        # 3. Định tuyến phân bổ cho nhóm Keo / Mếch dựng / Bo rib
         if p_cls in ["FUSING", "RIB"]:
             if net_areas["FUSING"] > 0 and 'total_fusing_gross_yds' in locals() and total_fusing_gross_yds > 0:
                 return round(total_fusing_gross_yds * ((net_area * pcs) / net_areas["FUSING"]), 4)
@@ -2041,10 +2034,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         return 0.0
 
-    # Cập nhật danh sách độc lập trước khi gán để tránh sinh lỗi cache Streamlit
+    # Đẩy dữ liệu định mức sạch sau khi tính toán vào DataFrame của bảng BOM
     gross_consumptions = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     df_bom["Gross Consumption"] = gross_consumptions
     
+    # Đồng bộ hiển thị đúng khổ vải sản xuất của dòng chi tiết dựa trên phân loại thực tế
     width_map = {"FABRIC": current_fabric_width, "CONTRAST": current_fabric_width, "LINING": lining_width, "FUSING": fusing_width, "RIB": fusing_width}
     df_bom["Calculated Width (Inch)"] = [width_map.get(virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC"), 0.0) for idx in df_bom.index]
     
@@ -2052,8 +2046,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         poly_areas = [round(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
         df_bom["polygon_net_area"] = poly_areas
 
+    # In thông báo tổng hợp kết quả định mức sơ đồ tổng lên UI Streamlit
     if len(fabric_pieces_to_nest) > 0:
-        st.success(f"🧩 **GEOMETRIC SOLVER**: Vải chính (`{real_fabric_density*100:.1f}%`): `{total_fabric_gross_yds:.3f} Yds` | Keo: `{total_fusing_gross_yds:.3f} Yds`")
+        st.success(f"🧩 **GEOMETRIC SOLVER**: Vải chính (`{real_fabric_density*100:.1f}%`): `{total_fabric_gross_yds:.3f} Yds` | Lót: `{total_lining_gross_yds:.3f} Yds` | Keo: `{total_fusing_gross_yds:.3f} Yds`")
+
 
 
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
