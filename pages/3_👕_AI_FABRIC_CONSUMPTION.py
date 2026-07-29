@@ -1974,6 +1974,53 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+        # =====================================================================
+    # 📊 KHỐI HIỂN THỊ THÔNG SỐ AI QUÉT ĐƯỢC (AI GEOMETRIC AUDIT MATRIX)
+    # =====================================================================
+    # Vị trí đặt: Ngay dưới lệnh ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer của Đoạn 4
+    st.markdown('<br><div class="cad-card"><div class="cad-header">🔍 BẢNG KIỂM TOÁN THÔNG SỐ HÌNH HỌC TỪ AI CORE (RAW CAD LAYER)</div></div>', unsafe_allow_html=True)
+    
+    audit_rows = []
+    for idx, row in df_bom.iterrows():
+        v = virtual_pieces_layer.get(idx, {})
+        if v:
+            audit_rows.append({
+                "Mã dòng": idx,
+                "Tên chi tiết rập (CAD Component)": v.get("component_name", row.get(comp_col_check, "CHƯA RÕ")),
+                "Phân loại lớp": v.get("inferred_class", "FABRIC"),
+                "Dài rập thực tế (Inch)": round(v.get("production_l", 0.0), 2),
+                "Rộng rập phẳng (Inch)": round(v.get("production_w", 0.0), 2),
+                "Diện tích lưới phẳng (Inch²)": round(v.get("production_net_area", 0.0), 2),
+                "Số lượng rập gốc": int(v.get("inferred_pieces", 1)),
+                "Độ tin cậy (%)": f"{int(v.get('class_confidence', 0.95) * 100)}%"
+            })
+            
+    if audit_rows:
+        df_audit = pd.DataFrame(audit_rows)
+        
+        # Render lưới hiển thị dữ liệu thô dạng Read-only để đối chiếu kiểm toán
+        st.dataframe(
+            df_audit,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Mã dòng": st.column_config.NumberColumn("ID", width=50),
+                "Tên chi tiết rập (CAD Component)": st.column_config.TextColumn("Tên chi tiết rập (CAD Component)", width=280),
+                "Phân loại lớp": st.column_config.SelectboxColumn("Lớp chất liệu", options=["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"], width=110),
+                "Dài rập thực tế (Inch)": st.column_config.NumberColumn("Chiều dài (In)", format="%.2f", width=120),
+                "Rộng rập phẳng (Inch)": st.column_config.NumberColumn("Chiều rộng (In)", format="%.2f", width=120),
+                "Diện tích lưới phẳng (Inch²)": st.column_config.NumberColumn("Diện tích tịnh (In²)", format="%.2f", width=150),
+                "Số lượng rập gốc": st.column_config.NumberColumn("Số lượng mảnh", format="%d", width=110),
+                "Độ tin cậy (%)": st.column_config.TextColumn("Độ chuẩn xác AI", width=110)
+            }
+        )
+        
+        # Thống kê nhanh diện tích để kiểm chéo dữ liệu đầu vào
+        total_fabric_area_raw = sum(r["Diện tích lưới phẳng (Inch²)"] * r["Số lượng rập gốc"] for r in audit_rows if r["Phân loại lớp"] == "FABRIC")
+        st.info(f"📊 **THỐNG KÊ THÔNG SỐ SƠ BỘ** | Tổng diện tích lưới phẳng vải chính thu được: `{total_fabric_area_raw:.2f} Inch²` | Chủng loại hàng đang khóa: `{product_category}`")
+    else:
+        st.warning("⚠️ Bộ nhớ đệm phôi ảo hiện tại đang trống rỗng. Vui lòng bấm nút quét tài liệu kỹ thuật Techpack!")
+
     # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
@@ -2295,19 +2342,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ LỖI HIỂN THỊ KHỔ VẢI CHUẨN)
+      # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - BẢN FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     ai_decision_final = ctx.get("ai_expert_decision", {})
+    
+    # Kế thừa chính xác biến mật độ rải sơ đồ thực tế đã xử lý ở Đoạn 5.1
     estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
-    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
+    ui_display_density = float(real_fabric_density) if 'real_fabric_density' in locals() else estimated_prior_val
+    
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-    prod_cat_ui = str(ai_decision_final.get("product_category", "JACKET")).upper().strip()
+    prod_cat_ui = str(ai_decision_final.get("product_category", "JEAN_LONG")).upper().strip()
 
+    # HIỂN THỊ CÁC CHỈ SỐ METRIC ĐẦU RA TRỰC QUAN
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type if 'ai_product_type' in locals() else "JACKET")
+    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type if 'ai_product_type' in locals() else "JEAN_LONG")
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
@@ -2328,18 +2380,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["_temp_class"] = clean_materials_list
     
     if "Gross Consumption" not in df_bom.columns:
-        df_bom["Gross Consumption"] = 0.0
+        df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
 
-    # Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra
+    # 🚨 ĐỒNG BỘ KHỚP SỐ TỔNG BOM SUMMARY: Bốc trực tiếp tổng thực tế từ cột chi tiết lên bảng trên
     summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-    cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
+    cls_map = {"FABRIC": "VẢI CHÍNH", "CONTRAST": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
+    
+    # Chuẩn hóa tên phân loại tiếng Việt tường minh cho phòng mua hàng
+    summary_grouped["Phân loại vật tư"] = summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC")
     
     df_summary = pd.DataFrame({
-        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
+        "Phân loại vật tư": summary_grouped["Phân loại vật tư"],
         "Material Class": summary_grouped["_temp_class"],
         "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
         "UOM": "YDS"
-    })
+    }).drop_duplicates(subset=["Phân loại vật tư"], keep="first").reset_index(drop=True)
 
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
@@ -2352,18 +2407,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom_display["Khổ vải sản xuất (inch)"] = int(float(st.session_state.get("fabric_width_inch", 56)))
         
-    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "38/XL"
+    df_bom_display["Size tính toán"] = target_size if 'target_size' in locals() else "32"
     df_bom_display["Material Class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
     
     # Đồng bộ số lượng rập hiển thị trên lưới biên tập tránh lặp dòng rác
     df_bom_display["Số lượng rập"] = [
-        int(st.session_state["user_edited_pieces"].get(idx, r.get("pcs_numeric", 1))) 
+        int(float(st.session_state["user_edited_pieces"].get(idx, r.get("pcs_numeric", 1)))) 
         for idx, r in df_bom.iterrows()
     ]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Sắp xếp đúng thứ tự cột hiển thị của lưới
+    # Sắp xếp thứ tự trực quan scannable cho bảng chi tiết
     ordered_cols = [
         "_original_row_index", 
         "Component Name", 
@@ -2399,26 +2454,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "_original_row_index": None, 
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-            # 🛠️ FIXED: Khổ vải sản xuất ép hiển thị dạng Số Nguyên (%d) Chặn đứng lỗi mất số 6 biên
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
-            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
+            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1, max_value=40, step=1),
             "Material Class": st.column_config.SelectboxColumn(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
-                options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD"], required=True
+                options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY"], required=True
             ),
             "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
             "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
-        }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
+        }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
 
-    # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ TÍNH TOÁN LẠI TỨC THÌ
+    # LẮNG NGHE SỰ KIỆN TƯƠNG TÁC CHÍNH XÁC - CHỐNG KẸT LUỒNG TREO APP
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
         
-        # Kiểm tra sự thay đổi số lượng rập
-        old_pcs = float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0])
-        new_pcs = float(row["Số lượng rập"])
+        # So sánh kiểm tra thay đổi số lượng rập bằng số nguyên sạch
+        old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0]))
+        new_pcs = int(float(row["Số lượng rập"]))
         if old_pcs != new_pcs:
             st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
