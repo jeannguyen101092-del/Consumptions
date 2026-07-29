@@ -673,6 +673,9 @@ def execute_cached_gemini_scan(
 ):
     import copy
     import hashlib
+    import json
+    import re
+    import fitz  # Đảm bảo import đầy đủ thư viện đọc file CAD/PDF
     import google.generativeai as genai  # 🛠️ CHÈN BỔ SUNG DÒNG NÀY ĐỂ TRIỆT TIÊU LỖI NAMEERROR TRÊN GIAO DIỆN
 
     if hasattr(pdf_bytes, "getvalue"):
@@ -691,7 +694,7 @@ def execute_cached_gemini_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
+            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản
             if len(image_payloads) < 2:
                 try:
                     pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
@@ -702,11 +705,14 @@ def execute_cached_gemini_scan(
     gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
+    # 🚨 CẬP NHẬT PROMPT GỐC: Thêm quy tắc nhận diện riêng biệt cho Đầm/Váy (Dress/Skirt) 
+    # Chặn đứng AI không cho bốc nhầm từ khóa Mông (Hip) hoặc tự ép cấu trúc Quần Jean
     extended_prompt = prompt_agent_2 + """
-    CRITICAL MULTI-MATERIAL EXTRACTION RULES:
+    CRITICAL MULTI-MATERIAL & PRODUCT CLASSIFICATION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
-    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
+    - If the techpack/query is about a Dress, Flare, Skirt, or Maxi (Đầm, Váy, Xòe), you MUST prioritize extracting curve length, curve width, and true polygon net areas. DO NOT infer or assume trouser-specific fields like "hip" for dress panels.
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", "PLACKET", "GUARD", "FACING", classify its material_class strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "BAG", classify its material_class strictly as "LINING".
     """
     gemini_inputs.append(extended_prompt)
 
@@ -774,13 +780,13 @@ def execute_cached_gemini_scan(
 
 
 
-import streamlit as st
 
+import streamlit as st
 # =====================================================================
 # 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
 # =====================================================================
 
-# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
+# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State) Chống Tràn Rác Cache
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_processing" not in st.session_state:
@@ -792,22 +798,40 @@ if "last_submitted_query" not in st.session_state:
 chat_history_container = st.container()
 with chat_history_container:
     st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-    if st.session_state.get("chat_history"):
+    
+    # Duyệt an toàn và chỉ hiển thị nếu lịch sử hợp lệ, lọc sạch rác rỗng hoặc dữ liệu None (NULL)
+    if st.session_state.get("chat_history") and isinstance(st.session_state.chat_history, list):
         for msg in st.session_state.chat_history:
-            st.chat_message("user").write(msg["user"])
-            st.chat_message("assistant").write(msg["ai"])
+            if isinstance(msg, dict) and "user" in msg and msg["user"]:
+                st.chat_message("user").write(msg["user"])
+            if isinstance(msg, dict) and "ai" in msg and msg["ai"]:
+                st.chat_message("assistant").write(msg["ai"])
 
-# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
+# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v9 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v9"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
+# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi lệnh thành công
 if safe_user_prompt:
-    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
+    user_cmd = str(safe_user_prompt).strip()
+    st.session_state["last_submitted_query"] = user_cmd
     st.session_state.ai_processing = True
+    
+    # Tạo sẵn cấu trúc lưu đệm tạm thời để tránh luồng xử lý bị ghi đè giá trị rỗng khi Rerun
+    if not isinstance(st.session_state.chat_history, list):
+        st.session_state.chat_history = []
+        
     st.rerun()
+
+# 💡 MẸO ĐỒNG BỘ: Để bảng hội thoại hiển thị câu trả lời ngay khi Đoạn 5.2 chạy xong xuôi thành công,
+# ở cuối file mã nguồn của bạn (sau khi st.success in định mức), bạn hãy chèn thêm 2 dòng này:
+# if st.session_state.ai_processing and st.session_state["last_submitted_query"]:
+#     st.session_state.chat_history.append({"user": st.session_state["last_submitted_query"], "ai": f"Đã tính toán xong định mức rải sơ đồ hình học."})
+#     st.session_state.ai_processing = False
+#     st.rerun()
+
 
 # =====================================================================
 # 🟩 ĐOẠN 2 (PHẦN 1/2): BỘ LỌC ĐẦU VÀO & SCHEMA KHỬ SẠCH PHỤ LIỆU LOẠT LOẠT
@@ -827,7 +851,7 @@ if st.session_state.ai_processing:
     if active_pdf is not None:
         with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
             try:
-                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ (CHỈ QUÉT VẢI/KEO)
+                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ (BỔ SUNG POLYGON NET AREA)
                 raw_json_schema = {
                     "type": "OBJECT",
                     "properties": {
@@ -841,6 +865,8 @@ if st.session_state.ai_processing:
                                     "component_name": {"type": "STRING"},
                                     "bounding_box_length": {"type": "NUMBER"},
                                     "bounding_box_width": {"type": "NUMBER"},
+                                    # 🚨 BẮT BUỘC ÉP GEMINI TRẢ VỀ DIỆN TÍCH TỊNH CAD ĐỂ ĐỒNG BỘ CHO VÁY XÒE VÀ CẠP CONG
+                                    "polygon_net_area": {"type": "NUMBER", "description": "The exact true 2D polygon net area of the pattern piece in square inches from CAD Gerber/Lectra data."},
                                     "piece_shape": {"type": "STRING"},
                                     "piece_function": {"type": "STRING"},
                                     "fold_type": {"type": "STRING"},
@@ -876,7 +902,7 @@ if st.session_state.ai_processing:
                                         }
                                     }
                                 },
-                                "required": ["component_name", "bounding_box_length", "bounding_box_width", "piece_shape", "piece_function", "fold_type", "material_zone", "packing_priority", "convex_fill_ratio", "mirror_piece"],
+                                "required": ["component_name", "bounding_box_length", "bounding_box_width", "polygon_net_area", "piece_shape", "piece_function", "fold_type", "material_zone", "packing_priority", "convex_fill_ratio", "mirror_piece"],
                             },
                         },
                     },
@@ -887,6 +913,10 @@ if st.session_state.ai_processing:
                 # =====================================================================
                 prompt_agent_2 = f"""
                 You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Reconstruct the multi-layered CAD metadata for EVERY valid fabric/fusing piece in the Techpack for Size {target_size}.
+                
+                🚨 CRITICAL GEOMETRIC NET AREA MANDATE (BẮT BUỘC TRÍCH XUẤT DIỆN TÍCH THỰC):
+                - For every extracted pattern piece, you MUST accurately extract or estimate its true 2D polygon net area from the CAD data and populate it in 'polygon_net_area' in square inches.
+                - For high-curvature or flared pieces (e.g., DRESS_FLARE, skirts, circle panels, flared hems, curved waistbands): pay extreme attention to extracting the exact 'polygon_net_area' representing the true fabric footprint. Do NOT rely solely on linear bounding box calculations.
                 
                 🚨 CRITICAL ACCESSORY OMISSION MANDATE (LỆNH KHỬ TRỪ PHỤ LIỆU):
                 - NEVER extract buttons, sewing threads, zippers, sliders, rivets, main labels, care labels, size tabs, hangtags, polybags, or any metal/plastic accessories.
