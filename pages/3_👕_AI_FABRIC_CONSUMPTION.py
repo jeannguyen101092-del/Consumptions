@@ -656,7 +656,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ VÁ LỖI "genai is not defined" & CHỐNG HAO TIỀN
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - FIX SẬP 404 & NÉN ẢNH TIẾT KIỆM TỐI ĐA TIỀN API
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -675,8 +675,8 @@ def execute_cached_gemini_scan(
     import hashlib
     import json
     import re
-    import fitz  # Đảm bảo import đầy đủ thư viện đọc file CAD/PDF
-    import google.generativeai as genai  # 🛠️ CHÈN BỔ SUNG DÒNG NÀY ĐỂ TRIỆT TIÊU LỖI NAMEERROR TRÊN GIAO DIỆN
+    import fitz  # Thư viện PyMuPDF đọc file tài liệu hình học CAD
+    import google.generativeai as genai  # Thư viện Core kết nối Google AI
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -691,13 +691,16 @@ def execute_cached_gemini_scan(
         total_pages = len(doc_recovery)
 
         for idx in range(total_pages):
+            # Trích xuất văn bản thô dạng chuỗi sạch để gửi cho AI đọc trước
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản
+            # GIỚI HẠN PHÒNG VỆ CHỐNG TRÀN TOKEN: Chỉ chụp ảnh 2 trang đầu (nơi chứa bảng BOM)
             if len(image_payloads) < 2:
                 try:
-                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                    # 🛠️ TỐI ƯU TIẾT KIỆM TIỀN: Hạ DPI xuống mức 50 để nén nhỏ số lượng token hình ảnh của Google
+                    pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
+                    # Nén ảnh chất lượng Jpeg vừa đủ nhìn để hạ chi phí Input API xuống mức tối thiểu (mấy chục đồng/lần quét)
                     image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
                 except Exception:
                     continue
@@ -705,8 +708,7 @@ def execute_cached_gemini_scan(
     gemini_inputs = copy.deepcopy(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # 🚨 CẬP NHẬT PROMPT GỐC: Thêm quy tắc nhận diện riêng biệt cho Đầm/Váy (Dress/Skirt) 
-    # Chặn đứng AI không cho bốc nhầm từ khóa Mông (Hip) hoặc tự ép cấu trúc Quần Jean
+    # PROMPT KỸ THUẬT KHÓA CHẶT BIẾN HÌNH HỌC PHẲNG CHO HÀNG ĐẦM VÁY XÒE CỦA BẠN
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL & PRODUCT CLASSIFICATION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
@@ -716,13 +718,15 @@ def execute_cached_gemini_scan(
     """
     gemini_inputs.append(extended_prompt)
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # 🛠️ VÁ LỖI CỐT LÕI: Nâng cấp lên mô hình chuẩn thương mại ổn định, chấm dứt lỗi đỏ sập 404
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    
     response = model.generate_content(
         gemini_inputs,
         generation_config={
             "response_mime_type": "application/json",
             "response_schema": raw_json_schema,
-            "temperature": 0.0,
+            "temperature": 0.0,  # Khóa chặt nhiệt độ bằng 0.0 để AI trích xuất số liệu chính xác tuyệt đối, không bị sáng tạo bừa bãi
         },
         request_options={"timeout": 120.0},
     )
@@ -742,6 +746,7 @@ def execute_cached_gemini_scan(
     except json.JSONDecodeError as json_err:
         raise RuntimeError(f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}") from json_err
 
+    # Định dạng làm sạch màng dữ liệu thô nhận về từ API
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -769,6 +774,7 @@ def execute_cached_gemini_scan(
             except:
                 row["fabric_width_inch"] = float(active_width)
 
+    # Đếm số lượng token và cuộc gọi để quản trị chi phí hệ thống
     if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
     if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
         
@@ -776,6 +782,7 @@ def execute_cached_gemini_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
+
 
 
 
