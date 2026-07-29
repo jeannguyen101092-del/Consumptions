@@ -1641,7 +1641,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # giúp Đoạn 5.1 bốc đúng thông số nền, giải phóng hoàn toàn lỗi nghẽn định mức thấp.
     ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     # =====================================================================
-    # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR (VÁ LỖI VÙNG NHỚ & HIỆU SUẤT)
+       # =====================================================================
+    # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR - FIXED FOR SKIRT/DRESS
     # =====================================================================
     import numpy as np
 
@@ -1667,7 +1668,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if 'COMPANY_DENSITY_PRIOR' in locals() and product_category in COMPANY_DENSITY_PRIOR:
         base_prior = COMPANY_DENSITY_PRIOR[product_category]
     else:
-        base_prior = 0.7950 if product_category == "JEAN_LONG" else 0.78
+        base_prior = 0.7200 if product_category == "DRESS_FLARE" else (0.7950 if product_category == "JEAN_LONG" else 0.78)
 
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
 
@@ -1682,8 +1683,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         comp_str = str(row.get(comp_col_check, row.get("component_name", ""))).upper().strip()
         role_str = str(row.get("Role/Piece Type", row.get("geometry_role", ""))).upper().strip()
         
-        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "MẾCH", "RIB", "BOND", "ADHESIVE", "LOT KEO", "TRICOT"]
-        lining_kws = ["LINING", "LOT", "LÓT", "POCKETING", "MESH", "TAFFETA", "VAI LOT", "VẢI LÓT"]
+        fusing_kws = ["FUSING", "INTERLINING", "KEO", "MEC", "MẾCH", "RIB", "BOND", "ADHESIVE", "LOT KEO", "TRICOT", "PLACKET", "GUARD", "FACING"]
+        lining_kws = ["LINING", "LOT", "LÓT", "POCKETING", "MESH", "TAFFETA", "VAI LOT", "VẢI LÓT", "BAG", "BAO TÚI"]
         
         if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT"]) and not any(x in mat_str for x in ["MEC", "KEO", "FUSING"]):
             return "FABRIC"
@@ -1706,7 +1707,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         except:
             pcs_numeric_val = 1.0
 
-        if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT"]):
+        if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT", "BAG"]):
             total_pocket_pieces += float(st.session_state["user_edited_pieces"].get(idx, pcs_numeric_val))
 
         if p_class_clean in ["FABRIC", "FUSING", "LINING"]:
@@ -1714,7 +1715,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             total_pattern_pieces += current_pcs
             
             try:
-                # 🛠️ SỬA LỖI ĐỌC SAI CỘT DIỆN TÍCH: Sử dụng col_check động
                 net_area = float(r.get(area_col_check, 0.0))
                 if np.isnan(net_area): net_area = 0.0
             except:
@@ -1723,7 +1723,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             l_val = float(r.get(l_prod_col_check, 0.0))
             w_val = float(r.get(w_prod_col_check, 0.0))
             
-            # Cứu hộ diện tích cục bộ nếu bị trống thông số hình học
             if net_area <= 0.0 and l_val > 0 and w_val > 0:
                 net_area = l_val * w_val * 0.74
                 
@@ -1759,25 +1758,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         features["one_way_flag"] = 1.0 if one_way_flag else 0.0
         features["stripe_plaid_flag"] = 1.0 if stripe_plaid_flag else 0.0
         features["pocket_complexity"] = float(total_pocket_pieces)
+        features["longest_piece_length"] = float(max_piece_length)
     else:
-        features = {k: 0.0 for k in ["total_pieces", "largest_piece_area", "mean_piece_area", "std_piece_area", "avg_aspect_ratio", "max_aspect_ratio", "avg_void_ratio", "convex_hull_ratio", "width_utilization", "rotation_freedom", "symmetry_ratio", "fabric_width", "one_way_flag", "stripe_plaid_flag", "pocket_complexity"]}
+        features = {k: 0.0 for k in ["total_pieces", "largest_piece_area", "mean_piece_area", "std_piece_area", "avg_aspect_ratio", "max_aspect_ratio", "avg_void_ratio", "convex_hull_ratio", "width_utilization", "rotation_freedom", "symmetry_ratio", "fabric_width", "one_way_flag", "stripe_plaid_flag", "pocket_complexity", "longest_piece_length"]}
 
-    # 📈 TỐI ƯU TRỌNG SỐ DELTA: Kích hoạt tăng độ ưu tiên mật độ vùng xanh cho Quần dài
+    # Tính toán độ lệch trọng số sơ đồ hình học (Density Delta)
     density_delta = ((features["total_pieces"] * 0.0004) - (features["avg_void_ratio"] * 0.06) - (features["one_way_flag"] * 0.02) - (features["stripe_plaid_flag"] * 0.03) + (features["rotation_freedom"] * 0.03) - (features["width_utilization"] * 0.01))
     
-    # 🛠️ SỬA LỖI CHẶN SÀN HIỆU SUẤT MẬT ĐỘ QUẦN JEAN: Hạ sàn ép cứng từ mốc 81.5% cũ xuống mốc 
-    # an toàn thực tế phòng cắt Jeans đại trà là 76.5% để giải phóng hoàn toàn chiều dài định mức sơ đồ.
+    # 🚨 PHÂN LUỒNG KHÓA CỨNG AN TOÀN CHO TỪNG CHỦNG LOẠI HÀNG TRÁNH LỆCH ĐỊNH MỨC
     if product_category == "JEAN_LONG":
+        # Giữ nguyên luồng Quần dài/Jean đã chạy chuẩn xác trước đó
         estimated_density = max(0.7650, min(0.94, base_prior + density_delta))
+    elif product_category in ["DRESS_FLARE", "SKIRT"]:
+        # Tối ưu riêng cho Đầm váy xòe: Khóa chặt mật độ an toàn thực tế phòng cắt tầm 70% - 73%
+        # Tránh việc rập quá rỗng làm sập chỉ số nền của sơ đồ tổng
+        estimated_density = max(0.6800, min(0.7400, base_prior + (density_delta * 0.2)))
     else:
+        # Giữ nguyên luồng Áo khoác/Shirt đã chạy chuẩn xác trước đó
         estimated_density = max(0.50, min(0.94, base_prior + density_delta))
         
-    complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.0) + (features["avg_void_ratio"] * 50) + (total_pocket_pieces * 1.5)))
-    
-    # Đưa giá trị tính toán sạch vào bộ não hệ thống phục vụ Khối 5 bốc nạp hiển thị lên UI
-    ctx["ai_expert_decision"]["estimated_density_prior"] = round(estimated_density, 4)
-    ctx["ai_expert_decision"]["complexity_score"] = complexity_score
-        # =====================================================================
+    ctx["ai_expert_decision"]["estimated_density_prior"] = float(estimated_density)
+    ctx["ai_expert_decision"]["geometry_features"] = features
+    ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
+
      # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - FIXED CURVE LENGTH
     # =====================================================================
