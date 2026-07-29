@@ -1811,13 +1811,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-     # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - FIXED CURVE LENGTH
+      # =====================================================================
+    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - FIXED PERFECT QUANTITY & CURVE
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. BỘ SNIFFER THÔNG MINH: ƯU TIÊN QUÉT ĐƯỜNG VÒNG LẠI (CURVE), CHU VI (PERIMETER) TRƯỚC HỘP BAO THẲNG
+    # 1. BỘ SNIFFER THÔNG MINH: ƯU TIÊN QUÉT ĐƯỜNG VÒNG LẠI (CURVE) TRƯỚC HỘP BAO THẲNG
     detected_l_col = next((c for c in ["Chiều dài thực (inch)", "curve_length", "curve_len", "Dài vòng lại", "perimeter_len", "original_length", "Length"] if c in df_bom.columns), None)
     detected_w_col = next((c for c in ["Chiều rộng thực (inch)", "curve_width", "curve_wid", "Rộng vòng lại", "original_width", "Width"] if c in df_bom.columns), None)
     
@@ -1844,13 +1844,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     p_length_list, p_width_list, p_area_list = [], [], []
 
     # 🚨 BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN (CHẶN LỖI LẤY NHẦM THÔNG SỐ MÔNG)
-    is_skirt_or_dress = any(k in current_prod_cat or k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG"])
+    is_skirt_or_dress = any(k in current_prod_cat or k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG", "DRESS_FLARE"])
     has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
     
     if is_skirt_or_dress:
         is_trouser_item = False
         if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
-        ctx["ai_expert_decision"]["product_category"] = "SKIRT_DRESS"
+        ctx["ai_expert_decision"]["product_category"] = "DRESS_FLARE"
     elif has_pant_components or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"]):
         is_trouser_item = True
         if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
@@ -1883,9 +1883,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         class_confidence = 1.0
         
         if p_class is None:
-            if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "RIVET", "LABEL", "NHÃN", "MÁC", "ACCESSORY", "PHỤ LIỆU"]):
-                p_class = "ACCESSORY"
-            elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT"]):
+            if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIPPER", "ZIP", "RIVET", "LABEL", "NHÃN", "MÁC", "ACCESSORY", "PHỤ LIỆU"]):
+                if any(k in comp_name_upper for k in ["GUARD", "FACING", "LÓT"]):
+                    p_class = "FUSING"
+                else:
+                    p_class = "ACCESSORY"
+            elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT", "PLACKET", "GUARD", "FACING", "NẸP", "ĐÁP"]):
                 p_class = "FUSING"
             elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT", "BAG", "BAO TÚI"]):
                 p_class = "LINING"
@@ -1913,30 +1916,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if net_area_raw <= 0.0:
             net_area_raw = round(l_prod * w_prod * 0.74, 2) if (l_prod > 0 and w_prod > 0) else 1.0
 
-        # --- ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN XÁC: CHẶN ÉP NHÂN 2 CỦA QUẦN SANG VÁY ---
-        raw_pcs = float(row.get("pcs_numeric", 1.0))
-        inferred_pcs = raw_pcs
-        qty_confidence = 1.0
-        
-        if p_class in ["FABRIC", "LINING"] and (l_prod * w_prod) > 10.0 and is_trouser_item:
-            if any(k in comp_name_upper for k in ["FRONT", "TRƯỚC", "BACK", "SAU", "LEG", "THAN", "ỐNG", "PANEL"]):
-                inferred_pcs = 2.0
-                qty_confidence = 0.99
-        elif is_skirt_or_dress:
-            # Giữ nguyên số lượng tùng váy thực tế truyền sang, không tự ý nhân đôi đối xứng kiểu ống quần
-            inferred_pcs = raw_pcs
-            qty_confidence = 1.0
+        # =====================================================================
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN XÁC 100% TỪ CAD GỐC (BỎ ÉP NHÂN ĐÔI ĐOÁN MÒ)
+        # =====================================================================
+        cad_raw_pcs = row.get("piece_count", row.get("pcs_numeric", 1.0))
+        try:
+            inferred_pcs = int(float(cad_raw_pcs))
+        except:
+            inferred_pcs = 1
 
+        # Nếu người dùng chưa từng sửa dòng này trên UI, nạp giá trị CAD gốc vào để làm mốc khởi tạo
         if idx not in st.session_state["user_edited_pieces"]:
             st.session_state["user_edited_pieces"][idx] = inferred_pcs
             
+        # Ưu tiên tuyệt đối bốc số lượng hiện hữu từ session_state thay vì bốc lại số đoán mò của từ khóa cũ
         final_pcs = int(float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs)))
+        qty_confidence = 1.0
 
         # Ghi nhận phôi ảo sạch vào RAM hệ thống
         virtual_pieces_layer[idx] = {
             "inferred_class": p_class,
             "class_confidence": class_confidence,
-            "production_l": l_prod, # Đã chuyển sang giá trị Đường Vòng Lại thực tế
+            "production_l": l_prod, 
             "production_w": w_prod,
             "production_net_area": net_area_raw,
             "inferred_pieces": final_pcs, 
@@ -1946,6 +1947,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
        # =====================================================================
        # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
