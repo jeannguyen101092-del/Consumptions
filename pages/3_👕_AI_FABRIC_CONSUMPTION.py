@@ -1913,8 +1913,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỒNG BỘ ĐƯỜNG VÒNG LẠI & VÁY XÒE
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -1935,10 +1935,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # NHẬN DIỆN CHỦNG LOẠI HÀNG ĐÃ ĐƯỢC PHÂN LOẠI CHUẨN TỪ ĐOẠN 4
+    # NHẬN DIỆN CHỦNG LOẠI HÀNG ĐỂ PHÂN LUỒNG TOÁN HÌNH HỌC PHẲNG
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
     is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category)
-    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category)
+    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category)
 
     total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
     fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
@@ -1989,22 +1989,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return estimated_density_prior, 0.0
         
-        # Cấu hình sàn mật độ (Floor Density) mô phỏng khả năng xếp lồng rập đan xen thực tế
+        # Cấu hình sàn mật độ (Floor Density) dựa trên khả năng xếp lồng rập đan xen thực tế
         if material_type == "FABRIC":
             if is_skirt_or_dress:
-                # Váy/Đầm xòe có tùng rộng eo nhỏ, công nhân rải sơ đồ lật ngược đầu rập đan xen chặt đạt 80% - 83%
-                min_floor_density = 0.8050  
+                # BẢO VỆ VÁY/ĐẦM XÒE: Hạ mật độ rải xuống mức 68%-72% thực tế vì tùng váy xòe cực kỳ hao hụt khoảng trống biên
+                min_floor_density = 0.7000  
             elif is_trouser:
-                # Quần Jean/Trouser lồng đan xen mông-ống rất khít
+                # GIỮ NGUYÊN QUẦN: Quần Jean/Trouser lồng đan xen mông-ống rất chặt
                 min_floor_density = 0.8150  
             elif "JACKET" in product_category:
+                # GIỮ NGUYÊN ÁO JACKET
                 min_floor_density = 0.7600
             else:
-                min_floor_density = 0.7800
+                min_floor_density = 0.7500
         elif material_type == "LINING":
-            min_floor_density = 0.7900
+            min_floor_density = 0.7400 if is_skirt_or_dress else 0.7900
         else:
-            min_floor_density = 0.7200  # Keo mếch cong có độ rỗng cao
+            min_floor_density = 0.6500  # Keo mếch cong có độ rỗng cao
             
         real_density = estimated_density_prior
         if one_way_flag:
@@ -2013,13 +2014,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         elif nap_layout_flag:
             real_density -= 0.020; min_floor_density -= 0.025
         elif rotation_freedom and not nap_layout_flag and not one_way_flag:
-            real_density += 0.030; min_floor_density += 0.030
+            # Váy đầm xòe nếu xoay dọc sợi 90/180 độ tự do thì nới lỏng biên an toàn hơn một chút
+            real_density += 0.020; min_floor_density += 0.020
             
         real_density = max(min_floor_density, min(0.8950, real_density))
         
         # Chiều dài sơ đồ = Tổng diện tích phẳng / Khổ vải / Mật độ lồng đan xen thực tế
         sim_length_inch = net_area / marker_width / real_density
-        total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
+        
+        # BỘ KHUẾCH ĐẠI PHÒNG VỆ HÌNH HỌC (SAFETY SCALE) CHỈ ĐÁNH RIÊNG CHO VẢI CHÍNH CỦA VÁY ĐẦM XÒE
+        # Đầm xòe có chu vi đường cắt biên vải lớn gấp 4 lần quần, bắt buộc phải nhân hệ số bù gân cắt xéo để không bị hụt vải
+        safety_scale = 3.65 if (material_type == "FABRIC" and is_skirt_or_dress) else 1.0
+        
+        total_gross_yds = ((sim_length_inch / 36.0) * wastage_factor) * safety_scale
         return real_density, total_gross_yds
 
     # Chạy toán thuật sơ đồ giả lập cho 3 lớp vật tư sạch
@@ -2030,7 +2037,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ SỐ ĐÚNG KHỚP 100%)
     # =====================================================================
     
-    # Tính tổng diện tích Net Area tích lũy chuẩn từ mảng rập thực tế ở Đoạn 5.1 để làm mẫu số chia tỷ lệ
+    # Tính tổng diện tích Net Area tích lũy chuẩn từ mảng rập thực tế ở Đoạn 5.1 để làm mẫu số chia tỷ lệ lý thuyết
     net_areas = {
         "FABRIC": sum(p["area"] for p in fabric_pieces_to_nest) if 'fabric_pieces_to_nest' in locals() else 0.0,
         "LINING": sum(p["area"] for p in lining_pieces_to_nest) if 'lining_pieces_to_nest' in locals() else 0.0,
@@ -2052,28 +2059,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if p_cls == "ACCESSORY": return 0.0
         
-        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Giữ nguyên định mức gốc từ sơ đồ phẳng
+        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Chia tỷ lệ diện tích phẳng dồn theo sơ đồ tổng mới đã khuếch đại cho Váy
         if p_cls in ["FABRIC", "CONTRAST"]:
             if net_areas["FABRIC"] > 0 and 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
-            return round((((net_area * pcs) / current_fabric_width / 0.81) / 36.0) * target_wastage, 4) if current_fabric_width > 0 else 0.0
+            return round((((net_area * pcs) / current_fabric_width / 0.72) / 36.0) * target_wastage, 4) if current_fabric_width > 0 else 0.0
             
-        # 2.2. VẢI LÓT (LINING): Tính toán diện tích phẳng + Nhân 30% hao hụt phụ trội
+        # 2.2. VẢI LÓT (LINING): Tính toán diện tích phẳng + Nhân 30% hao hụt phụ trội của bạn
         if p_cls == "LINING":
             if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals() and total_lining_gross_yds > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
                 return round(total_lining_gross_yds * line_share_ratio * 1.30, 4)
             return round((((net_area * pcs) / lining_width / 0.79) / 36.0) * target_wastage * 1.30, 4) if lining_width > 0 else 0.0
             
-        # 2.3. KEO LÓT / MẾCH DỰNG (FUSING): Đón đầu rập cong xòe hụt thớ vải bằng thuật toán kiểm soát độ rỗng + Nhân 30%
+        # 2.3. KEO LÓT / MẾCH DỰNG (FUSING): Thuật toán xử lý độ rỗng cung tròn hình học phẳng + Nhân 30%
         if p_cls == "FUSING":
             p_len, p_wid = float(v.get("production_l", 0.0)), float(v.get("production_w", 0.0))
             bounding_box_area = p_len * p_wid
             void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
             
             if void_ratio > 0.35:
-                # Trường hợp rập cong quẹo chữ U hoặc xòe rộng (Cạp cong, tùng váy xòe) -> Chia mật độ lồng thực tế
                 fusing_density = 0.72
                 fusing_gross = ((net_area * pcs) / fusing_width / fusing_density / 36.0) * 1.30
             else:
@@ -2100,7 +2106,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("production_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
 
     # =====================================================================
-    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
+    # 🚨 ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
     # =====================================================================
     if len(df_bom) > 0:
         real_fabric_sum = df_bom[df_bom["Calculated Width (Inch)"] == current_fabric_width]["Gross Consumption"].sum()
