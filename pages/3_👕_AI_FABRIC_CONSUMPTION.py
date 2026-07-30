@@ -1873,7 +1873,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
     else:
         is_trouser_item = False
-    # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
     # =====================================================================
     # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
@@ -1918,7 +1918,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # ✅ CỘNG BIÊN ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT
+        # CỘNG BIÊN ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT
         if p_class in ["FABRIC", "CONTRAST", "LINING", "FUSING"]:
             seam_allowance_l = 1.0 if l_orig > 8.0 else 0.4
             seam_allowance_w = 1.0 if w_orig > 4.0 else 0.4
@@ -1943,7 +1943,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN ---
         if p_class == "FABRIC":
-            if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN"]):
+            if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN", "BODY"]):
                 w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 14.875
             else:
                 w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 58.0
@@ -1978,13 +1978,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # Nếu rập là dạng thân quần nguyên vòng rộng cỡ lớn (>24 inch), lấy 2 mảnh (Trái + Phải)
-            if any(k in comp_name_upper for k in ["FRONT MAIN", "BACK MAIN"]):
+            # ✅ VÁ LỖI SẬP ĐỊNH MỨC THẤP: Thêm từ khóa "BODY PANEL" và "BODY" để ép số lượng mảnh bằng 2 (Trái + Phải) cho rập mở rộng nguyên vòng quần
+            if any(k in comp_name_upper for k in ["FRONT MAIN", "BACK MAIN", "BODY PANEL", "BODY MAIN"]):
                 p_count = 2
             
-            # ✅ BỘ LUẬT ĐỐI XỨNG AUTOMATION ĐA CHI TIẾT:
+            # BỘ LUẬT ĐỐI XỨNG AUTOMATION ĐA CHI TIẾT QUẦN / ÁO / VÁY
             elif p_count == 1 and any(k in comp_name_upper for k in [
-                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK",  
+                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY",
                 "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     
                 "COLLAR", "FACING", "CỔ", "NẸP", "LAPEL", "PLACKET",             
                 "CHEST POCKET", "BOTTOM POCKET", "FLAP", "TÚI", "NẮP TÚI",       
