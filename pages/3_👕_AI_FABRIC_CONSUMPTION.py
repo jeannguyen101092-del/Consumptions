@@ -1805,13 +1805,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-         # =====================================================================
-    # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - CHAT PARSER & SNIFFER
+        # =====================================================================
+    # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - FILTER DUMMY & CHAT PARSER
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. BỘ SNIFFER ĐỒNG BỘ CHUẨN ĐỊNH DẠNG: Ưu tiên map trực tiếp key từ API Gemini
+    # 1. ✅ BỘ LỌC TRIỆT TIÊU DÒNG GIẢ LẬP RÁC: Loại bỏ hoàn toàn dòng USER SPECIFIED PANEL trước khi tính toán
+    if len(df_bom) > 0:
+        df_bom = df_bom[~df_bom[comp_col_check].astype(str).str.upper().str.contains("USER SPECIFIED PANEL|DUMMY|SPECIFIED", na=False)].reset_index(drop=True)
+
+    # 2. BỘ SNIFFER ĐỒNG BỘ CHUẨN ĐỊNH DẠNG: Ưu tiên map trực tiếp key từ API Gemini
     actual_l_col = next((c for c in ["bounding_box_length", "processed_length", "curve_length", "Length"] if c in df_bom.columns), "bounding_box_length")
     actual_w_col = next((c for c in ["bounding_box_width", "processed_width", "curve_width", "Width"] if c in df_bom.columns), "bounding_box_width")
 
@@ -1823,7 +1827,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
 
-    # ✅ BỘ TRÍCH XUẤT THÔNG SỐ CO RÚT TỰ ĐỘNG TỪ Ô CHAT (DỌC / NGANG) VIA REGEX
+    # BỘ TRÍCH XUẤT THÔNG SỐ CO RÚT TỰ ĐỘNG TỪ Ô CHAT (DỌC / NGANG) VIA REGEX
     if 'current_query' in locals() and current_query:
         is_user_cmd_cm = "CM" in str(current_query).upper()
         
@@ -1855,7 +1859,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
 
-    # BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN (CHẶN LỖI LẤY NHẦM THÔNG SỐ MÔNG)
+    # BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN
     is_skirt_or_dress = any(k in current_prod_cat or k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG", "DRESS_FLARE"])
     has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
     
@@ -1872,7 +1876,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
     # =====================================================================
-    # LƯU Ý: Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1891,19 +1895,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             l_orig = l_orig_raw
             w_orig = w_orig_raw
         
-        # ✅ CỘNG ĐƯỜNG MAY CHUẨN KỸ THUẬT (SEAM ALLOWANCE):
-        # Cộng thêm 1.0 inch (~2.54cm) vào chiều dài và chiều rộng rập thành phẩm để ra phôi cắt
-        if l_orig > 0: l_orig += 1.0
-        if w_orig > 0: w_orig += 1.0
-        
-        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
-        calculated_curve_length = l_orig
-        if net_area_raw > 0 and w_orig > 0:
-            # Điều chỉnh diện tích tịnh ước tính sau khi cộng đường may bao quanh chi tiết
-            adjusted_net_area = net_area_raw + (l_orig * 1.0) + (w_orig * 1.0)
-            calculated_curve_length = max(l_orig, round(adjusted_net_area / w_orig, 3))
-        
-        # BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (ƯU TIÊN TUYỆT ĐỐI CHỈNH SỬA TAY VÀ PHÒNG VỆ BAO TÚI)
+        # BỘ QUÉT PHÂN LOẠI CHẤT LIỆU
         m_col = next((c for c in ["Material Class", "material_class", "Material_Class"] if c in df_bom.columns), "material_class")
         mat_str = str(row.get(m_col, "")).upper().strip()
         
@@ -1926,34 +1918,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI (ĐÃ ĐỒNG BỘ Ô CHAT) & NẮN CHIỀU RỘNG RẬP QUẦN ---
+        # ✅ CỘNG BIÊN ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT
+        if p_class in ["FABRIC", "CONTRAST", "LINING", "FUSING"]:
+            seam_allowance_l = 1.0 if l_orig > 8.0 else 0.4
+            seam_allowance_w = 1.0 if w_orig > 4.0 else 0.4
+        else:
+            seam_allowance_l = 0.0
+            seam_allowance_w = 0.0
+
+        l_with_seam = l_orig + seam_allowance_l
+        w_with_seam = w_orig + seam_allowance_w
+        
+        # Giữ nguyên tỷ lệ diện tích tịnh hình học CAD thực tế, nhân hệ số chu vi đường may
+        if net_area_raw > 0 and l_orig > 0 and w_orig > 0:
+            seam_growth_factor = (l_with_seam * w_with_seam) / (l_orig * w_orig)
+            net_area_calculated = round(net_area_raw * seam_growth_factor, 2)
+        else:
+            net_area_calculated = round(l_with_seam * w_with_seam * 0.74, 2)
+
+        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
+        calculated_curve_length = l_with_seam
+        if net_area_calculated > 0 and w_with_seam > 0:
+            calculated_curve_length = max(l_with_seam, round(net_area_calculated / w_with_seam, 3))
+
+        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN ---
         if p_class == "FABRIC":
             if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN"]):
-                w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 14.875
+                w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 14.875
             else:
-                w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 58.0
+                w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 58.0
                 
             l_prod = round(calculated_curve_length * (1 + warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
             
         elif p_class == "FUSING":
-            w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3) if w_orig > 0 else 59.0
+            w_prod = round(w_with_seam * (1 + fusing_weft_shrink / 100.0), 3) if w_with_seam > 0 else 59.0
             l_prod = round(calculated_curve_length * (1 + fusing_warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
             
         elif p_class == "LINING":
-            w_prod = round(w_orig * (1 + lining_weft_shrink / 100.0), 3) if w_orig > 0 else 57.0
+            w_prod = round(w_with_seam * (1 + lining_weft_shrink / 100.0), 3) if w_with_seam > 0 else 57.0
             l_prod = round(calculated_curve_length * (1 + lining_warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
         else:
-            w_prod, l_prod = w_orig, calculated_curve_length
+            w_prod, l_prod = w_with_seam, calculated_curve_length
 
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
-        # Tính toán diện tích bề mặt phôi thực tế sau khi đã ép co rút và nới đường may
-        net_area_calculated = round(l_prod * w_prod * 0.76, 2) if (l_prod > 0 and w_prod > 0) else 1.0
-        p_area_list.append(net_area_calculated)
+        # Áp thông số co rút sợi trực tiếp vào diện tích lưới phẳng
+        shrinkage_area_factor = (1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0) if p_class == "FABRIC" else 1.0
+        net_area_final = round(net_area_calculated * shrinkage_area_factor, 2)
+        p_area_list.append(net_area_final)
 
-               # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP (QUẦN + ÁO + ĐẦM)
+        # =====================================================================
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI (QUẦN + ÁO + ĐẦM)
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1962,24 +1978,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # 1. Nếu rập là dạng thân quần nguyên vòng cỡ lớn, giữ nguyên hệ 2 mảnh
+            # Nếu rập là dạng thân quần nguyên vòng rộng cỡ lớn (>24 inch), lấy 2 mảnh (Trái + Phải)
             if any(k in comp_name_upper for k in ["FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
             
-            # 2. ✅ BỘ LUẬT TỰ ĐỘNG ĐỐI XỨNG X2 CHO HỆ ÁO KHOÁC VÀ ĐẦM VÁY SẢN XUẤT
+            # ✅ BỘ LUẬT ĐỐI XỨNG AUTOMATION ĐA CHI TIẾT:
             elif p_count == 1 and any(k in comp_name_upper for k in [
-                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK",  # Quần cơ bản
-                "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     # Hệ chi tiết tay áo (x2 bên)
-                "COLLAR", "FACING", "CỔ", "NẸP", "LAPEL", "PLACKET",             # Hệ cổ và nẹp áo (Thường x2 lớp hoặc đối xứng)
-                "CHEST POCKET", "BOTTOM POCKET", "FLAP", "TÚI", "NẮP TÚI",       # Hệ túi và nắp túi (Trái + Phải luôn đi thành cặp x2)
-                "WELT", "WAISTBAND", "POCKET BAG", "BAO TÚI", "ĐÁP TÚI"          # Các chi tiết phụ trợ đối xứng khác
+                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK",  
+                "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     
+                "COLLAR", "FACING", "CỔ", "NẸP", "LAPEL", "PLACKET",             
+                "CHEST POCKET", "BOTTOM POCKET", "FLAP", "TÚI", "NẮP TÚI",       
+                "WELT", "WAISTBAND", "POCKET BAG", "BAO TÚI", "ĐÁP TÚI"          
             ]):
                 p_count = 2
                 
-            # 3. Ngoại lệ đặc biệt: Nếu là đỉa quần (BELT LOOP) thì file CAD thường chỉ vẽ 1 dây dài để xưởng tự cắt ra thành 5-7 đỉa nhỏ, nên giữ nguyên 1
             if "BELT LOOP" in comp_name_upper or "ĐỈA" in comp_name_upper:
                 p_count = 1
-
 
         # Đóng gói dữ liệu phôi ảo đã tiền xử lý hình học phẳng vào Layer chính
         virtual_pieces_layer[idx] = {
@@ -1989,13 +2003,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "original_width": w_orig,
             "processed_length": l_prod,
             "processed_width": w_prod,
-            "polygon_net_area": net_area_calculated,
+            "polygon_net_area": net_area_final,
             "piece_count": p_count,
             "class_confidence": class_confidence,
             "is_trouser_component": is_trouser_item if p_class == "FABRIC" else False
         }
 
-    # Cập nhật ngược lại các mảng dữ liệu đã xử lý vào DataFrame gốc để hiển thị lên lưới UI
+    # Cập nhật ngược lại các mảng dữ liệu đã xử lý vào DataFrame gốc
     df_bom["processed_length"] = p_length_list
     df_bom["processed_width"] = p_width_list
     df_bom["polygon_net_area"] = p_area_list
@@ -2003,6 +2017,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
 
 
         # =====================================================================
