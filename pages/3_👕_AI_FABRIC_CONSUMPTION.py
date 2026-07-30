@@ -2100,7 +2100,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_skirt_or_dress:
                 min_floor_density = 0.7050  
             elif is_trouser:
-                min_floor_density = 0.7550  # Hạ nhẹ sàn mật độ quần để tăng định mức cơ sở lên mốc thực tế
+                min_floor_density = 0.7450  # Hạ nhẹ sàn mật độ thực tế xuống 0.745 giúp đẩy định mức quần lên chuẩn xưởng PPJ
             elif "JACKET" in product_category:
                 min_floor_density = 0.7350  # Giữ nguyên áo khoác đang chạy đúng
             else:
@@ -2142,9 +2142,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if material_type == "FABRIC" and sim_length_inch < main_pieces_len:
             sim_length_inch = main_pieces_len
             
-        # ✅ SỬA RIÊNG CHO QUẦN JEANS: Nâng hệ số bù hao hụt khoảng trống răng cưa giữa các chi tiết nhỏ từ 1.08 lên 1.15
+        # ✅ VÁ LỖI QUẦN THẤP: Tăng hệ số hao hụt tích lũy đầu cây cắt Denim đại trà (Wastage Factor) từ 1.15 lên hẳn 1.21 để bù đắp phần hao hụt lồng rập thực tế
         if material_type == "FABRIC" and is_trouser:
-            wastage_factor = wastage_factor * 1.15
+            wastage_factor = wastage_factor * 1.21
 
         # Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
@@ -2181,6 +2181,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
     df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
     # =====================================================================
+
 
    
 
