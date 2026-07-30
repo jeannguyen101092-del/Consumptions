@@ -1805,7 +1805,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-      # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - FILTER DUMMY & SAFE CHAT PARSER
     # =====================================================================
     pattern_has_shrink = True  
@@ -1850,8 +1850,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
 
-    # KHỞI TẠO ĐỒNG BỘ ĐA BIẾN CHỦNG LOẠI TRÁNH SẬP NAMEERROR
-    all_components_combined = " ".join(df_bom[comp_col_check].astype(str).upper().tolist()) if len(df_bom) > 0 else ""
+    # ✅ VÁ LỖI PHƯƠNG THỨC TO-LIST: Đóng mở ngoặc chuẩn xác theo định dạng Pandas Series phẳng
+    if len(df_bom) > 0 and comp_col_check in df_bom.columns:
+        all_components_combined = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
+    else:
+        all_components_combined = ""
     
     # Bộ kiểm toán cứng ép nhãn: hễ chứa từ khóa cạp/lưng/fly của quần thì bắt buộc khóa JEAN_LONG
     has_pant_indicators = any(k in all_components_combined for k in ["WAISTBAND", "LƯNG", "FLY", "COIN", "QUAN", "PANT", "LEG PANEL", "YOKE", "CÚP"])
@@ -1884,6 +1887,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
+
     # =====================================================================
     # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - GEOMETRIC BOUNDARY GUARD (FIXED)
     # =====================================================================
