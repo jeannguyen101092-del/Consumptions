@@ -1805,18 +1805,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-      # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - TOTAL RECONSTRUCTION
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. BỘ SNIFFER THÔNG MINH: ƯU TIÊN QUÉT ĐƯỜNG VÒNG LẠI (CURVE) TRƯỚC HỘP BAO THẲNG
-    detected_l_col = next((c for c in ["Chiều dài thực (inch)", "curve_length", "curve_len", "Dài vòng lại", "perimeter_len", "original_length", "Length"] if c in df_bom.columns), None)
-    detected_w_col = next((c for c in ["Chiều rộng thực (inch)", "curve_width", "curve_wid", "Rộng vòng lại", "original_width", "Width"] if c in df_bom.columns), None)
-    
-    actual_l_col = detected_l_col if detected_l_col else (orig_l_col if 'orig_l_col' in locals() else "bounding_box_length")
-    actual_w_col = detected_w_col if detected_w_col else (orig_w_col if 'orig_w_col' in locals() else "bounding_box_width")
+    # 1. BỘ SNIFFER ĐỒNG BỘ CHUẨN ĐỊNH DẠNG: Ưu tiên map trực tiếp key từ API Gemini (BOM ROWS) để tránh lỗi 0.00
+    actual_l_col = next((c for c in ["bounding_box_length", "processed_length", "curve_length", "Length"] if c in df_bom.columns), "bounding_box_length")
+    actual_w_col = next((c for c in ["bounding_box_width", "processed_width", "curve_width", "Width"] if c in df_bom.columns), "bounding_box_width")
 
     # Đọc thông số co rút thớ vải từ UI phục vụ nắn kích thước phôi ảo
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
@@ -1965,6 +1962,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "processed_width": w_prod,
             "polygon_net_area": net_area_raw,
             "piece_count": p_count,
+            "class_confidence": class_confidence,
             "is_trouser_component": is_trouser_item if p_class == "FABRIC" else False
         }
 
@@ -1973,7 +1971,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["processed_width"] = p_width_list
     df_bom["polygon_net_area"] = p_area_list
 
-    # 📊 KHỐI HIỂN THỊ THÔNG SỐ AI QUÉT ĐƯỢC (AI GEOMETRIC AUDIT MATRIX)
+    # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5 kế tiếp
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
+
+     # =====================================================================
+    # 📊 KHỐI HIỂN THỊ THÔNG SỐ AI QUÈT ĐƯỢC (AI GEOMETRIC AUDIT MATRIX)
     # =====================================================================
     # Vị trí đặt: Ngay dưới lệnh ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer của Đoạn 4
     st.markdown('<br><div class="cad-card"><div class="cad-header">🔍 BẢNG KIỂM TOÁN THÔNG SỐ HÌNH HỌC TỪ AI CORE (RAW CAD LAYER)</div></div>', unsafe_allow_html=True)
@@ -1982,14 +1986,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for idx, row in df_bom.iterrows():
         v = virtual_pieces_layer.get(idx, {})
         if v:
+            # ✅ ĐỒNG BỘ CHÍNH XÁC CÁC KHÓA (KEYS) VỚI LAYER DỮ LIỆU ĐOẠN 4
             audit_rows.append({
                 "Mã dòng": idx,
                 "Tên chi tiết rập (CAD Component)": v.get("component_name", row.get(comp_col_check, "CHƯA RÕ")),
-                "Phân loại lớp": v.get("inferred_class", "FABRIC"),
-                "Dài rập thực tế (Inch)": round(v.get("production_l", 0.0), 2),
-                "Rộng rập phẳng (Inch)": round(v.get("production_w", 0.0), 2),
-                "Diện tích lưới phẳng (Inch²)": round(v.get("production_net_area", 0.0), 2),
-                "Số lượng rập gốc": int(v.get("inferred_pieces", 1)),
+                "Phân loại lớp": v.get("material_class", "FABRIC"),  # Sửa từ inferred_class -> material_class
+                "Dài rập thực tế (Inch)": round(v.get("processed_length", 0.0), 2),  # Sửa từ production_l -> processed_length
+                "Rộng rập phẳng (Inch)": round(v.get("processed_width", 0.0), 2),   # Sửa từ production_w -> processed_width
+                "Diện tích lưới phẳng (Inch²)": round(v.get("polygon_net_area", 0.0), 2), # Sửa từ production_net_area -> polygon_net_area
+                "Số lượng rập gốc": int(v.get("piece_count", 1)),  # Sửa từ inferred_pieces -> piece_count
                 "Độ tin cậy (%)": f"{int(v.get('class_confidence', 0.95) * 100)}%"
             })
             
@@ -2015,7 +2020,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # Thống kê nhanh diện tích để kiểm chéo dữ liệu đầu vào
         total_fabric_area_raw = sum(r["Diện tích lưới phẳng (Inch²)"] * r["Số lượng rập gốc"] for r in audit_rows if r["Phân loại lớp"] == "FABRIC")
-        st.info(f"📊 **THỐNG KÊ THÔNG SỐ SƠ BỘ** | Tổng diện tích lưới phẳng vải chính thu được: `{total_fabric_area_raw:.2f} Inch²` | Chủng loại hàng đang khóa: `{product_category}`")
+        
+        # ✅ PHÒNG VỆ BIẾN: Tránh lỗi NameError nếu biến product_category chưa được khởi tạo ở luồng ngoài
+        active_prod_cat = product_category if 'product_category' in locals() else current_prod_cat
+        
+        st.info(f"📊 **THỐNG KÊ THÔNG SỐ SƠ BỘ** | Tổng diện tích lưới phẳng vải chính thu được: `{total_fabric_area_raw:.2f} Inch²` | Chủng loại hàng đang khóa: `{active_prod_cat}`")
     else:
         st.warning("⚠️ Bộ nhớ đệm phôi ảo hiện tại đang trống rỗng. Vui lòng bấm nút quét tài liệu kỹ thuật Techpack!")
 
