@@ -2084,10 +2084,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (VÁ LỖI 1.27 YDS)
     # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC PROGRESSIVE SOLVER & ROUTER
-    # =====================================================================
-    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên của bạn
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
         
@@ -2104,14 +2104,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_small_parts_area = sum(p["area"] * p["pcs"] for p in pieces_list if p["l"] < 8.0)
         small_area_ratio = total_small_parts_area / net_area if net_area > 0 else 0.0
 
-        # CHUẨN ĐOÁN HỆ RẬP SIÊU RỘNG (1/2 VÒNG) HOẶC HỆ RẬP HẸP (1/4 VÒNG)
+        # CHUẨN ĐOÁN HỆ RẬP SIÊU RỘNG (1/2 VÒNG) HOẶC HỆ RẬP HẸP (1/4 VÒNG CHUẨN)
         is_quarter_pattern = False
         is_ultra_wide_pattern = False
         
         if material_type == "FABRIC":
             for p in pieces_list:
                 if p["l"] > 30.0:
-                    if p["w"] < 13.0 and (p["l"] / p["w"]) > 2.8:
+                    # ✅ NHẬN DIỆN CHUẨN HỆ RẬP 1/4 VÒNG: Chiều rộng rập nhỏ hơn 24% khổ vải (12.5 in < 13.9 in)
+                    if p["w"] < 13.5 and (p["l"] / p["w"]) > 2.8:
                         is_quarter_pattern = True
                     elif p["w"] >= 19.5:
                         is_ultra_wide_pattern = True
@@ -2122,6 +2123,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 min_floor_density = 0.6450
             elif is_skirt_or_dress:
                 min_floor_density = 0.7050  
+            elif is_trouser:
+                # ✅ SỬA LỖI ĐỊNH MỨC THẤP HỆ 1/4 VÒNG: Giảm mật độ lồng thực tế của hệ rập hẹp xuống mốc 71.5% 
+                # vì sơ đồ 1/4 vòng phát sinh khoảng hở răng cưa giàng quần/đũng quần cực lớn dọc biên vải
+                min_floor_density = 0.7150 if is_quarter_pattern else 0.7450  
             elif is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2139,7 +2144,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_ultra_wide_pattern:
                 interlocking_factor = 0.765 + (avg_shape_factor * 0.04)
             elif is_quarter_pattern:
-                interlocking_factor = 0.945
+                # ✅ TĂNG LŨY TIẾN ĐỘ CHIẾM DỤNG BIÊN CỦA RẬP 1/4 VÒNG ĐỂ ĐẨY CHIỀU DÀI SƠ ĐỒ LÊN
+                interlocking_factor = 0.940 + (avg_shape_factor * 0.01)
             else:
                 interlocking_factor = 0.48 + (avg_shape_factor * 0.07)
         else:
@@ -2157,7 +2163,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT
         if is_trouser:
-            blend = 0.75 if is_ultra_wide_pattern else 0.70  
+            # ✅ Nếu là rập hẹp 1/4 vòng, ép trọng số tính theo hộp bao chiếm dụng lên 80% để loại bỏ hoàn toàn lỗi hụt diện tích tịnh CAD
+            blend = 0.80 if is_quarter_pattern else (0.75 if is_ultra_wide_pattern else 0.70)
         elif is_skirt_or_dress:
             blend = 0.45  
         elif is_jacket:
@@ -2167,7 +2174,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # ✅ VÁ LỖI CỐT LÕI (SẬP 1.19 YDS): Thiết lập sàn vật lý động lũy tiến cho hệ rập béo mở phẳng
+        # Thiết lập sàn vật lý động lũy tiến cho hệ rập mở phẳng
         if material_type == "FABRIC" and is_trouser:
             calculated_min_marker_floor = max_piece_length * (2.0 if is_ultra_wide_pattern else 1.5)
         else:
@@ -2183,7 +2190,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
         
         if material_type == "FABRIC":
-            # Chấm điểm hình học tổng hợp phục vụ đẩy lên UI
             norm_shape = min(1.0, max(0.0, (avg_shape_factor - 1.0) / 1.2))
             norm_aspect = min(1.0, max(0.0, (avg_aspect_ratio - 1.0) / 6.0))
             rotation_score = 0.0 if one_way_flag else (0.5 if nap_layout_flag else 1.0)
@@ -2198,6 +2204,51 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
+
+    # =====================================================================
+    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER)
+    # =====================================================================
+    total_weighted_share_numerator = 0.0
+    for idx, r in df_bom.iterrows():
+        v = virtual_pieces_layer.get(idx, {})
+        if v.get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]:
+            p_area = float(v.get("polygon_net_area", 0.0))
+            p_pcs = int(v.get("active_user_pieces", 1))
+            comp_name = str(v.get("component_name", "")).upper()
+            
+            w_factor = 1.0
+            if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): w_factor = 1.08
+            total_weighted_share_numerator += (p_area * p_pcs * w_factor)
+
+    def core_engine_router(row, idx):
+        v = virtual_pieces_layer.get(idx, {})
+        p_class = v.get("material_class", "FABRIC")
+        p_pcs = int(v.get("active_user_pieces", 1))
+        p_area = float(v.get("polygon_net_area", 0.0))
+        comp_name = str(v.get("component_name", "")).upper()
+        
+        if p_class in ["FABRIC", "CONTRAST"]:
+            if total_weighted_share_numerator > 0:
+                w_factor = 1.0
+                if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): w_factor = 1.08
+                return round(((p_area * p_pcs * w_factor) / total_weighted_share_numerator) * total_fabric_gross_yds, 4)
+            return 0.0415
+        elif p_class == "LINING":
+            if total_lining_net_area > 0: return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
+            return 0.0
+        elif p_class in ["FUSING", "RIB"]:
+            if total_fusing_net_area > 0: return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
+            return 0.0
+        return 0.0
+
+    # Đồng bộ dữ liệu định mức đại trà sạch xuống DataFrame gốc phục vụ Đoạn 7 hiển thị
+    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
+    
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ctx["ai_expert_decision"]["complexity_score"] = st.session_state.get("computed_geometry_score", 39)
+    ctx["ai_expert_decision"]["estimated_density_prior"] = st.session_state.get("computed_real_density", real_fabric_density)
+    # =====================================================================
+
 
     # =====================================================================
     # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER)
