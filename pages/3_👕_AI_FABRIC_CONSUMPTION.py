@@ -2021,7 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & SCORE EXTRACTOR
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2084,17 +2084,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (FIXED)
     # =====================================================================
-    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên của bạn
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC PROGRESSIVE SOLVER & ROUTER
+    # =====================================================================
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
         
         total_parts_count = sum(p["pcs"] for p in pieces_list)
         total_bbox_area = sum(p["l"] * p["w"] * p["pcs"] for p in pieces_list)
         
-        # 1. TÍNH TOÁN CÁC CHỈ SỐ HÌNH HỌC ĐỘNG THEO TRỌNG SỐ DIỆN TÍCH TỊNH
+        # TÍNH TOÁN CÁC CHỈ SỐ HÌNH HỌC ĐỘNG THEO TRỌNG SỐ DIỆN TÍCH TỊNH
         sum_weighted_shape = sum(((p["l"] * p["w"] / p["area"]) * p["area"] * p["pcs"]) for p in pieces_list)
         avg_shape_factor = sum_weighted_shape / net_area if net_area > 0 else 1.15
         
@@ -2104,28 +2104,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_small_parts_area = sum(p["area"] * p["pcs"] for p in pieces_list if p["l"] < 8.0)
         small_area_ratio = total_small_parts_area / net_area if net_area > 0 else 0.0
 
-        # 2. CHUẨN ĐOÁN HỆ RẬP SIÊU RỘNG (1/2 VÒNG) HOẶC HỆ RẬP HẸP (1/4 VÒNG)
+        # CHUẨN ĐOÁN HỆ RẬP SIÊU RỘNG (1/2 VÒNG) HOẶC HỆ RẬP HẸP (1/4 VÒNG)
         is_quarter_pattern = False
-        is_ultra_wide_pattern = False # Cờ nhận diện hệ rập bành trướng bề ngang
+        is_ultra_wide_pattern = False
         
         if material_type == "FABRIC":
             for p in pieces_list:
                 if p["l"] > 30.0:
                     if p["w"] < 13.0 and (p["l"] / p["w"]) > 2.8:
                         is_quarter_pattern = True
-                    # Nếu phôi rập thân quần rộng trên 19.5 inch, đây là hàng Big Size hoặc rập 1/2 vòng mở phẳng cực rộng
                     elif p["w"] >= 19.5:
                         is_ultra_wide_pattern = True
 
-        # 3. ƯỚC LƯỢNG DENSITY THEO BIÊN ĐỘ QUÉT HÌNH HỌC GERBER
+        # ƯỚC LƯỢNG DENSITY THEO BIÊN ĐỘ QUÉT HÌNH HỌC GERBER
         if material_type == "FABRIC":
-            # Nếu rập quá rộng, mật độ sơ đồ thực tế bắt buộc phải tụt sâu vì khoảng hở giữa 2 thân lớn là cực rộng
             if is_ultra_wide_pattern:
                 min_floor_density = 0.6450
             elif is_skirt_or_dress:
                 min_floor_density = 0.7050  
-            elif is_trouser:
-                min_floor_density = 0.7450  
             elif is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2138,10 +2134,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8950, base_density))
         
-        # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI (INTERLOCKING FACTOR) ĐỘNG CHUẨN XƯỞNG PPJ
+        # THIẾT LẬP HỆ SỐ ĐAN CÀI (INTERLOCKING FACTOR) ĐỘNG CHUẨN XƯỞNG PPJ
         if material_type == "FABRIC":
             if is_ultra_wide_pattern:
-                interlocking_factor = 0.765 + (avg_shape_factor * 0.04) # Phạt nặng độ chiếm dụng chiều dọc của rập béo
+                interlocking_factor = 0.765 + (avg_shape_factor * 0.04)
             elif is_quarter_pattern:
                 interlocking_factor = 0.945
             else:
@@ -2155,7 +2151,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         real_density = max(min_floor_density, min(0.8950, real_density))
         interlocking_factor = min(0.960, max(0.350, interlocking_factor))
 
-        # 5. TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ THEO HAI KHỐI PHƯƠNG TRÌNH HÌNH HỌC PHẲNG
+        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ THEO HAI KHỐI PHƯƠNG TRÌNH HÌNH HỌC PHẲNG
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
@@ -2170,7 +2166,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             blend = 0.55  
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
-        sim_length_inch = max(sim_length_inch, max_piece_length)
+        
+        # ✅ VÁ LỖI CỐT LÕI (SẬP 1.19 YDS): Thiết lập sàn vật lý động lũy tiến cho hệ rập béo mở phẳng
+        if material_type == "FABRIC" and is_trouser:
+            calculated_min_marker_floor = max_piece_length * (2.0 if is_ultra_wide_pattern else 1.5)
+        else:
+            calculated_min_marker_floor = max_piece_length
+            
+        sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
         
         # BÙ BIÊN SƠ ĐỒ GERBER ĐẠI TRÀ (MARKER END LOSS SAFETY)
         if material_type == "FABRIC":
@@ -2180,7 +2183,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
         
         if material_type == "FABRIC":
-            st.session_state["computed_geometry_score"] = int(geometry_score * 100) if 'geometry_score' in locals() else 45
+            # Chấm điểm hình học tổng hợp phục vụ đẩy lên UI
+            norm_shape = min(1.0, max(0.0, (avg_shape_factor - 1.0) / 1.2))
+            norm_aspect = min(1.0, max(0.0, (avg_aspect_ratio - 1.0) / 6.0))
+            rotation_score = 0.0 if one_way_flag else (0.5 if nap_layout_flag else 1.0)
+            geometry_score = (0.40 * norm_shape) + (0.30 * norm_aspect) + (0.20 * small_area_ratio) + (0.10 * rotation_score)
+            
+            st.session_state["computed_geometry_score"] = int(geometry_score * 100)
             st.session_state["computed_real_density"] = real_density
             
         return real_density, total_gross_yds
@@ -2193,7 +2202,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER)
     # =====================================================================
-    # Khắc phục lỗi lệch tổng số: Tính toán tổng trọng số toàn bộ hệ thống trước khi chia dòng
     total_weighted_share_numerator = 0.0
     for idx, r in df_bom.iterrows():
         v = virtual_pieces_layer.get(idx, {})
@@ -2217,7 +2225,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if total_weighted_share_numerator > 0:
                 w_factor = 1.0
                 if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): w_factor = 1.08
-                # Chia tỷ lệ chuẩn hóa mẫu số tổng để tổng chi tiết luôn bằng khít tổng bảng summary
                 return round(((p_area * p_pcs * w_factor) / total_weighted_share_numerator) * total_fabric_gross_yds, 4)
             return 0.0415
         elif p_class == "LINING":
@@ -2231,7 +2238,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đồng bộ dữ liệu định mức đại trà sạch xuống DataFrame gốc phục vụ Đoạn 7 hiển thị
     df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
     
-    # Cập nhật ngược điểm số hình học vào bộ não tri thức để Đoạn 7 bốc lên giao diện
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["complexity_score"] = st.session_state.get("computed_geometry_score", 45)
     ctx["ai_expert_decision"]["estimated_density_prior"] = st.session_state.get("computed_real_density", real_fabric_density)
