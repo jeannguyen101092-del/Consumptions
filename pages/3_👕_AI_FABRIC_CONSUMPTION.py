@@ -1805,13 +1805,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-        # =====================================================================
-    # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - FILTER DUMMY & CHAT PARSER
+      # =====================================================================
+    # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - FILTER DUMMY & SAFE CHAT PARSER
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. ✅ BỘ LỌC TRIỆT TIÊU DÒNG GIẢ LẬP RÁC: Loại bỏ hoàn toàn dòng USER SPECIFIED PANEL trước khi tính toán
+    # 1. BỘ LỌC TRIỆT TIÊU DÒNG GIẢ LẬP RÁC: Loại bỏ hoàn toàn dòng USER SPECIFIED PANEL trước khi tính toán
     if len(df_bom) > 0:
         df_bom = df_bom[~df_bom[comp_col_check].astype(str).str.upper().str.contains("USER SPECIFIED PANEL|DUMMY|SPECIFIED", na=False)].reset_index(drop=True)
 
@@ -1830,14 +1830,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # BỘ TRÍCH XUẤT THÔNG SỐ CO RÚT TỰ ĐỘNG TỪ Ô CHAT (DỌC / NGANG) VIA REGEX
     if 'current_query' in locals() and current_query:
         is_user_cmd_cm = "CM" in str(current_query).upper()
-        
         warp_match = re.search(r"(dọc|warp|loại dọc)\s*(\-?\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
         weft_match = re.search(r"(ngang|weft|loại ngang)\s*(\-?\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
         
         if warp_match: warp_shrink = float(warp_match.group(2))
         if weft_match: weft_shrink = float(weft_match.group(2))
             
-        # Sửa lỗi nếu người dùng nhập kiểu ngắn: "co rút 3 14" (Dọc trước, Ngang sau)
         if not warp_match and not weft_match:
             generic_match = re.search(r"(co rút|co|shrink|shrinkage)\s*(\d+(\.\d+)?)\s+(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
             if generic_match:
@@ -1852,33 +1850,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     current_prod_cat = str(ai_decision_d4.get("product_category", "JEAN_LONG")).upper().strip()
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
 
+    # KHỞI TẠO ĐỒNG BỘ ĐA BIẾN CHỦNG LOẠI TRÁNH SẬP NAMEERROR
+    all_components_combined = " ".join(df_bom[comp_col_check].astype(str).upper().tolist()) if len(df_bom) > 0 else ""
+    
+    # Bộ kiểm toán cứng ép nhãn: hễ chứa từ khóa cạp/lưng/fly của quần thì bắt buộc khóa JEAN_LONG
+    has_pant_indicators = any(k in all_components_combined for k in ["WAISTBAND", "LƯNG", "FLY", "COIN", "QUAN", "PANT", "LEG PANEL", "YOKE", "CÚP"])
+    
+    if has_pant_indicators or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG", "FLARED"]):
+        is_trouser = True
+        is_trouser_item = True
+        is_skirt_or_dress = False
+        is_jacket_item = False
+        current_prod_cat = "JEAN_LONG"
+    elif any(k in all_components_combined for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG"]):
+        is_trouser = False
+        is_trouser_item = False
+        is_skirt_or_dress = True
+        is_jacket_item = False
+        current_prod_cat = "DRESS_FLARE"
+    else:
+        is_trouser = False
+        is_trouser_item = False
+        is_skirt_or_dress = False
+        is_jacket_item = True
+        current_prod_cat = "JACKET"
+
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ctx["ai_expert_decision"]["product_category"] = current_prod_cat
+
     # Khởi tạo vùng lưu đệm trạng thái tương tác người dùng nếu chưa có
     if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
     if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
-
-    # BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN
-    is_skirt_or_dress = any(k in current_prod_cat or k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG", "DRESS_FLARE"])
-    has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
-    
-    if is_skirt_or_dress:
-        is_trouser_item = False
-        if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
-        ctx["ai_expert_decision"]["product_category"] = "DRESS_FLARE"
-    elif has_pant_components or any(k in current_prod_cat or k in prod_upper_name for k in ["TROUSER", "JEAN", "PANTS", "SHORT", "QUẦN", "QUAN", "JEAN_LONG"]):
-        is_trouser_item = True
-        if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
-        ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
-    else:
-        is_trouser_item = False
-       # =====================================================================
-        # =====================================================================
-       # =====================================================================
-      # =====================================================================
-    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - GEOMETRIC BOUNDARY GUARD (FIX NHẬN DẠNG SAI)
     # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - GEOMETRIC BOUNDARY GUARD (FIXED)
+    # =====================================================================
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên của bạn
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1897,11 +1906,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             l_orig = l_orig_raw
             w_orig = w_orig_raw
             
-        # ✅ BỘ LỌC KIỂM SOÁT BIÊN AN TOÀN (VÁ LỖI AI NHẬN DẠNG SAI / ĐẢO CHIỀU)
-        # Đối với thân quần Jeans lớn, chiều rộng rập thô ban đầu (chưa cộng may) trong file CAD 1/4 vòng 
-        # luôn nằm trong khoảng từ 10.0 đến 14.5 inch. Nếu AI bốc lên con số dị thường > 19.0 inch,
-        # hệ thống tự động nhận diện đây là lỗi bốc sai số dòng và ép chiều rộng về mốc kỹ thuật thực tế (11.25 in)
-        if is_trouser and any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL"]):
+        # ✅ BỘ LỌC BIÊN AN TOÀN CHỐNG AI QUÉT SAI ĐẢO CHIỀU RỘNG RẬP QUẦN JEANS 1/4 VÒNG
+        if is_trouser_item and any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL"]):
             if w_orig > 19.0:
                 w_orig = 11.25 if "FRONT" in comp_name_upper else 12.25
 
@@ -1943,7 +1949,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_area_calculated = round(l_with_seam * w_with_seam * 0.95, 2)
             calculated_curve_length = l_with_seam
         else:
-            # Điều chỉnh diện tích tịnh thực tế dựa trên kích thước rộng hẹp đã được sửa lỗi biên an toàn
             net_area_calculated = round(l_with_seam * w_with_seam * 0.72, 2)
             calculated_curve_length = l_with_seam
             if net_area_calculated > 0 and w_with_seam > 0:
@@ -1979,7 +1984,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # Ép hệ 2 mảnh cho chi tiết chính (FRONT/BACK LEG) vì đã được nắn về hệ rập hẹp 1/4 vòng chuẩn xác
+            # Ép hệ đối xứng 2 mảnh cho chi tiết thân lớn sau khi đã nắn về hệ rập hẹp 1/4 vòng chuẩn xác
             if any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
             elif p_count == 1 and any(k in comp_name_upper for k in [
