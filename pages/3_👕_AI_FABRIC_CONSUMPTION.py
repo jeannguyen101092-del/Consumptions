@@ -656,7 +656,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - FIX SẬP 404 & NÉN ẢNH TIẾT KIỆM TỐI ĐA TIỀN API
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - NÂNG CẤP GEMINI 2.5 & NÉN ẢNH TỐI ƯU
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -676,7 +676,8 @@ def execute_cached_gemini_scan(
     import json
     import re
     import fitz  # Thư viện PyMuPDF đọc file tài liệu hình học CAD
-    import google.generativeai as genai  # Thư viện Core kết nối Google AI
+    from google import genai
+    from google.genai import types
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -685,7 +686,7 @@ def execute_cached_gemini_scan(
         raise TypeError("Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!")
 
     full_pdf_raw_text = ""
-    image_payloads = []
+    image_contents = []
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
@@ -696,17 +697,24 @@ def execute_cached_gemini_scan(
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
             # GIỚI HẠN PHÒNG VỆ CHỐNG TRÀN TOKEN: Chỉ chụp ảnh 2 trang đầu (nơi chứa bảng BOM)
-            if len(image_payloads) < 2:
+            if len(image_contents) < 2:
                 try:
                     # 🛠️ TỐI ƯU TIẾT KIỆM TIỀN: Hạ DPI xuống mức 50 để nén nhỏ số lượng token hình ảnh của Google
                     pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
-                    # Nén ảnh chất lượng Jpeg vừa đủ nhìn để hạ chi phí Input API xuống mức tối thiểu (mấy chục đồng/lần quét)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                    # Chuyển đổi ảnh sang Part object của Gemini 2.5 SDK mới
+                    image_contents.append(
+                        types.Part.from_bytes(
+                            data=pix.tobytes("jpeg"),
+                            mime_type="image/jpeg",
+                        )
+                    )
                 except Exception:
                     continue
 
-    gemini_inputs = copy.deepcopy(image_payloads)
-    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+    # Khởi tạo danh sách nội dung gửi cho AI (Hỗ trợ cấu trúc Multimodal)
+    gemini_inputs = []
+    gemini_inputs.append(f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+    gemini_inputs.extend(image_contents)
 
     # PROMPT KỸ THUẬT KHÓA CHẶT BIẾN HÌNH HỌC PHẲNG CHO HÀNG ĐẦM VÁY XÒE CỦA BẠN
     extended_prompt = prompt_agent_2 + """
@@ -718,21 +726,22 @@ def execute_cached_gemini_scan(
     """
     gemini_inputs.append(extended_prompt)
 
-    # 🛠️ VÁ LỖI CỐT LÕI: Nâng cấp lên mô hình chuẩn thương mại ổn định, chấm dứt lỗi đỏ sập 404
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # 🛠️ NÂNG CẤP LÊN CLIENT VÀ MÔ HÌNH GEMINI 2.5 FLASH CHUẨN THƯƠNG MẠI MỚI NHẤT
+    client = genai.Client()
     
-    response = model.generate_content(
-        gemini_inputs,
-        generation_config={
-            "response_mime_type": "application/json",
-            "response_schema": raw_json_schema,
-            "temperature": 0.0,  # Khóa chặt nhiệt độ bằng 0.0 để AI trích xuất số liệu chính xác tuyệt đối, không bị sáng tạo bừa bãi
-        },
-        request_options={"timeout": 120.0},
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=gemini_inputs,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=raw_json_schema,
+            temperature=0.0,  # Khóa chặt nhiệt độ bằng 0.0 để AI trích xuất số liệu chính xác tuyệt đối
+            timeout=120.0,
+        ),
     )
 
     if not response or not response.text:
-        raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
+        raise RuntimeError("Mô hình Gemini 2.5 trả về kết quả rỗng!")
 
     txt = response.text.strip()
     if txt.startswith("```"):
@@ -779,11 +788,10 @@ def execute_cached_gemini_scan(
     if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
         
     st.session_state["api_calls_count"] += 1
+    # Gemini 2.5 Flash xử lý văn bản và hình ảnh thông minh và chính xác hơn với cấu trúc token mới
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
-
 
 
 
