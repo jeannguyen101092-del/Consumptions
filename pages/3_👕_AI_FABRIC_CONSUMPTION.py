@@ -1994,7 +1994,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
 
-       # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
@@ -2050,7 +2050,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class in ["FABRIC", "CONTRAST"]:
             total_fabric_net_area += net_area * current_pcs
             if p_length > 0:
-                # Bổ sung thông tin số lượng mảnh thực tế phục vụ thuật toán hộp bao xếp lồng
                 fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
                 if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
@@ -2069,14 +2068,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return estimated_density_prior, 0.0
         
-        # Cấu hình sàn mật độ rải sơ đồ (Floor Density) theo khả năng lồng rập đan xen thực tế của xưởng
+        # Cấu hình sàn mật độ rải sơ đồ (Floor Density) theo từng chủng loại hàng
         if material_type == "FABRIC":
             if is_skirt_or_dress:
-                min_floor_density = 0.7150  
+                min_floor_density = 0.7050  # Váy đầm chi tiết khổng lồ uốn lượn hao hụt biên lớn
             elif is_trouser:
-                min_floor_density = 0.7650  # Điều chỉnh nhẹ mật độ thực tế đại trà có tính khoảng hở phôi
+                min_floor_density = 0.7650  
             elif "JACKET" in product_category:
-                min_floor_density = 0.7400
+                min_floor_density = 0.7350
             else:
                 min_floor_density = 0.7400
         elif material_type == "LINING":
@@ -2095,19 +2094,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8850, real_density))
         
-        # 🚨 THUẬT TOÁN ĐỔI MỚI: TÍNH TOÁN THEO CHIỀU DÀI SƠ ĐỒ THỰC TẾ (Sử dụng chiều dài chi tiết chính làm nòng cốt)
-        # Thay vì chia thuần túy diện tích phẳng, hệ thống bốc chiều dài của Thân trước + Thân sau xếp liên tục dọc sơ đồ
+        # THUẬT TOÁN ĐỒNG BỘ CHIỀU DÀI CHIẾM DỤNG HÌNH HỌC THEO TỪNG LOẠI HÀNG
         main_pieces_len = 0.0
-        for p in pieces_list:
-            # Nếu là chi tiết chính lớn (chiều dài > 30 inch như thân quần), tính toán chiều dài chiếm dụng trực tiếp
-            if p["l"] > 30.0:
-                main_pieces_len += p["l"] * (p["pcs"] / 2.0) # Chia 2 vì sơ đồ thường rải xếp đôi Trái/Phải song song song
+        
+        if is_skirt_or_dress:
+            # ✅ VÁ LỖI ÁO ĐẦM THẤP: Quét bắt chi tiết tùng váy/thân đầm dựa trên diện tích lớn (>180) hoặc độ dài (>20)
+            for p in pieces_list:
+                if p["area"] > 180.0 or p["l"] > 20.0:
+                    main_pieces_len += p["l"] * p["pcs"]
+            # Áp dụng hệ số đan cài rộng biên cho hàng đầm váy uốn cong hình cung tròn
+            main_pieces_len = main_pieces_len * 0.55
+            
+        else:
+            # Luật dành cho Quần Jeans và Áo khoác Jacket giữ nguyên hệ số chuẩn
+            for p in pieces_list:
+                if p["l"] > 30.0:
+                    main_pieces_len += p["l"] * p["pcs"]
+            main_pieces_len = main_pieces_len * 0.50
         
         # Chiều dài sơ đồ tính từ diện tích phẳng tịnh lý thuyết
         sim_length_inch = net_area / marker_width / real_density
         
-        # ✅ Nếu chiều dài tính theo diện tích phẳng bị kéo rụt hẹp hơn tổng chiều dài hình học thực tế của các chi tiết lớn nối đuôi nhau,
-        # ép hệ thống lấy chiều dài hình học chiếm dụng làm gốc để đảm bảo định mức không bao giờ bị hụt trên bàn cắt xưởng.
+        # Ép sàn bảo vệ vật lý: Chiều dài sơ đồ không được nhỏ hơn độ chiếm dụng hình học thực tế của chi tiết chính
         if material_type == "FABRIC" and sim_length_inch < main_pieces_len:
             sim_length_inch = main_pieces_len
             
@@ -2120,7 +2128,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
 
-  
+    # =====================================================================
+    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT XUỐNG TỪNG DÒNG (ROUTER)
+    # =====================================================================
+    def core_engine_router(row, idx):
+        v = virtual_pieces_layer.get(idx, {})
+        p_class = v.get("material_class", "FABRIC")
+        p_pcs = int(v.get("active_user_pieces", 1))
+        p_area = float(v.get("polygon_net_area", 0.0))
+        
+        if p_class in ["FABRIC", "CONTRAST"]:
+            if total_fabric_net_area > 0:
+                return round((p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds, 4)
+            return 0.0415
+        elif p_class == "LINING":
+            if total_lining_net_area > 0:
+                return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
+            return 0.0
+        elif p_class in ["FUSING", "RIB"]:
+            if total_fusing_net_area > 0:
+                return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
+            return 0.0
+        return 0.0
+
+    # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
+    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
+    # =====================================================================
+
    
 
      # =====================================================================
