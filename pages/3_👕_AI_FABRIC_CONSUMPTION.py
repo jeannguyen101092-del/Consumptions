@@ -1873,8 +1873,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
     else:
         is_trouser_item = False
-         # =====================================================================
-    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
+       # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE (FIX 3.40)
     # =====================================================================
     # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
     for idx, row in df_bom.iterrows():
@@ -1918,10 +1918,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # CỘNG BIÊN ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT
+        # ✅ TÍNH ĐƯỜNG MAY THỰC TẾ: Chi tiết lớn cộng 1.0 inch, chi tiết nhỏ (như Lưng quần bản hẹp) cộng chuẩn 0.4 inch
         if p_class in ["FABRIC", "CONTRAST", "LINING", "FUSING"]:
             seam_allowance_l = 1.0 if l_orig > 8.0 else 0.4
-            seam_allowance_w = 1.0 if w_orig > 4.0 else 0.4
+            seam_allowance_w = 1.0 if w_orig > 8.0 else 0.4
         else:
             seam_allowance_l = 0.0
             seam_allowance_w = 0.0
@@ -1936,26 +1936,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             net_area_calculated = round(l_with_seam * w_with_seam * 0.74, 2)
 
-        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
+        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG NGOẰN NGOÈO
         calculated_curve_length = l_with_seam
         if net_area_calculated > 0 and w_with_seam > 0:
             calculated_curve_length = max(l_with_seam, round(net_area_calculated / w_with_seam, 3))
 
-        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN ---
+        # --- ✅ BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI SẠCH (TRIỆT TIÊU TOÀN BỘ LỆNH GÁN ĐÈ RÁC ĐÚNG THỰC TẾ) ---
         if p_class == "FABRIC":
-            if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN", "BODY"]):
-                w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 14.875
-            else:
-                w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 58.0
-                
+            w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 0.0
             l_prod = round(calculated_curve_length * (1 + warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
-            
         elif p_class == "FUSING":
-            w_prod = round(w_with_seam * (1 + fusing_weft_shrink / 100.0), 3) if w_with_seam > 0 else 59.0
+            w_prod = round(w_with_seam * (1 + fusing_weft_shrink / 100.0), 3) if w_with_seam > 0 else 0.0
             l_prod = round(calculated_curve_length * (1 + fusing_warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
-            
         elif p_class == "LINING":
-            w_prod = round(w_with_seam * (1 + lining_weft_shrink / 100.0), 3) if w_with_seam > 0 else 57.0
+            w_prod = round(w_with_seam * (1 + lining_weft_shrink / 100.0), 3) if w_with_seam > 0 else 0.0
             l_prod = round(calculated_curve_length * (1 + lining_warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
         else:
             w_prod, l_prod = w_with_seam, calculated_curve_length
@@ -1963,7 +1957,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
-        # Áp thông số co rút sợi trực tiếp vào diện tích lưới phẳng
+        # Áp thông số co rút sợi trực tiếp vào diện tích lưới phẳng đã nới rộng đường may
         shrinkage_area_factor = (1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0) if p_class == "FABRIC" else 1.0
         net_area_final = round(net_area_calculated * shrinkage_area_factor, 2)
         p_area_list.append(net_area_final)
@@ -1978,11 +1972,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # ✅ KHÓA CHẶT LOGIC 1/2 VÒNG: Bất kể rập tên gì, cứ hễ chứa chữ FRONT/BACK PANEL hoặc LEG PANEL lớn 
-            # của vải chính, ép cứng p_count = 2 (1 bên Trái + 1 bên Phải đối xứng)
+            # Khóa chặt logic 1/2 vòng: Thân chính vải chính ép cứng p_count = 2
             if any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
-            
             # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ khác
             elif p_count == 1 and any(k in comp_name_upper for k in [
                 "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY", "BACK YOKE",
