@@ -1874,9 +1874,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         is_trouser_item = False
        # =====================================================================
-    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE (FIX 3.40)
+        # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
     # =====================================================================
-    # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1918,7 +1918,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # ✅ TÍNH ĐƯỜNG MAY THỰC TẾ: Chi tiết lớn cộng 1.0 inch, chi tiết nhỏ (như Lưng quần bản hẹp) cộng chuẩn 0.4 inch
+        # ✅ TÍNH ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT:
         if p_class in ["FABRIC", "CONTRAST", "LINING", "FUSING"]:
             seam_allowance_l = 1.0 if l_orig > 8.0 else 0.4
             seam_allowance_w = 1.0 if w_orig > 8.0 else 0.4
@@ -1929,19 +1929,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         l_with_seam = l_orig + seam_allowance_l
         w_with_seam = w_orig + seam_allowance_w
         
-        # Giữ nguyên tỷ lệ diện tích tịnh hình học CAD thực tế, nhân hệ số chu vi đường may
-        if net_area_raw > 0 and l_orig > 0 and w_orig > 0:
-            seam_growth_factor = (l_with_seam * w_with_seam) / (l_orig * w_orig)
-            net_area_calculated = round(net_area_raw * seam_growth_factor, 2)
+        # ✅ KHÓA CHẶT CHỈ SỐ KHÔNG CHO BIẾN HÌNH LƯNG QUẦN/CHI TIẾT HẸP
+        is_narrow_component = any(k in comp_name_upper for k in ["WAISTBAND", "LƯNG", "FLY", "FACING", "BELT", "LOOP", "COIN", "CUFF", "COLLAR", "SASH"])
+        
+        if is_narrow_component:
+            net_area_calculated = round(l_with_seam * w_with_seam * 0.95, 2)
+            calculated_curve_length = l_with_seam
         else:
-            net_area_calculated = round(l_with_seam * w_with_seam * 0.74, 2)
+            if net_area_raw > 0 and l_orig > 0 and w_orig > 0:
+                seam_growth_factor = (l_with_seam * w_with_seam) / (l_orig * w_orig)
+                net_area_calculated = round(net_area_raw * seam_growth_factor, 2)
+            else:
+                net_area_calculated = round(l_with_seam * w_with_seam * 0.74, 2)
 
-        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG NGOẰN NGOÈO
-        calculated_curve_length = l_with_seam
-        if net_area_calculated > 0 and w_with_seam > 0:
-            calculated_curve_length = max(l_with_seam, round(net_area_calculated / w_with_seam, 3))
+            calculated_curve_length = l_with_seam
+            if net_area_calculated > 0 and w_with_seam > 0:
+                calculated_curve_length = max(l_with_seam, round(net_area_calculated / w_with_seam, 3))
 
-        # --- ✅ BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI SẠCH (TRIỆT TIÊU TOÀN BỘ LỆNH GÁN ĐÈ RÁC ĐÚNG THỰC TẾ) ---
+        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI SẠCH THEO Ô CHAT ---
         if p_class == "FABRIC":
             w_prod = round(w_with_seam * (1 + weft_shrink / 100.0), 3) if w_with_seam > 0 else 0.0
             l_prod = round(calculated_curve_length * (1 + warp_shrink / 100.0), 3) if calculated_curve_length > 0 else 0.0
@@ -1957,13 +1962,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
-        # Áp thông số co rút sợi trực tiếp vào diện tích lưới phẳng đã nới rộng đường may
         shrinkage_area_factor = (1 + warp_shrink / 100.0) * (1 + weft_shrink / 100.0) if p_class == "FABRIC" else 1.0
         net_area_final = round(net_area_calculated * shrinkage_area_factor, 2)
         p_area_list.append(net_area_final)
 
         # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP HỆ 1/2 VÒNG (ÉP THÂN TRƯỚC X2, THÂN SAU X2)
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1972,10 +1976,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # Khóa chặt logic 1/2 vòng: Thân chính vải chính ép cứng p_count = 2
-            if any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
+            # ✅ Khóa chặt logic đối xứng hệ thân 1/2 vòng: Ép cứng p_count = 2 cho mọi chi tiết chính vải chính
+            if any(k in comp_name_upper for k in [
+                "FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", 
+                "FRONT MAIN", "BACK MAIN", "FRONT BODY", "BACK BODY"
+            ]):
                 p_count = 2
-            # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ khác
+                
+            # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ của Áo / Quần / Đầm
             elif p_count == 1 and any(k in comp_name_upper for k in [
                 "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY", "BACK YOKE",
                 "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     
