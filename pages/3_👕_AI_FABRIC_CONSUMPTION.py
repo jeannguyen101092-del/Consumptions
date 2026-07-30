@@ -2170,13 +2170,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
-                # ✅ PHỐI HỢP TUYẾN TÍNH ĐỘNG HÌNH HỌC GERBER - BẢN VÁ TỐI ƯU ĐỊNH MỨC QUẦN ỐNG LOE (THE FLARE LEG)
+        # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT
         if is_trouser:
-            # Kiểm tra xem có chi tiết thân lớn nào thuộc nhóm rập hẹp/loe (Chiều rộng rập < 15.0 inch) hay không
             is_narrow_or_flare_jean = any(p["w"] < 15.0 for p in pieces_list if p["l"] > 30.0)
-            
             if is_narrow_or_flare_jean or is_quarter_pattern:
-                # Ép trọng số hộp bao thực tế lên 85% để loại bỏ hoàn toàn lỗi hụt 28% diện tích tịnh khuyết của ống loe
                 blend = 0.85  
             elif is_ultra_wide_pattern:
                 blend = 0.75  
@@ -2189,21 +2186,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             blend = 0.55  
             
-        # Tính toán chiều dài sơ đồ tích hợp ma trận lồng ghép động thích ứng
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
-
         
-        # ✅ FIX LỖI THẤP CHÚT: Nâng hệ số rải bù đầu bàn động của vải chính lên hẳn mốc 3.8% (0.038) 
-        # để bù đắp triệt để hao hụt rải lãng phí cắt cây Denim đại trà
+        # ✅ BIỆN PHÁP NỚI SÀN TỐI THƯỢNG CHO QUẦN ỐNG LOE HỆ 1/2 VÒNG RỘNG:
+        # Đối với quần Jeans ống loe, khi rập hẹp xếp nối đuôi nhau trên sơ đồ đại trà thực tế, 
+        # tổng chiều dài sơ đồ thô không thể nhỏ hơn tổng chiều dài của (Thân trước + Thân sau) nối đuôi.
+        # Thân trước dài 44.5 in + Thân sau dài 49.5 in = 94.0 in thô.
+        # Bắt buộc phải nhân với hệ số xếp lồng thực tế 1.12 để bù khoảng trống răng cưa dọc bàn rải.
+        if material_type == "FABRIC" and is_trouser:
+            # Tìm tổng chiều dài của 2 thân lớn nhất xếp dọc nối đuôi nhau
+            large_pieces = [p["l"] for p in pieces_list if p["l"] > 30.0]
+            if len(large_pieces) >= 2:
+                calculated_min_marker_floor = sum(sorted(large_pieces, reverse=True)[:2]) * 1.12
+            else:
+                calculated_min_marker_floor = max_piece_length * 2.2
+        else:
+            calculated_min_marker_floor = max_piece_length
+            
+        # Ép sàn vật lý động: Chiều dài sơ đồ thô buộc phải nới rộng lên mức tối thiểu ~105 inch
+        sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
+        
+        # BÙ BIÊN SƠ ĐỒ GERBER ĐẠI TRÀ (MARKER END LOSS SAFETY)
         if material_type == "FABRIC":
-            gerber_margin = max(3.5, sim_length_inch * (0.038 if is_quarter_pattern else 0.022))
+            gerber_margin = max(3.5, sim_length_inch * 0.022)
             sim_length_inch += gerber_margin
 
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
         
         if material_type == "FABRIC":
-            norm_shape = min(1.0, max(0.0, (avg_shape_factor - 1.0) / 1.2))
-            norm_aspect = min(1.0, max(0.0, (avg_aspect_ratio - 1.0) / 6.0))
+            norm_shape = min(1.0, max(0.0, (avg_shape_factor - 1.0) / 1.2)) if 'avg_shape_factor' in locals() else 0.5
+            norm_aspect = min(1.0, max(0.0, (avg_aspect_ratio - 1.0) / 6.0)) if 'avg_aspect_ratio' in locals() else 0.5
             rotation_score = 0.0 if one_way_flag else (0.5 if nap_layout_flag else 1.0)
             geometry_score = (0.40 * norm_shape) + (0.30 * norm_aspect) + (0.20 * small_area_ratio) + (0.10 * rotation_score)
             
