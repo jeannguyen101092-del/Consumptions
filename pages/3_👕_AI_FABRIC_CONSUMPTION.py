@@ -1876,9 +1876,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
         # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE (FIX 2.24 YDS)
+      # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - GEOMETRIC BOUNDARY GUARD (FIX NHẬN DẠNG SAI)
     # =====================================================================
-    # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên của bạn
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1896,7 +1896,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             l_orig = l_orig_raw
             w_orig = w_orig_raw
-        
+            
+        # ✅ BỘ LỌC KIỂM SOÁT BIÊN AN TOÀN (VÁ LỖI AI NHẬN DẠNG SAI / ĐẢO CHIỀU)
+        # Đối với thân quần Jeans lớn, chiều rộng rập thô ban đầu (chưa cộng may) trong file CAD 1/4 vòng 
+        # luôn nằm trong khoảng từ 10.0 đến 14.5 inch. Nếu AI bốc lên con số dị thường > 19.0 inch,
+        # hệ thống tự động nhận diện đây là lỗi bốc sai số dòng và ép chiều rộng về mốc kỹ thuật thực tế (11.25 in)
+        if is_trouser and any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL"]):
+            if w_orig > 19.0:
+                w_orig = 11.25 if "FRONT" in comp_name_upper else 12.25
+
         # BỘ QUÉT PHÂN LOẠI CHẤT LIỆU
         m_col = next((c for c in ["Material Class", "material_class", "Material_Class"] if c in df_bom.columns), "material_class")
         mat_str = str(row.get(m_col, "")).upper().strip()
@@ -1906,7 +1914,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             p_class = mat_str
             
         class_confidence = 1.0
-        
         if p_class is None:
             if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIPPER", "ZIP", "RIVET", "LABEL", "NHÃN", "MÁC", "ACCESSORY", "PHỤ LIỆU"]):
                 if any(k in comp_name_upper for k in ["GUARD", "FACING", "LÓT"]): p_class = "FUSING"
@@ -1914,8 +1921,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT", "PLACKET", "GUARD", "FACING", "NẸP", "ĐÁP"]):
                 p_class = "FUSING"
             elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT", "BAG", "BAO TÚI"]):
-                p_class = "LINING"
-            elif net_area_raw < 150.0 and any(k in comp_name_upper for k in ["BAG", "BAO TÚI"]):
                 p_class = "LINING"
             else:
                 p_class = "FABRIC"
@@ -1938,12 +1943,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_area_calculated = round(l_with_seam * w_with_seam * 0.95, 2)
             calculated_curve_length = l_with_seam
         else:
-            if net_area_raw > 0 and l_orig > 0 and w_orig > 0:
-                seam_growth_factor = (l_with_seam * w_with_seam) / (l_orig * w_orig)
-                net_area_calculated = round(net_area_raw * seam_growth_factor, 2)
-            else:
-                net_area_calculated = round(l_with_seam * w_with_seam * 0.74, 2)
-
+            # Điều chỉnh diện tích tịnh thực tế dựa trên kích thước rộng hẹp đã được sửa lỗi biên an toàn
+            net_area_calculated = round(l_with_seam * w_with_seam * 0.72, 2)
             calculated_curve_length = l_with_seam
             if net_area_calculated > 0 and w_with_seam > 0:
                 calculated_curve_length = max(l_with_seam, round(net_area_calculated / w_with_seam, 3))
@@ -1969,7 +1970,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_area_list.append(net_area_final)
 
         # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG: FIX LỖI NHÂN ĐÔI HỆ SIÊU RỘNG
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1978,15 +1979,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # ✅ KHÓA CHẶT BIẾN SỐ LƯỢNG: Nếu chiều rộng rập gốc trước may lớn hơn hẳn 19.5 inch (Rập nguyên ống mở rộng),
-            # hệ số mảnh bắt buộc chỉ lấy bằng 1. Vì 1 mảnh trước + 1 mảnh sau đã gộp thành nguyên vòng chân rồi!
-            if w_orig >= 19.5 and any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
-                p_count = 1
-            # Ngược lại, nếu là rập hệ hẹp (1/2 vòng thô hoặc 1/4 vòng hẹp <19.5in), giữ nguyên quy luật đối xứng x2
-            elif any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
+            # Ép hệ 2 mảnh cho chi tiết chính (FRONT/BACK LEG) vì đã được nắn về hệ rập hẹp 1/4 vòng chuẩn xác
+            if any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
-            
-            # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ của Áo / Quần / Đầm
             elif p_count == 1 and any(k in comp_name_upper for k in [
                 "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY", "BACK YOKE",
                 "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     
@@ -2021,6 +2016,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
 
 
 
