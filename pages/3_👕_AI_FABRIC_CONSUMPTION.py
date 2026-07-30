@@ -1952,7 +1952,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         net_area_calculated = round(l_prod * w_prod * 0.76, 2) if (l_prod > 0 and w_prod > 0) else 1.0
         p_area_list.append(net_area_calculated)
 
-        # ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG
+               # =====================================================================
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP
+        # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
         else:
@@ -1960,8 +1962,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            if p_count == 1 and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "THÂN"]):
+            # ✅ SỬA LỖI CAO QUÁ: Do rập CAD đã mở phẳng nguyên thân rộng 24.5 inch,
+            # hệ số mảnh chính (FRONT/BACK) bắt buộc chỉ lấy bằng 2 (1 bên Trái + 1 bên Phải)
+            if any(k in comp_name_upper for k in ["FRONT PANEL", "BACK PANEL", "FRONT LEG", "BACK LEG", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
+            elif p_count == 1 and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK"]):
+                p_count = 2
+
 
         # Đóng gói dữ liệu phôi ảo đã tiền xử lý hình học phẳng vào Layer chính
         virtual_pieces_layer[idx] = {
