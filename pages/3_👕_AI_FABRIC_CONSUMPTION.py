@@ -1873,7 +1873,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
     else:
         is_trouser_item = False
-        # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
     # =====================================================================
     # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
@@ -1969,7 +1969,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_area_list.append(net_area_final)
 
         # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI (QUẦN + ÁO + ĐẦM)
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP HỆ 1/2 VÒNG (ÉP THÂN TRƯỚC X2, THÂN SAU X2)
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1978,13 +1978,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # ✅ VÁ LỖI SẬP ĐỊNH MỨC THẤP: Thêm từ khóa "BODY PANEL" và "BODY" để ép số lượng mảnh bằng 2 (Trái + Phải) cho rập mở rộng nguyên vòng quần
-            if any(k in comp_name_upper for k in ["FRONT MAIN", "BACK MAIN", "BODY PANEL", "BODY MAIN"]):
+            # ✅ KHÓA CHẶT LOGIC 1/2 VÒNG: Bất kể rập tên gì, cứ hễ chứa chữ FRONT/BACK PANEL hoặc LEG PANEL lớn 
+            # của vải chính, ép cứng p_count = 2 (1 bên Trái + 1 bên Phải đối xứng)
+            if any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
             
-            # BỘ LUẬT ĐỐI XỨNG AUTOMATION ĐA CHI TIẾT QUẦN / ÁO / VÁY
+            # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ khác
             elif p_count == 1 and any(k in comp_name_upper for k in [
-                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY",
+                "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY", "BACK YOKE",
                 "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     
                 "COLLAR", "FACING", "CỔ", "NẸP", "LAPEL", "PLACKET",             
                 "CHEST POCKET", "BOTTOM POCKET", "FLAP", "TÚI", "NẮP TÚI",       
