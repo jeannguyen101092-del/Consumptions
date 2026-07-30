@@ -1875,8 +1875,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         is_trouser_item = False
        # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
+       # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE (FIX 2.24 YDS)
     # =====================================================================
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên của bạn
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1918,7 +1920,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # ✅ TÍNH ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT:
+        # CỘNG BIÊN ĐƯỜNG MAY TUYẾN TÍNH CHUẨN KỸ THUẬT
         if p_class in ["FABRIC", "CONTRAST", "LINING", "FUSING"]:
             seam_allowance_l = 1.0 if l_orig > 8.0 else 0.4
             seam_allowance_w = 1.0 if w_orig > 8.0 else 0.4
@@ -1929,7 +1931,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         l_with_seam = l_orig + seam_allowance_l
         w_with_seam = w_orig + seam_allowance_w
         
-        # ✅ KHÓA CHẶT CHỈ SỐ KHÔNG CHO BIẾN HÌNH LƯNG QUẦN/CHI TIẾT HẸP
+        # Khóa chặt chỉ số không cho biến hình lưng quần/chi tiết hẹp
         is_narrow_component = any(k in comp_name_upper for k in ["WAISTBAND", "LƯNG", "FLY", "FACING", "BELT", "LOOP", "COIN", "CUFF", "COLLAR", "SASH"])
         
         if is_narrow_component:
@@ -1967,7 +1969,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_area_list.append(net_area_final)
 
         # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG: FIX LỖI NHÂN ĐÔI HỆ SIÊU RỘNG
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1976,13 +1978,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # ✅ Khóa chặt logic đối xứng hệ thân 1/2 vòng: Ép cứng p_count = 2 cho mọi chi tiết chính vải chính
-            if any(k in comp_name_upper for k in [
-                "FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", 
-                "FRONT MAIN", "BACK MAIN", "FRONT BODY", "BACK BODY"
-            ]):
+            # ✅ KHÓA CHẶT BIẾN SỐ LƯỢNG: Nếu chiều rộng rập gốc trước may lớn hơn hẳn 19.5 inch (Rập nguyên ống mở rộng),
+            # hệ số mảnh bắt buộc chỉ lấy bằng 1. Vì 1 mảnh trước + 1 mảnh sau đã gộp thành nguyên vòng chân rồi!
+            if w_orig >= 19.5 and any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
+                p_count = 1
+            # Ngược lại, nếu là rập hệ hẹp (1/2 vòng thô hoặc 1/4 vòng hẹp <19.5in), giữ nguyên quy luật đối xứng x2
+            elif any(k in comp_name_upper for k in ["FRONT LEG", "BACK LEG", "FRONT PANEL", "BACK PANEL", "BODY PANEL", "FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
-                
+            
             # Bộ luật đối xứng tự động điền cặp x2 cho các chi tiết phụ trợ của Áo / Quần / Đầm
             elif p_count == 1 and any(k in comp_name_upper for k in [
                 "THAN", "THÂN", "YOKE", "POCKET BACK", "BODY", "BACK YOKE",
@@ -2018,6 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
 
 
     # =====================================================================
