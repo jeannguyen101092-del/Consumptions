@@ -2021,7 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-       # =====================================================================
+      # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
@@ -2100,7 +2100,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_skirt_or_dress:
                 min_floor_density = 0.7050  
             elif is_trouser:
-                min_floor_density = 0.7650  
+                min_floor_density = 0.7450  
             elif "JACKET" in product_category:
                 min_floor_density = 0.7350  
             else:
@@ -2123,20 +2123,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # THUẬT TOÁN ĐỒNG BỘ CHIỀU DÀI CHIẾM DỤNG HÌNH HỌC THEO TỪNG LOẠI HÀNG
         total_bounding_box_area = 0.0
-        is_quarter_pattern = False # Biến cờ nhận diện hệ rập 1/4 vòng hẹp
+        is_quarter_pattern = False 
         
         for p in pieces_list:
-            if p["l"] > 30.0:  # Nhận diện chi tiết thân lớn
+            if p["l"] > 30.0:  
                 total_bounding_box_area += (p["l"] * p["w"] * p["pcs"])
-                # ✅ TỰ ĐỘNG CHUẨN ĐOÁN: Nếu chiều rộng rập thân quần nhỏ hơn 13.0 inch, tức là file rập hệ 1/4 vòng
                 if is_trouser and p["w"] < 13.0:
                     is_quarter_pattern = True
         
         # Chiều dài sơ đồ chiếm dụng vật lý tối thiểu dựa trên không gian hộp bao thực tế
         if marker_width > 0 and total_bounding_box_area > 0:
-            # ✅ SỬA LỖI QUẦN THẤP HỆ MẢNH 1/4 VÒNG: Nếu là rập hẹp 1/4 vòng, tăng hệ số phạt lồng đan cài từ 0.62 lên hẳn 0.88 
-            # vì rập 1/4 vòng xếp nối đuôi tốn không gian chiều dài bàn cắt hơn rất nhiều so với rập 1/2 vòng mở phẳng
-            interlocking_factor = 0.88 if is_quarter_pattern else 0.62
+            # ✅ NÂNG HỆ SỐ PHẠT RẬP 1/4 VÒNG TỪ 0.88 LÊN 0.945: Xóa bỏ hoàn toàn lỗi hụt Yard biên cắt
+            interlocking_factor = 0.945 if is_quarter_pattern else 0.62
             main_pieces_len = (total_bounding_box_area / marker_width) * interlocking_factor
         else:
             main_pieces_len = max_piece_length * 1.5
@@ -2149,8 +2147,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             sim_length_inch = main_pieces_len
             
         if material_type == "FABRIC" and is_trouser:
-            # Nếu là rập hệ 1/4 vòng, tăng nhẹ hệ số hao hụt biên răng cưa đầu cây để bảo vệ an toàn cắt vải
-            wastage_factor = wastage_factor * (1.14 if is_quarter_pattern else 1.10)
+            # Nới nhẹ hệ số hao hụt rải đầu cây Denim lên 1.15 cho hệ mảnh hẹp
+            wastage_factor = wastage_factor * (1.15 if is_quarter_pattern else 1.10)
 
         # Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
