@@ -1978,48 +1978,60 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
    
 
-       # =====================================================================
+          # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB)
     # =====================================================================
     
-    # 1. Tính tổng diện tích Net Area chuẩn trích từ danh sách rập thực tế để làm mẫu số chia tỷ lệ chính xác
+    # ✅ SỬA LỖI ĐỊNH MỨC THẤP: Mẫu số net_areas bắt buộc phải nhân với số lượng mảnh (current_pcs) 
+    # để bảo toàn tổng diện tích thực tế của cả bàn cắt sơ đồ đại trà.
     net_areas = {
-        "FABRIC": sum(p["area"] for p in fabric_pieces_to_nest) if 'fabric_pieces_to_nest' in locals() else 0.0,
-        "LINING": sum(p["area"] for p in lining_pieces_to_nest) if 'lining_pieces_to_nest' in locals() else 0.0,
-        "FUSING": sum(p["area"] for p in fusing_pieces_to_nest) if 'fusing_pieces_to_nest' in locals() else 0.0,
+        "FABRIC": 0.0,
+        "LINING": 0.0,
+        "FUSING": 0.0,
         "RIB": 0.0
     }
     
-    # Tính diện tích tích lũy riêng cho nhóm RIB từ bảng biểu
+    # Quét tích lũy chính xác tổng diện tích bề mặt (gồm cả số lượng mảnh đối xứng thực tế)
     for idx, r in df_bom.iterrows():
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
-        if v.get("material_class", "FABRIC") == "RIB":
-            net_areas["RIB"] += float(v.get("polygon_net_area", 1.0)) * v.get("active_user_pieces", 1)
+        p_cls = v.get("material_class", "FABRIC")
+        pcs = int(v.get("active_user_pieces", 1))
+        net_area = float(v.get("polygon_net_area", 0.0))
+        
+        if p_cls in ["FABRIC", "CONTRAST"]:
+            net_areas["FABRIC"] += net_area * pcs
+        elif p_cls == "LINING":
+            net_areas["LINING"] += net_area * pcs
+        elif p_cls in ["FUSING", "RIB"] and p_cls != "RIB":
+            net_areas["FUSING"] += net_area * pcs
+        elif p_cls == "RIB":
+            net_areas["RIB"] += net_area * pcs
 
     # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = v.get("material_class", "FABRIC")
-        pcs = v.get("active_user_pieces", 1)
-        net_area = float(v.get("polygon_net_area", 1.0))
+        pcs = int(v.get("active_user_pieces", 1))
+        net_area = float(v.get("polygon_net_area", 0.0))
         
-        # ✅ KHẮC PHỤC TRIỆT ĐỂ NAMEERROR: Bọc đọc cấu hình UI trực tiếp trong scope của hàm
+        # Đọc cấu hình UI an toàn phòng vệ
         f_width = float(st.session_state.get("fabric_width_inch", 58.0))
         l_width = float(st.session_state.get("lining_width_inch", 57.0))
         fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
         wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) if 'ai_decision_d5' in locals() else 1.030
         
-        if p_cls == "ACCESSORY": 
+        if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
         
-        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST)
+        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Phân rã từ tổng định mức sơ đồ tổng phẳng (total_fabric_gross_yds)
         if p_cls in ["FABRIC", "CONTRAST"]:
             if net_areas["FABRIC"] > 0 and 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0:
+                # Tỷ lệ đóng góp chính xác: (Diện tích chi tiết * Số lượng mảnh) / Tổng diện tích toàn bộ rập vải chính
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
                 return round(total_fabric_gross_yds * line_share_ratio, 4)
             return round((((net_area * pcs) / f_width / 0.75) / 36.0) * wastage, 4) if f_width > 0 else 0.0
             
-        # 2.2. VẢI LÓT (LINING)
+        # 2.2. VẢI LÓT (LINING): Phân rã dựa trên tổng định mức sơ đồ lót thực tế + 30% hao hụt phụ trội biên cắt
         if p_cls == "LINING":
             if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals() and total_lining_gross_yds > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
@@ -2028,18 +2040,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         # 2.3. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
+            if net_areas["FUSING"] > 0 and 'total_fusing_gross_yds' in locals() and total_fusing_gross_yds > 0:
+                line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
+                return round(total_fusing_gross_yds * line_share_ratio * 1.30, 4)
+            
             p_len = float(v.get("processed_length", 0.0))
             p_wid = float(v.get("processed_width", 0.0))
             bounding_box_area = p_len * p_wid
             void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
             
-            if void_ratio > 0.35:
-                fusing_density = 0.72
-                fusing_gross = ((net_area * pcs) / fuse_width / fusing_density / 36.0) * 1.30
-            else:
-                fusing_density = 0.76
-                fusing_gross = ((net_area * pcs) / fuse_width / fusing_density / 36.0) * 1.30
-            return round(fusing_gross, 4)
+            fusing_density = 0.72 if void_ratio > 0.35 else 0.76
+            return round((((net_area * pcs) / fuse_width / fusing_density) / 36.0) * 1.30, 4) if fuse_width > 0 else 0.0
 
         # 2.4. BO TĂM (RIB)
         if p_cls == "RIB":
@@ -2077,7 +2088,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo mếch (+30%): `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo Rib (+30%): `{real_rib_sum:.3f} Yds`"
         st.success(msg)
-
 
 
 
