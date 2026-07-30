@@ -2021,7 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-      # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
@@ -2077,6 +2077,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class in ["FABRIC", "CONTRAST"]:
             total_fabric_net_area += net_area * current_pcs
             if p_length > 0:
+                # Lưu thêm biến chiều rộng thực tế rập phục vụ tính toán hộp bao động
                 fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
                 if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
@@ -2100,9 +2101,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_skirt_or_dress:
                 min_floor_density = 0.7050  
             elif is_trouser:
-                min_floor_density = 0.7450  # Hạ nhẹ sàn mật độ thực tế xuống 0.745 giúp đẩy định mức quần lên chuẩn xưởng PPJ
+                min_floor_density = 0.7650  # Trả về mật độ lồng Quần Jeans chuẩn xưởng
             elif "JACKET" in product_category:
-                min_floor_density = 0.7350  # Giữ nguyên áo khoác đang chạy đúng
+                min_floor_density = 0.7350  
             else:
                 min_floor_density = 0.7400
         elif material_type == "LINING":
@@ -2121,30 +2122,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8850, real_density))
         
-        # THUẬT TOÁN ĐỒNG BỘ CHIỀU DÀI CHIẾM DỤNG HÌNH HỌC THEO TỪNG LOẠI HÀNG
-        main_pieces_len = 0.0
+        # 🚨 THUẬT TOÁN ĐỘNG THÍCH ỨNG THÔNG SỐ THỰC CHUẨN XƯỞNG (FIX HOÀN TOÀN BÀI TOÁN BIG SIZE)
+        # Thay vì nhân hệ số cố định, thuật toán tính toán tổng không gian hình học thực tế (Hộp bao vuông) của các chi tiết chính
+        total_bounding_box_area = 0.0
+        for p in pieces_list:
+            if p["l"] > 30.0:  # Nhận diện chi tiết thân lớn
+                # Tính diện tích hộp bao chiếm dụng = Chiều dài thực * Chiều rộng thực * Số lượng mảnh
+                total_bounding_box_area += (p["l"] * p["w"] * p["pcs"])
         
-        if is_skirt_or_dress:
-            for p in pieces_list:
-                if p["area"] > 180.0 or p["l"] > 20.0:
-                    main_pieces_len += p["l"] * p["pcs"]
-            main_pieces_len = main_pieces_len * 0.55
+        # Chiều dài sơ đồ chiếm dụng vật lý tối thiểu ước tính từ không gian hộp bao thực tế trên khổ vải
+        # Hệ số rải đan cài thực tế (Interlocking Factor) đạt hiệu suất khoảng 60% diện tích hộp bao gộp
+        if marker_width > 0 and total_bounding_box_area > 0:
+            main_pieces_len = (total_bounding_box_area / marker_width) * 0.62
         else:
-            for p in pieces_list:
-                if p["l"] > 30.0:
-                    main_pieces_len += p["l"] * p["pcs"]
-            main_pieces_len = main_pieces_len * 0.50
+            main_pieces_len = max_piece_length * 1.5
         
         # Chiều dài sơ đồ tính từ diện tích phẳng tịnh lý thuyết
         sim_length_inch = net_area / marker_width / real_density
         
-        # Ép sàn bảo vệ vật lý: Chiều dài sơ đồ không được nhỏ hơn độ chiếm dụng hình học thực tế của chi tiết chính
+        # ✅ ÉP SÀN BẢO VỆ ĐỘNG THEO THÔNG SỐ THỰC: 
+        # Nếu quần nhỏ, sàn main_pieces_len tự động thu hẹp. Nếu gặp quần Big Size rập to khổng lồ,
+        # sàn main_pieces_len tự động đẩy dài ra theo đúng kích thước hình học CAD thực tế!
         if material_type == "FABRIC" and sim_length_inch < main_pieces_len:
             sim_length_inch = main_pieces_len
             
-        # ✅ VÁ LỖI QUẦN THẤP: Tăng hệ số hao hụt tích lũy đầu cây cắt Denim đại trà (Wastage Factor) từ 1.15 lên hẳn 1.21 để bù đắp phần hao hụt lồng rập thực tế
         if material_type == "FABRIC" and is_trouser:
-            wastage_factor = wastage_factor * 1.21
+            wastage_factor = wastage_factor * 1.10 # Hệ số hao hụt đầu cây rải vải cơ bản cho quần
 
         # Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
