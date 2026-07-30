@@ -2229,8 +2229,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "RIB"])
 
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
-        if real_lining_sum > 0: msg += f" | Lót (+30%): `{real_lining_sum:.3f} Yds`"
-        if real_fusing_sum > 0: msg += f" | Keo mếch (+30%): `{real_fusing_sum:.3f} Yds`"
+        if real_lining_sum > 0: msg += f" | Lót : `{real_lining_sum:.3f} Yds`"
+        if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo Rib (+30%): `{real_rib_sum:.3f} Yds`"
         st.success(msg)
 
