@@ -2330,21 +2330,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
 
-    # SỬA LỖI TREO APP: Lắng nghe và cập nhật chính xác sự kiện sửa tay trên UI của người dùng
+      # ✅ SỬA LỖI LOẠI BỎ TYPEERROR (TUPLE/ARRAY): Trích xuất chính xác phần tử đầu tiên bằng .iloc[0]
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
         
         target_rows = df_bom_display[df_bom_display["_original_row_index"] == orig_idx]
         if not target_rows.empty:
-            old_pcs = int(float(target_rows["Số lượng rập"].values))
+            # Sử dụng .iloc[0] để bốc chính xác 1 giá trị đơn lẻ từ mảng dòng cấu trúc DataFrame
+            old_pcs = int(float(target_rows["Số lượng rập"].iloc[0]))
             new_pcs = int(float(row["Số lượng rập"]))
             if old_pcs != new_pcs:
                 st.session_state["user_edited_pieces"][orig_idx] = new_pcs
                 has_changed = True
                 
             # Kiểm tra sự thay đổi phân loại chất liệu
-            old_mat = str(target_rows["Material Class"].values).upper().strip()
+            old_mat = str(target_rows["Material Class"].iloc[0]).upper().strip()
             new_mat = str(row["Material Class"]).upper().strip()
             if old_mat != new_mat:
                 st.session_state["user_edited_materials"][orig_idx] = new_mat
