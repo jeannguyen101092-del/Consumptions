@@ -2170,9 +2170,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
-        # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT
+                # ✅ PHỐI HỢP TUYẾN TÍNH ĐỘNG HÌNH HỌC GERBER - BẢN VÁ TỐI ƯU ĐỊNH MỨC QUẦN ỐNG LOE (THE FLARE LEG)
         if is_trouser:
-            blend = 0.82 if is_quarter_pattern else (0.75 if is_ultra_wide_pattern else 0.70)
+            # Kiểm tra xem có chi tiết thân lớn nào thuộc nhóm rập hẹp/loe (Chiều rộng rập < 15.0 inch) hay không
+            is_narrow_or_flare_jean = any(p["w"] < 15.0 for p in pieces_list if p["l"] > 30.0)
+            
+            if is_narrow_or_flare_jean or is_quarter_pattern:
+                # Ép trọng số hộp bao thực tế lên 85% để loại bỏ hoàn toàn lỗi hụt 28% diện tích tịnh khuyết của ống loe
+                blend = 0.85  
+            elif is_ultra_wide_pattern:
+                blend = 0.75  
+            else:
+                blend = 0.70  
         elif is_skirt_or_dress:
             blend = 0.45  
         elif is_jacket:
@@ -2180,15 +2189,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             blend = 0.55  
             
+        # Tính toán chiều dài sơ đồ tích hợp ma trận lồng ghép động thích ứng
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
-        
-        # Thiết lập sàn vật lý động lũy tiến cho hệ rập mở phẳng
-        if material_type == "FABRIC" and is_trouser:
-            calculated_min_marker_floor = max_piece_length * (2.0 if is_ultra_wide_pattern else 1.5)
-        else:
-            calculated_min_marker_floor = max_piece_length
-            
-        sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
+
         
         # ✅ FIX LỖI THẤP CHÚT: Nâng hệ số rải bù đầu bàn động của vải chính lên hẳn mốc 3.8% (0.038) 
         # để bù đắp triệt để hao hụt rải lãng phí cắt cây Denim đại trà
