@@ -1975,6 +1975,150 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
+    # =====================================================================
+    ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
+    rotation_freedom = st.session_state.get("allow_rotation_90", True)      
+    one_way_flag = st.session_state.get("is_one_way_fabric", False)  
+    nap_layout_flag = st.session_state.get("is_nap_layout", False)   
+
+    estimated_density_prior = float(ai_decision_d5.get("estimated_density_prior", 0.795))
+    target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) 
+    
+    # Bốc chính xác chiều dài chi tiết dài nhất đã được nắn dòng ở Đoạn 4 làm sàn bảo vệ vật lý
+    max_piece_length = float(ai_decision_d5.get("longest_piece_length", 0.0))
+    
+    virtual_pieces_layer = ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    if not isinstance(virtual_pieces_layer, dict) or not virtual_pieces_layer:
+        virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    if not isinstance(virtual_pieces_layer, dict): virtual_pieces_layer = {}
+
+    # Khổ vải chuẩn đầu vào từ cấu hình (inch)
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0)) 
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
+
+    # NHẬN DIỆN CHỦNG LOẠI HÀNG ĐÃ ĐƯỢC PHÂN LOẠI ĐỘNG TỪ ĐOẠN 3 VÀ ĐOẠN 4
+    product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
+    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category or "JEAN_LONG" in product_category)
+    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category or "DRESS_FLARE" in product_category)
+
+    total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
+    fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
+    list_lengths, list_widths, list_updated_pieces = [], [], []
+
+    # Quét cập nhật lại max_piece_length từ phôi ảo để phòng vệ tuyệt đối
+    local_max_fabric_length = 0.0
+
+    for idx, r in df_bom.iterrows():
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        
+        p_length = float(v_piece.get("processed_length", 0.0))
+        p_width = float(v_piece.get("processed_width", 0.0))
+        
+        list_lengths.append(round(p_length, 2) if p_length > 0 else 0.0)
+        list_widths.append(round(p_width, 2) if p_width > 0 else 0.0)
+
+        current_pcs = int(float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("piece_count", 1))))
+        list_updated_pieces.append(current_pcs)
+        v_piece["active_user_pieces"] = current_pcs 
+
+        p_class = v_piece.get("material_class", "FABRIC")
+        net_area = float(v_piece.get("polygon_net_area", 0.0)) if float(v_piece.get("polygon_net_area", 0.0)) > 0 else 1.0
+        
+        # Tích lũy toán diện tích phẳng hình học CAD (Bảo toàn 100% hệ thông số 1/2 vòng)
+        if p_class in ["FABRIC", "CONTRAST"]:
+            total_fabric_net_area += net_area * current_pcs
+            if p_length > 0:
+                fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area})
+                if p_length > local_max_fabric_length: local_max_fabric_length = p_length
+        elif p_class == "LINING":
+            total_lining_net_area += net_area * current_pcs
+            if p_length > 0: lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area})
+        elif p_class in ["FUSING", "RIB"]:
+            total_fusing_net_area += net_area * current_pcs
+            if p_length > 0: fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area})
+
+    df_bom["Chiều dài rập (inch)"] = list_lengths
+    df_bom["Chiều rộng rập (inch)"] = list_widths
+    df_bom["Số lượng rập"] = list_updated_pieces 
+    max_piece_length = max(max_piece_length, local_max_fabric_length)
+
+    # HÀM GIẢ LẬP SƠ ĐỒ ĐA VẬT TƯ ĐỒNG BỘ TOÁN KHÓA SÀN CHIỀU DÀI VẬT LÝ VÀ MẬT ĐỘ LỒNG
+    def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
+        if len(pieces_list) == 0 or marker_width <= 0: return estimated_density_prior, 0.0
+        
+        # Cấu hình sàn mật độ rải sơ đồ (Floor Density) theo khả năng lồng rập đan xen thực tế của xưởng
+        if material_type == "FABRIC":
+            if is_skirt_or_dress:
+                min_floor_density = 0.7150  # Váy đầm chi tiết khổng lồ hao hụt biên lớn
+            elif is_trouser:
+                min_floor_density = 0.8150  # Quần Jeans rải đan xen mông-ống cực chặt
+            elif "JACKET" in product_category:
+                min_floor_density = 0.7600
+            else:
+                min_floor_density = 0.7500
+        elif material_type == "LINING":
+            min_floor_density = 0.7900
+        else:
+            min_floor_density = 0.6800  # Keo lót
+            
+        real_density = estimated_density_prior
+        if one_way_flag:
+            real_density -= 0.045; min_floor_density -= 0.050
+            wastage_factor = max(wastage_factor, 1.045)
+        elif nap_layout_flag:
+            real_density -= 0.020; min_floor_density -= 0.025
+        elif rotation_freedom and not nap_layout_flag and not one_way_flag:
+            real_density += 0.020; min_floor_density += 0.020
+            
+        real_density = max(min_floor_density, min(0.8950, real_density))
+        
+        # 1. Tính toán chiều dài sơ đồ thô theo diện tích tịnh phẳng CAD (inch)
+        sim_length_inch = net_area / marker_width / real_density
+        
+        # 🚨 ĐIỀU KIỆN KHÓA SÀN VẬT LÝ BIÊN CẮT CHUẨN KỸ THUẬT:
+        # Đối với quần Jeans đại trà, chiều dài sơ đồ tối thiểu phải chứa được ít nhất 2 lần chiều dài chi tiết dài nhất (Thân trước + Thân sau xếp dọc)
+        calculated_min_floor = max_piece_length * 2.0 if material_type == "FABRIC" else max_piece_length
+        if sim_length_inch < calculated_min_floor:
+            sim_length_inch = calculated_min_floor
+            
+        # ✅ VÁ LỖI ĐỊNH MỨC THẤP: Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
+        total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
+        return real_density, total_gross_yds
+
+    # Chạy toán thuật sơ đồ giả lập cho 3 lớp vật tư sạch
+    real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
+    real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
+    real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
+
+    # =====================================================================
+    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT XUỐNG TỪNG DÒNG (ROUTER)
+    # =====================================================================
+    def core_engine_router(row, idx):
+        v = virtual_pieces_layer.get(idx, {})
+        p_class = v.get("material_class", "FABRIC")
+        p_pcs = int(v.get("active_user_pieces", 1))
+        p_area = float(v.get("polygon_net_area", 0.0))
+        
+        if p_class in ["FABRIC", "CONTRAST"]:
+            if total_fabric_net_area > 0:
+                return round((p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds, 4)
+            return 0.0415
+        elif p_class == "LINING":
+            if total_lining_net_area > 0:
+                return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
+            return 0.0
+        elif p_class in ["FUSING", "RIB"]:
+            if total_fusing_net_area > 0:
+                return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
+            return 0.0
+        return 0.0
+
+    # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
+    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
+    # =====================================================================
 
    
 
