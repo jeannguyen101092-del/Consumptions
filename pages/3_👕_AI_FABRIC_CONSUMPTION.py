@@ -1953,7 +1953,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_area_list.append(net_area_calculated)
 
                # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG HỆ THƯƠNG MẠI TRỰC TIẾP (QUẦN + ÁO + ĐẦM)
         # =====================================================================
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
@@ -1962,12 +1962,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
             except: p_count = 1
                 
-            # ✅ SỬA LỖI CAO QUÁ: Do rập CAD đã mở phẳng nguyên thân rộng 24.5 inch,
-            # hệ số mảnh chính (FRONT/BACK) bắt buộc chỉ lấy bằng 2 (1 bên Trái + 1 bên Phải)
-            if any(k in comp_name_upper for k in ["FRONT PANEL", "BACK PANEL", "FRONT LEG", "BACK LEG", "FRONT MAIN", "BACK MAIN"]):
+            # 1. Nếu rập là dạng thân quần nguyên vòng cỡ lớn, giữ nguyên hệ 2 mảnh
+            if any(k in comp_name_upper for k in ["FRONT MAIN", "BACK MAIN"]):
                 p_count = 2
-            elif p_count == 1 and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK"]):
+            
+            # 2. ✅ BỘ LUẬT TỰ ĐỘNG ĐỐI XỨNG X2 CHO HỆ ÁO KHOÁC VÀ ĐẦM VÁY SẢN XUẤT
+            elif p_count == 1 and any(k in comp_name_upper for k in [
+                "FRONT", "BACK", "LEG", "THAN", "THÂN", "YOKE", "POCKET BACK",  # Quần cơ bản
+                "SLEEVE", "CUFF", "ARM", "TAY", "MANCHETTE",                     # Hệ chi tiết tay áo (x2 bên)
+                "COLLAR", "FACING", "CỔ", "NẸP", "LAPEL", "PLACKET",             # Hệ cổ và nẹp áo (Thường x2 lớp hoặc đối xứng)
+                "CHEST POCKET", "BOTTOM POCKET", "FLAP", "TÚI", "NẮP TÚI",       # Hệ túi và nắp túi (Trái + Phải luôn đi thành cặp x2)
+                "WELT", "WAISTBAND", "POCKET BAG", "BAO TÚI", "ĐÁP TÚI"          # Các chi tiết phụ trợ đối xứng khác
+            ]):
                 p_count = 2
+                
+            # 3. Ngoại lệ đặc biệt: Nếu là đỉa quần (BELT LOOP) thì file CAD thường chỉ vẽ 1 dây dài để xưởng tự cắt ra thành 5-7 đỉa nhỏ, nên giữ nguyên 1
+            if "BELT LOOP" in comp_name_upper or "ĐỈA" in comp_name_upper:
+                p_count = 1
 
 
         # Đóng gói dữ liệu phôi ảo đã tiền xử lý hình học phẳng vào Layer chính
