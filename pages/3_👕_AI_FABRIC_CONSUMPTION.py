@@ -2231,7 +2231,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
         if real_lining_sum > 0: msg += f" | Lót : `{real_lining_sum:.3f} Yds`"
         if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
-        if real_rib_sum > 0: msg += f" | Bo Rib (+30%): `{real_rib_sum:.3f} Yds`"
+        if real_rib_sum > 0: msg += f" | Bo Rib: `{real_rib_sum:.3f} Yds`"
         st.success(msg)
 
 
