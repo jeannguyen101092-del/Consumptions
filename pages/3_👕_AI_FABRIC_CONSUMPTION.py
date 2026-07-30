@@ -1805,21 +1805,42 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-        # =====================================================================
-    # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - TOTAL RECONSTRUCTION
+         # =====================================================================
+    # 🟩 ĐOẠN 4.1: AI GEOMETRIC PREPROCESSOR - CHAT PARSER & SNIFFER
     # =====================================================================
     pattern_has_shrink = True  
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # 1. BỘ SNIFFER ĐỒNG BỘ CHUẨN ĐỊNH DẠNG: Ưu tiên map trực tiếp key từ API Gemini (BOM ROWS) để tránh lỗi 0.00
+    # 1. BỘ SNIFFER ĐỒNG BỘ CHUẨN ĐỊNH DẠNG: Ưu tiên map trực tiếp key từ API Gemini
     actual_l_col = next((c for c in ["bounding_box_length", "processed_length", "curve_length", "Length"] if c in df_bom.columns), "bounding_box_length")
     actual_w_col = next((c for c in ["bounding_box_width", "processed_width", "curve_width", "Width"] if c in df_bom.columns), "bounding_box_width")
 
-    # Đọc thông số co rút thớ vải từ UI phục vụ nắn kích thước phôi ảo
+    # Đọc thông số co rút mặc định từ UI làm phòng vệ gốc
+    warp_shrink = float(st.session_state.get("warp_shrink", 0.0))
+    weft_shrink = float(st.session_state.get("weft_shrink", 0.0))
     fusing_warp_shrink = float(st.session_state.get("fusing_warp_shrink", 0.0))
     fusing_weft_shrink = float(st.session_state.get("fusing_weft_shrink", 0.0))
     lining_warp_shrink = float(st.session_state.get("lining_warp_shrink", 0.0))
     lining_weft_shrink = float(st.session_state.get("lining_weft_shrink", 0.0))
+
+    # ✅ BỘ TRÍCH XUẤT THÔNG SỐ CO RÚT TỰ ĐỘNG TỪ Ô CHAT (DỌC / NGANG) VIA REGEX
+    if 'current_query' in locals() and current_query:
+        is_user_cmd_cm = "CM" in str(current_query).upper()
+        
+        warp_match = re.search(r"(dọc|warp|loại dọc)\s*(\-?\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        weft_match = re.search(r"(ngang|weft|loại ngang)\s*(\-?\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        
+        if warp_match: warp_shrink = float(warp_match.group(2))
+        if weft_match: weft_shrink = float(weft_match.group(2))
+            
+        # Sửa lỗi nếu người dùng nhập kiểu ngắn: "co rút 3 14" (Dọc trước, Ngang sau)
+        if not warp_match and not weft_match:
+            generic_match = re.search(r"(co rút|co|shrink|shrinkage)\s*(\d+(\.\d+)?)\s+(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+            if generic_match:
+                warp_shrink = float(generic_match.group(2))
+                weft_shrink = float(generic_match.group(4))
+    else:
+        is_user_cmd_cm = False
 
     # Kế thừa dữ liệu tiên nghiệm từ bộ não tri thức Đoạn 3
     ai_decision_d4 = ctx.get("ai_expert_decision", {})
@@ -1834,7 +1855,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces_layer = {}
     p_length_list, p_width_list, p_area_list = [], [], []
 
-    # 🚨 BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN (CHẶN LỖI LẤY NHẦM THÔNG SỐ MÔNG)
+    # BỘ SNIFFER PHÂN TÁCH BIỆT VÁY XÒE/ĐẦM VS QUẦN (CHẶN LỖI LẤY NHẦM THÔNG SỐ MÔNG)
     is_skirt_or_dress = any(k in current_prod_cat or k in prod_upper_name for k in ["SKIRT", "DRESS", "VÁY", "ĐẦM", "TÙNG", "DRESS_FLARE"])
     has_pant_components = any(any(k in str(row.get(comp_col_check, "")).upper() for k in ["WAISTBAND", "FLY", "COIN", "QUAN", "PANT"]) for _, row in df_bom.iterrows())
     
@@ -1848,14 +1869,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         ctx["ai_expert_decision"]["product_category"] = "JEAN_LONG"  
     else:
         is_trouser_item = False
-
-    # ✅ VÁ LỖI CỐT LÕI: Kiểm tra an toàn sự tồn tại của current_query trước khi phân tích chuỗi
-    if 'current_query' in locals() and current_query:
-        is_user_cmd_cm = "CM" in str(current_query).upper()
-    else:
-        is_user_cmd_cm = False
-
-    # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ ĐỒNG BỘ ĐƯỜNG VÒNG LẠI THỰC TẾ CAD
+    # =====================================================================
+    # 🟩 ĐOẠN 4.2: AI VIRTUAL PIECE ENGINE - LOOP COMPUTATION & SEAM ALLOWANCE
+    # =====================================================================
+    # LƯU Ý: Đặt đoạn này nối tiếp ngay dưới Đoạn 4.1 phía trên
     for idx, row in df_bom.iterrows():
         comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
         comp_name_upper = comp_name_raw.upper().strip()
@@ -1869,17 +1886,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if is_user_cmd_cm or l_orig_raw > 95.0 or w_orig_raw > 24.0:
             l_orig = round(l_orig_raw / 2.54, 3)
             w_orig = round(w_orig_raw / 2.54, 3)
-            net_area_raw = round(net_area_raw / 6.4516, 2)  # Quy đổi diện tích: 1 inch2 = 6.4516 cm2
+            net_area_raw = round(net_area_raw / 6.4516, 2)
         else:
             l_orig = l_orig_raw
             w_orig = w_orig_raw
         
-        # 🔍 THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
+        # ✅ CỘNG ĐƯỜNG MAY CHUẨN KỸ THUẬT (SEAM ALLOWANCE):
+        # Cộng thêm 1.0 inch (~2.54cm) vào chiều dài và chiều rộng rập thành phẩm để ra phôi cắt
+        if l_orig > 0: l_orig += 1.0
+        if w_orig > 0: w_orig += 1.0
+        
+        # THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
         calculated_curve_length = l_orig
         if net_area_raw > 0 and w_orig > 0:
-            calculated_curve_length = max(l_orig, round(net_area_raw / w_orig, 3))
+            # Điều chỉnh diện tích tịnh ước tính sau khi cộng đường may bao quanh chi tiết
+            adjusted_net_area = net_area_raw + (l_orig * 1.0) + (w_orig * 1.0)
+            calculated_curve_length = max(l_orig, round(adjusted_net_area / w_orig, 3))
         
-        # 🔍 BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (ƯU TIÊN TUYỆT ĐỐI CHỈNH SỬA TAY VÀ PHÒNG VỆ BAO TÚI)
+        # BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (ƯU TIÊN TUYỆT ĐỐI CHỈNH SỬA TAY VÀ PHÒNG VỆ BAO TÚI)
         m_col = next((c for c in ["Material Class", "material_class", "Material_Class"] if c in df_bom.columns), "material_class")
         mat_str = str(row.get(m_col, "")).upper().strip()
         
@@ -1891,10 +1915,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         if p_class is None:
             if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIPPER", "ZIP", "RIVET", "LABEL", "NHÃN", "MÁC", "ACCESSORY", "PHỤ LIỆU"]):
-                if any(k in comp_name_upper for k in ["GUARD", "FACING", "LÓT"]):
-                    p_class = "FUSING"
-                else:
-                    p_class = "ACCESSORY"
+                if any(k in comp_name_upper for k in ["GUARD", "FACING", "LÓT"]): p_class = "FUSING"
+                else: p_class = "ACCESSORY"
             elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "TRICOT", "PLACKET", "GUARD", "FACING", "NẸP", "ĐÁP"]):
                 p_class = "FUSING"
             elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKETING", "VẢI LÓT", "BAG", "BAO TÚI"]):
@@ -1904,14 +1926,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # Đọc thông số co rút thớ chính từ session_state (đã gán mặc định nếu thiếu)
-        warp_shrink = float(st.session_state.get("warp_shrink", 0.0))
-        weft_shrink = float(st.session_state.get("weft_shrink", 0.0))
-
-        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN THEO ĐƯỜNG ĐÙI ---
+        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI (ĐÃ ĐỒNG BỘ Ô CHAT) & NẮN CHIỀU RỘNG RẬP QUẦN ---
         if p_class == "FABRIC":
             if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN"]):
-                w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 13.875
+                w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 14.875
             else:
                 w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 58.0
                 
@@ -1930,25 +1948,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_width_list.append(w_prod)
         p_length_list.append(l_prod)
 
-        if net_area_raw <= 0.0:
-            net_area_raw = round(l_prod * w_prod * 0.74, 2) if (l_prod > 0 and w_prod > 0) else 1.0
-        p_area_list.append(net_area_raw)
+        # Tính toán diện tích bề mặt phôi thực tế sau khi đã ép co rút và nới đường may
+        net_area_calculated = round(l_prod * w_prod * 0.76, 2) if (l_prod > 0 and w_prod > 0) else 1.0
+        p_area_list.append(net_area_calculated)
 
-        # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN (PIECE COUNT CONVERTER)
-        # =====================================================================
-        # Nếu người dùng đã sửa thủ công trên UI, ưu tiên lấy số lượng từ session_state
+        # ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN ĐỐI XỨNG
         if idx in st.session_state["user_edited_pieces"]:
             p_count = int(st.session_state["user_edited_pieces"][idx])
         else:
-            # Tự động tối ưu số lượng mảnh đối xứng (Thân trước x2, Thân sau x2, Bao túi x4...)
             p_count_col = next((c for c in ["Piece Count", "piece_count", "Qty", "SL"] if c in df_bom.columns), None)
-            try:
-                p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
-            except:
-                p_count = 1
+            try: p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
+            except: p_count = 1
                 
-            # Luật tự động điền mảnh đối xứng nếu sơ đồ CAD trích xuất bị thiếu
             if p_count == 1 and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "THÂN"]):
                 p_count = 2
 
@@ -1960,20 +1971,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "original_width": w_orig,
             "processed_length": l_prod,
             "processed_width": w_prod,
-            "polygon_net_area": net_area_raw,
+            "polygon_net_area": net_area_calculated,
             "piece_count": p_count,
             "class_confidence": class_confidence,
             "is_trouser_component": is_trouser_item if p_class == "FABRIC" else False
         }
 
-    # Cập nhật ngược lại các mảng dữ liệu đã xử lý vào DataFrame gốc để đồng bộ giao diện hiển thị
+    # Cập nhật ngược lại các mảng dữ liệu đã xử lý vào DataFrame gốc để hiển thị lên lưới UI
     df_bom["processed_length"] = p_length_list
     df_bom["processed_width"] = p_width_list
     df_bom["polygon_net_area"] = p_area_list
 
-    # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5 kế tiếp
+    # Lưu trữ layer xử lý rập vào Context để đồng bộ với Đoạn 5
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
 
     # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
