@@ -2113,63 +2113,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
 
-    # =====================================================================
-    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT XUỐNG TỪNG DÒNG (ROUTER)
-    # =====================================================================
-    def core_engine_router(row, idx):
-        v = virtual_pieces_layer.get(idx, {})
-        p_class = v.get("material_class", "FABRIC")
-        p_pcs = int(v.get("active_user_pieces", 1))
-        p_area = float(v.get("polygon_net_area", 0.0))
-        
-        if p_class in ["FABRIC", "CONTRAST"]:
-            if total_fabric_net_area > 0:
-                return round((p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds, 4)
-            return 0.0415
-        elif p_class == "LINING":
-            if total_lining_net_area > 0:
-                return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
-            return 0.0
-        elif p_class in ["FUSING", "RIB"]:
-            if total_fusing_net_area > 0:
-                return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
-            return 0.0
-        return 0.0
-
-    # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
-    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
-    # =====================================================================
-
-    # =====================================================================
-    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT XUỐNG TỪNG DÒNG (ROUTER)
-    # =====================================================================
-    def core_engine_router(row, idx):
-        v = virtual_pieces_layer.get(idx, {})
-        p_class = v.get("material_class", "FABRIC")
-        p_pcs = int(v.get("active_user_pieces", 1))
-        p_area = float(v.get("polygon_net_area", 0.0))
-        
-        if p_class in ["FABRIC", "CONTRAST"]:
-            if total_fabric_net_area > 0:
-                return round((p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds, 4)
-            return 0.0415
-        elif p_class == "LINING":
-            if total_lining_net_area > 0:
-                return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
-            return 0.0
-        elif p_class in ["FUSING", "RIB"]:
-            if total_fusing_net_area > 0:
-                return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
-            return 0.0
-        return 0.0
-
-    # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
-    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
-    # =====================================================================
-
+  
    
 
-          # =====================================================================
+     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB)
     # =====================================================================
     
