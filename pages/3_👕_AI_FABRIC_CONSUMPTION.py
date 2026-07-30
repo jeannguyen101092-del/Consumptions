@@ -2020,9 +2020,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
 
-
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - GERBER ACCUNEST SIMULATOR (99% ACCURACY)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & SCORE EXTRACTOR
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2042,10 +2041,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # Nhận diện chủng loại hàng hóa từ bộ não AI
+    # Nhận diện chủng loại hàng hóa từ bộ não chuyên gia AI
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
-    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category or "JEAN_LONG" in product_category)
-    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category or "DRESS_FLARE" in product_category)
+    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category)
+    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category)
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
     total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
@@ -2085,93 +2084,117 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-
-    # 🤖 HÀM MÔ PHỎNG ĐỘNG TIỆM CẬN GERBER ACCUNEST VỚI ĐỘ CHÍNH XÁC QUY ĐỔI 99%
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER
+    # =====================================================================
+    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
         
-        # 1. ƯỚC LƯỢNG MẬT ĐỘ SƠ ĐỒ ĐỘNG (DYNAMIC REAL DENSITY) THEO LOẠI HÀNG & SỐ LƯỢNG CHI TIẾT
         total_parts_count = sum(p["pcs"] for p in pieces_list)
-        
-        if material_type == "FABRIC":
-            if is_trouser:
-                # Quần tây/Jean: Càng nhiều chi tiết nhỏ (nhỏ hơn 8 in) mật độ lồng đan cài càng tăng nhờ điền vào góc chết
-                small_parts_ratio = sum(p["pcs"] for p in pieces_list if p["l"] < 8.0) / total_parts_count
-                base_density = 0.7750 + (small_parts_ratio * 0.04) # Biên độ dao động 77.5% - 81.5%
-            elif is_skirt_or_dress:
-                # Váy đầm: Chi tiết lớn hình vòng cung, nhiều chi tiết nhỏ làm giảm mật độ vì biên cản uốn lượn lớn
-                base_density = 0.7150 - (total_parts_count * 0.001)
-            elif is_jacket:
-                base_density = 0.7450 + (total_parts_count * 0.0005)
-            else:
-                base_density = 0.7500
-        elif material_type == "LINING":
-            base_density = 0.7900
-        else:
-            base_density = 0.7000 # Keo lót/Fusing mặc định rải thưa hơn
-            
-        # Áp dụng các điều kiện ràng buộc canh sợi từ thanh Sidebar UI
-        if one_way_flag: base_density -= 0.040
-        elif nap_layout_flag: base_density -= 0.015
-        elif rotation_freedom and not nap_layout_flag and not one_way_flag: base_density += 0.015
-        
-        real_density = max(0.6000, min(0.8950, base_density))
-        
-        # 2. TÍNH TOÀN BỘ DIỆN TÍCH HỘP BAO (TOTAL BOUNDING BOX AREA) - KHÔNG BỎ SÓT CHI TIẾT NHỎ
         total_bbox_area = sum(p["l"] * p["w"] * p["pcs"] for p in pieces_list)
         
-        # 3. TÍNH ĐỘ PHỨC TẠP BIÊN RẬP & INTERLOCKING FACTOR ĐỘNG DỰA TRÊN TỶ LỆ DÀI/RỘNG TOÀN BỘ BỘ RẬP
-        # Tìm tỷ lệ vàng hình học của bộ rập: Chi tiết dài thuôn (như ống quần) đan cài khác với chi tiết vuông/tròn
-        avg_aspect_ratio = sum((p["l"] / p["w"]) * p["pcs"] for p in pieces_list) / total_parts_count
+        # TÍNH TOÁN CÁC CHỈ SỐ HÌNH HỌC ĐỘNG THEO TRỌNG SỐ DIỆN TÍCH (VÁ LỖI 1 & 2)
+        sum_weighted_shape = sum(((p["l"] * p["w"] / p["area"]) * p["area"] * p["pcs"]) for p in pieces_list)
+        avg_shape_factor = sum_weighted_shape / net_area if net_area > 0 else 1.15
         
-        if is_trouser:
-            # Hệ rập quần ống dài thuôn: aspect_ratio cao (~3.5). Nếu rập hẹp 1/4 vòng (w < 13.0) thì độ đan cài chiếm chiều dọc lớn
-            is_quarter_patt = any(p["w"] < 13.0 for p in pieces_list if p["l"] > 30.0)
-            if is_quarter_patt:
-                interlocking_factor = 0.865 + (avg_aspect_ratio * 0.015) # Tính động tiệm cận 0.92
+        sum_weighted_aspect = sum(((p["l"] / p["w"]) * p["area"] * p["pcs"]) for p in pieces_list)
+        avg_aspect_ratio = sum_weighted_aspect / net_area if net_area > 0 else 2.5
+        
+        total_small_parts_area = sum(p["area"] * p["pcs"] for p in pieces_list if p["l"] < 8.0)
+        small_area_ratio = total_small_parts_area / net_area if net_area > 0 else 0.0
+
+        # NHẬN DIỆN QUARTER PATTERN ĐỘNG THEO TIÊU CHÍ RẬP THỰC (VÁ LỖI 3)
+        is_quarter_pattern = False
+        if material_type == "FABRIC":
+            for p in pieces_list:
+                if p["l"] > 30.0 and (p["l"] / p["w"]) > 2.8 and p["w"] < (marker_width * 0.24):
+                    is_quarter_pattern = True
+                    break
+
+        # MÔ HÌNH CHẤM ĐIỂM HÌNH HỌC THỐNG NHẤT (GEOMETRIC COMPLEXITY SCORE)
+        rotation_score = 0.0 if one_way_flag else (0.5 if nap_layout_flag else 1.0)
+        norm_shape = min(1.0, max(0.0, (avg_shape_factor - 1.0) / 1.2)) 
+        norm_aspect = min(1.0, max(0.0, (avg_aspect_ratio - 1.0) / 6.0)) 
+        
+        geometry_score = (0.40 * norm_shape) + (0.30 * norm_aspect) + (0.20 * small_area_ratio) + (0.10 * rotation_score)
+
+        # ƯỚC LƯỢNG DENSITY VÀ INTERLOCKING FACTOR DỰA TRÊN SHAPE FACTOR ĐỘNG
+        if material_type == "FABRIC":
+            base_density = 0.865 - (avg_shape_factor * 0.065) + (small_area_ratio * 0.03)
+            if is_quarter_pattern:
+                interlocking_factor = 0.72 + (avg_shape_factor * 0.08)
             else:
-                interlocking_factor = 0.610 + (avg_aspect_ratio * 0.010)
-        elif is_skirt_or_dress:
-            # Váy đầm: aspect_ratio thấp, chiều rộng lớn. Ép hệ số phạt hộp bao lớn do cung xòe rộng
-            interlocking_factor = 0.650 + (1 / avg_aspect_ratio if avg_aspect_ratio > 0 else 0.5) * 0.05
+                interlocking_factor = 0.48 + (avg_shape_factor * 0.07)
         else:
-            interlocking_factor = 0.680
-            
-        # 4. TÍNH TOÁN CHIỀU DÀI CHIẾM DỤNG HÌNH HỌC THEO MA TRẬN HỘP BAO ĐỘNG VÀ KHỔ VẢI
+            base_density = 0.81 - (avg_shape_factor * 0.05) if material_type == "LINING" else 0.73 - (avg_shape_factor * 0.04)
+            interlocking_factor = 0.52 + (avg_shape_factor * 0.06)
+
+        if one_way_flag: base_density -= 0.035
+        elif nap_layout_flag: base_density -= 0.015
+        
+        real_density = max(0.5800, min(0.8950, base_density))
+        
+        # KHÓA TRÊN INTERLOCKING FACTOR TRÁNH SAI LỆCH VẬT LÝ BIÊN RẬP NGOẠI CỠ (VÁ LỖI 3)
+        interlocking_factor = min(0.940, max(0.350, interlocking_factor))
+
+        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ THEO HAI KHỐI PHƯƠNG TRÌNH HÌNH HỌC PHẲNG
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
-        # Lấy sàn bảo vệ lớn nhất giữa mô phỏng hộp bao động và diện tích tịnh phẳng
-        sim_length_inch = max(sim_length_inch_bbox, sim_length_inch_net)
+        # THAY MAX() BẰNG THUẬT TOÁN PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI (MỤC TIÊU LỚN 1)
+        if is_trouser:
+            blend = 0.70  
+        elif is_skirt_or_dress:
+            blend = 0.45  
+        elif is_jacket:
+            blend = 0.58  
+        else:
+            blend = 0.55  
+            
+        sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # 🚨 4. THÊM BỘ BÙ ĐẦU BÀN, CUỐI BÀN VÀ BIÊN CẮT ĐỘNG (GERBER MARKER END LOSS & SPLICE SAFETY)
-        # Sơ đồ thực tế luôn phải cộng thêm 2.0 inch đầu bàn cắt + 1.5 inch cuối bàn cắt + hao hụt nối cây rải vải (Splice Allowance)
-        # Gerber tính toán hao hụt này tăng dần theo tổng số lượng chi tiết cần lồng đan cài trên bàn rải.
+        # Ép sàn bảo vệ vật lý tuyệt đối theo chiều dài linh kiện lớn nhất của mẫu
+        sim_length_inch = max(sim_length_inch, max_piece_length)
+        
+        # BÙ BIÊN GERBER CHUẨN ĐỘNG THEO CHIỀU DÀI SƠ ĐỒ ĐẠI TRÀ (MỤC TIÊU LỚN 4)
         if material_type == "FABRIC":
-            gerber_safety_margin_inch = 3.5 + (total_parts_count * 0.05)
-            sim_length_inch += gerber_safety_margin_inch
+            gerber_margin = max(3.0, sim_length_inch * 0.018)
+            sim_length_inch += gerber_margin
 
         # Áp dụng chuẩn công thức tính Yard thương mại
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
+        
+        if material_type == "FABRIC":
+            st.session_state["computed_geometry_score"] = int(geometry_score * 100)
+            st.session_state["computed_real_density"] = real_density
+            
         return real_density, total_gross_yds
 
-    # Kích hoạt bộ xử lý giả lập sơ đồ cho 3 lớp vật tư
+    # Kích hoạt bộ xử lý giả lập sơ đồ cho 3 lớp vật tư sạch
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
 
-    # =====================================================================
-    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT XUỐNG TỪNG DÒNG (ROUTER)
-    # =====================================================================
+    # BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CHI TIẾT TÍCH HỢP TRỌNG SỐ VỊ TRÍ (MỤC TIÊU LỚN 5)
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {})
         p_class = v.get("material_class", "FABRIC")
         p_pcs = int(v.get("active_user_pieces", 1))
         p_area = float(v.get("polygon_net_area", 0.0))
+        comp_name = str(v.get("component_name", "")).upper()
         
+        # Tính toán Placement Weight (Hệ số vị trí ưu tiên khóa góc đầu sơ đồ)
+        placement_weight = 1.0
+        if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]):
+            placement_weight = 1.08
+        elif is_jacket and any(k in comp_name for k in ["COLLAR", "FACING", "CỔ", "NẸP"]):
+            placement_weight = 1.05
+            
         if p_class in ["FABRIC", "CONTRAST"]:
             if total_fabric_net_area > 0:
-                return round((p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds, 4)
+                base_share = (p_area * p_pcs / total_fabric_net_area) * total_fabric_gross_yds
+                return round(base_share * placement_weight, 4)
             return 0.0415
         elif p_class == "LINING":
             if total_lining_net_area > 0:
@@ -2179,14 +2202,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             return 0.0
         elif p_class in ["FUSING", "RIB"]:
             if total_fusing_net_area > 0:
-
                 return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
             return 0.0
         return 0.0
 
-    # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
+    # Đồng bộ dữ liệu định mức đại trà sạch xuống DataFrame gốc phục vụ Đoạn 7 hiển thị
     df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
+    
+    # Cập nhật ngược điểm số hình học vào bộ não tri thức để Đoạn 7 bốc lên giao diện
+    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
+    ctx["ai_expert_decision"]["complexity_score"] = st.session_state.get("computed_geometry_score", 45)
+    ctx["ai_expert_decision"]["estimated_density_prior"] = st.session_state.get("computed_real_density", real_fabric_density)
     # =====================================================================
+
 
    
 
