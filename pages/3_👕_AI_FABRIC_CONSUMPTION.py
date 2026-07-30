@@ -2021,7 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-         # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
@@ -2077,7 +2077,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class in ["FABRIC", "CONTRAST"]:
             total_fabric_net_area += net_area * current_pcs
             if p_length > 0:
-                # Lưu thêm biến chiều rộng thực tế rập phục vụ tính toán hộp bao động
                 fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
                 if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
@@ -2101,7 +2100,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_skirt_or_dress:
                 min_floor_density = 0.7050  
             elif is_trouser:
-                min_floor_density = 0.7650  # Trả về mật độ lồng Quần Jeans chuẩn xưởng
+                min_floor_density = 0.7650  
             elif "JACKET" in product_category:
                 min_floor_density = 0.7350  
             else:
@@ -2122,32 +2121,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8850, real_density))
         
-        # 🚨 THUẬT TOÁN ĐỘNG THÍCH ỨNG THÔNG SỐ THỰC CHUẨN XƯỞNG (FIX HOÀN TOÀN BÀI TOÁN BIG SIZE)
-        # Thay vì nhân hệ số cố định, thuật toán tính toán tổng không gian hình học thực tế (Hộp bao vuông) của các chi tiết chính
+        # THUẬT TOÁN ĐỒNG BỘ CHIỀU DÀI CHIẾM DỤNG HÌNH HỌC THEO TỪNG LOẠI HÀNG
         total_bounding_box_area = 0.0
+        is_quarter_pattern = False # Biến cờ nhận diện hệ rập 1/4 vòng hẹp
+        
         for p in pieces_list:
             if p["l"] > 30.0:  # Nhận diện chi tiết thân lớn
-                # Tính diện tích hộp bao chiếm dụng = Chiều dài thực * Chiều rộng thực * Số lượng mảnh
                 total_bounding_box_area += (p["l"] * p["w"] * p["pcs"])
+                # ✅ TỰ ĐỘNG CHUẨN ĐOÁN: Nếu chiều rộng rập thân quần nhỏ hơn 13.0 inch, tức là file rập hệ 1/4 vòng
+                if is_trouser and p["w"] < 13.0:
+                    is_quarter_pattern = True
         
-        # Chiều dài sơ đồ chiếm dụng vật lý tối thiểu ước tính từ không gian hộp bao thực tế trên khổ vải
-        # Hệ số rải đan cài thực tế (Interlocking Factor) đạt hiệu suất khoảng 60% diện tích hộp bao gộp
+        # Chiều dài sơ đồ chiếm dụng vật lý tối thiểu dựa trên không gian hộp bao thực tế
         if marker_width > 0 and total_bounding_box_area > 0:
-            main_pieces_len = (total_bounding_box_area / marker_width) * 0.62
+            # ✅ SỬA LỖI QUẦN THẤP HỆ MẢNH 1/4 VÒNG: Nếu là rập hẹp 1/4 vòng, tăng hệ số phạt lồng đan cài từ 0.62 lên hẳn 0.88 
+            # vì rập 1/4 vòng xếp nối đuôi tốn không gian chiều dài bàn cắt hơn rất nhiều so với rập 1/2 vòng mở phẳng
+            interlocking_factor = 0.88 if is_quarter_pattern else 0.62
+            main_pieces_len = (total_bounding_box_area / marker_width) * interlocking_factor
         else:
             main_pieces_len = max_piece_length * 1.5
         
         # Chiều dài sơ đồ tính từ diện tích phẳng tịnh lý thuyết
         sim_length_inch = net_area / marker_width / real_density
         
-        # ✅ ÉP SÀN BẢO VỆ ĐỘNG THEO THÔNG SỐ THỰC: 
-        # Nếu quần nhỏ, sàn main_pieces_len tự động thu hẹp. Nếu gặp quần Big Size rập to khổng lồ,
-        # sàn main_pieces_len tự động đẩy dài ra theo đúng kích thước hình học CAD thực tế!
+        # Ép sàn bảo vệ động theo thông số thực tế của rập
         if material_type == "FABRIC" and sim_length_inch < main_pieces_len:
             sim_length_inch = main_pieces_len
             
         if material_type == "FABRIC" and is_trouser:
-            wastage_factor = wastage_factor * 1.10 # Hệ số hao hụt đầu cây rải vải cơ bản cho quần
+            # Nếu là rập hệ 1/4 vòng, tăng nhẹ hệ số hao hụt biên răng cưa đầu cây để bảo vệ an toàn cắt vải
+            wastage_factor = wastage_factor * (1.14 if is_quarter_pattern else 1.10)
 
         # Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
@@ -2184,7 +2187,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Gán trực tiếp mảng tính toán vào DataFrame chính phục vụ hiển thị đồng bộ ở Đoạn 7
     df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
     # =====================================================================
-
 
    
 
