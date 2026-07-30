@@ -1805,7 +1805,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = float(max_piece_length)
 
-         # =====================================================================
+      # =====================================================================
     # 🟩 ĐOẠN 4: AI VIRTUAL PIECE ENGINE & GEOMETRIC PREPROCESSOR - TOTAL RECONSTRUCTION
     # =====================================================================
     pattern_has_shrink = True  
@@ -1852,8 +1852,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         is_trouser_item = False
 
-    # Kiểm tra xem câu lệnh chat hoặc cấu hình hệ thống của người dùng có chứa từ khóa "cm" hay không
-    is_user_cmd_cm = "CM" in str(current_query).upper()
+    # ✅ VÁ LỖI CỐT LÕI: Kiểm tra an toàn sự tồn tại của current_query trước khi phân tích chuỗi
+    if 'current_query' in locals() and current_query:
+        is_user_cmd_cm = "CM" in str(current_query).upper()
+    else:
+        is_user_cmd_cm = False
 
     # 🚨 PHẲNG HÓA TUYẾN TÍNH VÀ ĐỒNG BỘ ĐƯỜNG VÒNG LẠI THỰC TẾ CAD
     for idx, row in df_bom.iterrows():
@@ -1866,12 +1869,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         net_area_raw = float(row.get("polygon_net_area", 0.0))
 
         # --- 🛠️ BỘ LỌC KIỂM TRA ĐƠN VỊ TỰ ĐỘNG (AUTO-CONVERTER CM SANG INCH) ---
-        # Nếu chiều dài rập dài > 95cm hoặc chiều rộng lớn hơn 24cm hoặc người dùng chỉ định lệnh "cm",
-        # hệ thống tự động nhận diện đưa thông số về Inch gốc để tránh vỡ số định mức khi chia cho 36 Yards.
         if is_user_cmd_cm or l_orig_raw > 95.0 or w_orig_raw > 24.0:
             l_orig = round(l_orig_raw / 2.54, 3)
             w_orig = round(w_orig_raw / 2.54, 3)
-            net_area_raw = round(net_area_raw / 6.4516, 2)  # Quy đổi diện tích: 1 inch2 = 2.54 x 2.54 cm2
+            net_area_raw = round(net_area_raw / 6.4516, 2)  # Quy đổi diện tích: 1 inch2 = 6.4516 cm2
         else:
             l_orig = l_orig_raw
             w_orig = w_orig_raw
@@ -1879,11 +1880,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 🔍 THUẬT TOÁN PHÒNG VỆ KHÔI PHỤC ĐƯỜNG VÒNG LẠI CHO RẬP CONG/XÒE NGOẰN NGOÈO
         calculated_curve_length = l_orig
         if net_area_raw > 0 and w_orig > 0:
-            # Đối với rập xòe/cong, chiều dài tiêu tốn chạy dọc thớ sợi thực tế luôn lớn hơn hộp bao thẳng đứng
             calculated_curve_length = max(l_orig, round(net_area_raw / w_orig, 3))
         
         # 🔍 BỘ QUÉT PHÂN LOẠI CHẤT LIỆU (ƯU TIÊN TUYỆT ĐỐI CHỈNH SỬA TAY VÀ PHÒNG VỆ BAO TÚI)
-        mat_str = str(row.get(m_col, row.get("Material Class", row.get("material_class", "")))).upper().strip() if 'm_col' in locals() or "Material Class" in row or "material_class" in row else ""
+        m_col = next((c for c in ["Material Class", "material_class", "Material_Class"] if c in df_bom.columns), "material_class")
+        mat_str = str(row.get(m_col, "")).upper().strip()
         
         p_class = st.session_state["user_edited_materials"].get(idx, None)
         if p_class is None and mat_str in ["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"]:
@@ -1906,10 +1907,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_class = "FABRIC"
 
-        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN THEO ĐƯỜNG ĐÙI (1/2 VÒNG) ---
+        # Đọc thông số co rút thớ chính từ session_state (đã gán mặc định nếu thiếu)
+        warp_shrink = float(st.session_state.get("warp_shrink", 0.0))
+        weft_shrink = float(st.session_state.get("weft_shrink", 0.0))
+
+        # --- BƯỚC B: ÁP THÔNG SỐ CO RÚT SỢI & NẮN CHIỀU RỘNG RẬP QUẦN THEO ĐƯỜNG ĐÙI ---
         if p_class == "FABRIC":
-            # 🚨 KHÓA CHẶT THÔNG SỐ ĐÙI CHO HÀNG QUẦN (1/2 VÒNG): Bảo toàn điểm nhô ra lớn nhất của rập CAD (đầy đủ gá đũng) [5.1].
-            # Tuyệt đối không cho AI sử dụng thông số mông (Hip) hẹp hơn để co rập, chặn đứng lỗi hụt vải bàn cắt.
             if is_trouser_item and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "ỐNG", "THÂN"]):
                 w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else 13.875
             else:
@@ -1932,39 +1935,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         if net_area_raw <= 0.0:
             net_area_raw = round(l_prod * w_prod * 0.74, 2) if (l_prod > 0 and w_prod > 0) else 1.0
+        p_area_list.append(net_area_raw)
 
         # =====================================================================
-        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN XÁC 100% TỪ CAD GỐC (BỎ ÉP NHÂN ĐÔI ĐOÁN MÒ)
+        # 🚨 ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP CHUẨN (PIECE COUNT CONVERTER)
         # =====================================================================
-        cad_raw_pcs = row.get("piece_count", row.get("pcs_numeric", 1.0))
-        try:
-            inferred_pcs = int(float(cad_raw_pcs))
-        except:
-            inferred_pcs = 1
+        # Nếu người dùng đã sửa thủ công trên UI, ưu tiên lấy số lượng từ session_state
+        if idx in st.session_state["user_edited_pieces"]:
+            p_count = int(st.session_state["user_edited_pieces"][idx])
+        else:
+            # Tự động tối ưu số lượng mảnh đối xứng (Thân trước x2, Thân sau x2, Bao túi x4...)
+            p_count_col = next((c for c in ["Piece Count", "piece_count", "Qty", "SL"] if c in df_bom.columns), None)
+            try:
+                p_count = int(float(row.get(p_count_col, 1))) if p_count_col else 1
+            except:
+                p_count = 1
+                
+            # Luật tự động điền mảnh đối xứng nếu sơ đồ CAD trích xuất bị thiếu
+            if p_count == 1 and any(k in comp_name_upper for k in ["FRONT", "BACK", "LEG", "THAN", "THÂN"]):
+                p_count = 2
 
-        # Nếu người dùng chưa từng sửa dòng này trên UI, nạp giá trị CAD gốc vào để làm mốc khởi tạo
-        if idx not in st.session_state["user_edited_pieces"]:
-            st.session_state["user_edited_pieces"][idx] = inferred_pcs
-            
-        # Ưu tiên tuyệt đối bốc số lượng hiện hữu từ session_state thay vì bốc lại số đoán mò của từ khóa cũ
-        final_pcs = int(float(st.session_state["user_edited_pieces"].get(idx, inferred_pcs)))
-        qty_confidence = 1.0
-
-        # Ghi nhận phôi ảo sạch vào RAM hệ thống
+        # Đóng gói dữ liệu phôi ảo đã tiền xử lý hình học phẳng vào Layer chính
         virtual_pieces_layer[idx] = {
-            "inferred_class": p_class,
-            "class_confidence": class_confidence,
-            "production_l": l_prod, 
-            "production_w": w_prod,
-            "production_net_area": net_area_raw,
-            "inferred_pieces": final_pcs, 
-            "qty_confidence": qty_confidence,
-            "component_name": comp_name_raw
+            "component_name": comp_name_upper,
+            "material_class": p_class,
+            "original_length": l_orig,
+            "original_width": w_orig,
+            "processed_length": l_prod,
+            "processed_width": w_prod,
+            "polygon_net_area": net_area_raw,
+            "piece_count": p_count,
+            "is_trouser_component": is_trouser_item if p_class == "FABRIC" else False
         }
 
-    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
-    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-        # =====================================================================
+    # Cập nhật ngược lại các mảng dữ liệu đã xử lý vào DataFrame gốc để đồng bộ giao diện hiển thị
+    df_bom["processed_length"] = p_length_list
+    df_bom["processed_width"] = p_width_list
+    df_bom["polygon_net_area"] = p_area_list
+
     # 📊 KHỐI HIỂN THỊ THÔNG SỐ AI QUÉT ĐƯỢC (AI GEOMETRIC AUDIT MATRIX)
     # =====================================================================
     # Vị trí đặt: Ngay dưới lệnh ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer của Đoạn 4
