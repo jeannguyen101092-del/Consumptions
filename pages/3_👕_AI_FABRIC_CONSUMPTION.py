@@ -2191,17 +2191,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream
        # =====================================================================
-       # =====================================================================
-       # =====================================================================
-    #    # =====================================================================
-        # =====================================================================
-       # =====================================================================
-       # =====================================================================
-        # =====================================================================
-        # =====================================================================
-        # =====================================================================
       # =====================================================================
-       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2233,7 +2223,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     clean_materials_list = []
     for idx in df_bom.index:
         v_piece = virtual_pieces_layer.get(idx, {})
-        # ✅ VÁ LỖI KHÓA KEY ĐOẠN 4: Chuyển inferred_class thành material_class
         saved_mat = st.session_state["user_edited_materials"].get(idx, v_piece.get("material_class", "FABRIC"))
         clean_materials_list.append(saved_mat)
         
@@ -2264,7 +2253,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom_display = df_bom.copy()
     
-    # ✅ VÁ LỖI HIỂN THỊ KÍCH THƯỚC TRỰC QUAN KHÔNG BỊ TRỐNG: Map ngược dữ liệu đã tính từ Đoạn 4 vào bảng hiển thị
+    # VÁ LỖI HIỂN THỊ KÍCH THƯỚC TRỰC QUAN KHÔNG BỊ TRỐNG: Map ngược dữ liệu đã tính từ Đoạn 4 vào bảng hiển thị
     if "processed_length" in df_bom_display.columns:
         df_bom_display["Chiều dài rập (inch)"] = df_bom_display["processed_length"]
     else:
@@ -2287,10 +2276,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
     
-    # Đồng bộ số lượng rập hiển thị trên lưới biên tập tránh lặp dòng rác
+    # ✅ VÁ LỖI HIỂN THỊ SỐ LƯỢNG MẢNH KẸT SỐ 1: Bốc trực tiếp từ layer phôi ảo đã đối xứng tự động của Đoạn 4
     df_bom_display["Số lượng rập"] = [
-        int(float(st.session_state["user_edited_pieces"].get(idx, r.get("piece_count", r.get("pcs_numeric", 1))))) 
-        for idx, r in df_bom.iterrows()
+        int(st.session_state["user_edited_pieces"].get(idx, virtual_pieces_layer.get(idx, {}).get("piece_count", 1))) 
+        for idx in df_bom.index
     ]
     df_bom_display["_original_row_index"] = df_bom.index
 
@@ -2341,22 +2330,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
 
-    # ✅ SỬA LỖI TREO APP: Lắng nghe và ép kiểu đồng bộ chính xác trước khi kích hoạt phản hồi rerun
+    # SỬA LỖI TREO APP: Lắng nghe và cập nhật chính xác sự kiện sửa tay trên UI của người dùng
     has_changed = False
     for _, row in edited_df.iterrows():
         orig_idx = int(row["_original_row_index"])
         
-        # So sánh kiểm tra thay đổi số lượng rập bằng số nguyên sạch
         target_rows = df_bom_display[df_bom_display["_original_row_index"] == orig_idx]
         if not target_rows.empty:
-            old_pcs = int(float(target_rows["Số lượng rập"].values[0]))
+            old_pcs = int(float(target_rows["Số lượng rập"].values))
             new_pcs = int(float(row["Số lượng rập"]))
             if old_pcs != new_pcs:
                 st.session_state["user_edited_pieces"][orig_idx] = new_pcs
                 has_changed = True
                 
             # Kiểm tra sự thay đổi phân loại chất liệu
-            old_mat = str(target_rows["Material Class"].values[0]).upper().strip()
+            old_mat = str(target_rows["Material Class"].values).upper().strip()
             new_mat = str(row["Material Class"]).upper().strip()
             if old_mat != new_mat:
                 st.session_state["user_edited_materials"][orig_idx] = new_mat
