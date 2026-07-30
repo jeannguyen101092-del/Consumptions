@@ -2021,7 +2021,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-        # =====================================================================
+      # =====================================================================
     # 🟩 ĐOẠN 5.1: GEOMETRIC MARKER ENGINE - BẢN ĐỌC BOM TRỰC TIẾP (FIXED PERFECT)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
@@ -2098,11 +2098,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # Cấu hình sàn mật độ rải sơ đồ (Floor Density) theo từng chủng loại hàng
         if material_type == "FABRIC":
             if is_skirt_or_dress:
-                min_floor_density = 0.7050  # Váy đầm chi tiết khổng lồ uốn lượn hao hụt biên lớn
+                min_floor_density = 0.7050  
             elif is_trouser:
-                min_floor_density = 0.7650  
+                min_floor_density = 0.7550  # Hạ nhẹ sàn mật độ quần để tăng định mức cơ sở lên mốc thực tế
             elif "JACKET" in product_category:
-                min_floor_density = 0.7350
+                min_floor_density = 0.7350  # Giữ nguyên áo khoác đang chạy đúng
             else:
                 min_floor_density = 0.7400
         elif material_type == "LINING":
@@ -2125,15 +2125,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         main_pieces_len = 0.0
         
         if is_skirt_or_dress:
-            # ✅ VÁ LỖI ÁO ĐẦM THẤP: Quét bắt chi tiết tùng váy/thân đầm dựa trên diện tích lớn (>180) hoặc độ dài (>20)
             for p in pieces_list:
                 if p["area"] > 180.0 or p["l"] > 20.0:
                     main_pieces_len += p["l"] * p["pcs"]
-            # Áp dụng hệ số đan cài rộng biên cho hàng đầm váy uốn cong hình cung tròn
             main_pieces_len = main_pieces_len * 0.55
-            
         else:
-            # Luật dành cho Quần Jeans và Áo khoác Jacket giữ nguyên hệ số chuẩn
             for p in pieces_list:
                 if p["l"] > 30.0:
                     main_pieces_len += p["l"] * p["pcs"]
@@ -2146,6 +2142,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if material_type == "FABRIC" and sim_length_inch < main_pieces_len:
             sim_length_inch = main_pieces_len
             
+        # ✅ SỬA RIÊNG CHO QUẦN JEANS: Nâng hệ số bù hao hụt khoảng trống răng cưa giữa các chi tiết nhỏ từ 1.08 lên 1.15
+        if material_type == "FABRIC" and is_trouser:
+            wastage_factor = wastage_factor * 1.15
+
         # Áp dụng chuẩn công thức tính Yard thương mại có nhân hệ số hao hụt đầu cây biên cắt
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
         return real_density, total_gross_yds
