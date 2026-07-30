@@ -656,7 +656,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - NÂNG CẤP GEMINI 2.5 & FIX LỖI PANDANTIC TIMEOUT
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - ĐÃ VÁ LỖI "genai is not defined" & CHỐNG HAO TIỀN
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -673,11 +673,7 @@ def execute_cached_gemini_scan(
 ):
     import copy
     import hashlib
-    import json
-    import re
-    import fitz  # Thư viện PyMuPDF đọc file tài liệu hình học CAD
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai  # 🛠️ CHÈN BỔ SUNG DÒNG NÀY ĐỂ TRIỆT TIÊU LỖI NAMEERROR TRÊN GIAO DIỆN
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -686,63 +682,47 @@ def execute_cached_gemini_scan(
         raise TypeError("Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!")
 
     full_pdf_raw_text = ""
-    image_contents = []
+    image_payloads = []
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
         for idx in range(total_pages):
-            # Trích xuất văn bản thô dạng chuỗi sạch để gửi cho AI đọc trước
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # GIỚI HẠN PHÒNG VỆ CHỐNG TRÀN TOKEN: Chỉ chụp ảnh 2 trang đầu (nơi chứa bảng BOM)
-            if len(image_contents) < 2:
+            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
+            if len(image_payloads) < 2:
                 try:
-                    # 🛠️ TỐI ƯU TIẾT KIỆM TIỀN: Hạ DPI xuống mức 50 để nén nhỏ số lượng token hình ảnh của Google
-                    pix = doc_recovery[idx].get_pixmap(dpi=50, colorspace=fitz.csRGB)
-                    # Chuyển đổi ảnh sang Part object của Gemini 2.5 SDK mới
-                    image_contents.append(
-                        types.Part.from_bytes(
-                            data=pix.tobytes("jpeg"),
-                            mime_type="image/jpeg",
-                        )
-                    )
+                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
                 except Exception:
                     continue
 
-    # Khởi tạo danh sách nội dung gửi cho AI (Hỗ trợ cấu trúc Multimodal)
-    gemini_inputs = []
-    gemini_inputs.append(f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
-    gemini_inputs.extend(image_contents)
+    gemini_inputs = copy.deepcopy(image_payloads)
+    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # PROMPT KỸ THUẬT KHÓA CHẶT BIẾN HÌNH HỌC PHẲNG CHO HÀNG ĐẦM VÁY XÒE CỦA BẠN
     extended_prompt = prompt_agent_2 + """
-    CRITICAL MULTI-MATERIAL & PRODUCT CLASSIFICATION RULES:
+    CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
-    - If the techpack/query is about a Dress, Flare, Skirt, or Maxi (Đầm, Váy, Xòe), you MUST prioritize extracting curve length, curve width, and true polygon net areas. DO NOT infer or assume trouser-specific fields like "hip" for dress panels.
-    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", "PLACKET", "GUARD", "FACING", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "BAG", classify its material_class strictly as "LINING".
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", classify its material_class strictly as "LINING".
     """
     gemini_inputs.append(extended_prompt)
 
-    # 🛠️ KHỞI TẠO CLIENT GEMINI 2.5 MỚI
-    client = genai.Client()
-    
-    # SỬA TRIỆT ĐỂ LỖI PANDANTIC: Chuyển timeout vào cấu hình HttpOptions riêng biệt
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=gemini_inputs,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=raw_json_schema,
-            temperature=0.0,  # Khóa chặt nhiệt độ bằng 0.0 để dữ liệu trích xuất chính xác tuyệt đối
-        ),
-        options=types.HttpOptions(timeout=120.0) # Đặt cấu hình timeout ở đây để không bị lỗi Extra inputs
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    response = model.generate_content(
+        gemini_inputs,
+        generation_config={
+            "response_mime_type": "application/json",
+            "response_schema": raw_json_schema,
+            "temperature": 0.0,
+        },
+        request_options={"timeout": 120.0},
     )
 
     if not response or not response.text:
-        raise RuntimeError("Mô hình Gemini 2.5 trả về kết quả rỗng!")
+        raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
     txt = response.text.strip()
     if txt.startswith("```"):
@@ -756,7 +736,6 @@ def execute_cached_gemini_scan(
     except json.JSONDecodeError as json_err:
         raise RuntimeError(f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}") from json_err
 
-    # Định dạng làm sạch màng dữ liệu thô nhận về từ API
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
         for row in blueprint_worker.get("bom_rows", []):
@@ -784,7 +763,6 @@ def execute_cached_gemini_scan(
             except:
                 row["fabric_width_inch"] = float(active_width)
 
-    # Đếm số lượng token và cuộc gọi để quản trị chi phí hệ thống
     if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
     if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
         
@@ -792,9 +770,6 @@ def execute_cached_gemini_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
-
-
 
 import streamlit as st
 # =====================================================================
