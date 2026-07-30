@@ -656,7 +656,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - NÂNG CẤP GEMINI 2.5 & NÉN ẢNH TỐI ƯU
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI - NÂNG CẤP GEMINI 2.5 & FIX LỖI PANDANTIC TIMEOUT
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -726,18 +726,19 @@ def execute_cached_gemini_scan(
     """
     gemini_inputs.append(extended_prompt)
 
-    # 🛠️ NÂNG CẤP LÊN CLIENT VÀ MÔ HÌNH GEMINI 2.5 FLASH CHUẨN THƯƠNG MẠI MỚI NHẤT
+    # 🛠️ KHỞI TẠO CLIENT GEMINI 2.5 MỚI
     client = genai.Client()
     
+    # SỬA TRIỆT ĐỂ LỖI PANDANTIC: Chuyển timeout vào cấu hình HttpOptions riêng biệt
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=gemini_inputs,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=raw_json_schema,
-            temperature=0.0,  # Khóa chặt nhiệt độ bằng 0.0 để AI trích xuất số liệu chính xác tuyệt đối
-            timeout=120.0,
+            temperature=0.0,  # Khóa chặt nhiệt độ bằng 0.0 để dữ liệu trích xuất chính xác tuyệt đối
         ),
+        options=types.HttpOptions(timeout=120.0) # Đặt cấu hình timeout ở đây để không bị lỗi Extra inputs
     )
 
     if not response or not response.text:
@@ -788,7 +789,6 @@ def execute_cached_gemini_scan(
     if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
         
     st.session_state["api_calls_count"] += 1
-    # Gemini 2.5 Flash xử lý văn bản và hình ảnh thông minh và chính xác hơn với cấu trúc token mới
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
