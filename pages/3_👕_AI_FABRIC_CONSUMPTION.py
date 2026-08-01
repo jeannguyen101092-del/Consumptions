@@ -2281,12 +2281,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
    
 
-     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - FIXED V19.2)
     # =====================================================================
     
-    # ✅ SỬA LỖI ĐỊNH MỨC THẤP: Mẫu số net_areas bắt buộc phải nhân với số lượng mảnh (current_pcs) 
-    # để bảo toàn tổng diện tích thực tế của cả bàn cắt sơ đồ đại trà.
+    # Ép giải phóng tầm vực biến từ hàm 5.1B để đảm bảo core_engine_router đọc được dữ liệu giả lập sơ đồ
+    global_fabric_gross = total_fabric_gross_yds if 'total_fabric_gross_yds' in locals() else 0.0
+    global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() else 0.0
+    global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() else 0.0
+
     net_areas = {
         "FABRIC": 0.0,
         "LINING": 0.0,
@@ -2326,26 +2329,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
         
-        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Phân rã từ tổng định mức sơ đồ tổng phẳng (total_fabric_gross_yds)
+        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Ăn theo tổng định mức sơ đồ tổng phẳng đã nới rộng
         if p_cls in ["FABRIC", "CONTRAST"]:
-            if net_areas["FABRIC"] > 0 and 'total_fabric_gross_yds' in locals() and total_fabric_gross_yds > 0:
-                # Tỷ lệ đóng góp chính xác: (Diện tích chi tiết * Số lượng mảnh) / Tổng diện tích toàn bộ rập vải chính
+            if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
+                # 🛠️ VÁ LỖI MẪU SỐ: Định mức một dòng chi tiết = (Định mức sơ đồ tổng * Phần trăm diện tích mảnh đó chiếm dụng) / Số lượng mảnh của dòng đó
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
-                return round(total_fabric_gross_yds * line_share_ratio, 4)
+                allocated_gross = (global_fabric_gross * line_share_ratio) / max(1, pcs)
+                
+                # Biện pháp bảo hiểm riêng cho nhóm Đầm/Váy và Jacket: Ép sàn dòng chi tiết lớn không được sập quá sâu
+                if (is_skirt_or_dress or is_jacket) and net_area > 150.0:
+                    min_item_floor = (net_area / (f_width * 36.0)) * 1.32  # Bù hao hụt hình học phẳng tối thiểu 32%
+                    allocated_gross = max(allocated_gross, min_item_floor)
+                    
+                return round(allocated_gross, 4)
             return round((((net_area * pcs) / f_width / 0.75) / 36.0) * wastage, 4) if f_width > 0 else 0.0
             
-        # 2.2. VẢI LÓT (LINING): Phân rã dựa trên tổng định mức sơ đồ lót thực tế + 30% hao hụt phụ trội biên cắt
+        # 2.2. VẢI LÓT (LINING)
         if p_cls == "LINING":
-            if net_areas["LINING"] > 0 and 'total_lining_gross_yds' in locals() and total_lining_gross_yds > 0:
+            if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
-                return round(total_lining_gross_yds * line_share_ratio * 1.30, 4)
+                return round((global_lining_gross * line_share_ratio * 1.30) / max(1, pcs), 4)
             return round((((net_area * pcs) / l_width / 0.79) / 36.0) * wastage * 1.30, 4) if l_width > 0 else 0.0
             
         # 2.3. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
-            if net_areas["FUSING"] > 0 and 'total_fusing_gross_yds' in locals() and total_fusing_gross_yds > 0:
+            if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
-                return round(total_fusing_gross_yds * line_share_ratio * 1.30, 4)
+                return round((global_fusing_gross * line_share_ratio * 1.30) / max(1, pcs), 4)
             
             p_len = float(v.get("processed_length", 0.0))
             p_wid = float(v.get("processed_width", 0.0))
@@ -2381,10 +2391,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🚨 ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
     # =====================================================================
     if len(df_bom) > 0:
-        real_fabric_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]])
-        real_lining_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "LINING"])
-        real_fusing_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "FUSING"])
-        real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "RIB"])
+        real_fabric_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]])
+        real_lining_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "LINING"])
+        real_fusing_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "FUSING"])
+        real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "RIB"])
 
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
         if real_lining_sum > 0: msg += f" | Lót : `{real_lining_sum:.3f} Yds`"
