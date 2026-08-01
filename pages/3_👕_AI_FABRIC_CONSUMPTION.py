@@ -2313,7 +2313,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         elif p_cls == "RIB":
             net_areas["RIB"] += net_area * pcs
 
-    # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM
+        # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM (ĐÃ SỬA NGƯỢC)
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = v.get("material_class", "FABRIC")
@@ -2329,16 +2329,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
         
-        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST): Ăn theo tổng định mức sơ đồ tổng phẳng đã nới rộng
+        # 2.1. VẢI CHÍNH & VẢI PHỐI (CONTRAST)
         if p_cls in ["FABRIC", "CONTRAST"]:
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
-                # 🛠️ VÁ LỖI MẪU SỐ: Định mức một dòng chi tiết = (Định mức sơ đồ tổng * Phần trăm diện tích mảnh đó chiếm dụng) / Số lượng mảnh của dòng đó
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
-                allocated_gross = (global_fabric_gross * line_share_ratio) / max(1, pcs)
                 
-                # Biện pháp bảo hiểm riêng cho nhóm Đầm/Váy và Jacket: Ép sàn dòng chi tiết lớn không được sập quá sâu
+                # KHÔNG CHIA CHO PCS: Định mức tổng của vải chính đã là định mức cho 1 sản phẩm hoàn chỉnh
+                allocated_gross = global_fabric_gross * line_share_ratio
+                
+                # Biện pháp bảo hiểm riêng cho nhóm Đầm/Váy và Jacket
                 if (is_skirt_or_dress or is_jacket) and net_area > 150.0:
-                    min_item_floor = (net_area / (f_width * 36.0)) * 1.32  # Bù hao hụt hình học phẳng tối thiểu 32%
+                    min_item_floor = (net_area * pcs / (f_width * 36.0)) * 1.32
                     allocated_gross = max(allocated_gross, min_item_floor)
                     
                 return round(allocated_gross, 4)
@@ -2348,14 +2349,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "LINING":
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
-                return round((global_lining_gross * line_share_ratio * 1.30) / max(1, pcs), 4)
-            return round((((net_area * pcs) / l_width / 0.79) / 36.0) * wastage * 1.30, 4) if l_width > 0 else 0.0
+                # Chuẩn hóa lại định mức lót cho 1 sản phẩm
+                return round(global_lining_gross * line_share_ratio, 4)
+            return round((((net_area * pcs) / l_width / 0.79) / 36.0) * wastage, 4) if l_width > 0 else 0.0
             
         # 2.3. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
-                return round((global_fusing_gross * line_share_ratio * 1.30) / max(1, pcs), 4)
+                return round(global_fusing_gross * line_share_ratio, 4)
             
             p_len = float(v.get("processed_length", 0.0))
             p_wid = float(v.get("processed_width", 0.0))
@@ -2363,15 +2365,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
             
             fusing_density = 0.72 if void_ratio > 0.35 else 0.76
-            return round((((net_area * pcs) / fuse_width / fusing_density) / 36.0) * 1.30, 4) if fuse_width > 0 else 0.0
+            return round((((net_area * pcs) / fuse_width / fusing_density) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
 
         # 2.4. BO TĂM (RIB)
         if p_cls == "RIB":
             if fuse_width > 0:
-                return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.30, 4)
+                return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.15, 4)
             return 0.0
             
         return 0.0
+
 
     # Đẩy dữ liệu định mức Gross Consumption sạch vào DataFrame bảng dưới
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
