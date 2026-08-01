@@ -2232,6 +2232,49 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
+    # =====================================================================
+    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER - FIXED)
+    # =====================================================================
+    total_weighted_share_numerator = 0.0
+    
+    # Bước 1: Tính tổng mẫu số trọng số diện tích cho vải chính
+    for idx, r in df_bom.iterrows():
+        v = virtual_pieces_layer.get(idx, {})
+        if v.get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]:
+            p_area = float(v.get("polygon_net_area", 0.0))
+            p_pcs = int(v.get("active_user_pieces", 1))
+            comp_name = str(v.get("component_name", "")).upper()
+            
+            w_factor = 1.0
+            if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): 
+                w_factor = 1.0
+                
+            total_weighted_share_numerator += (p_area * p_pcs * w_factor)
+
+    # Bước 2: Phân bổ định mức tổng từ hàm GERBER SIMULATOR xuống từng dòng chi tiết
+    list_gross_consumption = []
+    for idx, r in df_bom.iterrows():
+        v = virtual_pieces_layer.get(idx, {})
+        p_class = v.get("material_class", "FABRIC")
+        p_area = float(v.get("polygon_net_area", 0.0))
+        p_pcs = int(v.get("active_user_pieces", 1))
+        
+        if p_class in ["FABRIC", "CONTRAST"]:
+            if total_weighted_share_numerator > 0:
+                # Ép dòng chi tiết phải ăn theo tổng định mức của bộ giả lập sơ đồ (total_fabric_gross_yds)
+                share_ratio = (p_area * p_pcs) / total_weighted_share_numerator
+                item_gross = total_fabric_gross_yds * share_ratio
+            else:
+                item_gross = 0.0
+        elif p_class == "LINING":
+            item_gross = (p_area * p_pcs / (lining_width * 36.0)) * target_wastage
+        else:
+            item_gross = (p_area * p_pcs / (fusing_width * 36.0)) * target_wastage
+            
+        list_gross_consumption.append(round(item_gross, 4))
+
+    # Cập nhật ngược lại vào bảng hiển thị giao diện
+    df_bom["Gross Consumption"] = list_gross_consumption
 
 
 
