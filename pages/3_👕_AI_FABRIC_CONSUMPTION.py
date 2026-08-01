@@ -2146,16 +2146,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8950, base_density))
         
-        # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI (INTERLOCKING FACTOR) ĐỘNG CHUẨN XƯỞNG PPJ
+              # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI (INTERLOCKING FACTOR) ĐỘNG CHUẨN XƯỞNG PPJ - TRẢ LẠI ZIN CHO QUẦN
         if material_type == "FABRIC":
             if is_ultra_wide_pattern:
                 interlocking_factor = 0.765 + (avg_shape_factor * 0.04)
             elif is_quarter_pattern:
                 interlocking_factor = 0.952 + (avg_shape_factor * 0.01)
             elif is_skirt_or_dress:
-                # ĐỒNG BỘ: Cân đối hệ số đan cài để nới rộng sơ đồ phẳng chiếm dụng một cách vừa vặn
+                # Chỉ can thiệp nới rộng diện tích bao riêng cho nhóm đầm váy xòe cong
                 interlocking_factor = 0.610 + (avg_shape_factor * 0.04)
             else:
+                # ✅ KHÔI PHỤC GỐC: Trả lại chính xác công thức gốc ban đầu giúp định mức quần chuẩn trở lại
                 interlocking_factor = 0.48 + (avg_shape_factor * 0.07)
         else:
             interlocking_factor = 0.52 + (avg_shape_factor * 0.06)
