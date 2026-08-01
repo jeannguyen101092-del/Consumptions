@@ -2170,7 +2170,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
-        # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT
+                # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT (ĐÃ CẬP NHẬT 60% CHO ĐẦM VÁY)
         if is_trouser:
             is_narrow_or_flare_jean = any(p["w"] < 15.0 for p in pieces_list if p["l"] > 30.0)
             if is_narrow_or_flare_jean or is_quarter_pattern:
@@ -2180,14 +2180,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 blend = 0.70  
         elif is_skirt_or_dress:
-            # 🛠️ FIX ĐẦM VÁY: Nâng blend từ 0.45 lên 0.68 để thuật toán ưu tiên bám sát cấu trúc Bao Hộp (BBox Area) thay vì Diện tích tịnh phẳng
-            blend = 0.6  
+            # 🛠️ CẬP NHẬT THEO YÊU CẦU: Lấy chính xác 60% diện tích bao (40% diện tích tịnh)
+            blend = 0.60  
         elif is_jacket:
             blend = 0.58  
         else:
             blend = 0.55  
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
+
         
         # 5. ÉP SÀN VẬT LÝ ĐỘNG (MIN MARKER FLOOR)
         if material_type == "FABRIC" and is_trouser:
