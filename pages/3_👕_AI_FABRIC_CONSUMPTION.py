@@ -2181,7 +2181,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 blend = 0.70  
         elif is_skirt_or_dress:
             # 🛠️ FIX ĐẦM VÁY: Nâng blend từ 0.45 lên 0.68 để thuật toán ưu tiên bám sát cấu trúc Bao Hộp (BBox Area) thay vì Diện tích tịnh phẳng
-            blend = 0.68  
+            blend = 0.6  
         elif is_jacket:
             blend = 0.58  
         else:
