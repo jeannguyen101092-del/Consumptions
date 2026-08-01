@@ -2094,8 +2094,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
        # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V18.1 - SKIRT/DRESS FIXED)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V18.2)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
@@ -2130,8 +2130,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_ultra_wide_pattern:
                 min_floor_density = 0.6450
             elif is_skirt_or_dress:
-                # 🛠️ FIX ĐẦM VÁY: Ép nhẹ mật độ trần xuống mốc thực tế để phản ánh khoảng trống lãng phí do rập xoè/cong tròn tạo ra
-                min_floor_density = 0.6550 if is_ultra_wide_pattern else 0.6820  
+                # ĐỒNG BỘ: Điều chỉnh nhẹ mật độ trần khớp với tỷ lệ diện tích bao 60% của đầm/váy
+                min_floor_density = 0.6650 if is_ultra_wide_pattern else 0.7020  
             elif is_trouser:
                 min_floor_density = 0.6950 if is_quarter_pattern else 0.7450  
             elif is_jacket:
@@ -2153,8 +2153,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif is_quarter_pattern:
                 interlocking_factor = 0.952 + (avg_shape_factor * 0.01)
             elif is_skirt_or_dress:
-                # 🛠️ FIX ĐẦM VÁY: Tăng nhẹ interlocking của đầm xòe lên 0.64 để nới rộng diện tích chiếm dụng bao hình chữ nhật
-                interlocking_factor = 0.640 + (avg_shape_factor * 0.05)
+                # ĐỒNG BỘ: Cân đối hệ số đan cài để nới rộng sơ đồ phẳng chiếm dụng một cách vừa vặn
+                interlocking_factor = 0.610 + (avg_shape_factor * 0.04)
             else:
                 interlocking_factor = 0.48 + (avg_shape_factor * 0.07)
         else:
@@ -2170,7 +2170,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = net_area / marker_width / real_density
         
-                # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT (ĐÃ CẬP NHẬT 60% CHO ĐẦM VÁY)
+        # PHỐI HỢP TUYẾN TÍNH ĐỘNG THEO CHỦNG LOẠI HÀNG SẢN XUẤT
         if is_trouser:
             is_narrow_or_flare_jean = any(p["w"] < 15.0 for p in pieces_list if p["l"] > 30.0)
             if is_narrow_or_flare_jean or is_quarter_pattern:
@@ -2180,7 +2180,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 blend = 0.70  
         elif is_skirt_or_dress:
-            # 🛠️ CẬP NHẬT THEO YÊU CẦU: Lấy chính xác 60% diện tích bao (40% diện tích tịnh)
+            # ✅ ĐÃ FIX ĐỒNG BỘ: Lấy chính xác 60% diện tích bao theo đúng yêu cầu giảm lại của bạn
             blend = 0.60  
         elif is_jacket:
             blend = 0.58  
@@ -2188,7 +2188,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             blend = 0.55  
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
-
         
         # 5. ÉP SÀN VẬT LÝ ĐỘNG (MIN MARKER FLOOR)
         if material_type == "FABRIC" and is_trouser:
@@ -2198,12 +2197,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 calculated_min_marker_floor = max_piece_length * 2.2
         elif material_type == "FABRIC" and is_skirt_or_dress:
-            # 🛠️ BIỆN PHÁP NỚI SÀN TỐI THƯỢNG CHO ĐẦM VÁY:
-            # Thu thập các mảnh chi tiết thân lớn (chiều dài > 25.0 in như Front Body Panel, Back Body Panel).
-            # Trong sơ đồ sản xuất thực tế, các thân dài của đầm không bao giờ chui lọt vào nhau hoàn toàn mà luôn chiếm dụng chiều dài tịnh tuyến xếp nối đuôi.
             large_dress_pieces = [p["l"] for p in pieces_list if p["l"] > 25.0]
             if len(large_dress_pieces) >= 2:
-                # Ép sàn bằng tổng 2 thân dài nhất nhân hệ số phân bổ so le cơ học (1.08)
                 calculated_min_marker_floor = sum(sorted(large_dress_pieces, reverse=True)[:2]) * 1.08
             else:
                 calculated_min_marker_floor = max_piece_length * 1.6
@@ -2234,6 +2229,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
+
 
 
 
