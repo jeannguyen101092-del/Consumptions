@@ -2094,10 +2094,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
        # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V18)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V18.1 - SKIRT/DRESS FIXED)
     # =====================================================================
-    # Đặt đoạn này nối tiếp ngay dưới Đoạn 5.1A phía trên của bạn
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
         
@@ -2131,10 +2130,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_ultra_wide_pattern:
                 min_floor_density = 0.6450
             elif is_skirt_or_dress:
-                min_floor_density = 0.7050  
+                # 🛠️ FIX ĐẦM VÁY: Ép nhẹ mật độ trần xuống mốc thực tế để phản ánh khoảng trống lãng phí do rập xoè/cong tròn tạo ra
+                min_floor_density = 0.6550 if is_ultra_wide_pattern else 0.6820  
             elif is_trouser:
-                # ✅ FIX LỖI THẤP CHÚT: Ép nhẹ mật độ lồng thực tế của hệ rập hẹp xuống mốc 0.695 
-                # để phản ánh đúng khoảng trống chết cơ học xung quanh các mảnh nhỏ (Coin, Facing, Loop)
                 min_floor_density = 0.6950 if is_quarter_pattern else 0.7450  
             elif is_jacket:
                 min_floor_density = 0.7350  
@@ -2153,8 +2151,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_ultra_wide_pattern:
                 interlocking_factor = 0.765 + (avg_shape_factor * 0.04)
             elif is_quarter_pattern:
-                # ✅ FIX LỖI THẤP CHÚT: Tăng nhẹ interlocking factor cơ sở của hệ rập hẹp lên 0.952 để nới dài sơ đồ phẳng chiếm dụng
                 interlocking_factor = 0.952 + (avg_shape_factor * 0.01)
+            elif is_skirt_or_dress:
+                # 🛠️ FIX ĐẦM VÁY: Tăng nhẹ interlocking của đầm xòe lên 0.64 để nới rộng diện tích chiếm dụng bao hình chữ nhật
+                interlocking_factor = 0.640 + (avg_shape_factor * 0.05)
             else:
                 interlocking_factor = 0.48 + (avg_shape_factor * 0.07)
         else:
@@ -2180,7 +2180,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 blend = 0.70  
         elif is_skirt_or_dress:
-            blend = 0.45  
+            # 🛠️ FIX ĐẦM VÁY: Nâng blend từ 0.45 lên 0.68 để thuật toán ưu tiên bám sát cấu trúc Bao Hộp (BBox Area) thay vì Diện tích tịnh phẳng
+            blend = 0.68  
         elif is_jacket:
             blend = 0.58  
         else:
@@ -2188,22 +2189,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # ✅ BIỆN PHÁP NỚI SÀN TỐI THƯỢNG CHO QUẦN ỐNG LOE HỆ 1/2 VÒNG RỘNG:
-        # Đối với quần Jeans ống loe, khi rập hẹp xếp nối đuôi nhau trên sơ đồ đại trà thực tế, 
-        # tổng chiều dài sơ đồ thô không thể nhỏ hơn tổng chiều dài của (Thân trước + Thân sau) nối đuôi.
-        # Thân trước dài 44.5 in + Thân sau dài 49.5 in = 94.0 in thô.
-        # Bắt buộc phải nhân với hệ số xếp lồng thực tế 1.12 để bù khoảng trống răng cưa dọc bàn rải.
+        # 5. ÉP SÀN VẬT LÝ ĐỘNG (MIN MARKER FLOOR)
         if material_type == "FABRIC" and is_trouser:
-            # Tìm tổng chiều dài của 2 thân lớn nhất xếp dọc nối đuôi nhau
             large_pieces = [p["l"] for p in pieces_list if p["l"] > 30.0]
             if len(large_pieces) >= 2:
                 calculated_min_marker_floor = sum(sorted(large_pieces, reverse=True)[:2]) * 1.12
             else:
                 calculated_min_marker_floor = max_piece_length * 2.2
+        elif material_type == "FABRIC" and is_skirt_or_dress:
+            # 🛠️ BIỆN PHÁP NỚI SÀN TỐI THƯỢNG CHO ĐẦM VÁY:
+            # Thu thập các mảnh chi tiết thân lớn (chiều dài > 25.0 in như Front Body Panel, Back Body Panel).
+            # Trong sơ đồ sản xuất thực tế, các thân dài của đầm không bao giờ chui lọt vào nhau hoàn toàn mà luôn chiếm dụng chiều dài tịnh tuyến xếp nối đuôi.
+            large_dress_pieces = [p["l"] for p in pieces_list if p["l"] > 25.0]
+            if len(large_dress_pieces) >= 2:
+                # Ép sàn bằng tổng 2 thân dài nhất nhân hệ số phân bổ so le cơ học (1.08)
+                calculated_min_marker_floor = sum(sorted(large_dress_pieces, reverse=True)[:2]) * 1.08
+            else:
+                calculated_min_marker_floor = max_piece_length * 1.6
         else:
             calculated_min_marker_floor = max_piece_length
             
-        # Ép sàn vật lý động: Chiều dài sơ đồ thô buộc phải nới rộng lên mức tối thiểu ~105 inch
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
         
         # BÙ BIÊN SƠ ĐỒ GERBER ĐẠI TRÀ (MARKER END LOSS SAFETY)
@@ -2229,51 +2234,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
 
-    # =====================================================================
-    # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER)
-    # =====================================================================
-    total_weighted_share_numerator = 0.0
-    for idx, r in df_bom.iterrows():
-        v = virtual_pieces_layer.get(idx, {})
-        if v.get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]:
-            p_area = float(v.get("polygon_net_area", 0.0))
-            p_pcs = int(v.get("active_user_pieces", 1))
-            comp_name = str(v.get("component_name", "")).upper()
-            
-            w_factor = 1.0
-            if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): w_factor = 1.08
-            total_weighted_share_numerator += (p_area * p_pcs * w_factor)
-
-    def core_engine_router(row, idx):
-        v = virtual_pieces_layer.get(idx, {})
-        p_class = v.get("material_class", "FABRIC")
-        p_pcs = int(v.get("active_user_pieces", 1))
-        p_area = float(v.get("polygon_net_area", 0.0))
-        comp_name = str(v.get("component_name", "")).upper()
-        
-        if p_class in ["FABRIC", "CONTRAST"]:
-            if total_weighted_share_numerator > 0:
-                w_factor = 1.0
-                if is_trouser and any(k in comp_name for k in ["WAISTBAND", "LƯNG", "YOKE", "CÚP"]): w_factor = 1.08
-                return round(((p_area * p_pcs * w_factor) / total_weighted_share_numerator) * total_fabric_gross_yds, 4)
-            return 0.0415
-        elif p_class == "LINING":
-            if total_lining_net_area > 0: return round((p_area * p_pcs / total_lining_net_area) * total_lining_gross_yds, 4)
-            return 0.0
-        elif p_class in ["FUSING", "RIB"]:
-            if total_fusing_net_area > 0: return round((p_area * p_pcs / total_fusing_net_area) * total_fusing_gross_yds, 4)
-            return 0.0
-        return 0.0
-
-    # Đồng bộ dữ liệu định mức đại trà sạch xuống DataFrame gốc phục vụ Đoạn 7 hiển thị
-    df_bom["Gross Consumption"] = [float(core_engine_router(row, idx)) for idx, row in df_bom.iterrows()]
-    
-    if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
-    ctx["ai_expert_decision"]["complexity_score"] = st.session_state.get("computed_geometry_score", 39)
-    ctx["ai_expert_decision"]["estimated_density_prior"] = st.session_state.get("computed_real_density", real_fabric_density)
-    # =====================================================================
-
-  
 
 
    
