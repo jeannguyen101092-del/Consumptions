@@ -2390,14 +2390,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "polygon_net_area" in df_bom.columns:
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("polygon_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
 
-    # =====================================================================
-    # 🚨 ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
+      # =====================================================================
+    # 🚨 ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN (FIXED KHỚP 100%)
     # =====================================================================
     if len(df_bom) > 0:
-        real_fabric_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]])
-        real_lining_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "LINING"])
-        real_fusing_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "FUSING"])
-        real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] * int(virtual_pieces_layer.get(idx, {}).get("active_user_pieces", 1)) for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "RIB"])
+        # Xóa bỏ phép nhân nhân với active_user_pieces vì Gross Consumption từng chi tiết đã tự bao hàm tỷ lệ tổng sản phẩm hoàn chỉnh
+        real_fabric_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]])
+        real_lining_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "LINING"])
+        real_fusing_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "FUSING"])
+        real_rib_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class") == "RIB"])
 
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
         if real_lining_sum > 0: msg += f" | Lót : `{real_lining_sum:.3f} Yds`"
