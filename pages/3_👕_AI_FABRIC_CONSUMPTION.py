@@ -2094,7 +2094,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
      # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.5 - AGGRESSIVE UP)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - TUNING DOWN)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: return 0.78, 0.0
@@ -2175,8 +2176,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 blend = 0.70  
         elif is_skirt_or_dress:
-            # 🛠️ NÂNG MẠNH: Tăng từ 72% lên hẳn 85% diện tích bao hình chữ nhật chữ nhật
-            blend = 0.85  
+            # 🛠️ HẠ NHẸ: Điều chỉnh từ 85% xuống 75% để giảm định mức đầm váy xuống bớt
+            blend = 0.75  
         elif is_jacket:
             blend = 0.70  
         else:
@@ -2203,10 +2204,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
         
-        # 🛠️ GIẢI PHÁP ĐẨY SỐ MẠNH MẼ CHO ĐẦM VÁY
+        # 🛠️ ĐIỀU CHỈNH ĐIỂM CÂN BẰNG CHO ĐẦM VÁY
         if material_type == "FABRIC" and is_skirt_or_dress:
-            # NÂNG MẠNH: Ép hệ số nhân bù hao hụt từ 1.15 lên thẳng mốc 1.35
-            safety_dress_marker_yds = (total_bbox_area / (marker_width * 36.0)) * 1.35
+            # 🛠️ HẠ NHẸ: Giảm hệ số chặn bảo hiểm từ 1.35 xuống mốc 1.22
+            safety_dress_marker_yds = (total_bbox_area / (marker_width * 36.0)) * 1.22
             total_gross_yds = max(total_gross_yds, safety_dress_marker_yds)
             
         if material_type == "FABRIC":
@@ -2224,6 +2225,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(fabric_pieces_to_nest, total_fabric_net_area, current_fabric_width, target_wastage, "FABRIC")
     real_lining_density, total_lining_gross_yds = run_geometric_net_solver(lining_pieces_to_nest, total_lining_net_area, lining_width, target_wastage, "LINING")
     real_fusing_density, total_fusing_gross_yds = run_geometric_net_solver(fusing_pieces_to_nest, total_fusing_net_area, fusing_width, target_wastage, "FUSING")
+
 
     # =====================================================================
     # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ ĐỊNH MỨC CÂN BẰNG MẪU SỐ (PROPORTIONAL PLACEMENT ROUTER - FIXED)
