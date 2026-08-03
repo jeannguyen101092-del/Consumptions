@@ -2135,8 +2135,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL GERBER ENGINE)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.9 - RIÊNG QUẦN SHORT)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: 
@@ -2181,7 +2181,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif _is_skirt_or_dress:
                 min_floor_density = 0.7350  
             elif _is_short:
-                min_floor_density = 0.8250  # Quần Short: Ép mật độ nén thô sàn cao vì rập ngắn dễ cài răng lược
+                min_floor_density = 0.8550  # 🚨 ÉP RIÊNG QUẦN SHORT: Đẩy mật độ nén thô lên rất cao
             elif _is_trouser:
                 min_floor_density = 0.7650 if is_quarter_pattern else 0.8150  
             elif _is_jacket:
@@ -2196,10 +2196,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         real_density = max(min_floor_density, min(0.8950, base_density))
         
-        # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI
+        # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI CHỐNG PHÌNH SƠ ĐỒ
         if material_type == "FABRIC":
             if _is_short:
-                interlocking_factor = 0.42 + (avg_shape_factor * 0.04) # Quần Short đan cài cực tốt
+                interlocking_factor = 0.35 + (avg_shape_factor * 0.02) # Rập short ngắn, lọt thỏm dặm biên cực khít
             else:
                 interlocking_factor = 0.50 + (avg_shape_factor * 0.05) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
         else:
@@ -2216,7 +2216,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
         if _is_short:
-            blend = 0.38  # Tối ưu hóa rập short đan dọc biên xuất sắc
+            blend = 0.20  # 🚨 ÉP RIÊNG QUẦN SHORT: Ưu tiên tối đa tính theo diện tích phẳng đan cài song song
         elif _is_trouser:
             blend = 0.45  
         elif _is_skirt_or_dress:
@@ -2230,13 +2230,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if material_type == "FABRIC":
             # 5.1. Thiết lập Mật độ sơ đồ mục tiêu (Target Utilization) chuẩn xưởng PPJ theo loại sản phẩm
             if _is_short:
-                target_utilization = 0.9150      # Quần Short: Rập ngắn, nhỏ, hiệu suất phủ kín cực cao (91% - 93%)
-                expansion_factor = 0.98          # Cho phép co ngắn chiều dài sơ đồ thô tối đa
+                target_utilization = 0.9320      # 🚨 QUẦN SHORT: Ép đỉnh trần nén sơ đồ Gerber thương mại (92% - 94%)
+                expansion_factor = 0.90          # Triệt tiêu khoảng không trống kéo sập định mức tổng xuống mốc thấp
             elif _is_trouser:
-                target_utilization = 0.8950      # Quần dài: Rập vuông vức, đan cài tốt (88% - 92%)
+                target_utilization = 0.8950      
                 expansion_factor = 1.00          
             elif _is_skirt_or_dress:
-                target_utilization = 0.7750      # Đầm/Váy xòe: Tùng rộng, nhiều khoảng trống biên (76% - 82%)
+                target_utilization = 0.7750      
                 expansion_factor = 1.16          
             elif _is_jacket:
                 target_utilization = 0.8250      
