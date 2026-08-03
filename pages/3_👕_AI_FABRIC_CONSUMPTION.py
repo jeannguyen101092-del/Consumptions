@@ -2326,46 +2326,55 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(allocated_gross, 4)
             return round((((net_area * pcs) / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
 
+               # =====================================================================
+        # 🚨 BỘ ĐỊNH TUYẾN PHÂN BỔ CHI TIẾT (LÀM SẠCH HỆ SỐ PCS CHỐNG VỌT ĐỊNH MỨC)
+        # =====================================================================
+        
         # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
             if net_areas["CONTRAST"] > 0:
                 base_contrast_gross = global_fabric_gross
                 if net_areas["FABRIC"] > 0:
-                    line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
+                    line_share_ratio = net_area / net_areas["FABRIC"]
                     return round(global_fabric_gross * line_share_ratio, 4)
                 else:
-                    line_share_ratio = (net_area * pcs) / net_areas["CONTRAST"]
+                    line_share_ratio = net_area / net_areas["CONTRAST"]
                     return round(base_contrast_gross * line_share_ratio, 4)
-            return round((((net_area * pcs) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
+            return round((((net_area) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
             if is_trouser:
                 # Đưa vải lót quần Jean về công thức hình học độc lập chuẩn xưởng
-                return round((((net_area * pcs) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+                return round((((net_area) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
-                line_share_ratio = (net_area * pcs) / net_areas["LINING"]
+                line_share_ratio = net_area / net_areas["LINING"]
                 return round(global_lining_gross * line_share_ratio, 4)
-            return round((((net_area * pcs) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            return round((((net_area) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - SỬA LỖI VỌT CAO TRÊN QUẦN JEAN
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - ĐÃ TRIỆT TIÊU LỖI VỌT CAO TRÊN ĐẦM VÀ QUẦN
         if p_cls == "FUSING":
             if is_trouser:
                 # Ép keo quần Jean tính toán độc lập cô lập theo diện tích chi tiết cạp để chặn vọt số
-                return round((((net_area * pcs) / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                return round((((net_area) / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
             
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
-                line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
+                # Phân bổ tỷ lệ chuẩn xác dựa trên diện tích tịnh thuần, loại bỏ nhân trùng pcs
+                line_share_ratio = net_area / net_areas["FUSING"]
                 allocated_gross = global_fusing_gross * line_share_ratio
-                min_fusing_floor = round((((net_area * pcs) / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                
+                # Mốc bảo hiểm kỹ thuật CAD tính chính xác (Không nhân trùng pcs với net_area)
+                min_fusing_floor = round((((net_area) / fuse_width / 0.82) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
                 return max(round(allocated_gross, 4), min_fusing_floor)
-            return round((((net_area * pcs) / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                
+            return round((((net_area) / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
 
         # 2.5. BO TĂM (RIB)
         if p_cls == "RIB":
-            return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
+            return round((((net_area) / fuse_width / 0.82) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
             
-        return round((((net_area * pcs) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
+        return round((((net_area) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
+
 
     # Đẩy dữ liệu định mức Gross Consumption sạch đã tính toán vào DataFrame
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
