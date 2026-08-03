@@ -2041,7 +2041,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
      # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & REAL CHAT EXTRACTOR (PERFECT V19.9)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & REAL CHAT EXTRACTOR (PERFECT V19.9 - FIXED NAMEERROR)
     # =====================================================================
     import re
 
@@ -2095,15 +2096,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             shrinkage_weft = float(weft_match.group(1).replace(',', '.'))
             st.session_state["shrinkage_weft_percent"] = shrinkage_weft
 
-    # Đồng bộ ngược lại session_state để file xuất Excel (C7, C8) bốc đúng số hiển thị báo cáo
-    if "shrinkage_warp_percent" not in st.session_state or shrink_warp_input == 0.0:
-        st.session_state["shrinkage_warp_percent"] = shrinkage_warp
-    if "shrinkage_weft_percent" not in st.session_state or shrink_weft_input == 0.0:
-        st.session_state["shrinkage_weft_percent"] = shrinkage_weft
+    # 🛠️ ĐÃ SỬA LỖI ĐỒNG BỘ: Ép gán giá trị an toàn tránh lỗi NameError dòng 2099
+    st.session_state["shrinkage_warp_percent"] = shrinkage_warp
+    st.session_state["shrinkage_weft_percent"] = shrinkage_weft
 
     # Đổi phần trăm sang hệ số thập phân hình học phục vụ phóng rập
-    shrinkage_warp_factor = st.session_state["shrinkage_warp_percent"] / 100.0
-    shrinkage_weft_factor = st.session_state["shrinkage_weft_percent"] / 100.0
+    shrinkage_warp_factor = shrinkage_warp / 100.0
+    shrinkage_weft_factor = shrinkage_weft / 100.0
 
     # Khổ phụ liệu cố định
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
