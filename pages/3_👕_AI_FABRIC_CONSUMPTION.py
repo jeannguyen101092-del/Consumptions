@@ -2539,13 +2539,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
         w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
         
+        # --- ĐÃ SỬA: Lấy chính xác dữ liệu độ co trích xuất từ chat lưu trong bom_ctx ---
         st_code = str(bom_ctx.get("style_code", "N/A")).upper()
         cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
         
+        # Giữ nguyên phần size và khổ vải cũ của bạn vì đã chạy đúng
+        f_width = f'{fabric_width}"' if 'fabric_width' in locals() else f'{bom_ctx.get("fabric_width", "N/A")}"'
+        d_size = str(detected_size_code) if 'detected_size_code' in locals() else str(bom_ctx.get("detected_size_code", "N/A"))
+        
+        # Lấy trực tiếp từ chat (nếu không tìm thấy sẽ hiển thị 0%)
+        w_shrink = str(bom_ctx.get("warp_shrink", "0"))
+        we_shrink = str(bom_ctx.get("weft_shrink", "0"))
+        
         m_data = [
             ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-            ("Size may mẫu (Sample Size):", str(detected_size_code), "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
-            ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
+            ("Size may mẫu (Sample Size):", d_size, "Khổ vải hữu dụng (Width):", f_width),
+            ("Co rút dọc (Warp Shrinkage):", f'{w_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{we_shrink}%'),
             ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
         ]
         
@@ -2553,7 +2562,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx, val in enumerate(row_data, start=1):
                 cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
                 cell.border = bd_thin
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột Tiêu đề
                 if c_idx == 1 or c_idx == 3:
                     cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
                 else:
@@ -2575,7 +2583,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             for c_idx in range(1, 5):
                 cell = w_s1.cell(row=c_row, column=c_idx)
                 cell.font = f_normal; cell.border = bd_thin
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột dữ liệu căn giữa
                 if c_idx == 2 or c_idx == 4: 
                     cell.alignment = Alignment(horizontal="center", vertical="center")
             c_row += 1
@@ -2602,7 +2609,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 cell = w_s2.cell(row=c_row, column=c_idx, value=val)
                 cell.font = f_normal; cell.border = bd_thin
                 
-                # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột căn lề bảng chi tiết
                 if c_idx == 1 or c_idx == 2 or c_idx == 3:
                     cell.alignment = Alignment(horizontal="left", vertical="center")
                 elif c_idx == 4 or c_idx == 5 or c_idx == 6:
