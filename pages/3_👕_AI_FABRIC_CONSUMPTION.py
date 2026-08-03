@@ -2116,7 +2116,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
 
-     # =====================================================================
+      # =====================================================================
     # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL REFIXED)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
@@ -2160,7 +2160,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif _is_skirt_or_dress:
                 min_floor_density = 0.7350  
             elif _is_trouser:
-                min_floor_density = 0.7850 if is_quarter_pattern else 0.8350  # Cân bằng mật độ xếp rập quần Jean
+                min_floor_density = 0.7650 if is_quarter_pattern else 0.8150  # Mật độ nén tối ưu cho quần Jean phẳng
             elif _is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2168,14 +2168,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
             base_density = 0.865 - (avg_shape_factor * 0.065) + (small_area_ratio * 0.03)
         else:
-            min_floor_density = 0.7900 if material_type == "LINING" else 0.8200 # Nâng cao mật độ nén sơ đồ keo xưởng
+            min_floor_density = 0.7900 if material_type == "LINING" else 0.8200 
             base_density = 0.81 - (avg_shape_factor * 0.05) if material_type == "LINING" else 0.84 - (avg_shape_factor * 0.04)
             
         real_density = max(min_floor_density, min(0.8950, base_density))
         
         # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI
         if material_type == "FABRIC":
-            interlocking_factor = 0.52 + (avg_shape_factor * 0.06) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
+            interlocking_factor = 0.50 + (avg_shape_factor * 0.05) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
         else:
             interlocking_factor = 0.55 + (avg_shape_factor * 0.05)
 
@@ -2184,37 +2184,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         real_density = max(min_floor_density, min(0.8950, real_density))
 
-        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ SỬA LỖI HỤT VẢI
+        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ HÌNH HỌC CHUẨN
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = total_net_pure / marker_width / real_density
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
         if _is_trouser:
-            blend = 0.22  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
+            blend = 0.45  # Ưu tiên tính theo diện tích phẳng để rập đan cài song song song khổ vải 58
         elif _is_skirt_or_dress:
-            blend = 0.42 
+            blend = 0.42  
         else:
-            blend = 0.5 
+            blend = 0.50  
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # 5. ÉP SÀN VẬT LÝ ĐỘNG CHUẨN XƯỞNG
+        # 5. ÉP SÀN VẬT LÝ ĐỘNG CHUẨN XƯỞNG ĐƠN CHIẾC (CỞI TRÓI LỖI NỐI ĐUÔI)
         if material_type == "FABRIC":
-            if _is_trouser:
-                large_pieces = [p["l"] for p in pieces_list if p["l"] > 30.0]
-                if len(large_pieces) >= 2:
-                    calculated_min_marker_floor = sum(sorted(large_pieces, reverse=True)[:2]) * 1.08
-                else:
-                    calculated_min_marker_floor = _max_piece_length * 2.0
-            else:
-                calculated_min_marker_floor = _max_piece_length * 1.15 if _is_skirt_or_dress else _max_piece_length
+            # Đối với sơ đồ đơn chiếc, chiều dài tối thiểu chỉ bằng chi tiết dài nhất cộng bù biên an toàn nhẹ
+            calculated_min_marker_floor = _max_piece_length * 1.05
         else:
             calculated_min_marker_floor = max([p["l"] for p in pieces_list]) if len(pieces_list) > 0 else 0.0
             
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
         
         if material_type == "FABRIC":
-            gerber_margin = max(3.0, sim_length_inch * 0.020)
+            gerber_margin = max(2.5, sim_length_inch * 0.015)
             sim_length_inch += gerber_margin
 
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
@@ -2262,6 +2256,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             item_gross = 0.0
             
         v["raw_simulated_gross"] = round(item_gross, 4)
+
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - PERFECT FIXED V19.9)
     # =====================================================================
