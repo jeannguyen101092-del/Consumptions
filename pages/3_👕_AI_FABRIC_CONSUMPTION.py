@@ -2187,11 +2187,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
         if _is_trouser:
-            blend = 0.72  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
+            blend = 0.48  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
         elif _is_skirt_or_dress:
-            blend = 0.45  
+            blend = 0.42 
         else:
-            blend = 0.55  
+            blend = 0.5 
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
