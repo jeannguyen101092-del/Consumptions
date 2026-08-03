@@ -2326,7 +2326,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
       # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - REFIXED V19.8)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - PERFECT FIXED V19.9)
     # =====================================================================
     
     # Ép giải phóng tầm vực biến an toàn từ hàm giả lập sơ đồ 5.1B
@@ -2334,7 +2334,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() else 0.0
     global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() else 0.0
 
-    # Khai báo phòng vệ biến hao hụt hệ thống toàn cục cho Đoạn 5.2
+    # ÉP ĐỒNG BỘ ĐỊNH NGHĨA BIẾN PHÒNG VỆ TOÀN CỤC CHO ĐOẠN 5.2 (TRÁNH LỖI NAMEERROR DÒNG 2232)
+    f_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    l_width = float(st.session_state.get("lining_width_inch", 57.0))
+    fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
     local_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) if 'ai_decision_d5' in locals() else 1.030
 
     # Khởi tạo mẫu số diện tích tịnh độc lập cho từng chủng loại vật tư
@@ -2371,11 +2374,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = int(v.get("active_user_pieces", 1))
         net_area = float(v.get("polygon_net_area", 0.0))
         
-        # Đọc cấu hình từ giao diện UI cục bộ an toàn phòng vệ tuyệt đối
-        f_width = float(st.session_state.get("fabric_width_inch", 58.0))
-        l_width = float(st.session_state.get("lining_width_inch", 57.0))
-        fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
-        
         if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
         
@@ -2406,7 +2404,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return round(base_contrast_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
-        # 2.3. VẢI LÓT (LINING)
+        # 2.3. VẢI LÓT (LINING) - ĐÃ BẢO VỆ ĐỒNG BỘ KHÔNG CÒN LỖI DÒNG 2232
         if p_cls == "LINING":
             if net_areas["LINING"] <= 0:
                 return 0.0
@@ -2415,7 +2413,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(global_lining_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / l_width / 0.79) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - Sửa triệt để biến target_wastage thành local_wastage
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
             if net_areas["FUSING"] <= 0:
                 return 0.0
@@ -2438,7 +2436,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.15, 4)
             return 0.0
             
-        # 2.6. KHỐI PHÒNG VỆ CUỐI CÙNG (Thay thế dòng lỗi 2234 dứt điểm NameError)
+        # 2.6. KHỐI PHÒNG VỆ CUỐI CÙNG
         return round((((net_area * pcs) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
 
     # Đẩy dữ liệu định mức Gross Consumption sạch đã tính toán vào DataFrame
@@ -2469,6 +2467,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo Rib: `{real_rib_sum:.3f} Yds`"
         st.success(msg)
+
 
 
 
