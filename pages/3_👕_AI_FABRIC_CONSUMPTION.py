@@ -2110,8 +2110,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - REFIXED SCOPE)
+     # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL REFIXED)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: 
@@ -2152,9 +2152,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if is_ultra_wide_pattern:
                 min_floor_density = 0.6450
             elif _is_skirt_or_dress:
-                min_floor_density = 0.7350  # Giữ mật độ đầm váy ở mốc chuẩn tối ưu
+                min_floor_density = 0.7350  
             elif _is_trouser:
-                min_floor_density = 0.6950 if is_quarter_pattern else 0.7450  
+                min_floor_density = 0.7050 if is_quarter_pattern else 0.7550  # Cân bằng mật độ xếp rập quần Jean
             elif _is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2162,46 +2162,53 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
             base_density = 0.865 - (avg_shape_factor * 0.065) + (small_area_ratio * 0.03)
         else:
-            min_floor_density = 0.7900 if material_type == "LINING" else 0.7400 # Nâng nhẹ sàn mếch keo
-            base_density = 0.81 - (avg_shape_factor * 0.05) if material_type == "LINING" else 0.78 - (avg_shape_factor * 0.04)
+            min_floor_density = 0.7900 if material_type == "LINING" else 0.8200 # Nâng cao mật độ nén sơ đồ keo xưởng
+            base_density = 0.81 - (avg_shape_factor * 0.05) if material_type == "LINING" else 0.84 - (avg_shape_factor * 0.04)
             
         real_density = max(min_floor_density, min(0.8950, base_density))
         
         # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI
         if material_type == "FABRIC":
-            interlocking_factor = 0.45 + (avg_shape_factor * 0.06)
+            interlocking_factor = 0.52 + (avg_shape_factor * 0.06) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
         else:
-            interlocking_factor = 0.48 + (avg_shape_factor * 0.05)
+            interlocking_factor = 0.55 + (avg_shape_factor * 0.05)
 
         if one_way_flag: real_density -= 0.035
         elif nap_layout_flag: real_density -= 0.015
         
         real_density = max(min_floor_density, min(0.8950, real_density))
 
-        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ SỬA LỖI TRÙNG DIỆN TÍCH
+        # TÍNH TOÁN CHIỀU DÀI SƠ ĐỒ SỬA LỖI HỤT VẢI
         sim_length_inch_bbox = (total_bbox_area / marker_width) * interlocking_factor
         sim_length_inch_net = total_net_pure / marker_width / real_density
         
-        # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐẦM VÁY
-        if _is_skirt_or_dress:
-            blend = 0.45  # Điều chỉnh tỷ lệ blend để vải chính hạ xuống mốc thực tế
-        elif _is_trouser:
-            blend = 0.60
+        # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
+        if _is_trouser:
+            blend = 0.72  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
+        elif _is_skirt_or_dress:
+            blend = 0.45  
         else:
-            blend = 0.50  
+            blend = 0.55  
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
         # 5. ÉP SÀN VẬT LÝ ĐỘNG CHUẨN XƯỞNG
         if material_type == "FABRIC":
-            calculated_min_marker_floor = _max_piece_length * 1.15 if _is_skirt_or_dress else _max_piece_length
+            if _is_trouser:
+                large_pieces = [p["l"] for p in pieces_list if p["l"] > 30.0]
+                if len(large_pieces) >= 2:
+                    calculated_min_marker_floor = sum(sorted(large_pieces, reverse=True)[:2]) * 1.08
+                else:
+                    calculated_min_marker_floor = _max_piece_length * 2.0
+            else:
+                calculated_min_marker_floor = _max_piece_length * 1.15 if _is_skirt_or_dress else _max_piece_length
         else:
-            calculated_min_marker_floor = max([p["l"] for p in pieces_list]) * 1.2 if len(pieces_list) > 0 else 0.0
+            calculated_min_marker_floor = max([p["l"] for p in pieces_list]) if len(pieces_list) > 0 else 0.0
             
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
         
         if material_type == "FABRIC":
-            gerber_margin = max(2.5, sim_length_inch * 0.015)
+            gerber_margin = max(3.0, sim_length_inch * 0.020)
             sim_length_inch += gerber_margin
 
         total_gross_yds = (sim_length_inch / 36.0) * wastage_factor
@@ -2303,22 +2310,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
+            if is_trouser:
+                # Đưa vải lót quần Jean về công thức hình học độc lập chuẩn xưởng
+                return round((((net_area * pcs) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
-                allocated_gross = global_lining_gross * line_share_ratio
-                return round(allocated_gross, 4)
+                return round(global_lining_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - ĐỒNG BỘ ĐỘNG TRÁNH THẤP QUÁ
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - SỬA LỖI VỌT CAO TRÊN QUẦN JEAN
         if p_cls == "FUSING":
+            if is_trouser:
+                # Ép keo quần Jean tính toán độc lập cô lập theo diện tích chi tiết cạp để chặn vọt số
+                return round((((net_area * pcs) / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+            
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
                 allocated_gross = global_fusing_gross * line_share_ratio
-                
-                # Bọc thêm mốc bảo hiểm để mếch keo không bị nhảy số ảo thấp quá
                 min_fusing_floor = round((((net_area * pcs) / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
                 return max(round(allocated_gross, 4), min_fusing_floor)
-                
             return round((((net_area * pcs) / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
 
         # 2.5. BO TĂM (RIB)
@@ -2350,7 +2360,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
-
 
 
 
