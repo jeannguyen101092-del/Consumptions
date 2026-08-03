@@ -2308,7 +2308,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
 
 
-       # =====================================================================
+     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - REFIXED V19.6)
     # =====================================================================
     
@@ -2351,7 +2351,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = int(v.get("active_user_pieces", 1))
         net_area = float(v.get("polygon_net_area", 0.0))
         
-        # Đọc cấu hình từ giao diện UI an toàn phòng vệ
+        # Đọc cấu hình từ giao diện UI theo tên biến chuẩn ở đoạn 5.1A
         f_width = float(st.session_state.get("fabric_width_inch", 58.0))
         l_width = float(st.session_state.get("lining_width_inch", 57.0))
         fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
@@ -2366,7 +2366,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
                 allocated_gross = global_fabric_gross * line_share_ratio
                 
-                # 🛠️ HẠ NHẸ: Điều chỉnh mức sàn bảo hiểm chi tiết lớn xuống mốc an toàn 1.18 (Thay vì 1.32 cũ làm vọt định mức đầm)
+                # HẠ NHẸ: Giảm sàn bảo hiểm đầm váy chi tiết lớn xuống mốc an toàn 1.18
                 if (is_skirt_or_dress or is_jacket) and net_area > 150.0:
                     min_item_floor = (net_area * pcs / (f_width * 36.0)) * 1.18
                     allocated_gross = max(allocated_gross, min_item_floor)
@@ -2374,17 +2374,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(allocated_gross, 4)
             return round((((net_area * pcs) / f_width / 0.75) / 36.0) * wastage, 4) if f_width > 0 else 0.0
 
-        # 2.2. VẢI PHỐI (CONTRAST) - Chạy thuật toán định mức độc lập hoặc ăn theo nền vải chính
+        # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
             if net_areas["CONTRAST"] > 0:
-                # Tìm kiếm biến định mức tổng của vải phối nếu có, nếu không tự động dùng hàm fallback diện tích phẳng
                 base_contrast_gross = locals().get("total_contrast_gross_yds", global_fabric_gross)
                 if base_contrast_gross == global_fabric_gross and net_areas["FABRIC"] > 0:
-                    # Nếu chạy chung sơ đồ bàn cắt với vải chính
                     line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
                     return round(global_fabric_gross * line_share_ratio, 4)
                 else:
-                    # Nếu chạy độc lập sơ đồ phối riêng
                     line_share_ratio = (net_area * pcs) / net_areas["CONTRAST"]
                     return round(base_contrast_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / f_width / 0.72) / 36.0) * wastage, 4) if f_width > 0 else 0.0
@@ -2398,7 +2395,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(global_lining_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / l_width / 0.79) / 36.0) * wastage, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - Đã sửa đồng bộ biến fuse_width thành biến cục bộ an toàn
         if p_cls == "FUSING":
             if net_areas["FUSING"] <= 0:
                 return 0.0
@@ -2438,7 +2435,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("polygon_net_area", 0.0), 2) if (isinstance(virtual_pieces_layer, dict) and idx in virtual_pieces_layer) else round(row.get("polygon_net_area", 0.0), 2) for idx, row in df_bom.iterrows()]
 
     # =====================================================================
-    # 🚨 ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
+    # ĐỒNG BỘ HIỂN THỊ DÒNG LOG XANH: BỐC TỔNG ĐỘNG TỪ BẢNG CHI TIẾT DƯỚI LÊN
     # =====================================================================
     if len(df_bom) > 0:
         real_fabric_sum = sum([df_bom.loc[idx, "Gross Consumption"] for idx in df_bom.index if virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC") in ["FABRIC", "CONTRAST"]])
@@ -2451,6 +2448,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo Rib: `{real_rib_sum:.3f} Yds`"
         st.success(msg)
+
 
 
 
