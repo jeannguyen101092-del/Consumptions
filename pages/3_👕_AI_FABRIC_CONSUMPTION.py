@@ -2116,8 +2116,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
 
-      # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL REFIXED)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - GERBER ENGINE REAL FIXED)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: 
@@ -2160,7 +2160,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif _is_skirt_or_dress:
                 min_floor_density = 0.7350  
             elif _is_trouser:
-                min_floor_density = 0.7650 if is_quarter_pattern else 0.8150  # Mật độ nén tối ưu cho quần Jean phẳng
+                min_floor_density = 0.7650 if is_quarter_pattern else 0.8150  
             elif _is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2190,7 +2190,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
         if _is_trouser:
-            blend = 0.45  # Ưu tiên tính theo diện tích phẳng để rập đan cài song song song khổ vải 58
+            blend = 0.45  
         elif _is_skirt_or_dress:
             blend = 0.42  
         else:
@@ -2198,12 +2198,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # 5. ÉP SÀN VẬT LÝ ĐỘNG CHUẨN XƯỞNG ĐƠN CHIẾC (CỞI TRÓI LỖI NỐI ĐUÔI)
+        # 5. ÉP SÀN VẬT LÝ THEO MA TRẬN HÌNH HỌC GERBER ĐỘNG (DỰA TRÊN TARGET UTILIZATION)
         if material_type == "FABRIC":
-            # Đối với sơ đồ đơn chiếc, chiều dài tối thiểu chỉ bằng chi tiết dài nhất cộng bù biên an toàn nhẹ
-            calculated_min_marker_floor = _max_piece_length * 1.05
+            # 5.1. Thiết lập Mật độ sơ đồ mục tiêu (Target Utilization) chuẩn xưởng PPJ theo loại sản phẩm
+            if _is_trouser:
+                target_utilization = 0.8950      # Quần: Rập vuông vức, đan cài tốt (88% - 92%)
+            elif _is_skirt_or_dress:
+                target_utilization = 0.7850      # Đầm/Váy xòe: Tùng rộng, nhiều khoảng trống biên (76% - 82%)
+            elif _is_jacket:
+                target_utilization = 0.8350      # Jacket: Nhiều chi tiết nhỏ dặm biên (80% - 85%)
+            else:
+                target_utilization = 0.8400      
+                
+            # 5.2. Tính toán chiều dài sàn sơ đồ vật lý theo công thức Gerber gốc
+            if marker_width > 0 and target_utilization > 0:
+                calculated_min_marker_floor = total_net_pure / (marker_width * target_utilization)
+            else:
+                calculated_min_marker_floor = _max_piece_length
+                
+            # Đảm bảo sơ đồ tối thiểu phải chứa vừa vặn chi tiết dài nhất (Biên an toàn kỹ thuật)
+            calculated_min_marker_floor = max(calculated_min_marker_floor, _max_piece_length * 1.02)
         else:
-            calculated_min_marker_floor = max([p["l"] for p in pieces_list]) if len(pieces_list) > 0 else 0.0
+            # Đối với Lót và Keo: Áp dụng mật độ nén sơ đồ phụ liệu chuẩn xưởng
+            sub_utilization = 0.8300 if material_type == "LINING" else 0.7900
+            if marker_width > 0 and len(pieces_list) > 0:
+                calculated_min_marker_floor = total_net_pure / (marker_width * sub_utilization)
+                calculated_min_marker_floor = max(calculated_min_marker_floor, max([p["l"] for p in pieces_list]) * 1.02)
+            else:
+                calculated_min_marker_floor = 0.0
             
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
         
@@ -2256,6 +2278,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             item_gross = 0.0
             
         v["raw_simulated_gross"] = round(item_gross, 4)
+
 
     # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - PERFECT FIXED V19.9)
