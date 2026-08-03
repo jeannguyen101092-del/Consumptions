@@ -2513,8 +2513,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
 
-
-   # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+# 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
 # =====================================================================
 def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
     output_stream = io.BytesIO()
@@ -2541,7 +2540,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
-    # SỬA LỖI LOGIC: Trích xuất toàn bộ thông số từ dictionary bom_ctx được truyền vào
+    # Trích xuất toàn bộ thông số động từ dictionary bom_ctx được truyền vào
     st_code = str(bom_ctx.get("style_code", "N/A")).upper()
     cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
     size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
@@ -2589,70 +2588,66 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         m_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col_idx)
         w_s1.column_dimensions[col_letter].width = max(m_len + 3, 12)
-        # --- TAB 2: DETAILED CAD PIECES ---
-        w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
-        w_s2.sheet_view.showGridLines = True
-        w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
-        
-        # Tiêu đề hiển thị trên File Excel
-        det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
-        
-        # ÁNH XẠ CHUẨN: Bản đồ liên kết Tiêu đề Excel -> Key thực tế trong DataFrame df_det
-        # Cập nhật chính xác theo các cột hiển thị trên giao diện Web (Chiều dài rập, Chiều rộng rập...)
-        col_mapping = {
-            "Component Name": "Component Name",
-            "Material Class": "Material Class",
-            "Role/Piece Type": "Role/Piece Type",
-            "Khổ vải sản xuất (inch)": "Khổ vải sản xuất (inch)",
-            "Size tính toán": "Size tính toán",
-            "Số lượng rập": "Số lượng rập",
-            "Dài sản xuất (L-inch)": "Chiều dài rập (inch)",   # Đã sửa đổi theo giao diện App
-            "Rộng sản xuất (W-inch)": "Chiều rộng rập (inch)", # Đã sửa đổi theo giao diện App
-            "polygon_net_area": "polygon_net_area",
-            "Gross Consumption": "Gross Consumption"
-        }
 
-        for c_idx, h_text in enumerate(det_hd, start=1):
-            cell = w_s2.cell(row=3, column=c_idx, value=h_text)
-            cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
+    # --- TAB 2: DETAILED CAD PIECES ---
+    w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
+    w_s2.sheet_view.showGridLines = True
+    w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
+    
+    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+    
+    col_mapping = {
+        "Component Name": "Component Name",
+        "Material Class": "Material Class",
+        "Role/Piece Type": "Role/Piece Type",
+        "Khổ vải sản xuất (inch)": "Khổ vải sản xuất (inch)",
+        "Size tính toán": "Size tính toán",
+        "Số lượng rập": "Số lượng rập",
+        "Dài sản xuất (L-inch)": "Chiều dài rập (inch)",   
+        "Rộng sản xuất (W-inch)": "Chiều rộng rập (inch)", 
+        "polygon_net_area": "polygon_net_area",
+        "Gross Consumption": "Gross Consumption"
+    }
 
-        c_row = 4
-        for _, r in df_det.iterrows():
-            for c_idx, h_col in enumerate(det_hd, start=1):
-                # Lấy key thực tế trong dataframe thông qua mapping
-                df_key = col_mapping.get(h_col, h_col)
-                val = r.get(df_key, "")
-                
-                # ÉP KIỂU SỐ AN TOÀN: Đảm bảo các cột định mức/kích thước chuyển về float để định dạng dạng số
-                if h_col in ["Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)", "Số lượng rập"]:
-                    try:
-                        if val is not None and str(val).strip() != "":
-                            val = float(val)
-                    except ValueError:
-                        pass # Giữ nguyên nếu không ép kiểu được
-                
-                cell = w_s2.cell(row=c_row, column=c_idx, value=val)
-                cell.font = f_normal; cell.border = bd_thin
-                
-                # Phân bổ căn lề chuẩn theo định dạng bảng kỹ thuật ngành may
-                if c_idx in:  # Các cột chữ (Tên chi tiết, Loại vật tư...)
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif c_idx in: # Khổ vải, Cỡ, Số lượng
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                else:                    # Các thông số kích thước, diện tích, định mức
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
-                    if isinstance(val, (int, float)):
-                        cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
-            c_row += 1
+    for c_idx, h_text in enumerate(det_hd, start=1):
+        cell = w_s2.cell(row=3, column=c_idx, value=h_text)
+        cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
 
-        for col_idx, col in enumerate(w_s2.columns, start=1):
-            m_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col_idx)
-            w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
+    c_row = 4
+    for _, r in df_det.iterrows():
+        for c_idx, h_col in enumerate(det_hd, start=1):
+            df_key = col_mapping.get(h_col, h_col)
+            val = r.get(df_key, "")
+            
+            if h_col in ["Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)", "Số lượng rập"]:
+                try:
+                    if val is not None and str(val).strip() != "":
+                        val = float(val)
+                except ValueError:
+                    pass
+            
+            cell = w_s2.cell(row=c_row, column=c_idx, value=val)
+            cell.font = f_normal; cell.border = bd_thin
+            
+            if c_idx in:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            elif c_idx in:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                if isinstance(val, (int, float)):
+                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
+        c_row += 1
 
-        workbook.save(output_stream)
-        output_stream.seek(0)
-        return output_stream
+    for col_idx, col in enumerate(w_s2.columns, start=1):
+        m_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col_idx)
+        w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
+
+    workbook.save(output_stream)
+    output_stream.seek(0)
+    return output_stream
+
 
        # =====================================================================
       # =====================================================================
