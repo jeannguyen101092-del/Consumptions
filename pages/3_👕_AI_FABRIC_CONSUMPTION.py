@@ -2700,7 +2700,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     return output_stream
 
 
-    # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2785,18 +2785,18 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     df_bom_display["Material Class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
     
-    # ✅ THÊM MỚI: Đưa trực tiếp thông số độ co rút từ chat vào DataFrame hiển thị và xuất file Excel
+    # ✅ ĐỒNG BỘ ĐỘ CO RÚT LÊN BẢNG HIỂN THỊ
     df_bom_display["Co rút dọc (Warp)"] = f"{ctx.get('warp_shrink', '0')}%"
     df_bom_display["Co rút ngang (Weft)"] = f"{ctx.get('weft_shrink', '0')}%"
 
-    # ✅ VÁ LỖI HIỂN THỊ SỐ LƯỢNG MẢNH KẸT SỐ 1: Bốc trực tiếp từ layer phôi ảo đã đối xứng tự động của Đoạn 4
+    # ✅ VÁ LỖI HIỂN THỊ SỐ LƯỢNG MẢNH KẸT SỐ 1
     df_bom_display["Số lượng rập"] = [
         int(st.session_state["user_edited_pieces"].get(idx, virtual_pieces_layer.get(idx, {}).get("piece_count", 1))) 
         for idx in df_bom.index
     ]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Sắp xếp thứ tự trực quan scannable cho bảng chi tiết (Đã chèn 2 cột độ co)
+    # Sắp xếp thứ tự trực quan scannable cho bảng chi tiết
     ordered_cols = [
         "_original_row_index", 
         "Component Name", 
@@ -2827,7 +2827,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         except Exception as e: 
             pass
 
-    # HIỂN THỊ LƯỚI DATA_EDITOR VỚI ĐỊNH DẠNG KHỔ VẢI CHUẨN SỐ NGUYÊN HOÀN TOÀN
+    # HIỂN THỊ LƯỚI DATA_EDITOR VỚI ĐỊNH DẠNG CHUẨN KHOẢNG CÁCH THỤT LỀ
     edited_df = st.data_editor(
         df_bom_display, 
         column_config={
@@ -2847,8 +2847,12 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
 
-    # ✅ TIẾP TỤC XỬ LÝ SỬA LỖI LOẠI... (đoạn logic lưu cập nhật của bạn)
-
+    # ✅ LƯU TRẠNG THÁI CHỈNH SỬA TỪ USER ĐỂ TRÁNH RESET BẢNG KHI RERUN
+    if edited_df is not None:
+        for _, row in edited_df.iterrows():
+            orig_idx = row["_original_row_index"]
+            st.session_state["user_edited_pieces"][orig_idx] = int(row["Số lượng rập"])
+            st.session_state["user_edited_materials"][orig_idx] = row["Material Class"]
 
       # ✅ SỬA LỖI LOẠI BỎ TYPEERROR (TUPLE/ARRAY): Trích xuất chính xác phần tử đầu tiên bằng .iloc[0]
     has_changed = False
