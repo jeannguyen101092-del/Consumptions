@@ -2325,7 +2325,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     max_piece_length = max(max_piece_length, local_max_fabric_length)
 
 
-     # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - REFIXED V19.7)
     # =====================================================================
     
@@ -2467,6 +2467,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo Rib: `{real_rib_sum:.3f} Yds`"
         st.success(msg)
+
 
 
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
