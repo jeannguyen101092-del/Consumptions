@@ -2700,7 +2700,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     return output_stream
 
 
-     # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2847,7 +2847,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
 
-    # ✅ FIX HOÀN CHỈNH .iloc[0] ĐỂ TRÁNH LỖI PHÂN TÍCH MẢNG TUPLE TỪ DATA_EDITOR
+    # ✅ ĐÃ SỬA: Bổ sung chỉ số dòng [0] đầy đủ vào .iloc để xử lý dữ liệu thay đổi trên bảng
     has_changed = False
     if edited_df is not None:
         for _, row in edited_df.iterrows():
@@ -2855,7 +2855,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
             
             target_rows = df_bom_display[df_bom_display["_original_row_index"] == orig_idx]
             if not target_rows.empty:
-                # Sử dụng .iloc[0] chính xác để bốc phần tử đơn lẻ
+                # Sử dụng .iloc[0] chính xác để bốc phần tử đơn lẻ của mảng dòng
                 old_pcs = int(float(target_rows["Số lượng rập"].iloc[0]))
                 new_pcs = int(float(row["Số lượng rập"]))
                 if old_pcs != new_pcs:
