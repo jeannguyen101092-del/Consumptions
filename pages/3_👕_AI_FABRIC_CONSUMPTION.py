@@ -2040,13 +2040,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "ai_expert_decision" not in ctx: ctx["ai_expert_decision"] = {}
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
      # =====================================================================
-       # =====================================================================
-       # =====================================================================
-       # =====================================================================
         # =====================================================================
-       # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & CHAT CHAT SHRINKAGE EXTRACTOR (V19.9)
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & REAL CHAT EXTRACTOR (PERFECT V19.9)
     # =====================================================================
     import re
 
@@ -2063,38 +2058,52 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
     if not isinstance(virtual_pieces_layer, dict): virtual_pieces_layer = {}
 
-    # 🚨 1. BỘ TRÍCH XUẤT ĐỘ CO RÚT TỰ ĐỘNG TỪ CÂU CHAT (CHAT TEXT PARSER)
-    # Mặc định phòng vệ chuẩn xưởng nếu câu chat không có số
-    shrinkage_warp = 4.5
-    shrinkage_weft = 3.0
+    # 🚨 1. BỘ TRÍCH XUẤT ĐỘ CO RÚT ÉP BUỘC LẤY TỪ NỘI DUNG Ô CHAT NGƯỜI DÙNG
+    # Mặc định ban đầu bằng 0.0% tuyệt đối, không tự ý gán số bừa
+    shrinkage_warp = 0.0
+    shrinkage_weft = 0.0
     current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
 
-    # Bốc chuỗi văn bản câu chat mới nhất của người dùng từ session_state hoặc context
-    user_chat_input = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
-    
-    if user_chat_input:
-        # Tìm thông số Khổ vải (Ví dụ: kho 58 hoặc khổ 58)
-        width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_chat_input)
+    # Bốc nội dung văn bản tin nhắn chát mới nhất từ luồng chat Streamlit
+    user_chat_text = ""
+    if "messages" in st.session_state and st.session_state["messages"]:
+        # Lấy tin nhắn cuối cùng của người dùng (user) trong lịch sử chat
+        user_messages = [msg["content"] for msg in st.session_state["messages"] if msg.get("role") == "user"]
+        if user_messages:
+            user_chat_text = str(user_messages[-1]).lower().strip()
+    else:
+        # Dự phòng nếu hệ thống dùng widget st.chat_input trực tiếp
+        user_chat_text = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
+
+    # Thực hiện bốc tách chuỗi ký tự từ câu chat thực tế của bạn
+    if user_chat_text:
+        # Bốc thông số Khổ vải (Ví dụ: khổ 58, kho 58)
+        width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_chat_text)
         if width_match:
             current_fabric_width = float(width_match.group(1))
             st.session_state["fabric_width_inch"] = current_fabric_width
             
-        # Tìm độ co rút DỌC (Ví dụ: dọc 3 hoặc dọc 3.5)
-        warp_match = re.search(r'dọc\s*(\d+(?:[\.,]\d+)?)', user_chat_input)
+        # Bốc độ co rút DỌC (Ví dụ: dọc 3, dọc 3.5)
+        warp_match = re.search(r'dọc\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
         if warp_match:
-            # Thay thế dấu phẩy bằng dấu chấm để chuyển sang số float chuẩn Python
             shrinkage_warp = float(warp_match.group(1).replace(',', '.'))
             st.session_state["shrinkage_warp_percent"] = shrinkage_warp
             
-        # Tìm độ co rút NGANG (Ví dụ: ngang 15 hoặc ngang 1.5)
-        weft_match = re.search(r'ngang\s*(\d+(?:[\.,]\d+)?)', user_chat_input)
+        # Bốc độ co rút NGANG (Ví dụ: ngang 1.5, ngang 15)
+        weft_match = re.search(r'ngang\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
         if weft_match:
             shrinkage_weft = float(weft_match.group(1).replace(',', '.'))
             st.session_state["shrinkage_weft_percent"] = shrinkage_weft
 
-    # Chuyển đổi con số phần trăm sang hệ số thập phân hình học phục vụ phóng rập
-    shrinkage_warp_factor = shrinkage_warp / 100.0
-    shrinkage_weft_factor = shrinkage_weft / 100.0
+    # Đồng bộ ngược lại session_state để file xuất Excel (C7, C8) bốc đúng số hiển thị báo cáo
+    if "shrinkage_warp_percent" not in st.session_state or shrink_warp_input == 0.0:
+        st.session_state["shrinkage_warp_percent"] = shrinkage_warp
+    if "shrinkage_weft_percent" not in st.session_state or shrink_weft_input == 0.0:
+        st.session_state["shrinkage_weft_percent"] = shrinkage_weft
+
+    # Đổi phần trăm sang hệ số thập phân hình học phục vụ phóng rập
+    shrinkage_warp_factor = st.session_state["shrinkage_warp_percent"] / 100.0
+    shrinkage_weft_factor = st.session_state["shrinkage_weft_percent"] / 100.0
 
     # Khổ phụ liệu cố định
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
@@ -2126,7 +2135,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     list_lengths, list_widths, list_updated_pieces = [], [], []
     local_max_fabric_length = 0.0
 
-    # 🚨 3. THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁ C CHI TIẾT (ÁP CO RÚT TỪ Ô CHAT)
+    # 🚨 3. THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT (BÙ CO RÚT BỐC TỪ Ô CHAT)
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
@@ -2148,7 +2157,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             net_area = raw_net_area if raw_net_area > 0 else 15.0  
 
-        # PHÓNG TO RẬP BÙ CO RÚT DỰA TRÊN THÔNG SỐ TỰ ĐỘNG BỐC TỪ Ô CHAT ĐÃ PARSE PHÍA TRÊN
+        # PHỐNG TO RẬP THEO CO RÚT BỐC TỪ CÂU CHAT THỰC TẾ
         if p_class in ["FABRIC", "CONTRAST"]:
             p_length = p_length / (1.0 - shrinkage_warp_factor) if shrinkage_warp_factor < 1.0 else p_length
             p_width = p_width / (1.0 - shrinkage_weft_factor) if shrinkage_weft_factor < 1.0 else p_width
