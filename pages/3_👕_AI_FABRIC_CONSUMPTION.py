@@ -2077,10 +2077,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class in ["VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
         v_piece["material_class"] = p_class
 
-        # Bộ quét diện tịnh đa tầng diện tích (Tự động tính từ dài x rộng x 0.72 nếu bị rỗng)
+        # Bộ quét diện tịnh đa tầng diện tích (TỐI ƯU HẠ ĐỊNH MỨC QUẦN JEAN - FIX DIỆN TÍCH RỖNG)
         raw_net_area = float(v_piece.get("polygon_net_area", v_piece.get("net_area", r.get("Net Area", 0.0))))
         if raw_net_area <= 0 and p_length > 0 and p_width > 0:
-            net_area = p_length * p_width * 0.72  
+            # Nếu là quần Jean, diện tích tịnh thực tế chỉ chiếm khoảng 42% khung bao chữ nhật
+            _ratio = 0.42 if is_trouser else 0.72
+            net_area = p_length * p_width * _ratio  
         else:
             net_area = raw_net_area if raw_net_area > 0 else 15.0  
         v_piece["polygon_net_area"] = net_area
@@ -2094,7 +2096,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_lengths.append(round(p_length, 2))
         list_widths.append(round(p_width, 2))
 
-        # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B
+        # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B (SỬA LỖI TRÙNG DIỆN TÍCH)
+        # Đảm bảo "area" truyền vào luôn là diện tích của MỘT chi tiết đơn lẻ
         pure_unit_area = net_area / current_pcs if current_pcs > 0 else net_area
 
         if p_class in ["FABRIC", "CONTRAST"]:
