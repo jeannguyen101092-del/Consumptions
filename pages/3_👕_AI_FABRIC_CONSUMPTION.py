@@ -2514,138 +2514,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.success(msg)
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
-    def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
-    output_stream = io.BytesIO()
-    workbook = Workbook()
-    
-    f_family = "Segoe UI"
-    f_normal = Font(name=f_family, size=10)
-    f_bold = Font(name=f_family, size=10, bold=True)
-    f_title = Font(name=f_family, size=14, bold=True, color="0E6251")
-    f_header = Font(name=f_family, size=10, bold=True, color="FFFFFF")
-    
-    fill_header = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
-    fill_meta = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
-    
-    bd_side = Side(style='thin', color='BDC3C7')
-    bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
-    
-    # --- TAB 1: BOM SUMMARY ---
-    w_s1 = workbook.active
-    w_s1.title = "BOM Summary"
-    w_s1.sheet_view.showGridLines = True
-    
-    w_s1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
-    w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
-    w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
-    
-    st_code = str(bom_ctx.get("style_code", "N/A")).upper()
-    cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
-    size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
-    fab_w = bom_ctx.get("fabric_width", 58.0)
-    w_shrink = bom_ctx.get("warp_shrink", 0.0)
-    wf_shrink = bom_ctx.get("weft_shrink", 0.0)
-    
-    m_data = [
-        ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-        ("Size may mẫu (Sample Size):", size_code, "Khổ vải hữu dụng (Width):", f'{fab_w}"'),
-        ("Co rút dọc (Warp Shrinkage):", f'{w_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{wf_shrink}%'),
-        ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
-    ]
-    
-    for r_idx, row_data in enumerate(m_data, start=5):
-        for c_idx, val in enumerate(row_data, start=1):
-            cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
-            cell.border = bd_thin
-            if c_idx == 1 or c_idx == 3:
-                cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
-            else:
-                cell.font = f_normal; cell.alignment = Alignment(horizontal="center", vertical="center")
-                
-    w_s1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=f_family, size=11, bold=True)
-    sum_hd = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
-    for c_idx, h_text in enumerate(sum_hd, start=1):
-        cell = w_s1.cell(row=11, column=c_idx, value=h_text)
-        cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = bd_thin
-        
-    c_row = 12
-    for _, r in df_sum.iterrows():
-        w_s1.cell(row=c_row, column=1, value=r.get("Phân loại vật tư", "VẬT TƯ"))
-        w_s1.cell(row=c_row, column=2, value=r.get("Material Class", "FABRIC"))
-        w_s1.cell(row=c_row, column=3, value=float(r.get("Gross Consumption", 0.0)))
-        w_s1.cell(row=c_row, column=4, value=r.get("UOM", "YDS"))
-        w_s1.cell(row=c_row, column=3).number_format = '#,##0.0000'
-        for c_idx in range(1, 5):
-            cell = w_s1.cell(row=c_row, column=c_idx)
-            cell.font = f_normal; cell.border = bd_thin
-            if c_idx == 2 or c_idx == 4: 
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-        c_row += 1
-
-    for col_idx, col in enumerate(w_s1.columns, start=1):
-        m_len = max(len(str(cell.value or '')) for cell in col)
-        col_letter = get_column_letter(col_idx)
-        w_s1.column_dimensions[col_letter].width = max(m_len + 3, 12)
-
-    # --- TAB 2: DETAILED CAD PIECES ---
-    w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
-    w_s2.sheet_view.showGridLines = True
-    w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
-    
-    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
-    
-    col_mapping = {
-        "Component Name": "Component Name",
-        "Material Class": "Material Class",
-        "Role/Piece Type": "Role/Piece Type",
-        "Khổ vải sản xuất (inch)": "Khổ vải sản xuất (inch)",
-        "Size tính toán": "Size tính toán",
-        "Số lượng rập": "Số lượng rập",
-        "Dài sản xuất (L-inch)": "Chiều dài rập (inch)",   
-        "Rộng sản xuất (W-inch)": "Chiều rộng rập (inch)", 
-        "polygon_net_area": "polygon_net_area",
-        "Gross Consumption": "Gross Consumption"
-    }
-
-    for c_idx, h_text in enumerate(det_hd, start=1):
-        cell = w_s2.cell(row=3, column=c_idx, value=h_text)
-        cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
-
-    c_row = 4
-    for _, r in df_det.iterrows():
-        for c_idx, h_col in enumerate(det_hd, start=1):
-            df_key = col_mapping.get(h_col, h_col)
-            val = r.get(df_key, "")
-            
-            if h_col in ["Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)", "Số lượng rập"]:
-                try:
-                    if val is not None and str(val).strip() != "":
-                        val = float(val)
-                except ValueError:
-                    pass
-            
-            cell = w_s2.cell(row=c_row, column=c_idx, value=val)
-            cell.font = f_normal; cell.border = bd_thin
-            
-            if c_idx in:
-                cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx in:
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                cell.alignment = Alignment(horizontal="right", vertical="center")
-                if isinstance(val, (int, float)):
-                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
-        c_row += 1
-
-    for col_idx, col in enumerate(w_s2.columns, start=1):
-        m_len = max(len(str(cell.value or '')) for cell in col)
-        col_letter = get_column_letter(col_idx)
-        w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
-
-    workbook.save(output_stream)
-    output_stream.seek(0)
-    return output_stream
-Use code with caution.🌟 Trường hợp 2: Nếu hàm này nằm BÊN TRONG một hàm lớn khác (hoặc khối def main():)Từ khóa def lùi vào đúng 4 khoảng trắng.python    # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+       # KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
         output_stream = io.BytesIO()
@@ -2779,9 +2648,6 @@ Use code with caution.🌟 Trường hợp 2: Nếu hàm này nằm BÊN TRONG m
         output_stream.seek(0)
         return output_stream
 
-
-
-       # =====================================================================
       # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
