@@ -2045,8 +2045,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
         # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (FINAL UI RECOGNITION FIXED)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & CHAT CHAT SHRINKAGE EXTRACTOR (V19.9)
     # =====================================================================
+    import re
+
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
     one_way_flag = st.session_state.get("is_one_way_fabric", False)  
@@ -2060,15 +2063,45 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
     if not isinstance(virtual_pieces_layer, dict): virtual_pieces_layer = {}
 
-    # Khổ vải chuẩn đầu vào từ cấu hình (inch)
-    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0)) 
+    # 🚨 1. BỘ TRÍCH XUẤT ĐỘ CO RÚT TỰ ĐỘNG TỪ CÂU CHAT (CHAT TEXT PARSER)
+    # Mặc định phòng vệ chuẩn xưởng nếu câu chat không có số
+    shrinkage_warp = 4.5
+    shrinkage_weft = 3.0
+    current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+
+    # Bốc chuỗi văn bản câu chat mới nhất của người dùng từ session_state hoặc context
+    user_chat_input = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
+    
+    if user_chat_input:
+        # Tìm thông số Khổ vải (Ví dụ: kho 58 hoặc khổ 58)
+        width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_chat_input)
+        if width_match:
+            current_fabric_width = float(width_match.group(1))
+            st.session_state["fabric_width_inch"] = current_fabric_width
+            
+        # Tìm độ co rút DỌC (Ví dụ: dọc 3 hoặc dọc 3.5)
+        warp_match = re.search(r'dọc\s*(\d+(?:[\.,]\d+)?)', user_chat_input)
+        if warp_match:
+            # Thay thế dấu phẩy bằng dấu chấm để chuyển sang số float chuẩn Python
+            shrinkage_warp = float(warp_match.group(1).replace(',', '.'))
+            st.session_state["shrinkage_warp_percent"] = shrinkage_warp
+            
+        # Tìm độ co rút NGANG (Ví dụ: ngang 15 hoặc ngang 1.5)
+        weft_match = re.search(r'ngang\s*(\d+(?:[\.,]\d+)?)', user_chat_input)
+        if weft_match:
+            shrinkage_weft = float(weft_match.group(1).replace(',', '.'))
+            st.session_state["shrinkage_weft_percent"] = shrinkage_weft
+
+    # Chuyển đổi con số phần trăm sang hệ số thập phân hình học phục vụ phóng rập
+    shrinkage_warp_factor = shrinkage_warp / 100.0
+    shrinkage_weft_factor = shrinkage_weft / 100.0
+
+    # Khổ phụ liệu cố định
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (ÉP PHÒNG VỆ CHỮ HIỂN THỊ UI QUẦN SHORT)
+    # 🚨 2. BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
-    
-    # 1. Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học quần ngắn)
     has_short_panel = False
     for idx, r in df_bom.iterrows():
         comp_name = str(r.get("Component Name", "")).upper()
@@ -2077,33 +2110,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if ("BODY" in comp_name or "PANEL" in comp_name or "THÂN" in comp_name) and (0.0 < p_len < 33.0):
             has_short_panel = True
 
-    # 2. Định nghĩa nhãn Short chuẩn xác
     is_short = ("SHORT" in product_category or "NGẮN" in product_category or "SKORT" in product_category or has_short_panel)
-    
     is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
     is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category) and not is_short
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
-    # 3. ĐÈ TRỰC TIẾP VÀO CẤU HÌNH GỐC ĐỂ ÉP STREAMLIT ĐỔI CHỮ HIỂN THỊ TRÊN MÀN HÌNH
     if is_short:
         product_category = "JEAN_SHORT (Quần ngắn / Váy Short)"
         ai_decision_d5["product_category"] = "JEAN_SHORT"
-        
-        # Bẻ gãy cache của session_state găm chữ JEAN_LONG cũ
-        if "bom_data" in st.session_state:
-            if "ai_expert_decision" in st.session_state["bom_data"]:
-                st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
-            if "product_category" in st.session_state["bom_data"]:
-                st.session_state["bom_data"]["product_category"] = "JEAN_SHORT"
-        if "product_category" in st.session_state:
-            st.session_state["product_category"] = "JEAN_SHORT"
+        if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
+            st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
 
     total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
     fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
     list_lengths, list_widths, list_updated_pieces = [], [], []
     local_max_fabric_length = 0.0
 
-    # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT
+    # 🚨 3. THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁ C CHI TIẾT (ÁP CO RÚT TỪ Ô CHAT)
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
@@ -2125,13 +2148,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             net_area = raw_net_area if raw_net_area > 0 else 15.0  
 
-        # ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG
+        # PHÓNG TO RẬP BÙ CO RÚT DỰA TRÊN THÔNG SỐ TỰ ĐỘNG BỐC TỪ Ô CHAT ĐÃ PARSE PHÍA TRÊN
         if p_class in ["FABRIC", "CONTRAST"]:
-            shrinkage_warp = float(st.session_state.get("shrinkage_warp_percent", 4.5)) / 100.0
-            shrinkage_weft = float(st.session_state.get("shrinkage_weft_percent", 3.0)) / 100.0
-            p_length = p_length / (1.0 - shrinkage_warp)
-            p_width = p_width / (1.0 - shrinkage_weft)
-            net_area = net_area / ((1.0 - shrinkage_warp) * (1.0 - shrinkage_weft))
+            p_length = p_length / (1.0 - shrinkage_warp_factor) if shrinkage_warp_factor < 1.0 else p_length
+            p_width = p_width / (1.0 - shrinkage_weft_factor) if shrinkage_weft_factor < 1.0 else p_width
+            net_area = net_area / ((1.0 - shrinkage_warp_factor) * (1.0 - shrinkage_weft_factor)) if (shrinkage_warp_factor < 1.0 and shrinkage_weft_factor < 1.0) else net_area
 
         v_piece["polygon_net_area"] = net_area
 
