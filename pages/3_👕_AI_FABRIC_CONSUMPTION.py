@@ -2030,7 +2030,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
        # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (FIXED NAMEERROR LINE 2089)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (FINAL UI RECOGNITION FIXED)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2050,33 +2051,42 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (TÁCH BIỆT SHORT HOÀN TOÀN)
+    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (ÉP PHÒNG VỆ CHỮ HIỂN THỊ UI QUẦN SHORT)
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
     
-    # Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học quần ngắn)
+    # 1. Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học quần ngắn)
     has_short_panel = False
     for idx, r in df_bom.iterrows():
         comp_name = str(r.get("Component Name", "")).upper()
         v_p = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_len = float(v_p.get("processed_length", v_p.get("length", r.get("Length", 0.0))))
-        if ("BODY" in comp_name or "PANEL" in comp_name or "THÂN" in comp_name) and (0.0 < p_len < 31.0):
+        if ("BODY" in comp_name or "PANEL" in comp_name or "THÂN" in comp_name) and (0.0 < p_len < 33.0):
             has_short_panel = True
 
+    # 2. Định nghĩa nhãn Short chuẩn xác
     is_short = ("SHORT" in product_category or "NGẮN" in product_category or "SKORT" in product_category or has_short_panel)
     
     is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
     is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category) and not is_short
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
+    # 3. ĐÈ TRỰC TIẾP VÀO CẤU HÌNH GỐC ĐỂ ÉP STREAMLIT ĐỔI CHỮ HIỂN THỊ TRÊN MÀN HÌNH
     if is_short:
         product_category = "JEAN_SHORT (Quần ngắn / Váy Short)"
         ai_decision_d5["product_category"] = "JEAN_SHORT"
-        if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
-            st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
+        
+        # Bẻ gãy cache của session_state găm chữ JEAN_LONG cũ
+        if "bom_data" in st.session_state:
+            if "ai_expert_decision" in st.session_state["bom_data"]:
+                st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
+            if "product_category" in st.session_state["bom_data"]:
+                st.session_state["bom_data"]["product_category"] = "JEAN_SHORT"
+        if "product_category" in st.session_state:
+            st.session_state["product_category"] = "JEAN_SHORT"
 
     total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
     fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
-    list_lengths, list_widths, list_updated_pieces = [], [], [] # 🛠️ ĐÃ SỬA ĐÚNG CHÍNH TẢ BIẾN list_updated_pieces Ở ĐÂY
+    list_lengths, list_widths, list_updated_pieces = [], [], []
     local_max_fabric_length = 0.0
 
     # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT
@@ -2087,7 +2097,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_width = float(v_piece.get("processed_width", v_piece.get("width", r.get("Width", 0.0))))
         
         current_pcs = int(float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("piece_count", r.get("Pcs", 1)))))
-        list_updated_pieces.append(current_pcs) # Hết lỗi NameError
+        list_updated_pieces.append(current_pcs)
         v_piece["active_user_pieces"] = current_pcs 
 
         p_class = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
@@ -2140,6 +2150,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     if local_max_fabric_length <= 0: local_max_fabric_length = max_piece_length
     max_piece_length = local_max_fabric_length
+
+   
 
        # =====================================================================
     # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.9 - RIÊNG QUẦN SHORT)
