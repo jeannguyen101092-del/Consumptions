@@ -2279,7 +2279,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             item_gross = 0.0
             
         v["raw_simulated_gross"] = round(item_gross, 4)
-    # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - PERFECT FIXED V19.9)
     # =====================================================================
     global_fabric_gross = total_fabric_gross_yds
@@ -2302,6 +2302,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls in net_areas:
             net_areas[p_cls] += net_area * pcs
 
+    # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = str(v.get("material_class", "FABRIC")).upper().strip()
@@ -2311,6 +2312,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
         
+        # 2.1. VẢI CHÍNH (FABRIC)
         if p_cls == "FABRIC":
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["FABRIC"]
@@ -2322,6 +2324,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round(allocated_gross, 4)
             return round((((net_area * pcs) / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
 
+        # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
             if net_areas["CONTRAST"] > 0:
                 base_contrast_gross = global_fabric_gross
@@ -2333,31 +2336,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return round(base_contrast_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
+        # 2.3. VẢI LÓT (LINING) - ĐÃ HẠ ĐỊNH MỨC THEO DIỆN TÍCH THỰC TẾ
         if p_cls == "LINING":
-            if net_areas["LINING"] <= 0: return 0.0
-            if global_lining_gross > 0:
-                line_share_ratio = (net_area * pcs) / net_areas["LINING"]
-                return round(global_lining_gross * line_share_ratio, 4)
-            return round((((net_area * pcs) / l_width / 0.79) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            if l_width > 0 and net_area > 0:
+                return round((((net_area * pcs) / l_width / 0.82) / 36.0) * local_wastage, 4)
+            return 0.0
             
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - ĐÃ HẠ ĐỊNH MỨC THEO DIỆN TÍCH THỰC TẾ
         if p_cls == "FUSING":
-            if net_areas["FUSING"] <= 0: return 0.0
-            if global_fusing_gross > 0:
-                line_share_ratio = (net_area * pcs) / net_areas["FUSING"]
-                return round(global_fusing_gross * line_share_ratio, 4)
-            
-            p_len = float(v.get("processed_length", 0.0))
-            p_wid = float(v.get("processed_width", 0.0))
-            bounding_box_area = p_len * p_wid
-            void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
-            fusing_density = 0.72 if void_ratio > 0.35 else 0.76
-            return round((((net_area * pcs) / fuse_width / fusing_density) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
+            if fuse_width > 0 and net_area > 0:
+                p_len = float(v.get("processed_length", 0.0))
+                p_wid = float(v.get("processed_width", 0.0))
+                bounding_box_area = p_len * p_wid
+                void_ratio = (bounding_box_area - net_area) / bounding_box_area if bounding_box_area > 0 else 0.0
+                fusing_density = 0.75 if void_ratio > 0.35 else 0.80
+                return round((((net_area * pcs) / fuse_width / fusing_density) / 36.0) * 1.05, 4)
+            return 0.0
 
+        # 2.5. BO TĂM (RIB)
         if p_cls == "RIB":
             return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
             
         return round((((net_area * pcs) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
 
+    # Đẩy dữ liệu định mức Gross Consumption sạch đã tính toán vào DataFrame
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     
     width_map = {"FABRIC": f_width, "CONTRAST": f_width, "LINING": l_width, "FUSING": fuse_width, "RIB": fuse_width}
@@ -2380,6 +2382,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
+
 
 
 
