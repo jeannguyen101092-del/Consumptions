@@ -2512,10 +2512,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
-
-# 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
-# =====================================================================
-def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
+     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+     def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
     output_stream = io.BytesIO()
     workbook = Workbook()
     
@@ -2540,7 +2538,6 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
-    # Trích xuất toàn bộ thông số động từ dictionary bom_ctx được truyền vào
     st_code = str(bom_ctx.get("style_code", "N/A")).upper()
     cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
     size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
@@ -2647,6 +2644,9 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     workbook.save(output_stream)
     output_stream.seek(0)
     return output_stream
+
+
+
 
 
        # =====================================================================
