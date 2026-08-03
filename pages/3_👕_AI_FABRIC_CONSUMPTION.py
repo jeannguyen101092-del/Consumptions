@@ -2323,6 +2323,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER NESTING SIMULATOR & COMPONENT ENGINE (FIXED DÒNG 2232)
+    # =====================================================================
+    # Khởi tạo tổng định mức thô cho các phân lớp vật tư sạch
+    total_fabric_gross_yds = 0.0
+    total_lining_gross_yds = 0.0
+    total_fusing_gross_yds = 0.0
+
+    # ÉP PHÒNG VỆ BIẾN TOÀN CỤC TRÁNH LỖI NAMEERROR TẠI DÒNG 2232
+    if 'target_wastage' not in locals():
+        target_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030))
+    if 'lining_width' not in locals():
+        lining_width = float(st.session_state.get("lining_width_inch", 57.0))
+    if 'current_fabric_width' not in locals():
+        current_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+    if 'fusing_width' not in locals():
+        fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))
+
+    # Chạy vòng lặp tính toán thô định mức cho từng dòng chi tiết rập phẳng
+    for idx, r in df_bom.iterrows():
+        v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_class = str(v_piece.get("material_class", "FABRIC")).upper().strip()
+        p_area = float(v_piece.get("polygon_net_area", 0.0))
+        p_pcs = int(v_piece.get("active_user_pieces", 1))
+        
+        # Bắt đầu khối logic xử lý phân cấp cấu trúc if/else tính toán thô
+        if p_area <= 0:
+            item_gross = 0.0
+        elif p_class in ["FABRIC", "CONTRAST"]:
+            if current_fabric_width > 0:
+                item_gross = (p_area * p_pcs / (current_fabric_width * 36.0)) * target_wastage
+            else:
+                item_gross = 0.0
+            total_fabric_gross_yds += item_gross
+        elif p_class == "LINING":
+            # DÒNG LỖI CŨ 2232 ĐÃ ĐƯỢC BẢO VỆ AN TOÀN BẰNG PHÒNG VỆ TRÁNH CHIA CHO KHÔNG (ZERO DIVISION)
+            if lining_width > 0:
+                item_gross = (p_area * p_pcs / (lining_width * 36.0)) * target_wastage
+            else:
+                item_gross = 0.0
+            total_lining_gross_yds += item_gross
+        elif p_class in ["FUSING", "RIB"]:
+            if fusing_width > 0:
+                item_gross = (p_area * p_pcs / (fusing_width * 36.0)) * 1.15
+            else:
+                item_gross = 0.0
+            total_fusing_gross_yds += item_gross
+        else:
+            item_gross = 0.0
+
+        # Gán tạm giá trị gross thô phòng vệ vào cấu trúc dữ liệu tầng chi tiết
+        v_piece["raw_simulated_gross"] = round(item_gross, 4)
 
 
       # =====================================================================
