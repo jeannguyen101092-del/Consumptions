@@ -1604,7 +1604,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     warp_shrink = float(st.session_state["warp_shrinkage"])
     weft_shrink = float(st.session_state["weft_shrinkage"])
         # =====================================================================
-    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER - BẢN SỬA LỖI NHẬN DIỆN ĐẦM
+       # =====================================================================
+    # 🟩 ĐOẠN 3.1: AI MULTI-LAYER PRODUCT CLASSIFIER - BẢN FIX TRIỆT ĐỂ LỖI QUẦN SHORT / VÁY SHORT
     # =====================================================================
     import pandas as pd
 
@@ -1623,19 +1624,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
     combined_search_text = f"{all_components_text} {prod_upper_name}"
 
+    # 🧠 TẦNG EXTRA: Bẫy ma trận hình học quét chiều dài rập thân phòng hờ file Excel/Techpack bị thiếu chữ SHORT
+    has_short_panel_matrix = False
+    for idx, r in df_bom.iterrows():
+        comp_name_check = str(r.get(comp_col_check, "")).upper()
+        p_len_check = float(r.get("Length", r.get("length", 0.0)))
+        if ("BODY" in comp_name_check or "PANEL" in comp_name_check or "THÂN" in comp_name_check) and (0.0 < p_len_check < 33.0):
+            has_short_panel_matrix = True
+
     # 🧠 TẦNG 2: ƯU TIÊN SỐ 1 - NHẬN DIỆN VÁY / ĐẦM (Bao gồm đầm suông, đầm xòe, váy thời trang)
     if any(x in combined_search_text for x in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI", "TÙNG VÁY", "SQUARE NECK"]):
         product_category = "DRESS_FLARE"
         
-    elif any(x in combined_search_text for x in ["SKIRT", "CHÂN VÁY", "VÁY"]):
+    elif any(x in combined_search_text for x in ["SKIRT", "CHÂN VÁY", "VÁY"]) and not any(x in combined_search_text for x in ["SHORT", "NGẮN"]):
         product_category = "SKIRT"
 
-    # 🧠 TẦNG 3: NHẬN DIỆN ÁO (JACKET/SHIRT) - Đã loại bỏ chữ BODY PANEL khỏi bộ quét độc quyền
-    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
+    # 🧠 TẦNG 2.5: ƯU TIÊN CAO CHO QUẦN SHORT / VÁY SHORT (JORT / SKORT) - CHẶN HOÀN TOÀN LỖI NUỐT NHÃN
+    elif any(x in combined_search_text for x in ["SHORT", "NGẮN", "JORT", "SKORT"]) or has_short_panel_matrix:
+        product_category = "SHORT"
+
+    # 🧠 TẦNG 3: NHẬN DIỆN ÁO (JACKET/SHIRT)
+    elif any(x in combined_search_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
         product_category = "JACKET"
 
     # 🧠 TẦNG 4: NHẬN DIỆN QUẦN LONG PANTS / JEANS
-    elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG"]):
+    elif any(x in combined_search_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG"]):
         product_category = "JEAN_LONG"
         
     # TẦNG DỰ PHÒNG CUỐI CÙNG: Đối chiếu thủ công nếu bộ quét linh kiện bị trống
@@ -1654,7 +1667,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif product_category == "SKIRT": ai_product_type = "SKIRT (Chân váy)"
     elif product_category == "TOPS_KNIT": ai_product_type = "TOPS_KNIT (Áo thun/Polo)"
     elif product_category == "SHIRT": ai_product_type = "SHIRT (Áo sơ mi)"
-    elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
+    elif product_category == "SHORT": ai_product_type = "SHORT (Quần ngắn / Quần Shorts)"
     else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
     
     # Ghi nhận kết quả phân tích sạch vào vùng nhớ hệ thống context
@@ -1664,6 +1677,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["product_category"] = product_category
     ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
     ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
+
 
        # =====================================================================
     # 🟩 ĐOẠN 3.2: GEOMETRIC FEATURE ENGINE & DISTRIBUTION PRIOR - FIXED FOR SKIRT/DRESS
