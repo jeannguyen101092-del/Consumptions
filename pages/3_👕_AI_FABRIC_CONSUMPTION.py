@@ -2160,7 +2160,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif _is_skirt_or_dress:
                 min_floor_density = 0.7350  
             elif _is_trouser:
-                min_floor_density = 0.7050 if is_quarter_pattern else 0.7550  # Cân bằng mật độ xếp rập quần Jean
+                min_floor_density = 0.7850 if is_quarter_pattern else 0.8350  # Cân bằng mật độ xếp rập quần Jean
             elif _is_jacket:
                 min_floor_density = 0.7350  
             else:
@@ -2190,7 +2190,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
         if _is_trouser:
-            blend = 0.48  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
+            blend = 0.22  # Nâng tỷ lệ blend lên để kéo vải chính tăng nhẹ lên mốc xưởng yêu cầu
         elif _is_skirt_or_dress:
             blend = 0.42 
         else:
