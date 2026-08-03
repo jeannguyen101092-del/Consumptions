@@ -2513,122 +2513,194 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
-    # =====================================================================
-    def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
-        output_stream = io.BytesIO()
-        workbook = Workbook()
-        
-        f_family = "Segoe UI"
-        f_normal = Font(name=f_family, size=10)
-        f_bold = Font(name=f_family, size=10, bold=True)
-        f_title = Font(name=f_family, size=14, bold=True, color="0E6251")
-        f_header = Font(name=f_family, size=10, bold=True, color="FFFFFF")
-        
-        fill_header = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
-        fill_meta = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
-        
-        bd_side = Side(style='thin', color='BDC3C7')
-        bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
-        
-        # --- TAB 1: BOM SUMMARY ---
-        w_s1 = workbook.active
-        w_s1.title = "BOM Summary"
-        w_s1.sheet_view.showGridLines = True
-        
-        w_s1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
-        w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
-        w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
-        
-        # --- ĐÃ SỬA: Lấy chính xác dữ liệu độ co trích xuất từ chat lưu trong bom_ctx ---
-        st_code = str(bom_ctx.get("style_code", "N/A")).upper()
-        cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
-        
-        # Giữ nguyên phần size và khổ vải cũ của bạn vì đã chạy đúng
-        f_width = f'{fabric_width}"' if 'fabric_width' in locals() else f'{bom_ctx.get("fabric_width", "N/A")}"'
-        d_size = str(detected_size_code) if 'detected_size_code' in locals() else str(bom_ctx.get("detected_size_code", "N/A"))
-        
-        # Lấy trực tiếp từ chat (nếu không tìm thấy sẽ hiển thị 0%)
-        w_shrink = str(bom_ctx.get("warp_shrink", "0"))
-        we_shrink = str(bom_ctx.get("weft_shrink", "0"))
-        
-        m_data = [
-            ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-            ("Size may mẫu (Sample Size):", d_size, "Khổ vải hữu dụng (Width):", f_width),
-            ("Co rút dọc (Warp Shrinkage):", f'{w_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{we_shrink}%'),
-            ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
-        ]
-        
-        for r_idx, row_data in enumerate(m_data, start=5):
-            for c_idx, val in enumerate(row_data, start=1):
-                cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
-                cell.border = bd_thin
-                if c_idx == 1 or c_idx == 3:
-                    cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
-                else:
-                    cell.font = f_normal; cell.alignment = Alignment(horizontal="center", vertical="center")
-                    
-        w_s1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=f_family, size=11, bold=True)
-        sum_hd = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
-        for c_idx, h_text in enumerate(sum_hd, start=1):
-            cell = w_s1.cell(row=11, column=c_idx, value=h_text)
-            cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = bd_thin
-            
-        c_row = 12
-        for _, r in df_sum.iterrows():
-            w_s1.cell(row=c_row, column=1, value=r.get("Phân loại vật tư", "VẬT TƯ"))
-            w_s1.cell(row=c_row, column=2, value=r.get("Material Class", "FABRIC"))
-            w_s1.cell(row=c_row, column=3, value=float(r.get("Gross Consumption", 0.0)))
-            w_s1.cell(row=c_row, column=4, value=r.get("UOM", "YDS"))
-            w_s1.cell(row=c_row, column=3).number_format = '#,##0.0000'
-            for c_idx in range(1, 5):
-                cell = w_s1.cell(row=c_row, column=c_idx)
-                cell.font = f_normal; cell.border = bd_thin
-                if c_idx == 2 or c_idx == 4: 
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-            c_row += 1
+  import io
+import re
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
-        for col_idx, col in enumerate(w_s1.columns, start=1):
-            m_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col_idx)
-            w_s1.column_dimensions[col_letter].width = max(m_len + 3, 12)
-
-        # --- TAB 2: DETAILED CAD PIECES ---
-        w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
-        w_s2.sheet_view.showGridLines = True
-        w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
+# =====================================================================
+# HÀM BỔ TRỢ: QUÉT VÀ TRÍCH XUẤT ĐỘ CO TỪ ĐOẠN CHAT CỦA NGƯỜI DÙNG
+# =====================================================================
+def extract_shrinkage_from_chat(chat_text):
+    """
+    Quét đoạn chat của người dùng để tìm thông số độ co rút.
+    Ví dụ chat: "độ co dọc 2.5% co ngang 1%" hoặc "warp 3, weft 1.5"
+    """
+    if not chat_text:
+        return "0", "0"
         
-        det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
-        for c_idx, h_text in enumerate(det_hd, start=1):
-            cell = w_s2.cell(row=3, column=c_idx, value=h_text)
-            cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
+    # Chuẩn hóa chuỗi chat về chữ thường, thay dấu phẩy thành dấu chấm cho số thập phân
+    chat_text = str(chat_text).lower().replace(",", ".")
+    
+    # Thiết lập giá trị mặc định ban đầu là 0
+    warp_shrink = "0"
+    weft_shrink = "0"
+    
+    # Tìm độ co dọc (Warp Shrinkage)
+    warp_match = re.search(r'(co\s+dọc|dọc|warp|warp\s+shrinkage)[:\s\-]*([0-9]*\.?[0-9]+)', chat_text)
+    if warp_match:
+        warp_shrink = warp_match.group(2)
+        
+    # Tìm độ co ngang (Weft Shrinkage)
+    weft_match = re.search(r'(co\s+ngang|ngang|weft|weft\s+shrinkage)[:\s\-]*([0-9]*\.?[0-9]+)', chat_text)
+    if weft_match:
+        weft_shrink = weft_match.group(2)
+        
+    return warp_shrink, weft_shrink
 
-        c_row = 4
-        for _, r in df_det.iterrows():
-            for c_idx, h_col in enumerate(det_hd, start=1):
-                val = r.get(h_col, "")
-                cell = w_s2.cell(row=c_row, column=c_idx, value=val)
-                cell.font = f_normal; cell.border = bd_thin
+
+# 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+# =====================================================================
+def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density, user_chat_text=None):
+    """
+    Hàm xuất file Excel định dạng PPJ.
+    - Tự động lấy độ co từ chat text nếu được truyền vào qua 'user_chat_text'.
+    - Sửa triệt để lỗi mất dữ liệu cột Dài sản xuất / Rộng sản xuất từ Streamlit DataFrame.
+    """
+    # Nếu người dùng có truyền đoạn chat, tiến hành trích xuất độ co đè lên bom_ctx
+    if user_chat_text:
+        w_val, we_val = extract_shrinkage_from_chat(user_chat_text)
+        bom_ctx["warp_shrink"] = w_val
+        bom_ctx["weft_shrink"] = we_val
+
+    output_stream = io.BytesIO()
+    workbook = Workbook()
+    
+    f_family = "Segoe UI"
+    f_normal = Font(name=f_family, size=10)
+    f_bold = Font(name=f_family, size=10, bold=True)
+    f_title = Font(name=f_family, size=14, bold=True, color="0E6251")
+    f_header = Font(name=f_family, size=10, bold=True, color="FFFFFF")
+    
+    fill_header = PatternFill(start_color="0E6251", end_color="0E6251", fill_type="solid")
+    fill_meta = PatternFill(start_color="F2F4F4", end_color="F2F4F4", fill_type="solid")
+    
+    bd_side = Side(style='thin', color='BDC3C7')
+    bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
+    
+    # --- TAB 1: BOM SUMMARY ---
+    w_s1 = workbook.active
+    w_s1.title = "BOM Summary"
+    w_s1.sheet_view.showGridLines = True
+    
+    w_s1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
+    w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
+    w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
+    
+    st_code = str(bom_ctx.get("style_code", "N/A")).upper()
+    cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
+    
+    # Đồng bộ dữ liệu Size và Khổ vải linh hoạt (global locals hoặc trong bom_ctx)
+    f_width = f'{fabric_width}"' if 'fabric_width' in locals() else f'{bom_ctx.get("fabric_width", "N/A")}"'
+    d_size = str(detected_size_code) if 'detected_size_code' in locals() else str(bom_ctx.get("detected_size_code", "N/A"))
+    
+    # Lấy thông số độ co rút từ bom_ctx (đã xử lý qua Regex chat)
+    w_shrink = str(bom_ctx.get("warp_shrink", "0"))
+    we_shrink = str(bom_ctx.get("weft_shrink", "0"))
+    
+    m_data = [
+        ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
+        ("Size may mẫu (Sample Size):", d_size, "Khổ vải hữu dụng (Width):", f_width),
+        ("Co rút dọc (Warp Shrinkage):", f'{w_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{we_shrink}%'),
+        ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
+    ]
+    
+    for r_idx, row_data in enumerate(m_data, start=5):
+        for c_idx, val in enumerate(row_data, start=1):
+            cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = bd_thin
+            if c_idx == 1 or c_idx == 3:
+                cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                cell.font = f_normal; cell.alignment = Alignment(horizontal="center", vertical="center")
                 
-                if c_idx == 1 or c_idx == 2 or c_idx == 3:
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
-                elif c_idx == 4 or c_idx == 5 or c_idx == 6:
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                else:
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
-                    if isinstance(val, (int, float)):
-                        cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
-            c_row += 1
+    w_s1.cell(row=10, column=1, value="BẢNG TỔNG HỢP TIÊU HAO VẬT TƯ (BOM SUMMARY)").font = Font(name=f_family, size=11, bold=True)
+    sum_hd = ["Phân loại vật tư", "Mã Vật Liệu Gốc", "Định Mức (Gross Consumption)", "Đơn Vị Tính (UOM)"]
+    for c_idx, h_text in enumerate(sum_hd, start=1):
+        cell = w_s1.cell(row=11, column=c_idx, value=h_text)
+        cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center"); cell.border = bd_thin
+        
+    c_row = 12
+    for _, r in df_sum.iterrows():
+        w_s1.cell(row=c_row, column=1, value=r.get("Phân loại vật tư", "VẬT TƯ"))
+        w_s1.cell(row=c_row, column=2, value=r.get("Material Class", "FABRIC"))
+        w_s1.cell(row=c_row, column=3, value=float(r.get("Gross Consumption", 0.0)))
+        w_s1.cell(row=c_row, column=4, value=r.get("UOM", "YDS"))
+        w_s1.cell(row=c_row, column=3).number_format = '#,##0.0000'
+        for c_idx in range(1, 5):
+            cell = w_s1.cell(row=c_row, column=c_idx)
+            cell.font = f_normal; cell.border = bd_thin
+            if c_idx == 2 or c_idx == 4: 
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+        c_row += 1
 
-        for col_idx, col in enumerate(w_s2.columns, start=1):
-            m_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col_idx)
-            w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
+    for col_idx, col in enumerate(w_s1.columns, start=1):
+        m_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col_idx)
+        w_s1.column_dimensions[col_letter].width = max(m_len + 3, 12)
 
-        workbook.save(output_stream)
-        output_stream.seek(0)
-        return output_stream
+    # --- TAB 2: DETAILED CAD PIECES ---
+    w_s2 = workbook.create_sheet(title="Detailed CAD Pieces")
+    w_s2.sheet_view.showGridLines = True
+    w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
+    
+    det_hd = [
+        "Component Name", "Material Class", "Role/Piece Type", 
+        "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", 
+        "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
+        "polygon_net_area", "Gross Consumption"
+    ]
+    for c_idx, h_text in enumerate(det_hd, start=1):
+        cell = w_s2.cell(row=3, column=c_idx, value=h_text)
+        cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
 
-      # =====================================================================
+    c_row = 4
+    for _, r in df_det.iterrows():
+        # KHẮC PHỤC LỖI TRỐNG DỮ LIỆU: Ánh xạ chuẩn từ tên cột trên màn hình Streamlit của bạn
+        row_mapper = {
+            "Component Name": r.get("Component Name") or r.get("component_name", ""),
+            "Material Class": r.get("Material Class") or r.get("material_class", ""),
+            "Role/Piece Type": r.get("Role/Piece Type") or r.get("role_piece_type", ""),
+            "Khổ vải sản xuất (inch)": r.get("Khổ vải sản xuất (inch)", ""),
+            "Size tính toán": r.get("Size tính toán") or r.get("size", ""),
+            "Số lượng rập": r.get("Số lượng rập") or r.get("quantity", ""),
+            
+            # Đồng bộ chuẩn xác tên cột chứa dữ liệu Dài và Rộng từ Streamlit lên Excel
+            "Dài sản xuất (L-inch)": r.get("Chiều dài rập (inch)", ""),
+            "Rộng sản xuất (W-inch)": r.get("Chiều rộng rập (inch)", ""),
+            
+            "polygon_net_area": r.get("polygon_net_area", ""),
+            "Gross Consumption": r.get("Gross Consumption", "")
+        }
+
+        for c_idx, h_col in enumerate(det_hd, start=1):
+            val = row_mapper.get(h_col, "")
+            cell = w_s2.cell(row=c_row, column=c_idx, value=val)
+            cell.font = f_normal; cell.border = bd_thin
+            
+            # Phân bổ căn lề hợp lý cho từng nhóm cột dữ liệu
+            if c_idx in:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            elif c_idx in:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                if isinstance(val, (int, float)):
+                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
+        c_row += 1
+
+    for col_idx, col in enumerate(w_s2.columns, start=1):
+        m_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col_idx)
+        w_s2.column_dimensions[col_letter].width = max(m_len + 3, 12)
+
+    workbook.save(output_stream)
+    output_stream.seek(0)
+    return output_stream
+
+
+    # =====================================================================
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL - FIXED ĐỒNG BỘ TUYỆT ĐỐI
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2713,6 +2785,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
     
+    # ✅ THÊM MỚI: Đưa trực tiếp thông số độ co rút từ chat vào DataFrame hiển thị và xuất file Excel
+    df_bom_display["Co rút dọc (Warp)"] = f"{ctx.get('warp_shrink', '0')}%"
+    df_bom_display["Co rút ngang (Weft)"] = f"{ctx.get('weft_shrink', '0')}%"
+
     # ✅ VÁ LỖI HIỂN THỊ SỐ LƯỢNG MẢNH KẸT SỐ 1: Bốc trực tiếp từ layer phôi ảo đã đối xứng tự động của Đoạn 4
     df_bom_display["Số lượng rập"] = [
         int(st.session_state["user_edited_pieces"].get(idx, virtual_pieces_layer.get(idx, {}).get("piece_count", 1))) 
@@ -2720,7 +2796,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ]
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Sắp xếp thứ tự trực quan scannable cho bảng chi tiết
+    # Sắp xếp thứ tự trực quan scannable cho bảng chi tiết (Đã chèn 2 cột độ co)
     ordered_cols = [
         "_original_row_index", 
         "Component Name", 
@@ -2729,6 +2805,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "Chiều dài rập (inch)",   
         "Chiều rộng rập (inch)",  
         "Khổ vải sản xuất (inch)", 
+        "Co rút dọc (Warp)",
+        "Co rút ngang (Weft)",
         "Size tính toán", 
         "Số lượng rập", 
         "polygon_net_area", 
@@ -2757,6 +2835,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
+            "Co rút dọc (Warp)": st.column_config.TextColumn("📉 Co rút dọc (Warp)", disabled=True),
+            "Co rút ngang (Weft)": st.column_config.TextColumn("📉 Co rút ngang (Weft)", disabled=True),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1, max_value=40, step=1),
             "Material Class": st.column_config.SelectboxColumn(
                 "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
@@ -2766,6 +2846,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
         }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
     )
+
+    # ✅ TIẾP TỤC XỬ LÝ SỬA LỖI LOẠI... (đoạn logic lưu cập nhật của bạn)
+
 
       # ✅ SỬA LỖI LOẠI BỎ TYPEERROR (TUPLE/ARRAY): Trích xuất chính xác phần tử đầu tiên bằng .iloc[0]
     has_changed = False
