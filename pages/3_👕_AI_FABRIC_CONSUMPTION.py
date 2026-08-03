@@ -2325,14 +2325,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     max_piece_length = max(max_piece_length, local_max_fabric_length)
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - REFIXED V19.7)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI & TÁCH RIB - REFIXED V19.8)
     # =====================================================================
     
     # Ép giải phóng tầm vực biến an toàn từ hàm giả lập sơ đồ 5.1B
     global_fabric_gross = total_fabric_gross_yds if 'total_fabric_gross_yds' in locals() else 0.0
     global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() else 0.0
     global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() else 0.0
+
+    # Khai báo phòng vệ biến hao hụt hệ thống toàn cục cho Đoạn 5.2
+    local_wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) if 'ai_decision_d5' in locals() else 1.030
 
     # Khởi tạo mẫu số diện tích tịnh độc lập cho từng chủng loại vật tư
     net_areas = {
@@ -2372,7 +2375,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         f_width = float(st.session_state.get("fabric_width_inch", 58.0))
         l_width = float(st.session_state.get("lining_width_inch", 57.0))
         fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
-        wastage = float(ai_decision_d5.get("dynamic_wastage_factor", 1.030)) if 'ai_decision_d5' in locals() else 1.030
         
         if p_cls == "ACCESSORY" or net_area <= 0: 
             return 0.0
@@ -2390,7 +2392,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         allocated_gross = max(allocated_gross, min_item_floor)
                     
                 return round(allocated_gross, 4)
-            return round((((net_area * pcs) / f_width / 0.75) / 36.0) * wastage, 4) if f_width > 0 else 0.0
+            return round((((net_area * pcs) / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
@@ -2402,7 +2404,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 else:
                     line_share_ratio = (net_area * pcs) / net_areas["CONTRAST"]
                     return round(base_contrast_gross * line_share_ratio, 4)
-            return round((((net_area * pcs) / f_width / 0.72) / 36.0) * wastage, 4) if f_width > 0 else 0.0
+            return round((((net_area * pcs) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
@@ -2411,9 +2413,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if global_lining_gross > 0:
                 line_share_ratio = (net_area * pcs) / net_areas["LINING"]
                 return round(global_lining_gross * line_share_ratio, 4)
-            return round((((net_area * pcs) / l_width / 0.79) / 36.0) * wastage, 4) if l_width > 0 else 0.0
+            return round((((net_area * pcs) / l_width / 0.79) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
+        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING) - Sửa triệt để biến target_wastage thành local_wastage
         if p_cls == "FUSING":
             if net_areas["FUSING"] <= 0:
                 return 0.0
@@ -2436,8 +2438,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 return round((((net_area * pcs) / fuse_width / 0.82) / 36.0) * 1.15, 4)
             return 0.0
             
-        # 2.6. KHỐI PHÒNG VỆ CUỐI CÙNG (Thay thế hoàn toàn dòng 2234 cũ bị NameError)
-        return round((((net_area * pcs) / fuse_width) / 36.0) * wastage, 4) if fuse_width > 0 else 0.0
+        # 2.6. KHỐI PHÒNG VỆ CUỐI CÙNG (Thay thế dòng lỗi 2234 dứt điểm NameError)
+        return round((((net_area * pcs) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
 
     # Đẩy dữ liệu định mức Gross Consumption sạch đã tính toán vào DataFrame
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
