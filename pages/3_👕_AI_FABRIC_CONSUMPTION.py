@@ -2028,7 +2028,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
      # =====================================================================
        # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7)
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7 - FIXED AREA OVERLAP)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2095,21 +2095,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_widths.append(round(p_width, 2))
 
         # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B
+        pure_unit_area = net_area / current_pcs if current_pcs > 0 else net_area
+
         if p_class in ["FABRIC", "CONTRAST"]:
-            total_fabric_net_area += net_area * current_pcs
-            fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            total_fabric_net_area += net_area
+            fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
             if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
-            total_lining_net_area += net_area * current_pcs
-            lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            total_lining_net_area += net_area
+            lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
         elif p_class in ["FUSING", "RIB"]:
-            total_fusing_net_area += net_area * current_pcs
-            fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            total_fusing_net_area += net_area
+            fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
 
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
+
      # =====================================================================
     # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL REFIXED)
     # =====================================================================
