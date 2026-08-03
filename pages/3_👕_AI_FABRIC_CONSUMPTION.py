@@ -2198,26 +2198,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-        # 5. ÉP SÀN VẬT LÝ THEO MA TRẬN HÌNH HỌC GERBER ĐỘNG (DỰA TRÊN TARGET UTILIZATION)
+                # 5. ÉP SÀN VẬT LÝ THEO MA TRẬN HÌNH HỌC GERBER ĐỘNG (DỰA TRÊN TARGET UTILIZATION & CÂN BẰNG ĐẦM ÁO)
         if material_type == "FABRIC":
             # 5.1. Thiết lập Mật độ sơ đồ mục tiêu (Target Utilization) chuẩn xưởng PPJ theo loại sản phẩm
             if _is_trouser:
                 target_utilization = 0.8950      # Quần: Rập vuông vức, đan cài tốt (88% - 92%)
+                expansion_factor = 1.00          # Quần giữ nguyên mốc nén chặt tuyệt đối
             elif _is_skirt_or_dress:
-                target_utilization = 0.7850      # Đầm/Váy xòe: Tùng rộng, nhiều khoảng trống biên (76% - 82%)
+                target_utilization = 0.7750      # Hạ nhẹ mật độ đầm xòe xuống mốc 77.5% vì tùng váy khó đan cài
+                expansion_factor = 1.16          # Bù thêm 16% không gian sơ đồ cho rập cong và chi tiết dây siêu dài (SASH)
             elif _is_jacket:
-                target_utilization = 0.8350      # Jacket: Nhiều chi tiết nhỏ dặm biên (80% - 85%)
+                target_utilization = 0.8250      
+                expansion_factor = 1.10          # Bù thêm 10% không gian cho áo khoác nhiều chi tiết lồi lõm
             else:
                 target_utilization = 0.8400      
+                expansion_factor = 1.02
                 
-            # 5.2. Tính toán chiều dài sàn sơ đồ vật lý theo công thức Gerber gốc
+            # 5.2. Tính toán chiều dài sàn sơ đồ vật lý theo công thức Gerber gốc kết hợp hệ số mở rộng loại hàng
             if marker_width > 0 and target_utilization > 0:
-                calculated_min_marker_floor = total_net_pure / (marker_width * target_utilization)
+                calculated_min_marker_floor = (total_net_pure / (marker_width * target_utilization)) * expansion_factor
             else:
                 calculated_min_marker_floor = _max_piece_length
                 
-            # Đảm bảo sơ đồ tối thiểu phải chứa vừa vặn chi tiết dài nhất (Biên an toàn kỹ thuật)
-            calculated_min_marker_floor = max(calculated_min_marker_floor, _max_piece_length * 1.02)
+            # Đảm bảo sơ đồ tối thiểu phải chứa vừa vặn chi tiết dài nhất kèm biên an toàn kỹ thuật loại hàng
+            _margin_factor = 1.15 if _is_skirt_or_dress else (1.10 if _is_jacket else 1.02)
+            calculated_min_marker_floor = max(calculated_min_marker_floor, _max_piece_length * _margin_factor)
         else:
             # Đối với Lót và Keo: Áp dụng mật độ nén sơ đồ phụ liệu chuẩn xưởng
             sub_utilization = 0.8300 if material_type == "LINING" else 0.7900
@@ -2228,6 +2233,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 calculated_min_marker_floor = 0.0
             
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
+
         
         if material_type == "FABRIC":
             gerber_margin = max(2.5, sim_length_inch * 0.015)
