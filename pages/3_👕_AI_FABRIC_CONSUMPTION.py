@@ -2029,7 +2029,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
        # =====================================================================
        # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7 - FIXED SHORT RECOGNITION & SHRINKAGE)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (FIXED NAMEERROR LINE 2089)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2049,10 +2050,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-       # Nhận diện chủng loại hàng hóa từ bộ não chuyên gia AI (ÉP PHÒNG VỆ CHỮ HIỂN THỊ UI QUẦN SHORT)
+    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (TÁCH BIỆT SHORT HOÀN TOÀN)
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
     
-    # 1. Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học)
+    # Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học quần ngắn)
     has_short_panel = False
     for idx, r in df_bom.iterrows():
         comp_name = str(r.get("Component Name", "")).upper()
@@ -2061,64 +2062,55 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if ("BODY" in comp_name or "PANEL" in comp_name or "THÂN" in comp_name) and (0.0 < p_len < 31.0):
             has_short_panel = True
 
-    # 2. Định nghĩa nhãn Short chuẩn xác
     is_short = ("SHORT" in product_category or "NGẮN" in product_category or "SKORT" in product_category or has_short_panel)
     
     is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
     is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category) and not is_short
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
-    # 3. Đè trực tiếp nhãn mới vào cấu hình và truyền thẳng vào bộ giải expert để ép UI đổi chữ hiển thị
     if is_short:
         product_category = "JEAN_SHORT (Quần ngắn / Váy Short)"
         ai_decision_d5["product_category"] = "JEAN_SHORT"
         if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
             st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
 
+    total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
+    fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
+    list_lengths, list_widths, list_updated_pieces = [], [], [] # 🛠️ ĐÃ SỬA ĐÚNG CHÍNH TẢ BIẾN list_updated_pieces Ở ĐÂY
+    local_max_fabric_length = 0.0
 
-    # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT (BỌC QUÉT ĐA TẦNG PHÒNG VỆ SÓT RẬP THÂN CHÍNH)
+    # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         
-        # Cơ chế quét fallback chiều dài/rộng phòng hờ mất dữ liệu thuộc tính rập
         p_length = float(v_piece.get("processed_length", v_piece.get("length", r.get("Length", 0.0))))
         p_width = float(v_piece.get("processed_width", v_piece.get("width", r.get("Width", 0.0))))
         
-        # Đồng bộ số lượng chi tiết thực tế người dùng cấu hình
         current_pcs = int(float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("piece_count", r.get("Pcs", 1)))))
-        list_updated_pieces.append(current_pcs)
+        list_updated_pieces.append(current_pcs) # Hết lỗi NameError
         v_piece["active_user_pieces"] = current_pcs 
 
-        # Đảm bảo phân loại lớp vật tư chuẩn hóa viết hoa (FABRIC, LINING, FUSING, CONTRAST)
         p_class = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         if p_class in ["VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
         v_piece["material_class"] = p_class
 
-        # Bộ quét diện tịnh đa tầng diện tích (TỐI ƯU HẠ ĐỊNH MỨC QUẦN SHORT / JEAN - FIX DIỆN TÍCH RỖNG)
         raw_net_area = float(v_piece.get("polygon_net_area", v_piece.get("net_area", r.get("Net Area", 0.0))))
         if raw_net_area <= 0 and p_length > 0 and p_width > 0:
-            # Nếu là quần dài hoặc quần short, tỷ lệ bao phủ thực tế chiếm khoảng 42% khung bao chữ nhật
             _ratio = 0.42 if (is_trouser or is_short) else 0.72
             net_area = p_length * p_width * _ratio  
         else:
             net_area = raw_net_area if raw_net_area > 0 else 15.0  
 
-        # 🧬 ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG LIÊN KẾT TRỰC TIẾP VỚI Ô NHẬP LIỆU GIAO DIỆN UI
+        # ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG
         if p_class in ["FABRIC", "CONTRAST"]:
-            # Bốc trực tiếp giá trị từ ô số người dùng nhập (Mặc định phòng vệ nếu lỗi là dọc 4.5%, ngang 3.0%)
             shrinkage_warp = float(st.session_state.get("shrinkage_warp_percent", 4.5)) / 100.0
             shrinkage_weft = float(st.session_state.get("shrinkage_weft_percent", 3.0)) / 100.0
-            
-            # Phóng to kích thước chiều dài/rộng rập thô để bù co rút Wash PPJ
             p_length = p_length / (1.0 - shrinkage_warp)
             p_width = p_width / (1.0 - shrinkage_weft)
-            
-            # Phóng to diện tích tịnh tương ứng để Gerber Engine tính toán chính xác
             net_area = net_area / ((1.0 - shrinkage_warp) * (1.0 - shrinkage_weft))
 
         v_piece["polygon_net_area"] = net_area
 
-        # Cứu vớt dữ liệu kích thước nếu rập thô bị gán giá trị lỗi
         if (p_length <= 0 or p_width <= 0) and net_area > 15.0:
             import math
             p_length = round(math.sqrt(net_area) * 1.5, 2)
@@ -2127,24 +2119,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_lengths.append(round(p_length, 2))
         list_widths.append(round(p_width, 2))
 
-        # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B (SỬA LỖI TRÙNG DIỆN TÍCH)
-        pure_unit_area = net_area / current_pcs if current_pcs > 0 else net_area
+        pure_unit_area = net_area
 
         if p_class in ["FABRIC", "CONTRAST"]:
-            total_fabric_net_area += net_area
+            total_fabric_net_area += net_area * current_pcs
             fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
-            if p_length > local_max_fabric_length: local_max_fabric_length = p_length
+            comp_name_check = str(r.get("Component Name", "")).upper()
+            if "WAISTBAND" not in comp_name_check and "BELT" not in comp_name_check and "SASH" not in comp_name_check:
+                if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
-            total_lining_net_area += net_area
+            total_lining_net_area += net_area * current_pcs
             lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
         elif p_class in ["FUSING", "RIB"]:
-            total_fusing_net_area += net_area
+            total_fusing_net_area += net_area * current_pcs
             fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": pure_unit_area, "pcs": current_pcs})
 
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
-    max_piece_length = max(max_piece_length, local_max_fabric_length)
+    
+    if local_max_fabric_length <= 0: local_max_fabric_length = max_piece_length
+    max_piece_length = local_max_fabric_length
+
        # =====================================================================
     # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.9 - RIÊNG QUẦN SHORT)
     # =====================================================================
