@@ -2049,22 +2049,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (ĐÃ CẬP NHẬT TÁCH BIỆT QUẦN SHORT CHỐNG NHẬN DIỆN NHẦM)
+       # Nhận diện chủng loại hàng hóa từ bộ não chuyên gia AI (ÉP PHÒNG VỆ CHỮ HIỂN THỊ UI QUẦN SHORT)
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
     
-    # Bắt từ khóa Short / Ngắn trước để tránh bị gom chung vào bộ quét quần dài tổng quát
-    is_short = ("SHORT" in product_category or "NGẮN" in product_category)
+    # 1. Quét nhanh ma trận rập thân để kiểm tra chiều dài thực tế (Bẫy hình học)
+    has_short_panel = False
+    for idx, r in df_bom.iterrows():
+        comp_name = str(r.get("Component Name", "")).upper()
+        v_p = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
+        p_len = float(v_p.get("processed_length", v_p.get("length", r.get("Length", 0.0))))
+        if ("BODY" in comp_name or "PANEL" in comp_name or "THÂN" in comp_name) and (0.0 < p_len < 31.0):
+            has_short_panel = True
+
+    # 2. Định nghĩa nhãn Short chuẩn xác
+    is_short = ("SHORT" in product_category or "NGẮN" in product_category or "SKORT" in product_category or has_short_panel)
     
-    is_trouuser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
-    is_trouser = is_trouuser # Đồng bộ biến phòng vệ
-    
-    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category)
+    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
+    is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category) and not is_short
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
-    total_fabric_net_area = total_lining_net_area = total_fusing_net_area = 0.0
-    fabric_pieces_to_nest, lining_pieces_to_nest, fusing_pieces_to_nest = [], [], []
-    list_lengths, list_widths, list_updated_pieces = [], [], []
-    local_max_fabric_length = 0.0
+    # 3. Đè trực tiếp nhãn mới vào cấu hình và truyền thẳng vào bộ giải expert để ép UI đổi chữ hiển thị
+    if is_short:
+        product_category = "JEAN_SHORT (Quần ngắn / Váy Short)"
+        ai_decision_d5["product_category"] = "JEAN_SHORT"
+        if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
+            st.session_state["bom_data"]["ai_expert_decision"]["product_category"] = "JEAN_SHORT"
+
 
     # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT (BỌC QUÉT ĐA TẦNG PHÒNG VỆ SÓT RẬP THÂN CHÍNH)
     for idx, r in df_bom.iterrows():
@@ -2340,14 +2350,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls in net_areas:
             net_areas[p_cls] += net_area * pcs
 
-    # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM
+       # 2. Định tuyến phân bổ Gross Consumption thông minh đến từng dòng rập phẳng trên BOM (CHUẨN HÓA ĐỊNH MỨC SHORT)
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = str(v.get("material_class", "FABRIC")).upper().strip()
         pcs = int(v.get("active_user_pieces", 1))
         
-        # Bốc ngược lại diện tích đơn chiếc sạch (Chưa nhân số lượng rập) để đồng bộ động khi thay đổi Pcs
-        pure_unit_area = float(v.get("polygon_net_area", 0.0)) / pcs if pcs > 0 else float(v.get("polygon_net_area", 0.0))
+        # SỬA TẠI ĐÂY: polygon_net_area trong layer ảo bản chất đã là diện tích ĐƠN CHIẾC chuẩn, KHÔNG chia cho pcs nữa.
+        pure_unit_area = float(v.get("polygon_net_area", 0.0))
         
         if p_cls == "ACCESSORY" or pure_unit_area <= 0: 
             return 0.0
@@ -2358,9 +2368,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 line_share_ratio = (pure_unit_area * pcs) / net_areas["FABRIC"]
                 allocated_gross = global_fabric_gross * line_share_ratio
                 
-                # Chặn trần bảo hiểm kỹ thuật cho quần ngắn/quần dài không bị vọt số ảo
-                if is_short or is_trouser:
-                    allocated_gross = min(allocated_gross, (pure_unit_area * pcs / (f_width * 36.0)) * 1.35)
+                # Chặn trần bảo hiểm kỹ thuật cho quần ngắn không bị hụt vải
+                if is_short:
+                    allocated_gross = max(allocated_gross, (pure_unit_area * pcs / (f_width * 36.0)) * 1.05)
                 return round(allocated_gross, 4)
             return round((((pure_unit_area * pcs) / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
 
