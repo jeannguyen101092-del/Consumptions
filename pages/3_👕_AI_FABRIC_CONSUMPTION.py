@@ -2334,7 +2334,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() else 0.0
     global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() else 0.0
 
-    # ÉP ĐỒNG BỘ ĐỊNH NGHĨA BIẾN PHÒNG VỆ TOÀN CỤC CHO ĐOẠN 5.2 (TRÁNH LỖI NAMEERROR DÒNG 2232)
+    # ÉP ĐỒNG BỘ ĐỊNH NGHĨA BIẾN PHÒNG VỆ TOÀN CỤC CHO ĐOẠN 5.2 (ĐÃ KHẮC PHỤC TRIỆT ĐỂ LỖI NAMEERROR)
     f_width = float(st.session_state.get("fabric_width_inch", 58.0))
     l_width = float(st.session_state.get("lining_width_inch", 57.0))
     fuse_width = float(st.session_state.get("fusing_width_inch", 59.0))
@@ -2404,7 +2404,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return round(base_contrast_gross * line_share_ratio, 4)
             return round((((net_area * pcs) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
-        # 2.3. VẢI LÓT (LINING) - ĐÃ BẢO VỆ ĐỒNG BỘ KHÔNG CÒN LỖI DÒNG 2232
+        # 2.3. VẢI LÓT (LINING) - ĐÃ ĐỒNG BỘ HOÀN TOÀN BIẾN L_WIDTH VÀ LOCAL_WASTAGE
         if p_cls == "LINING":
             if net_areas["LINING"] <= 0:
                 return 0.0
@@ -2464,8 +2464,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         msg = f"🧩 **GEOMETRIC SOLVER**: Vải chính: `{real_fabric_sum:.3f} Yds`"
         if real_lining_sum > 0: msg += f" | Lót : `{real_lining_sum:.3f} Yds`"
-        if real_fusing_sum > 0: msg += f" | Keo mếch : `{real_fusing_sum:.3f} Yds`"
-        if real_rib_sum > 0: msg += f" | Bo Rib: `{real_rib_sum:.3f} Yds`"
+        if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
+        if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
 
 
