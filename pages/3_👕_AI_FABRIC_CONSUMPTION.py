@@ -2028,7 +2028,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
      # =====================================================================
        # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7 - FIXED AREA OVERLAP)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7 - FIXED SHORT RECOGNITION & SHRINKAGE)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2048,9 +2049,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))    
     fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))    
 
-    # Nhận diện chủng loại hàng hóa từ bộ não chuyên gia AI
+    # 🚨 BỘ NÃO NHẬN DIỆN CHỦNG LOẠI HÀNG HÓA AI (ĐÃ CẬP NHẬT TÁCH BIỆT QUẦN SHORT CHỐNG NHẬN DIỆN NHẦM)
     product_category = str(ai_decision_d5.get("product_category", "JEAN_LONG")).upper()
-    is_trouser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category)
+    
+    # Bắt từ khóa Short / Ngắn trước để tránh bị gom chung vào bộ quét quần dài tổng quát
+    is_short = ("SHORT" in product_category or "NGẮN" in product_category)
+    
+    is_trouuser = ("JEAN" in product_category or "TROUSER" in product_category or "PANT" in product_category or "QUẦN" in product_category) and not is_short
+    is_trouser = is_trouuser # Đồng bộ biến phòng vệ
+    
     is_skirt_or_dress = ("SKIRT" in product_category or "DRESS" in product_category or "VÁY" in product_category or "ĐẦM" in product_category)
     is_jacket = ("JACKET" in product_category or "ÁO" in product_category or "COAT" in product_category)
 
@@ -2077,14 +2084,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_class in ["VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
         v_piece["material_class"] = p_class
 
-        # Bộ quét diện tịnh đa tầng diện tích (TỐI ƯU HẠ ĐỊNH MỨC QUẦN JEAN - FIX DIỆN TÍCH RỖNG)
+        # Bộ quét diện tịnh đa tầng diện tích (TỐI ƯU HẠ ĐỊNH MỨC QUẦN SHORT / JEAN - FIX DIỆN TÍCH RỖNG)
         raw_net_area = float(v_piece.get("polygon_net_area", v_piece.get("net_area", r.get("Net Area", 0.0))))
         if raw_net_area <= 0 and p_length > 0 and p_width > 0:
-            # Nếu là quần Jean, diện tích tịnh thực tế chỉ chiếm khoảng 42% khung bao chữ nhật
-            _ratio = 0.42 if is_trouser else 0.72
+            # Nếu là quần dài hoặc quần short, tỷ lệ bao phủ thực tế chiếm khoảng 42% khung bao chữ nhật
+            _ratio = 0.42 if (is_trouser or is_short) else 0.72
             net_area = p_length * p_width * _ratio  
         else:
             net_area = raw_net_area if raw_net_area > 0 else 15.0  
+
+        # 🧬 ĐỒNG BỘ ĐỘ CO RÚT ĐỘNG LIÊN KẾT TRỰC TIẾP VỚI Ô NHẬP LIỆU GIAO DIỆN UI
+        if p_class in ["FABRIC", "CONTRAST"]:
+            # Bốc trực tiếp giá trị từ ô số người dùng nhập (Mặc định phòng vệ nếu lỗi là dọc 4.5%, ngang 3.0%)
+            shrinkage_warp = float(st.session_state.get("shrinkage_warp_percent", 4.5)) / 100.0
+            shrinkage_weft = float(st.session_state.get("shrinkage_weft_percent", 3.0)) / 100.0
+            
+            # Phóng to kích thước chiều dài/rộng rập thô để bù co rút Wash PPJ
+            p_length = p_length / (1.0 - shrinkage_warp)
+            p_width = p_width / (1.0 - shrinkage_weft)
+            
+            # Phóng to diện tích tịnh tương ứng để Gerber Engine tính toán chính xác
+            net_area = net_area / ((1.0 - shrinkage_warp) * (1.0 - shrinkage_weft))
+
         v_piece["polygon_net_area"] = net_area
 
         # Cứu vớt dữ liệu kích thước nếu rập thô bị gán giá trị lỗi
@@ -2097,7 +2118,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         list_widths.append(round(p_width, 2))
 
         # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B (SỬA LỖI TRÙNG DIỆN TÍCH)
-        # Đảm bảo "area" truyền vào luôn là diện tích của MỘT chi tiết đơn lẻ
         pure_unit_area = net_area / current_pcs if current_pcs > 0 else net_area
 
         if p_class in ["FABRIC", "CONTRAST"]:
@@ -2115,14 +2135,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-
-        # =====================================================================
-    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - GERBER ENGINE REAL FIXED)
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1B: GERBER SIMULATOR - DYNAMIC NET SOLVER & PLACEMENT ROUTER (PERFECT V19.6 - FINAL GERBER ENGINE)
     # =====================================================================
     def run_geometric_net_solver(pieces_list, net_area, marker_width, wastage_factor, material_type="FABRIC"):
         if len(pieces_list) == 0 or marker_width <= 0: 
             return 0.78, 0.0
         
+        # BỐC ĐỒNG BỘ CÁC BIẾN NHẬN DIỆN CHỦNG LOẠI TỪ ĐOẠN 5.1A XUỐNG
+        _is_short = is_short if 'is_short' in locals() else False
         _is_trouser = is_trouser
         _is_skirt_or_dress = is_skirt_or_dress
         _is_jacket = is_jacket
@@ -2159,6 +2180,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 min_floor_density = 0.6450
             elif _is_skirt_or_dress:
                 min_floor_density = 0.7350  
+            elif _is_short:
+                min_floor_density = 0.8250  # Quần Short: Ép mật độ nén thô sàn cao vì rập ngắn dễ cài răng lược
             elif _is_trouser:
                 min_floor_density = 0.7650 if is_quarter_pattern else 0.8150  
             elif _is_jacket:
@@ -2175,7 +2198,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         # 4. THIẾT LẬP HỆ SỐ ĐAN CÀI
         if material_type == "FABRIC":
-            interlocking_factor = 0.50 + (avg_shape_factor * 0.05) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
+            if _is_short:
+                interlocking_factor = 0.42 + (avg_shape_factor * 0.04) # Quần Short đan cài cực tốt
+            else:
+                interlocking_factor = 0.50 + (avg_shape_factor * 0.05) if _is_trouser else 0.45 + (avg_shape_factor * 0.06)
         else:
             interlocking_factor = 0.55 + (avg_shape_factor * 0.05)
 
@@ -2189,7 +2215,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         sim_length_inch_net = total_net_pure / marker_width / real_density
         
         # PHỐI HỢP TUYẾN TÍNH CHUẨN ĐỊNH MỨC XƯỞNG
-        if _is_trouser:
+        if _is_short:
+            blend = 0.38  # Tối ưu hóa rập short đan dọc biên xuất sắc
+        elif _is_trouser:
             blend = 0.45  
         elif _is_skirt_or_dress:
             blend = 0.42  
@@ -2198,18 +2226,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         sim_length_inch = (blend * sim_length_inch_bbox) + ((1.0 - blend) * sim_length_inch_net)
         
-                # 5. ÉP SÀN VẬT LÝ THEO MA TRẬN HÌNH HỌC GERBER ĐỘNG (DỰA TRÊN TARGET UTILIZATION & CÂN BẰNG ĐẦM ÁO)
+        # 5. ÉP SÀN VẬT LÝ THEO MA TRẬN HÌNH HỌC GERBER ĐỘNG (DỰA TRÊN TARGET UTILIZATION)
         if material_type == "FABRIC":
             # 5.1. Thiết lập Mật độ sơ đồ mục tiêu (Target Utilization) chuẩn xưởng PPJ theo loại sản phẩm
-            if _is_trouser:
-                target_utilization = 0.8950      # Quần: Rập vuông vức, đan cài tốt (88% - 92%)
-                expansion_factor = 1.00          # Quần giữ nguyên mốc nén chặt tuyệt đối
+            if _is_short:
+                target_utilization = 0.9150      # Quần Short: Rập ngắn, nhỏ, hiệu suất phủ kín cực cao (91% - 93%)
+                expansion_factor = 0.98          # Cho phép co ngắn chiều dài sơ đồ thô tối đa
+            elif _is_trouser:
+                target_utilization = 0.8950      # Quần dài: Rập vuông vức, đan cài tốt (88% - 92%)
+                expansion_factor = 1.00          
             elif _is_skirt_or_dress:
-                target_utilization = 0.7750      # Hạ nhẹ mật độ đầm xòe xuống mốc 77.5% vì tùng váy khó đan cài
-                expansion_factor = 1.16          # Bù thêm 16% không gian sơ đồ cho rập cong và chi tiết dây siêu dài (SASH)
+                target_utilization = 0.7750      # Đầm/Váy xòe: Tùng rộng, nhiều khoảng trống biên (76% - 82%)
+                expansion_factor = 1.16          
             elif _is_jacket:
                 target_utilization = 0.8250      
-                expansion_factor = 1.10          # Bù thêm 10% không gian cho áo khoác nhiều chi tiết lồi lõm
+                expansion_factor = 1.10          
             else:
                 target_utilization = 0.8400      
                 expansion_factor = 1.02
@@ -2233,7 +2264,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 calculated_min_marker_floor = 0.0
             
         sim_length_inch = max(sim_length_inch, calculated_min_marker_floor)
-
         
         if material_type == "FABRIC":
             gerber_margin = max(2.5, sim_length_inch * 0.015)
@@ -2250,7 +2280,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # KHỐI GỌI HÀM AN TOÀN VÀ ĐỊNH NGHĨA BIẾN THÔ BAN ĐẦU
     current_garment_type = "SKIRT_DRESS"
-    if is_trouser: current_garment_type = "TROUSER"
+    if is_short: current_garment_type = "JEAN_SHORT"
+    elif is_trouser: current_garment_type = "TROUSER"
     elif is_jacket: current_garment_type = "JACKET"
 
     real_fabric_density, total_fabric_gross_yds = run_geometric_net_solver(
