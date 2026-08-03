@@ -2240,8 +2240,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION
+      # =====================================================================
+    # 🟩 ĐOẠN 5.1A: GERBER SIMULATOR - GEOMETRIC MATRIX & AREA INTEGRATION (UPDATED V19.7)
     # =====================================================================
     ai_decision_d5 = ctx.get("ai_expert_decision", {}) if isinstance(ctx.get("ai_expert_decision"), dict) else {}
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
@@ -2272,40 +2272,57 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     list_lengths, list_widths, list_updated_pieces = [], [], []
     local_max_fabric_length = 0.0
 
-    # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT (KHÔNG BỎ SÓT CHI TIẾT NHỎ)
+    # THU THẬP MA TRẬN HÌNH HỌC TOÀN BỘ CÁC CHI TIẾT (BỌC QUÉT ĐA TẦNG PHÒNG VỆ SÓT RẬP THÂN CHÍNH)
     for idx, r in df_bom.iterrows():
         v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
-        p_length = float(v_piece.get("processed_length", 0.0))
-        p_width = float(v_piece.get("processed_width", 0.0))
         
-        list_lengths.append(round(p_length, 2) if p_length > 0 else 0.0)
-        list_widths.append(round(p_width, 2) if p_width > 0 else 0.0)
-
-        current_pcs = int(float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("piece_count", 1))))
+        # Cơ chế quét fallback chiều dài/rộng phòng hờ mất dữ liệu thuộc tính rập
+        p_length = float(v_piece.get("processed_length", v_piece.get("length", r.get("Length", 0.0))))
+        p_width = float(v_piece.get("processed_width", v_piece.get("width", r.get("Width", 0.0))))
+        
+        # Đồng bộ số lượng chi tiết thực tế người dùng cấu hình
+        current_pcs = int(float(st.session_state.get("user_edited_pieces", {}).get(idx, v_piece.get("piece_count", r.get("Pcs", 1)))))
         list_updated_pieces.append(current_pcs)
         v_piece["active_user_pieces"] = current_pcs 
 
-        p_class = v_piece.get("material_class", "FABRIC")
-        net_area = float(v_piece.get("polygon_net_area", 0.0)) if float(v_piece.get("polygon_net_area", 0.0)) > 0 else 1.0
-        
+        # Đảm bảo phân loại lớp vật tư chuẩn hóa viết hoa (FABRIC, LINING, FUSING, CONTRAST)
+        p_class = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+        if p_class in ["VẢI CHÍNH", "MAIN"]: p_class = "FABRIC"
+        v_piece["material_class"] = p_class
+
+        # Bộ quét diện tịnh đa tầng diện tích (Tự động tính từ dài x rộng x 0.72 nếu bị rỗng)
+        raw_net_area = float(v_piece.get("polygon_net_area", v_piece.get("net_area", r.get("Net Area", 0.0))))
+        if raw_net_area <= 0 and p_length > 0 and p_width > 0:
+            net_area = p_length * p_width * 0.72  # Giả lập diện tích nén thực tế của cấu trúc phẳng hình học
+        else:
+            net_area = raw_net_area if raw_net_area > 0 else 15.0  
+        v_piece["polygon_net_area"] = net_area
+
+        # Cứu vớt dữ liệu kích thước nếu rập thô bị gán giá trị lỗi
+        if (p_length <= 0 or p_width <= 0) and net_area > 15.0:
+            import math
+            p_length = round(math.sqrt(net_area) * 1.5, 2)
+            p_width = round(net_area / p_length, 2)
+
+        list_lengths.append(round(p_length, 2))
+        list_widths.append(round(p_width, 2))
+
+        # Phân bổ tích lũy vào các mảng giả lập sơ đồ bàn cắt của Đoạn 5.1B
         if p_class in ["FABRIC", "CONTRAST"]:
             total_fabric_net_area += net_area * current_pcs
-            if p_length > 0 and p_width > 0:
-                fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
-                if p_length > local_max_fabric_length: local_max_fabric_length = p_length
+            fabric_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            if p_length > local_max_fabric_length: local_max_fabric_length = p_length
         elif p_class == "LINING":
             total_lining_net_area += net_area * current_pcs
-            if p_length > 0 and p_width > 0: lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            lining_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
         elif p_class in ["FUSING", "RIB"]:
             total_fusing_net_area += net_area * current_pcs
-            if p_length > 0 and p_width > 0: fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
+            fusing_pieces_to_nest.append({"l": p_length, "w": p_width, "area": net_area, "pcs": current_pcs})
 
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
     df_bom["Số lượng rập"] = list_updated_pieces 
     max_piece_length = max(max_piece_length, local_max_fabric_length)
-     # =====================================================================
-    # =====================================================================
 
 
      # =====================================================================
