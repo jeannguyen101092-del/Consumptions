@@ -2091,8 +2091,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
-
-       # =====================================================================
+    # =====================================================================
     # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (ĐỒNG BỘ TUYỆT ĐỐI THEO SỐ LƯỢNG RẬP PCS - PERFECT V19.9)
     # =====================================================================
     global_fabric_gross = total_fabric_gross_yds
@@ -2130,7 +2129,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 2.1. VẢI CHÍNH (FABRIC) - LIÊN KẾT ĐỘNG CHUẨN XƯỞNG CHIA TỶ LỆ SHARE KHÔNG NHÂN TRÙNG PCS
         if p_cls == "FABRIC":
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
-                # 🛠️ FIXED: Không nhân pcs ở tử số vì pure_unit_area trong luồng hình học đã mang trọng số chuẩn
                 line_share_ratio = pure_unit_area / net_areas["FABRIC"]
                 allocated_gross = global_fabric_gross * line_share_ratio
                 
@@ -2154,7 +2152,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
-            if is_short or is_trouuser := (is_trouser if 'is_trouser' in locals() else False):
+            _is_trouser_check = is_trouser if 'is_trouser' in locals() else False
+            if is_short or _is_trouser_check:
                 return round((((pure_unit_area) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 line_share_ratio = pure_unit_area / net_areas["LINING"]
@@ -2163,7 +2162,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
-            if is_short or (is_trouser if 'is_trouser' in locals() else False):
+            _is_trouser_check = is_trouser if 'is_trouser' in locals() else False
+            if is_short or _is_trouser_check:
                 return round((((pure_unit_area) / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
             
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
@@ -2228,6 +2228,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
+
 
 
         # =====================================================================
