@@ -2598,7 +2598,6 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s2.sheet_view.showGridLines = True
     w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
     
-    # 🛠️ FIXED: Thêm đầy đủ 2 cột tiêu đề Dài sản xuất và Rộng sản xuất vào cấu trúc tệp Excel đầu ra
     det_hd = [
         "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
         "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
@@ -2610,11 +2609,9 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
 
     c_row = 4
     for _, r in df_det.iterrows():
-        # 🛠️ FIXED DÒ TÌM ĐA TẦNG: Đảm bảo bốc đúng mọi biến thể tên cột Dài/Rộng từ DataFrame hiển thị
         length_val = r.get("Chiều dài rập (inch)", r.get("Dài sản xuất (L-inch)", r.get("Length", 0.0)))
         width_val = r.get("Chiều rộng rập (inch)", r.get("Rộng sản xuất (W-inch)", r.get("Width", 0.0)))
         
-        # Ánh xạ động dữ liệu thực tế vào mảng dòng ghi tương ứng với tiêu đề đầu cột
         row_cells_data = [
             r.get("Component Name", ""),
             r.get("Material Class", ""),
@@ -2632,15 +2629,14 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            # Căn lề chuẩn cho bảng kê chi tiết rập phẳng
-            if c_idx in:
+            # 🛠️ FIXED: Sửa lỗi khuyết thiếu chỉ số cột - Căn lề chuẩn xác
+            if c_idx in: # Các cột chuỗi (Tên rập, Chủng loại, Vị trí) căn trái
                 cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx in:
+            elif c_idx in: # Các cột phân loại (Khổ vải, Size, Số lượng) căn giữa
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
+            else: # Các cột thông số hình học (Dài, Rộng, Diện tích, Định mức) căn phải
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 if isinstance(val, (int, float)):
-                    # Định dạng hiển thị 4 chữ số thập phân cho cột định mức tiêu hao Gross
                     cell.number_format = '#,##0.0000' if c_idx == 10 else '#,##0.00'
         c_row += 1
 
