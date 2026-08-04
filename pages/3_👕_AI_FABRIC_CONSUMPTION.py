@@ -2758,10 +2758,13 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-           # =====================================================================
+               # =====================================================================
         # 🟩 ĐOẠN 7.2A: TRÍCH XUẤT THÔNG SỐ Ô CHAT CHUẨN ĐOẠN 1 & CẤU HÌNH METADATA
         # =====================================================================
         import re
+
+        # 🛠️ FIXED: Khởi tạo ngay biến df_bom_display từ bảng dữ liệu gốc để tránh hoàn toàn lỗi NameError
+        df_bom_display = df_bom.copy()
 
         # Khởi tạo giá trị cấu hình mặc định an toàn ban đầu
         excel_fabric_width = float(st.session_state.get("fabric_width_inch", 56.0))
@@ -2769,7 +2772,7 @@ if ai_decision_final:
         excel_shrink_weft = float(st.session_state.get("shrinkage_weft_percent", 0.0))
         excel_size_code = "32"
 
-        # 🛠️ ĐỒNG BỘ ĐOẠN 1: Trích xuất câu chat dựa trên cấu trúc chat_history và last_submitted_query
+        # ĐỒNG BỘ ĐOẠN 1: Trích xuất câu chat dựa trên cấu trúc chat_history và last_submitted_query
         user_chat_text = ""
         
         # Hướng ưu tiên 1: Bốc tin nhắn mới nhất vừa được gửi và lưu tạm ở Đoạn 1
@@ -2823,6 +2826,7 @@ if ai_decision_final:
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
+
         # =====================================================================
         # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
         # =====================================================================
