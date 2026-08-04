@@ -2795,7 +2795,7 @@ st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
 
 # =====================================================================
-# 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI (VÁ LỖI DUPLICATE KEY)
+# 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI (VÁ LỖI ÉP KIỂU ILOC)
 # =====================================================================
 df_bom_display = df_bom_working.copy()
 
@@ -2833,9 +2833,8 @@ ordered_cols = [
 display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
 df_bom_display = df_bom_display[display_final_cols]
 
-# 🛠️ FIXED: Chỉ tạo cấu trúc cột cho nút tải, loại bỏ hoàn toàn Subheader thừa gây lặp chữ
-col_space, col_btn = st.columns([2, 1])
-
+# Tạo bố cục nút bấm xuất file Excel thương mại
+col_space, col_btn = st.columns([3, 1])
 with col_btn:
     try:
         if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
@@ -2848,19 +2847,18 @@ with col_btn:
             )
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
             
-            # 🛠️ FIXED: Thêm key="btn_download_excel_ppj_v1" cố định để chặn lỗi Duplicate Key
             st.download_button(
                 label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
                 file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", 
                 use_container_width=True,
-                key="btn_download_excel_ppj_v1"
+                key="btn_download_excel_ppj_final_v3"
             )
     except Exception as e: 
         st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
-# HIỂN THỊ LƯỚI DATA_EDITOR HOÀN CHỈNH
+# HIỂN THỊ LƯỚI DATA_EDITOR HOÀN CHỈNH ĐÃ ĐỒNG BỘ CỐ ĐỊNH
 edited_df = st.data_editor(
     df_bom_display, 
     column_config={
@@ -2880,20 +2878,26 @@ edited_df = st.data_editor(
     }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
 )
 
-# Lắng nghe thay đổi dữ liệu từ phía người dùng
+# LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ CẬP NHẬT TRẠNG THÁI
 has_changed = False
 for _, row in edited_df.iterrows():
     orig_idx = int(row["_original_row_index"])
     
-    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values))
+    # Lọc ra dòng tương ứng trong bảng dữ liệu hiển thị hiện tại
+    matched_rows = df_bom_display[df_bom_display["_original_row_index"] == orig_idx]
+    if len(matched_rows) == 0:
+        continue
+        
+    # 🛠️ FIXED: Thay .values bằng .iloc[0] để trích xuất trực tiếp giá trị đơn, triệt tiêu hoàn toàn lỗi TypeError
+    old_pcs_val = matched_rows["Số lượng rập"].iloc[0]
     new_pcs = int(float(row["Số lượng rập"]))
-    if old_pcs != new_pcs:
+    if pd.notna(old_pcs_val) and int(float(old_pcs_val)) != new_pcs:
         st.session_state["user_edited_pieces"][orig_idx] = new_pcs
         has_changed = True
         
-    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values).upper().strip()
+    old_mat_val = str(matched_rows["Material Class"].iloc[0]).upper().strip()
     new_mat = str(row["Material Class"]).upper().strip()
-    if old_mat != new_mat:
+    if old_mat_val != new_mat:
         st.session_state["user_edited_materials"][orig_idx] = new_mat
         has_changed = True
         
