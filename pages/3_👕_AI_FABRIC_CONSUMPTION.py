@@ -2515,7 +2515,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Side, Border, Alignment
-from openpyxl.utils import get_column_letter  # SỬA LỖI: Thêm import để tránh lỗi NameError
+from openpyxl.utils import get_column_letter
 
 # =====================================================================
 # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
@@ -2545,13 +2545,12 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
-    # SỬA LỖI: Lấy tất cả các biến cấu hình từ bom_ctx để tránh lỗi NameError
     st_code = str(bom_ctx.get("style_code", "N/A")).upper()
     cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
     detected_size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
-    fabric_width = bom_ctx.get("fabric_width", 0)
-    warp_shrink = bom_ctx.get("warp_shrink", 0)
-    weft_shrink = bom_ctx.get("weft_shrink", 0)
+    fabric_width = str(bom_ctx.get("fabric_width", '58'))
+    warp_shrink = str(bom_ctx.get("warp_shrink", '0'))
+    weft_shrink = str(bom_ctx.get("weft_shrink", '0'))
     
     m_data = [
         ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
@@ -2599,26 +2598,50 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s2.sheet_view.showGridLines = True
     w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
     
-    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
+    # 🛠️ FIXED: Thêm đầy đủ 2 cột tiêu đề Dài sản xuất và Rộng sản xuất vào cấu trúc tệp Excel đầu ra
+    det_hd = [
+        "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
+        "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
+        "polygon_net_area", "Gross Consumption"
+    ]
     for c_idx, h_text in enumerate(det_hd, start=1):
         cell = w_s2.cell(row=3, column=c_idx, value=h_text)
         cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
 
     c_row = 4
     for _, r in df_det.iterrows():
-        for c_idx, h_col in enumerate(det_hd, start=1):
-            val = r.get(h_col, "")
+        # 🛠️ FIXED DÒ TÌM ĐA TẦNG: Đảm bảo bốc đúng mọi biến thể tên cột Dài/Rộng từ DataFrame hiển thị
+        length_val = r.get("Chiều dài rập (inch)", r.get("Dài sản xuất (L-inch)", r.get("Length", 0.0)))
+        width_val = r.get("Chiều rộng rập (inch)", r.get("Rộng sản xuất (W-inch)", r.get("Width", 0.0)))
+        
+        # Ánh xạ động dữ liệu thực tế vào mảng dòng ghi tương ứng với tiêu đề đầu cột
+        row_cells_data = [
+            r.get("Component Name", ""),
+            r.get("Material Class", ""),
+            r.get("Role/Piece Type", ""),
+            r.get("Khổ vải sản xuất (inch)", 56),
+            r.get("Size tính toán", "32"),
+            r.get("Số lượng rập", 1),
+            length_val,
+            width_val,
+            r.get("polygon_net_area", 0.0),
+            r.get("Gross Consumption", 0.0)
+        ]
+
+        for c_idx, val in enumerate(row_cells_data, start=1):
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            if c_idx == 1 or c_idx == 2 or c_idx == 3:
+            # Căn lề chuẩn cho bảng kê chi tiết rập phẳng
+            if c_idx in:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx == 4 or c_idx == 5 or c_idx == 6:
+            elif c_idx in:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 if isinstance(val, (int, float)):
-                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
+                    # Định dạng hiển thị 4 chữ số thập phân cho cột định mức tiêu hao Gross
+                    cell.number_format = '#,##0.0000' if c_idx == 10 else '#,##0.00'
         c_row += 1
 
     for col_idx, col in enumerate(w_s2.columns, start=1):
