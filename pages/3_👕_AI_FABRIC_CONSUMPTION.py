@@ -2741,7 +2741,7 @@ if ai_decision_final:
 
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
-    # =====================================================================
+       # =====================================================================
     # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (THỤT LỀ THEO 7.1)
     # =====================================================================
     if len(df_bom) > 0:
@@ -2824,7 +2824,7 @@ if ai_decision_final:
                 "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
                 "Material Class": st.column_config.SelectboxColumn(
                     "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
-                    options=all_existing_classes, required=True # 🛠️ FIXED: Dropdown hiển thị động đầy đủ mọi chất liệu đặc thù
+                    options=all_existing_classes, required=True
                 ),
                 "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
@@ -2838,7 +2838,8 @@ if ai_decision_final:
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
             if len(matched_old_pcs) > 0:
-                old_pcs = float(matched_old_pcs)
+                # 🛠️ FIXED CHUẨN XÁC: Lấy phần tử [0] từ mảng NumPy để triệt tiêu vĩnh viễn lỗi TypeError
+                old_pcs = float(matched_old_pcs[0])
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2847,7 +2848,8 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                old_mat = str(matched_old_mat).upper().strip()
+                # 🛠️ FIXED CHUẨN XÁC: Ép kiểu chuỗi phần tử đầu tiên trích xuất từ mảng [0]
+                old_mat = str(matched_old_mat[0]).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
