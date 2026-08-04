@@ -2635,7 +2635,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & TỰ ĐỘNG BƠM DÒNG KEO LÓT TỪ SOLVER
+# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & TỰ ĐỘNG BƠM DÒNG KEO LÓT TỪ SOLVER (BẢN VÁ LỆCH NHÃN)
 # =====================================================================
 st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 ai_decision_final = ctx.get("ai_expert_decision", {})
@@ -2680,7 +2680,8 @@ solver_fusing_val = float(ai_decision_final.get("solver_fusing_consumption", 0.1
 if "FUSING" not in existing_classes and "KEO" not in existing_classes and solver_fusing_val > 0:
     new_row = {c: "" for c in df_bom_working.columns}
     new_row["component_name"] = "TOTAL FUSING (TỔNG KEO LÓT TỰ ĐỘNG)"
-    if detected_mat_col: new_row[detected_mat_col] = "FUSING"
+    if detected_mat_col: 
+        new_row[detected_mat_col] = "FUSING"
     new_row["Gross Consumption"] = solver_fusing_val
     new_row["pcs_numeric"] = 1
     df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
@@ -2689,30 +2690,37 @@ if "FUSING" not in existing_classes and "KEO" not in existing_classes and solver
 if "LINING" not in existing_classes and "LÓT" not in existing_classes and solver_lining_val > 0:
     new_row = {c: "" for c in df_bom_working.columns}
     new_row["component_name"] = "TOTAL LINING (TỔNG VẢI LÓT TỰ ĐỘNG)"
-    if detected_mat_col: new_row[detected_mat_col] = "LINING"
+    if detected_mat_col: 
+        new_row[detected_mat_col] = "LINING"
     new_row["Gross Consumption"] = solver_lining_val
     new_row["pcs_numeric"] = 1
     df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
 
-# Chuẩn hóa nhãn danh mục vật tư cho toàn bộ các dòng
+# 🛠️ FIXED LOGIC VÁN LỖI: Chuẩn hóa tách biệt hoàn toàn giữa dòng tự động và dòng gốc
 virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 clean_materials_list = []
 for idx in df_bom_working.index:
+    # 1. Nếu user đã chủ động sửa trên UI, ưu tiên số 1
     if idx in st.session_state["user_edited_materials"]:
         saved_mat = st.session_state["user_edited_materials"][idx]
-    elif detected_mat_col is not None and pd.notna(df_bom_working.loc[idx, detected_mat_col]) and str(df_bom_working.loc[idx, detected_mat_col]).strip() != "":
-        orig_mat = str(df_bom_working.loc[idx, detected_mat_col]).upper().strip()
-        if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
-        elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
-        else: saved_mat = "FABRIC"
     else:
-        saved_mat = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
+        cell_val = df_bom_working.loc[idx, detected_mat_col] if detected_mat_col else ""
+        # 2. Kiểm tra nếu ô dữ liệu có text cụ thể (Dành cho cả dòng tự động "FUSING"/"LINING" vừa chèn)
+        if pd.notna(cell_val) and str(cell_val).strip() != "":
+            orig_mat = str(cell_val).upper().strip()
+            if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
+            elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
+            else: saved_mat = "FABRIC"
+        # 3. Nếu ô rỗng hoàn toàn, tìm trong phân tách lớp của AI layer hoặc gán mặc định
+        else:
+            saved_mat = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
+            
     clean_materials_list.append(saved_mat)
     
 df_bom_working["_temp_class"] = clean_materials_list
 df_bom_working["Gross Consumption"] = df_bom_working.get("Gross Consumption", 0.0).fillna(0.0).astype(float)
 
-# Xây dựng bảng tổng hợp BOM Summary
+# Xây dựng bảng tổng hợp BOM Summary (Bao gồm đầy đủ các nhóm vật tư phân tách)
 summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
 cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
 
@@ -2725,6 +2733,7 @@ df_summary = pd.DataFrame({
 
 st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
 # =====================================================================
 # 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI
 # =====================================================================
