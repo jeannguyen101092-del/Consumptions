@@ -2769,13 +2769,35 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & ĐỌC NHÃN ĐỘNG (GIỮ NGUYÊN MỌI CHẤT LIỆU AI TRẢ VỀ)
+# 🟩 ĐOẠN 7.1: KHỞI TẠO BIẾN CTX DỰ PHÒNG & XỬ LÝ LOGIC DỮ LIỆU BOM SUMMARY
 # =====================================================================
-ai_decision_final = ctx.get("ai_expert_decision", {})
+# 🛠️ FIXED: Đặt khối lệnh khởi tạo dự phòng lên vị trí cao nhất ngoài cùng lề trái để sửa lỗi dòng 699
+if 'ctx' not in locals() and 'ctx' not in globals():
+    if "ctx" in st.session_state:
+        ctx = st.session_state["ctx"]
+    elif "context" in st.session_state:
+        ctx = st.session_state["context"]
+    elif 'context' in locals() or 'context' in globals():
+        ctx = context
+    else:
+        ctx = {}
 
-# CHỈ XUẤT HIỆN KHI AI ĐÃ QUÉT XONG DỮ LIỆU THÀNH CÔNG (ẨN HOÀN TOÀN BẢNG TRỐNG)
-if ai_decision_final:
-    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+# Đảm bảo đối tượng ai_expert_decision luôn tồn tại trong cấu trúc dữ liệu ngữ cảnh
+if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+    ctx["ai_expert_decision"] = {}
+
+# Tự động khôi phục dữ liệu df_bom an toàn từ các đoạn code phía trên
+if 'df_bom' not in locals() and 'df_bom' not in globals():
+    if 'df' in locals() or 'df' in globals():
+        df_bom = df.copy()
+    elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
+        df_bom = st.session_state["df_bom"].copy()
+    else:
+        df_bom = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
+
+# CHỈ HIỂN THỊ KHI CÓ DỮ LIỆU ĐÃ QUÉT XONG (ẨN HOÀN TOÀN BẢNG TRỐNG KHI CHƯA CHẠY SOLVER)
+if len(df_bom) > 0:
+    ai_decision_final = ctx.get("ai_expert_decision", {})
     estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
     ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
@@ -2787,94 +2809,84 @@ if ai_decision_final:
     ai_product_type_val = ai_product_type if 'ai_product_type' in locals() else prod_cat_ui
     prod_val = prod if 'prod' in locals() else prod_cat_ui
 
+    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type_val)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # Khởi tạo cache Session State nếu chưa có
+    # ĐỒNG BỘ DANH SÁCH VẬT TƯ LÊN BẢNG BOM SUMMARY TỪ CACHE RAM TRÁNH LỆCH NHÃN
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     if not isinstance(st.session_state.get("user_edited_pieces"), dict):
         st.session_state["user_edited_pieces"] = {}
     if not isinstance(st.session_state.get("user_edited_materials"), dict):
         st.session_state["user_edited_materials"] = {}
 
-    # Khôi phục an toàn biến dữ liệu gốc df_bom từ các đoạn code phía trên
-    if 'df_bom' not in locals() and 'df_bom' not in globals():
-        if 'df' in locals() or 'df' in globals():
-            df_bom = df.copy()
-        elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
-            df_bom = st.session_state["df_bom"].copy()
-        else:
-            df_bom = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
+    # Xác định cột phân loại gốc trong bảng dữ liệu đầu vào để tham chiếu
+    possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
+    detected_mat_col = next((col for col in possible_mat_cols if col in df_bom.columns), None)
 
-    if len(df_bom) > 0:
-        possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
-        detected_mat_col = next((col for col in possible_mat_cols if col in df_bom.columns), None)
-
-        clean_materials_list = []
-        for idx in df_bom.index:
-            comp_name = str(df_bom.loc[idx, "component_name"] if "component_name" in df_bom.columns else "").upper().strip()
-            v_piece = virtual_pieces_layer.get(idx, {})
-            
-            # 1. Nếu người dùng chỉnh tay trên lưới, ưu tiên số 1
-            if idx in st.session_state["user_edited_materials"]:
-                saved_mat = st.session_state["user_edited_materials"][idx]
-            
-            # 2. ĐỒNG BỘ ĐOẠN 5.2: Bốc phân loại chất liệu chuẩn hóa gốc đã tính toán từ layer ảo
-            elif v_piece and str(v_piece.get("material_class", "")).strip() != "":
-                saved_mat = str(v_piece.get("material_class")).upper().strip()
-            
-            # 3. THUẬT TOÁN QUÉT TỪ KHÓA THÔNG MINH: Đưa về tên nhóm chuẩn nếu lớp ảo bị khuyết thông tin
-            elif any(kw in comp_name for kw in ["FUSING", "KEO", "MÉC", "INTERLINING", "FUS"]):
-                saved_mat = "FUSING"
-            elif any(kw in comp_name for kw in ["LINING", "LÓT", "LIN"]):
-                saved_mat = "LINING"
-            elif any(kw in comp_name for kw in ["RIB", "BO"]):
-                saved_mat = "RIB"
-            elif any(kw in comp_name for kw in ["GÒN", "GON", "PADDING", "WADDING"]):
-                saved_mat = "GÒN"
-            elif any(kw in comp_name for kw in ["PHẢN QUANG", "PHAN QUANG", "REFLECTIVE"]):
-                saved_mat = "VẢI PHẢN QUANG"
-            
-            # 4. Kiểm tra cột phân loại hiện tại trong file dữ liệu gốc
-            elif detected_mat_col and pd.notna(df_bom.loc[idx, detected_mat_col]) and str(df_bom.loc[idx, detected_mat_col]).strip() != "":
-                orig_mat = str(df_bom.loc[idx, detected_mat_col]).upper().strip()
-                if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO", "INTERLINING"]: saved_mat = "FUSING"
-                elif orig_mat in ["LINING", "LÓT", "VẢI LÓT", "LINING_PIECE"]: saved_mat = "LINING"
-                elif orig_mat in ["RIB", "PHỐI RIB"]: saved_mat = "RIB"
-                elif orig_mat in ["FABRIC", "SHELL", "SELF", "VẢI CHÍNH"]: saved_mat = "FABRIC"
-                elif orig_mat in ["THREAD", "CHỈ MAY", "CHỈ"]: saved_mat = "THREAD"
-                elif orig_mat in ["ACCESSORY", "PHỤ LIỆU", "TRIM"]: saved_mat = "ACCESSORY"
-                else: saved_mat = orig_mat # 🛠️ GIỮ NGUYÊN MỌI CHẤT LIỆU KHÁC TỪ FILE (Gòn, Phản quang, Tape, Chun...)
-            else:
-                ai_inferred = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
-                saved_mat = ai_inferred if ai_inferred != "" else "FABRIC"
-                
-            clean_materials_list.append(saved_mat)
-            
-        df_bom["_temp_class"] = clean_materials_list
-        if "Gross Consumption" not in df_bom.columns:
-            df_bom["Gross Consumption"] = 0.0
-
-        # Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra bao gồm mọi nhãn động
-        summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-        cls_map = {
-            "FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", 
-            "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU",
-            "GÒN": "LỚP GÒN / PADDING", "VẢI PHẢN QUANG": "VẢI PHẢN QUANG"
-        }
+    clean_materials_list = []
+    for idx in df_bom.index:
+        comp_name = str(df_bom.loc[idx, "component_name"] if "component_name" in df_bom.columns else "").upper().strip()
+        v_piece = virtual_pieces_layer.get(idx, {})
         
-        df_summary = pd.DataFrame({
-            "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna(summary_grouped["_temp_class"]),
-            "Material Class": summary_grouped["_temp_class"],
-            "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
-            "UOM": "YDS"
-        })
+        # 1. Nếu người dùng đã chủ động sửa tay trên lưới, ưu tiên hàng đầu
+        if idx in st.session_state["user_edited_materials"]:
+            saved_mat = st.session_state["user_edited_materials"][idx]
+        
+        # 2. ĐỒNG BỘ ĐOẠN 5.2: Ưu tiên bốc phân loại chất liệu đã chuẩn hóa từ ma trận hình học layer ảo
+        elif v_piece and str(v_piece.get("material_class", "")).strip() != "":
+            saved_mat = str(v_piece.get("material_class")).upper().strip()
+        
+        # 3. THUẬT TOÁN QUÉT TỪ KHÓA: Nếu layer ảo bị trống, tự động sửa nhãn sai nếu tên chi tiết chứa từ khóa keo lót
+        elif any(kw in comp_name for kw in ["FUSING", "KEO", "MÉC", "INTERLINING", "FUS"]):
+            saved_mat = "FUSING"
+        elif any(kw in comp_name for kw in ["LINING", "LÓT", "LIN"]):
+            saved_mat = "LINING"
+        elif any(kw in comp_name for kw in ["RIB", "BO"]):
+            saved_mat = "RIB"
+        elif any(kw in comp_name for kw in ["GÒN", "GON", "PADDING", "WADDING"]):
+            saved_mat = "GÒN"
+        elif any(kw in comp_name for kw in ["PHẢN QUANG", "PHAN QUANG", "REFLECTIVE"]):
+            saved_mat = "VẢI PHẢN QUANG"
+            
+        # 4. Kiểm tra cột phân loại hiện tại trong file dữ liệu gốc
+        elif detected_mat_col and pd.notna(df_bom.loc[idx, detected_mat_col]) and str(df_bom.loc[idx, detected_mat_col]).strip() != "":
+            orig_mat = str(df_bom.loc[idx, detected_mat_col]).upper().strip()
+            if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO", "INTERLINING"]: saved_mat = "FUSING"
+            elif orig_mat in ["LINING", "LÓT", "VẢI LÓT", "LINING_PIECE"]: saved_mat = "LINING"
+            elif orig_mat in ["RIB", "PHỐI RIB"]: saved_mat = "RIB"
+            elif orig_mat in ["THREAD", "CHỈ MAY", "CHỈ"]: saved_mat = "THREAD"
+            elif orig_mat in ["ACCESSORY", "PHỤ LIỆU", "TRIM"]: saved_mat = "ACCESSORY"
+            else: saved_mat = orig_mat # Giữ nguyên mọi chất liệu động đặc thù (Gòn, Phản quang...)
+        else:
+            saved_mat = "FABRIC"
+            
+        clean_materials_list.append(saved_mat)
+        
+    df_bom["_temp_class"] = clean_materials_list
 
-        st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
-        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+    # Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra
+    summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+    cls_map = {
+        "FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", 
+        "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU",
+        "GÒN": "LỚP GÒN / PADDING", "VẢI PHẢN QUANG": "VẢI PHẢN QUANG"
+    }
+    
+    df_summary = pd.DataFrame({
+        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna(summary_grouped["_temp_class"]),
+        "Material Class": summary_grouped["_temp_class"],
+        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
+        "UOM": "YDS"
+    })
+
+    st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
+    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
        # =====================================================================
          # =====================================================================
         # 🟩 ĐOẠN 7.2A: KHỞI TẠO BIẾN CTX DỰ PHÒNG & TRÍCH XUẤT THÔNG SỐ Ô CHAT
