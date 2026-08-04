@@ -2145,7 +2145,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
     if "JEAN" in p_type_upper or "KHAKI" in p_type_upper or _is_trouser or _is_short:
-        dynamic_marker_efficiency = 0.64  # Quần Jeans/Khaki rải đơn chiếc thực tế đạt ~64%
+        dynamic_marker_efficiency = 0.75  # Quần Jeans/Khaki rải đơn chiếc thực tế đạt ~64%
     elif "JACKET" in p_type_upper or "COAT" in p_type_upper or _is_jacket:
         dynamic_marker_efficiency = 0.74  
     elif "SHIRT" in p_type_upper or "POLO" in p_type_upper or "BLOUSE" in p_type_upper:
@@ -2263,7 +2263,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx_decision["marker_efficiency"] = float(dynamic_marker_efficiency)
     ctx_decision["virtual_pieces_layer"] = virtual_pieces_layer
 
-    st.success("✅ [Đoạn 5.2] Đã đồng bộ ma trận hiệu suất động đa mặt hàng ")
+    st.success("✅ Đã đồng bộ ma trận hiệu suất động đa mặt hàng ")
 
 
 
