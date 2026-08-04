@@ -2263,7 +2263,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx_decision["marker_efficiency"] = float(dynamic_marker_efficiency)
     ctx_decision["virtual_pieces_layer"] = virtual_pieces_layer
 
-    st.success("✅ [Đoạn 5.2] Đã đồng bộ ma trận hiệu suất động đa mặt hàng và nâng định mức VC thành công!")
+    st.success("✅ [Đoạn 5.2] Đã đồng bộ ma trận hiệu suất động đa mặt hàng ")
 
 
 
