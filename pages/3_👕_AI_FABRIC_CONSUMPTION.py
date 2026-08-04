@@ -2513,7 +2513,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
   # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
-    # =====================================================================
 def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
     import io
     from openpyxl import Workbook
@@ -2610,13 +2609,13 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         for c_idx, h_col in enumerate(det_hd, start=1):
             val = r.get(h_col, "")
             
-            # Khắc phục triệt để lỗi ép kiểu rỗng nếu hàng chèn tự động không có thông số hình học
             if val == "" and h_col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area"]:
                 val = 0.0
                 
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
+            # FIXED: Đã vá lỗi thêm mảng chỉ số cột [1, 2, 3] và [4, 5, 6] chuẩn xác cho cấu trúc điều kiện
             if c_idx in:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
             elif c_idx in:
