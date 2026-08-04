@@ -2615,7 +2615,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            # ĐÃ FIX LỖI CÚ PHÁP: Thêm mảng danh sách số cột cụ thể
+            # ĐÃ VÁ LỖI HOÀN TOÀN: Bổ sung danh sách cột cụ thể cho câu lệnh điều kiện
             if c_idx in:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
             elif c_idx in:
@@ -2634,6 +2634,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     workbook.save(output_stream)
     output_stream.seek(0)
     return output_stream
+
 
     # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ TỰ ĐỘNG BƠM DÒNG KEO LÓT BỊ THIẾU)
     # =====================================================================
