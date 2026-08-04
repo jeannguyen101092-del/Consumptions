@@ -2656,10 +2656,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if not isinstance(st.session_state.get("user_edited_materials"), dict):
         st.session_state["user_edited_materials"] = {}
 
+    # 🛠️ VÁ LỖI KHÔNG XUẤT HIỆN KEO LÓT: Tự động quét tìm cột chất liệu gốc từ dữ liệu đầu vào
+    possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
+    detected_mat_col = next((col for col in possible_mat_cols if col in df_bom.columns), None)
+
     clean_materials_list = []
     for idx in df_bom.index:
         v_piece = virtual_pieces_layer.get(idx, {})
-        saved_mat = st.session_state["user_edited_materials"].get(idx, v_piece.get("inferred_class", "FABRIC"))
+        # 1. Ưu tiên chất liệu do user chọn lại trên UI
+        if idx in st.session_state["user_edited_materials"]:
+            saved_mat = st.session_state["user_edited_materials"][idx]
+        # 2. Nếu chưa chọn, lấy chất liệu từ AI layer dự đoán
+        elif "inferred_class" in v_piece:
+            saved_mat = v_piece.get("inferred_class")
+        # 3. Nếu AI layer trống, lấy chất liệu gốc từ file dữ liệu đầu vào (df_bom)
+        elif detected_mat_col is not None and pd.notna(df_bom.loc[idx, detected_mat_col]):
+            orig_mat = str(df_bom.loc[idx, detected_mat_col]).upper().strip()
+            # Chuẩn hóa nhãn mếch dựng nếu file gốc ghi tiếng Việt hoặc viết thường
+            if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]:
+                saved_mat = "FUSING"
+            elif orig_mat in ["FABRIC", "VẢI", "VẢI CHÍNH"]:
+                saved_mat = "FABRIC"
+            else:
+                saved_mat = orig_mat
+        # 4. Cuối cùng mới đưa về FABRIC
+        else:
+            saved_mat = "FABRIC"
+            
         clean_materials_list.append(saved_mat)
         
     df_bom["_temp_class"] = clean_materials_list
@@ -2699,16 +2722,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     qty_list = []
     for idx, r in df_bom.iterrows():
-        # 1. Ưu tiên số lượng do người dùng đã chỉnh sửa trên giao diện
         if idx in st.session_state["user_edited_pieces"]:
             qty_val = int(st.session_state["user_edited_pieces"][idx])
-        # 2. Nếu chưa sửa, tự động bóc từ cột số lượng rập gốc của file
         elif detected_qty_col is not None:
             try:
                 qty_val = int(float(r[detected_qty_col]))
             except (ValueError, TypeError):
                 qty_val = 1
-        # 3. Mặc định là 1 nếu không quét được bất kỳ dữ liệu số lượng nào
         else:
             qty_val = 1
         qty_list.append(qty_val)
@@ -2752,7 +2772,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "_original_row_index": None, 
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-            # FIXED: Khổ vải sản xuất ép hiển thị dạng Số Nguyên (%d) Chặn đứng lỗi mất số 6 biên
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
             "Material Class": st.column_config.SelectboxColumn(
