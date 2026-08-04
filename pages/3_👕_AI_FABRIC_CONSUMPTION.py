@@ -2546,7 +2546,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.title = "BOM Summary"
     w_s1.sheet_view.showGridLines = True
     
-    w_s1.cell(row=1, column=1, value="PHÒNG IE / CẮT CAD - HỆ THỐNG QUẢN LÝ PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
+    w_s1.cell(row=1, column=1, value="PHÒNG KT /CAD - HỆ THỐNG QUẢN LÝ ĐỊNH MỨC PPJ GROUP").font = Font(name=f_family, size=8, italic=True, color="7F8C8D")
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
