@@ -2801,14 +2801,16 @@ for _, row in edited_df.iterrows():
     matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
     
     if len(matched_old_pcs) > 0:
-        old_pcs = float(matched_old_pcs)
+        # 🛠️ FIXED: Sử dụng .item() hoặc trích xuất [0] để lấy giá trị số từ mảng trước khi ép kiểu float
+        old_pcs = float(matched_old_pcs[0])
         new_pcs = float(row["Số lượng rập"])
         if old_pcs != new_pcs:
             st.session_state["user_edited_pieces"][orig_idx] = new_pcs
             has_changed = True
             
     if len(matched_old_mat) > 0:
-        old_mat = str(matched_old_mat).upper().strip()
+        # 🛠️ FIXED: Trích xuất phần tử mảng đầu tiên để tránh lỗi ép kiểu chuỗi numpy
+        old_mat = str(matched_old_mat[0]).upper().strip()
         new_mat = str(row["Material Class"]).upper().strip()
         if old_mat != new_mat:
             st.session_state["user_edited_materials"][orig_idx] = new_mat
