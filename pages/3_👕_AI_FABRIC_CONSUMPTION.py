@@ -2770,12 +2770,12 @@ col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Ti�
 
 with col_t2:
     try:
-        # SỬA LỖI: Kiểm tra hàm export đã tồn tại và hoàn thiện nút download bị mất góc
-        if 'local_export_excel_ppj_format' in locals():
+        # Kiểm tra xem hàm export đã tồn tại trong local scope chưa
+        if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
             excel_file = local_export_excel_ppj_format(
                 df_summary, 
                 df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                prod_cat_ui,  # Sử dụng biến prod_cat_ui đã có thay vì biến 'prod' chưa khai báo
+                prod_cat_ui, 
                 ctx, 
                 ui_display_density
             )
@@ -2793,93 +2793,5 @@ with col_t2:
     except Exception as e:
         st.error(f"❌ Lỗi khi khởi tạo nút tải file Excel: {str(e)}")
 
-# Đưa bảng chi tiết rập ra màn hình chính phía dưới tiêu đề
+# Đưa bảng chi tiết rập ra màn hình chính phía dưới hai tiêu đề
 st.dataframe(df_bom_display, use_container_width=True, hide_index=True)
-lass"],
-        "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
-        "UOM": "YDS"
-    })
-
-    st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
-    st.dataframe(df_summary, use_container_width=True, hide_index=True)
-
-    df_bom_display = df_bom_working.copy()
-    
-    # Vá lỗi hiển thị khổ vải số nguyên
-    if "Calculated Width (Inch)" in df_bom_display.columns:
-        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].apply(lambda x: int(float(x)) if (pd.notna(x) and str(x).strip() != "" and float(x) > 0) else 56)
-    else:
-        df_bom_display["Khổ vải sản xuất (inch)"] = int(float(st.session_state.get("fabric_width_inch", 56)))
-        
-    df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "38/XL"
-    df_bom_display["Material Class"] = df_bom_display["_temp_class"]
-    df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
-    
-    # Đồng bộ số lượng rập hiển thị chuẩn xác
-    possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong"]
-    detected_qty_col = next((col for col in possible_qty_cols if col in df_bom_working.columns), None)
-
-    qty_list = []
-    for idx, r in df_bom_working.iterrows():
-        if idx in st.session_state["user_edited_pieces"]:
-            qty_val = int(st.session_state["user_edited_pieces"][idx])
-        elif detected_qty_col is not None and pd.notna(r[detected_qty_col]) and str(r[detected_qty_col]).strip() != "":
-            try: qty_val = int(float(r[detected_qty_col]))
-            except: qty_val = 1
-        else:
-            qty_val = 1
-        qty_list.append(qty_val)
-
-    df_bom_display["Số lượng rập"] = qty_list
-    df_bom_display["_original_row_index"] = df_bom_working.index
-
-    # Định dạng các cột hiển thị
-    ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Gross Consumption"]
-    display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
-    df_bom_display = df_bom_display[display_final_cols]
-
-    col_t1, col_t2 = st.columns(2)
-    col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
-    
-    with col_t2:
-        try:
-            if 'local_export_excel_ppj_format' in locals():
-                excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod, ctx, ui_display_density)
-                style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-                st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{prod}_{style_name_clean}.xlsx", use_container_width=True)
-        except: pass
-
-    # LƯỚI DATA_EDITOR CHÍNH THỨC
-    edited_df = st.data_editor(
-        df_bom_display, 
-        column_config={
-            "_original_row_index": None, 
-            "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
-            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
-            "Material Class": st.column_config.SelectboxColumn(
-                "Material Class", options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD"], required=True
-            ),
-            "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
-        }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v16" 
-    )
-
-    # LẮNG NGHE SỰ KIỆN TƯƠNG TÁC
-    has_changed = False
-    for _, row in edited_df.iterrows():
-        orig_idx = int(row["_original_row_index"])
-        if orig_idx in df_bom_display["_original_row_index"].values:
-            old_pcs = float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0])
-            new_pcs = float(row["Số lượng rập"])
-            if old_pcs != new_pcs:
-                st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-                has_changed = True
-                
-            old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values[0]).upper().strip()
-            new_mat = str(row["Material Class"]).upper().strip()
-            if old_mat != new_mat:
-                st.session_state["user_edited_materials"][orig_idx] = new_mat
-
-            has_changed = True
-            
-    if has_changed:
-        st.rerun()
