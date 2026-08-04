@@ -2629,12 +2629,12 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            # 🛠️ FIXED: Sửa lỗi khuyết thiếu chỉ số cột - Căn lề chuẩn xác
-            if c_idx in: # Các cột chuỗi (Tên rập, Chủng loại, Vị trí) căn trái
+            # 🛠️ FIXED: Điền chính xác chỉ số mảng cột để căn lề và định dạng
+            if c_idx in: # Tên rập, Nhóm chất liệu, Role
                 cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx in: # Các cột phân loại (Khổ vải, Size, Số lượng) căn giữa
+            elif c_idx in: # Khổ vải, Size, Số lượng rập
                 cell.alignment = Alignment(horizontal="center", vertical="center")
-            else: # Các cột thông số hình học (Dài, Rộng, Diện tích, Định mức) căn phải
+            else: # Dài, Rộng, Diện tích tịnh, Định mức Gross
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 if isinstance(val, (int, float)):
                     cell.number_format = '#,##0.0000' if c_idx == 10 else '#,##0.00'
