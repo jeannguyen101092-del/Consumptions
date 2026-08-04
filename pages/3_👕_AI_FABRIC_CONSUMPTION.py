@@ -2512,7 +2512,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
-  import io
+import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Side, Border, Alignment
 from openpyxl.utils import get_column_letter  # SỬA LỖI: Thêm import để tránh lỗi NameError
