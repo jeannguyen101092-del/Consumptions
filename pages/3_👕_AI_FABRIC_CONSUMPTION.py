@@ -2795,7 +2795,7 @@ st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
 
 # =====================================================================
-# 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI
+# 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI (VÁ LỖI DUPLICATE KEY)
 # =====================================================================
 df_bom_display = df_bom_working.copy()
 
@@ -2833,13 +2833,12 @@ ordered_cols = [
 display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
 df_bom_display = df_bom_display[display_final_cols]
 
-col_t1, col_t2 = st.columns(2)
-col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
+# 🛠️ FIXED: Chỉ tạo cấu trúc cột cho nút tải, loại bỏ hoàn toàn Subheader thừa gây lặp chữ
+col_space, col_btn = st.columns([2, 1])
 
-with col_t2:
+with col_btn:
     try:
         if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-            # Loại bỏ dòng tổng cộng (GRAND TOTAL) ra trước khi lưu file Excel thương mại
             df_excel_summary = df_summary[df_summary["Material Class"] != "TOTAL"]
             
             excel_file = local_export_excel_ppj_format(
@@ -2848,15 +2847,20 @@ with col_t2:
                 prod_cat_ui, ctx, ui_display_density
             )
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+            
+            # 🛠️ FIXED: Thêm key="btn_download_excel_ppj_v1" cố định để chặn lỗi Duplicate Key
             st.download_button(
-                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, 
+                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
+                data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
-                file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", use_container_width=True
+                file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", 
+                use_container_width=True,
+                key="btn_download_excel_ppj_v1"
             )
     except Exception as e: 
         st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
-# HIỂN THỊ LƯỚI DATA_EDITOR VỚI OPTIONS ĐÃ ĐỒNG BỘ CỐ ĐỊNH THEO 7.1
+# HIỂN THỊ LƯỚI DATA_EDITOR HOÀN CHỈNH
 edited_df = st.data_editor(
     df_bom_display, 
     column_config={
@@ -2868,7 +2872,6 @@ edited_df = st.data_editor(
         "Material Class": st.column_config.SelectboxColumn(
             "Material Class", 
             help="Chọn lại nhóm vật tư cốt lõi nếu hệ thống phân loại chưa chính xác",
-            # 🛠️ FIXED: Chỉ hiển thị đúng 5 nhóm vật tư cố định theo thiết kế mới của bạn
             options=["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"], 
             required=True
         ),
@@ -2882,73 +2885,13 @@ has_changed = False
 for _, row in edited_df.iterrows():
     orig_idx = int(row["_original_row_index"])
     
-    # Kiểm tra thay đổi số lượng rập
-    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0]))
+    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values))
     new_pcs = int(float(row["Số lượng rập"]))
     if old_pcs != new_pcs:
         st.session_state["user_edited_pieces"][orig_idx] = new_pcs
         has_changed = True
         
-    # Kiểm tra thay đổi phân loại chất liệu
-    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values[0]).upper().strip()
-    new_mat = str(row["Material Class"]).upper().strip()
-    if old_mat != new_mat:
-        st.session_state["user_edited_materials"][orig_idx] = new_mat
-        has_changed = True
-        
-if has_changed:
-    st.rerun()
-
-col_t1, col_t2 = st.columns(2)
-col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
-
-with col_t2:
-    try:
-        if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-            excel_file = local_export_excel_ppj_format(
-                df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                prod_cat_ui, ctx, ui_display_density
-            )
-            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            st.download_button(
-                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, 
-                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
-                file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", use_container_width=True
-            )
-    except Exception as e: 
-        st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
-
-# Đưa bảng lên màn hình thông qua st.data_editor
-edited_df = st.data_editor(
-    df_bom_display, 
-    column_config={
-        "_original_row_index": None, 
-        "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
-        "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-        "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
-        "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
-        "Material Class": st.column_config.SelectboxColumn(
-            "Material Class", options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD"], required=True
-        ),
-        "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
-        "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
-    }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
-)
-
-# Lắng nghe thay đổi dữ liệu từ phía người dùng
-has_changed = False
-for _, row in edited_df.iterrows():
-    orig_idx = int(row["_original_row_index"])
-    
-    # 🛠️ FIXED: Thêm [0] vào sau .values để trích xuất chính xác phần tử số trước khi ép kiểu
-    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0]))
-    new_pcs = int(float(row["Số lượng rập"]))
-    if old_pcs != new_pcs:
-        st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-        has_changed = True
-        
-    # 🛠️ FIXED: Thêm [0] vào sau .values tương tự cho trường Material Class
-    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values[0]).upper().strip()
+    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values).upper().strip()
     new_mat = str(row["Material Class"]).upper().strip()
     if old_mat != new_mat:
         st.session_state["user_edited_materials"][orig_idx] = new_mat
