@@ -2758,62 +2758,75 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
+           # =====================================================================
+        # 🟩 ĐOẠN 7.2A: TRÍCH XUẤT THÔNG SỐ Ô CHAT CHUẨN ĐOẠN 1 & CẤU HÌNH METADATA
         # =====================================================================
-    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (BẢN VÁ QUÉT Ô CHAT CHUẨN XÁC)
-    # =====================================================================
-    import re
+        import re
 
-    if len(df_bom) > 0:
-        df_bom_display = df_bom.copy()
-
-        # 1. 🚨 BỘ TRÍCH XUẤT ĐỒNG BỘ THÔNG TIN ĐẦU VÀO TRỰC TIẾP TỪ Ô CHAT CỦA USER
-        user_chat_text = ""
-        if "messages" in st.session_state and st.session_state["messages"]:
-            user_messages = [msg["content"] for msg in st.session_state["messages"] if msg.get("role") == "user"]
-            if user_messages:
-                user_chat_text = str(user_messages[-1]).lower().strip()
-        else:
-            user_chat_text = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
-
-        # Thiết lập giá trị mặc định ban đầu an toàn từ Session State hoặc hằng số xưởng
-        excel_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+        # Khởi tạo giá trị cấu hình mặc định an toàn ban đầu
+        excel_fabric_width = float(st.session_state.get("fabric_width_inch", 56.0))
         excel_shrink_warp = float(st.session_state.get("shrinkage_warp_percent", 0.0))
         excel_shrink_weft = float(st.session_state.get("shrinkage_weft_percent", 0.0))
         excel_size_code = "32"
 
-        # Quét trích xuất real-time theo câu bạn gõ chat (Bổ sung bộ quét chữ không phân biệt hoa thường)
+        # 🛠️ ĐỒNG BỘ ĐOẠN 1: Trích xuất câu chat dựa trên cấu trúc chat_history và last_submitted_query
+        user_chat_text = ""
+        
+        # Hướng ưu tiên 1: Bốc tin nhắn mới nhất vừa được gửi và lưu tạm ở Đoạn 1
+        if st.session_state.get("last_submitted_query"):
+            user_chat_text = str(st.session_state["last_submitted_query"]).lower().strip()
+            
+        # Hướng ưu tiên 2: Quét ngược phần tử cuối cùng trong bộ nhớ chat_history của Đoạn 1
+        elif st.session_state.get("chat_history") and isinstance(st.session_state.chat_history, list) and len(st.session_state.chat_history) > 0:
+            last_msg = st.session_state.chat_history[-1]
+            if isinstance(last_msg, dict) and last_msg.get("user"):
+                user_chat_text = str(last_msg["user"]).lower().strip()
+                
+        # Hướng ưu tiên 3: Dự phòng đọc trực tiếp từ key ô chat st.chat_input của Đoạn 1
+        else:
+            user_chat_text = str(st.session_state.get("ie_workspace_fixed_dynamic_chat_final_patch_v9", "")).lower().strip()
+
+        # Tiến hành bốc tách thông số bằng biểu thức chính quy Regex
         if user_chat_text:
-            # Quét Khổ vải từ ô chat (Bắt cả khổ, kho, khong, width)
-            width_match = re.search(r'(?:khổ|kho|width)\s*[:\-]?\s*(\d+(?:\.\d+)?)', user_chat_text)
+            width_match = re.search(r'(?:khổ|kho|width|w)\s*[:\-]?\s*(\d+(?:\.\d+)?)', user_chat_text)
             if width_match:
                 excel_fabric_width = float(width_match.group(1))
+                st.session_state["fabric_width_inch"] = excel_fabric_width
                 
-            # Quét Co rút dọc từ ô chat (Bắt cả dọc, doc, warp)
-            warp_match = re.search(r'(?:dọc|doc|warp)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            warp_match = re.search(r'(?:dọc|doc|warp|shrink_l)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
             if warp_match:
                 excel_shrink_warp = float(warp_match.group(1).replace(',', '.'))
+                st.session_state["shrinkage_warp_percent"] = excel_shrink_warp
                 
-            # Quét Co rút ngang từ ô chat (Bắt cả ngang, ngang, weft)
-            weft_match = re.search(r'(?:ngang|weft)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            weft_match = re.search(r'(?:ngang|weft|shrink_w)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
             if weft_match:
                 excel_shrink_weft = float(weft_match.group(1).replace(',', '.'))
+                st.session_state["shrinkage_weft_percent"] = excel_shrink_weft
 
-            # Quét Size từ ô chat (Bắt chuẩn xác mọi định dạng số size như: size 30, size 32)
-            size_match = re.search(r'(?:size|kich\s*thuoc|co)\s*[:\-]?\s*([a-z0-9\-\/]+)', user_chat_text)
+            size_match = re.search(r'(?:size|sz|cỡ|co)\s*[:\-]?\s*([a-z0-9\-\/]+)', user_chat_text)
             if size_match:
-                excel_size_code = str(size_match.group(1)).upper()
-            elif 'detected_size_code' in locals():
-                excel_size_code = str(detected_size_code)
+                excel_size_code = str(size_match.group(1)).upper().strip()
+                st.session_state["detected_size_code"] = excel_size_code
+            elif 'detected_size_code' in locals() and str(detected_size_code).strip() != "" and str(detected_size_code).strip() != "N/A":
+                excel_size_code = str(detected_size_code).upper().strip()
             else:
-                excel_size_code = str(st.session_state.get("detected_size_code", "32"))
+                excel_size_code = str(st.session_state.get("detected_size_code", "32")).upper().strip()
+        else:
+            # Thu hồi thông số lưu trong bộ nhớ RAM nếu người dùng không gõ câu chat mới
+            if 'detected_size_code' in locals() and str(detected_size_code).strip() != "" and str(detected_size_code).strip() != "N/A":
+                excel_size_code = str(detected_size_code).upper().strip()
+            else:
+                excel_size_code = str(st.session_state.get("detected_size_code", "32")).upper().strip()
 
-        # Gán khổ vải số nguyên và size tương ứng cho bảng hiển thị trên lưới Streamlit
+        # Gán thông số thực tế vào bảng hiển thị phục vụ Đoạn 7.2B bên dưới
         df_bom_display["Khổ vải sản xuất (inch)"] = int(excel_fabric_width)
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
-
-        # 2. ĐỒNG BỘ SỐ LƯỢNG RẬP CHÍNH XÁC TỪ AI LAYER TRẢ VỀ
+        # =====================================================================
+        # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
+        # =====================================================================
+        # Thu thập chính xác danh sách số lượng rập từ AI expert hoặc Đoạn 5.1A truyền xuống
         qty_list = []
         for idx, r in df_bom.iterrows():
             v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
@@ -2847,16 +2860,18 @@ if ai_decision_final:
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # Tìm quét đa tầng an toàn mã hàng chuẩn từ Techpack (ví dụ: R09-400416)
-                    detected_style = "JEANS"
+                    # Trích xuất an toàn mã hàng chính xác đã nhận diện từ Techpack
+                    detected_style = "N/A"
                     for style_key in ["style_code", "style_name", "Style", "Mã hàng", "ma_hang"]:
                         if ctx.get(style_key):
                             detected_style = str(ctx.get(style_key)).strip()
                             break
+                    if detected_style == "N/A" and "style_code" in ai_decision_final:
+                        detected_style = str(ai_decision_final.get("style_code")).strip()
 
-                    # Đóng gói bom_ctx ép nạp toàn bộ ma trận dữ liệu bốc từ câu chat văn bản của bạn
+                    # Đóng gói bom_ctx gửi vào hàm Excel đầu ra đúng tham số thực tế người dùng nhập
                     bom_ctx = {
-                        "style_code": detected_style,
+                        "style_code": detected_style if detected_style != "N/A" else "JACKET",
                         "customer_name": str(ctx.get("customer_name", "PPJ GROUP")),
                         "detected_size_code": excel_size_code,
                         "fabric_width": excel_fabric_width,
@@ -2878,7 +2893,7 @@ if ai_decision_final:
                         mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
                         file_name=f"PPJ_BOM_{prod_val}_{style_name_clean}.xlsx", 
                         use_container_width=True,
-                        key="btn_download_excel_ppj_split_final_v9"
+                        key="btn_download_excel_ppj_split_final_v11"
                     )
             except Exception as e: 
                 st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
@@ -2907,10 +2922,7 @@ if ai_decision_final:
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
         )
 
-    
-
-
-        # LẮNG NGHE VÀ XỬ LÝ AN TOÀN SỰ KIỆN CHỈNH SỬA TỪ USER (TRIỆT TIÊU LỖI TYPEERROR)
+        # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ CẬP NHẬT TRẠNG THÁI TỨC THÌ
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
@@ -2918,8 +2930,7 @@ if ai_decision_final:
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
             if len(matched_old_pcs) > 0:
-                # Trích xuất giá trị số thực từ mảng NumPy an toàn bằng cấu trúc chỉ mục [0] nguyên bản
-                old_pcs = float(matched_old_pcs[0])
+                old_pcs = float(matched_old_pcs)
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2928,12 +2939,9 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                # Trích xuất giá trị chuỗi an toàn
-                old_mat = str(matched_old_mat[0]).upper().strip()
+                old_mat = str(matched_old_mat).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
-                
-
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
                     if isinstance(virtual_pieces_layer.get(orig_idx), dict):
                         virtual_pieces_layer[orig_idx]["material_class"] = new_mat
