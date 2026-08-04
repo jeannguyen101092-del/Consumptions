@@ -2634,9 +2634,6 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
 import pandas as pd
 import streamlit as st
 
-# =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & TỰ ĐỘNG BƠM DÒNG KEO LÓT TỪ SOLVER (BẢN VÁ BIẾN DF)
-# =====================================================================
 st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 ai_decision_final = ctx.get("ai_expert_decision", {})
 estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
@@ -2661,7 +2658,7 @@ if not isinstance(st.session_state.get("user_edited_pieces"), dict):
 if not isinstance(st.session_state.get("user_edited_materials"), dict):
     st.session_state["user_edited_materials"] = {}
 
-# 🛠️ FIXED: Tự động dò tìm biến DataFrame phù hợp để tránh lỗi NameError 'df_bom'
+# Tự động dò tìm biến DataFrame phù hợp từ các đoạn code phía trên
 if 'df_bom' in locals() or 'df_bom' in globals():
     df_bom_working = df_bom.copy()
 elif 'df' in locals() or 'df' in globals():
@@ -2669,73 +2666,129 @@ elif 'df' in locals() or 'df' in globals():
 elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
     df_bom_working = st.session_state["df_bom"].copy()
 else:
-    # Tạo bảng trống tạm thời nếu hoàn toàn không tìm thấy để giao diện không bị sập đỏ màn hình
-    st.warning("⚠️ Không tìm thấy biến dữ liệu BOM. Đang khởi tạo bảng tạm thời.")
-    df_bom_working = pd.DataFrame(columns=["component_name", "Gross Consumption"])
+    df_bom_working = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
 
 # Xác định cột phân loại chất liệu trong bảng dữ liệu đầu vào
 possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại", "_temp_class"]
 detected_mat_col = next((col for col in possible_mat_cols if col in df_bom_working.columns), None)
+if not detected_mat_col:
+    detected_mat_col = "Material Class"
 
+# CHUẨN HÓA EXISTING CLASSES ĐỂ TRÁNH CHÈN TRÙNG KEO LÓT TỪ SOLVER
+existing_classes_raw = df_bom_working[detected_mat_col].dropna().astype(str).str.upper().str.strip().tolist() if len(df_bom_working) > 0 else []
 existing_classes = []
-if detected_mat_col is not None:
-    existing_classes = df_bom_working[detected_mat_col].dropna().astype(str).str.upper().str.strip().tolist()
+for x in existing_classes_raw:
+    if x in ["KEO LÓT", "KEO", "MÉC", "MÉC / KEO", "INTERLINING", "FUSING"]:
+        existing_classes.append("FUSING")
+    elif x in ["VẢI LÓT", "LÓT", "LINING_PIECE", "LINING"]:
+        existing_classes.append("LINING")
+    else:
+        existing_classes.append(x)
 
-# Đọc kết quả tính toán keo lót trực tiếp từ Geometric Solver
+# Đọc định mức tính toán keo lót trực tiếp từ Geometric Solver
 solver_lining_val = float(ai_decision_final.get("solver_lining_consumption", 0.183))
 solver_fusing_val = float(ai_decision_final.get("solver_fusing_consumption", 0.114))
 
-# Tự động chèn dòng FUSING (Méc/Keo) nếu Solver có dữ liệu nhưng bảng chi tiết bị khuyết
-if "FUSING" not in existing_classes and "KEO" not in existing_classes and solver_fusing_val > 0:
+# Tự động chèn dòng FUSING (Méc/Keo) nếu Solver có dữ liệu nhưng bảng bị khuyết
+if "FUSING" not in existing_classes and solver_fusing_val > 0:
     new_row = {c: "" for c in df_bom_working.columns}
     new_row["component_name"] = "TOTAL FUSING (TỔNG KEO LÓT TỰ ĐỘNG)"
-    if detected_mat_col: 
-        new_row[detected_mat_col] = "FUSING"
+    new_row[detected_mat_col] = "FUSING"
     new_row["Gross Consumption"] = solver_fusing_val
     new_row["pcs_numeric"] = 1
     df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
 
 # Tự động chèn dòng LINING (Vải lót) tương tự
-if "LINING" not in existing_classes and "LÓT" not in existing_classes and solver_lining_val > 0:
+if "LINING" not in existing_classes and solver_lining_val > 0:
     new_row = {c: "" for c in df_bom_working.columns}
     new_row["component_name"] = "TOTAL LINING (TỔNG VẢI LÓT TỰ ĐỘNG)"
-    if detected_mat_col: 
-        new_row[detected_mat_col] = "LINING"
+    new_row[detected_mat_col] = "LINING"
     new_row["Gross Consumption"] = solver_lining_val
     new_row["pcs_numeric"] = 1
     df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
 
-# Chuẩn hóa tách biệt hoàn toàn giữa dòng tự động và dòng gốc
+# 🛠️ CHUẨN HÓA THEO YÊU CẦU: CHỈ GIỮ LẠI CÁC NHÓM CỐT LÕI, CÒN LẠI ĐẨY VÀO ACCESSORY (PHỤ LIỆU)
 virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 clean_materials_list = []
 for idx in df_bom_working.index:
+    comp_name = str(df_bom_working.loc[idx, "component_name"]).upper()
+    
     if idx in st.session_state["user_edited_materials"]:
         saved_mat = st.session_state["user_edited_materials"][idx]
-    else:
-        cell_val = df_bom_working.loc[idx, detected_mat_col] if detected_mat_col else ""
-        if pd.notna(cell_val) and str(cell_val).strip() != "":
-            orig_mat = str(cell_val).upper().strip()
-            if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
-            elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
-            else: saved_mat = "FABRIC"
+    elif "TOTAL FUSING" in comp_name:
+        saved_mat = "FUSING"
+    elif "TOTAL LINING" in comp_name:
+        saved_mat = "LINING"
+    elif pd.notna(df_bom_working.loc[idx, detected_mat_col]) and str(df_bom_working.loc[idx, detected_mat_col]).strip() != "":
+        orig_mat = str(df_bom_working.loc[idx, detected_mat_col]).upper().strip()
+        
+        # Chỉ giữ lại 4 nhóm chính bạn cần chỉnh
+        if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "INTERLINING", "FUSING"]: 
+            saved_mat = "FUSING"
+        elif orig_mat in ["LINING", "LÓT", "VẢI LÓT", "LINING_PIECE"]: 
+            saved_mat = "LINING"
+        elif orig_mat in ["FABRIC", "SHELL", "SELF", "VẢI CHÍNH"]: 
+            saved_mat = "FABRIC"
+        elif orig_mat in ["RIB", "PHỐI RIB"]: 
+            saved_mat = "RIB"
+        # Chỉ may, nhãn mác, chun tape... gom toàn bộ vào nhóm Phụ liệu / Khác
         else:
-            saved_mat = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
-            
+            saved_mat = "ACCESSORY"
+    else:
+        # Kiểm tra lớp AI gợi ý, nếu không thuộc nhóm chính cũng đưa về ACCESSORY
+        ai_inferred = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
+        saved_mat = ai_inferred if ai_inferred in ["FABRIC", "LINING", "FUSING", "RIB"] else "ACCESSORY"
+        
     clean_materials_list.append(saved_mat)
     
 df_bom_working["_temp_class"] = clean_materials_list
 df_bom_working["Gross Consumption"] = df_bom_working.get("Gross Consumption", 0.0).fillna(0.0).astype(float)
 
-# Xây dựng bảng tổng hợp BOM Summary
+# Gom nhóm xây dựng bảng tổng hợp BOM Summary
 summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
+
+# Ánh xạ nhãn hiển thị Tiếng Việt gọn gàng
+cls_map = {
+    "FABRIC": "VẢI CHÍNH", 
+    "LINING": "VẢI LÓT", 
+    "FUSING": "MÉC / KEO", 
+    "RIB": "PHỐI RIB", 
+    "ACCESSORY": "PHỤ LIỆU / KHÁC"
+}
 
 df_summary = pd.DataFrame({
-    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
+    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("PHỤ LIỆU / KHÁC"),
     "Material Class": summary_grouped["_temp_class"],
-    "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
-    "UOM": "YDS"
+    "Gross Consumption": summary_grouped["Gross Consumption"].round(4)
 })
+
+# Tính thêm định mức Net Consumption dựa trên hiệu suất sơ đồ CAD
+net_ratio = float(ai_decision_final.get("marker_efficiency", ui_display_density))
+df_summary["Net Consumption"] = (df_summary["Gross Consumption"] * net_ratio).round(4)
+
+# Đơn vị tính động (Vải/Méc/Keo/Rib dùng YDS, Phụ liệu gom chung dùng PCS)
+uom_map = {"FABRIC": "YDS", "LINING": "YDS", "FUSING": "YDS", "RIB": "YDS", "ACCESSORY": "PCS"}
+df_summary["UOM"] = df_summary["Material Class"].map(uom_map).fillna("PCS")
+
+df_summary = df_summary[["Phân loại vật tư", "Material Class", "Net Consumption", "Gross Consumption", "UOM"]]
+
+# SẮP XẾP THỨ TỰ CORES CỐ ĐỊNH CỦA NHÀ MÁY
+factory_order = ["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"]
+df_summary["_sort"] = df_summary["Material Class"].apply(lambda x: factory_order.index(x) if x in factory_order else 999)
+df_summary = df_summary.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+
+# TỰ ĐỘNG TÍNH TOÁN DÒNG TỔNG CỘNG (GRAND TOTAL) Ở CUỐI BẢNG
+total_net = df_summary["Net Consumption"].sum()
+total_gross = df_summary["Gross Consumption"].sum()
+
+total_row = pd.DataFrame([{
+    "Phân loại vật tư": "🔴 TỔNG CỘNG (GRAND TOTAL)",
+    "Material Class": "TOTAL",
+    "Net Consumption": round(total_net, 4),
+    "Gross Consumption": round(total_gross, 4),
+    "UOM": ""
+}])
+df_summary = pd.concat([df_summary, total_row], ignore_index=True)
 
 st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
