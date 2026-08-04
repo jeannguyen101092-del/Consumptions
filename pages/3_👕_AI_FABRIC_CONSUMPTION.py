@@ -2742,25 +2742,62 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-    #    # =====================================================================
-    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (BẢN VÁ METADATA EXCEL)
+       # =====================================================================
+    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (ĐỒNG BỘ 100% THEO Ô CHAT)
     # =====================================================================
+    import re
+
     if len(df_bom) > 0:
         df_bom_display = df_bom.copy()
 
-        if "Calculated Width (Inch)" in df_bom_display.columns:
-            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].apply(lambda x: int(float(x)) if (pd.notna(x) and str(x).strip() != "" and float(x) > 0) else 56)
+        # 1. 🚨 BỘ TRÍCH XUẤT ĐỒNG BỘ THÔNG TIN ĐẦU VÀO TRỰC TIẾP TỪ Ô CHAT CỦA USER
+        user_chat_text = ""
+        if "messages" in st.session_state and st.session_state["messages"]:
+            user_messages = [msg["content"] for msg in st.session_state["messages"] if msg.get("role") == "user"]
+            if user_messages:
+                user_chat_text = str(user_messages[-1]).lower().strip()
         else:
-            df_bom_display["Khổ vải sản xuất (inch)"] = int(float(st.session_state.get("fabric_width_inch", 56)))
-            
-        df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "32"
+            user_chat_text = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
+
+        # Thiết lập giá trị mặc định an toàn ban đầu
+        excel_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
+        excel_shrink_warp = float(st.session_state.get("shrinkage_warp_percent", 0.0))
+        excel_shrink_weft = float(st.session_state.get("shrinkage_weft_percent", 0.0))
+        excel_size_code = "32"
+
+        # Quét trích xuất real-time theo nội dung câu gõ chat của bạn
+        if user_chat_text:
+            # Quét Khổ vải từ ô chat
+            width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_chat_text)
+            if width_match:
+                excel_fabric_width = float(width_match.group(1))
+                
+            # Quét Co rút dọc từ ô chat
+            warp_match = re.search(r'dọc\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            if warp_match:
+                excel_shrink_warp = float(warp_match.group(1).replace(',', '.'))
+                
+            # Quét Co rút ngang từ ô chat
+            weft_match = re.search(r'ngang\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            if weft_match:
+                excel_shrink_weft = float(weft_match.group(1).replace(',', '.'))
+
+            # Quét Size may mẫu từ ô chat (Ví dụ: size 32, size xl, size 38/xl)
+            size_match = re.search(r'size\s*([a-z0-9\-\/]+)', user_chat_text)
+            if size_match:
+                excel_size_code = str(size_match.group(1)).upper()
+            elif 'detected_size_code' in locals():
+                excel_size_code = str(detected_size_code)
+            else:
+                excel_size_code = str(st.session_state.get("detected_size_code", "32"))
+
+        # Gán khổ vải số nguyên cho bảng hiển thị trên lưới Streamlit
+        df_bom_display["Khổ vải sản xuất (inch)"] = int(excel_fabric_width)
+        df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
 
-        # Trích xuất số lượng rập chính xác mà cấu trúc AI hoặc Đoạn 5.1A trả về
-        possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong", "Pcs"]
-        detected_qty_col = next((col for col in possible_qty_cols if col in df_bom.columns), None)
-
+        # 2. ĐỒNG BỘ SỐ LƯỢNG RẬP CHÍNH XÁC TỪ AI LAYER (ĐOẠN 5.1A) TRẢ VỀ
         qty_list = []
         for idx, r in df_bom.iterrows():
             v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
@@ -2770,11 +2807,11 @@ if ai_decision_final:
                 ai_qty_key = next((k for k in ["active_user_pieces", "piece_count", "pieces_count"] if k in v_piece), "piece_count")
                 try: qty_val = int(float(v_piece.get(ai_qty_key, 1)))
                 except: qty_val = 1
-            elif detected_qty_col and pd.notna(r[detected_qty_col]) and str(r[detected_qty_col]).strip() != "":
-                try: qty_val = int(float(r[detected_qty_col]))
-                except: qty_val = 1
             else:
-                qty_val = 1
+                possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong", "Pcs"]
+                detected_qty_col = next((col for col in possible_qty_cols if col in df_bom.columns), None)
+                try: qty_val = int(float(r[detected_qty_col])) if (detected_qty_col and pd.notna(r[detected_qty_col])) else 1
+                except: qty_val = 1
             qty_list.append(qty_val)
 
         df_bom_display["Số lượng rập"] = qty_list
@@ -2791,18 +2828,24 @@ if ai_decision_final:
         col_t1, col_t2 = st.columns(2)
         col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
 
-                with col_t2:
+        with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # 🛠️ FIXED CHUẨN XÁC: Liên kết trực tiếp giá trị phần trăm co rút bốc từ ô chat ở Đoạn 5.1A để ghi vào file Excel
+                    # Tìm quét đa tầng an toàn mã hàng chuẩn từ Techpack (ví dụ: R09-400416)
+                    detected_style = "JEANS"
+                    for style_key in ["style_code", "style_name", "Style", "Mã hàng", "ma_hang"]:
+                        if ctx.get(style_key):
+                            detected_style = str(ctx.get(style_key)).strip()
+                            break
+
+                    # Đóng gói bom_ctx ép nạp toàn bộ ma trận dữ liệu bốc từ câu chat văn bản của bạn
                     bom_ctx = {
-                        "style_code": str(ctx.get("style_code", ctx.get("Style", "JEANS"))),
+                        "style_code": detected_style,
                         "customer_name": str(ctx.get("customer_name", "PPJ GROUP")),
-                        "detected_size_code": str(df_bom_display["Size tính toán"].iloc[0] if len(df_bom_display) > 0 else "32"),
-                        "fabric_width": float(st.session_state.get("fabric_width_inch", 58.0)),
-                        # Bốc trực tiếp giá trị phần trăm từ bộ lưu trữ ô chat thực tế của bạn
-                        "warp_shrink": float(st.session_state.get("shrinkage_warp_percent", 0.0)),
-                        "weft_shrink": float(st.session_state.get("shrinkage_weft_percent", 0.0))
+                        "detected_size_code": excel_size_code,
+                        "fabric_width": excel_fabric_width,
+                        "warp_shrink": excel_shrink_warp,
+                        "weft_shrink": excel_shrink_weft
                     }
                     
                     excel_file = local_export_excel_ppj_format(
@@ -2824,7 +2867,7 @@ if ai_decision_final:
             except Exception as e: 
                 st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
-        # Lấy danh sách các nhóm chất liệu hiện có để nạp tự động vào dropdown Selectbox trên lưới
+        # Khởi tạo danh mục Dropdown động cho lưới biên tập dữ liệu chi tiết
         all_existing_classes = sorted(list(set(df_bom_display["Material Class"].dropna().tolist())))
         for default_cls in ["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD", "GÒN", "VẢI PHẢN QUANG"]:
             if default_cls not in all_existing_classes:
@@ -2846,8 +2889,9 @@ if ai_decision_final:
                 "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
-)
+        )
 
+        # LẮNG NGHE VÀ XỬ LÝ AN TOÀN SỰ KIỆN CHỈNH SỬA TỪ USER (TRIỆT TIÊU LỖI TYPEERROR)
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
@@ -2855,6 +2899,7 @@ if ai_decision_final:
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
             if len(matched_old_pcs) > 0:
+                # Trích xuất giá trị số thực từ mảng NumPy an toàn bằng cấu trúc chỉ mục [0] nguyên bản
                 old_pcs = float(matched_old_pcs[0])
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
@@ -2864,9 +2909,12 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
+                # Trích xuất giá trị chuỗi an toàn
                 old_mat = str(matched_old_mat[0]).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
+                
+
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
                     if isinstance(virtual_pieces_layer.get(orig_idx), dict):
                         virtual_pieces_layer[orig_idx]["material_class"] = new_mat
