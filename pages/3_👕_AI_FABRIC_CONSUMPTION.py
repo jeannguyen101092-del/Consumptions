@@ -2805,13 +2805,15 @@ has_changed = False
 for _, row in edited_df.iterrows():
     orig_idx = int(row["_original_row_index"])
     
-    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values))
+    # 🛠️ FIXED: Thêm [0] vào sau .values để trích xuất chính xác phần tử số trước khi ép kiểu
+    old_pcs = int(float(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values[0]))
     new_pcs = int(float(row["Số lượng rập"]))
     if old_pcs != new_pcs:
         st.session_state["user_edited_pieces"][orig_idx] = new_pcs
         has_changed = True
         
-    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values).upper().strip()
+    # 🛠️ FIXED: Thêm [0] vào sau .values tương tự cho trường Material Class
+    old_mat = str(df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values[0]).upper().strip()
     new_mat = str(row["Material Class"]).upper().strip()
     if old_mat != new_mat:
         st.session_state["user_edited_materials"][orig_idx] = new_mat
