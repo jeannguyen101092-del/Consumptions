@@ -2742,7 +2742,8 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (THỤT LỀ THEO 7.1)
+    #    # =====================================================================
+    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (BẢN VÁ METADATA EXCEL)
     # =====================================================================
     if len(df_bom) > 0:
         df_bom_display = df_bom.copy()
@@ -2793,8 +2794,25 @@ if ai_decision_final:
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod_val, ctx, ui_display_density)
-                    style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+                    # 🛠️ FIXED ĐỒNG BỘ ĐOẠN 6: Đóng gói chính xác cấu trúc bom_ctx để hàm Đoạn 6 bốc đầu vào cho file Excel
+                    bom_ctx = {
+                        "style_code": str(ctx.get("style_code", ctx.get("Style", "JEANS"))),
+                        "customer_name": str(ctx.get("customer_name", "PPJ GROUP")),
+                        "detected_size_code": str(df_bom_display["Size tính toán"].iloc[0] if len(df_bom_display) > 0 else "32"),
+                        "fabric_width": float(st.session_state.get("fabric_width_inch", 58.0)),
+                        "warp_shrink": float(st.session_state.get("shrinkage_warp_percent", 0.0)),
+                        "weft_shrink": float(st.session_state.get("shrinkage_weft_percent", 0.0))
+                    }
+                    
+                    # Truyền đúng dictionary bom_ctx vào hàm xuất Excel theo cấu hình Đoạn 6 của bạn
+                    excel_file = local_export_excel_ppj_format(
+                        df_summary, 
+                        df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
+                        prod_val, 
+                        bom_ctx, 
+                        ui_display_density
+                    )
+                    style_name_clean = str(bom_ctx["style_code"]).strip().replace('/', '_').replace('\\', '_')
                     st.download_button(
                         label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
                         data=excel_file, 
@@ -2808,8 +2826,7 @@ if ai_decision_final:
 
         # Lấy danh sách các nhóm chất liệu hiện có để nạp tự động vào dropdown Selectbox trên lưới
         all_existing_classes = sorted(list(set(df_bom_display["Material Class"].dropna().tolist())))
-        # Bổ sung các nhóm cơ bản phòng hờ nếu bảng chưa có cấu phần đó
-        for default_cls in ["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "GÒN", "VẢI PHẢN QUANG"]:
+        for default_cls in ["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD", "GÒN", "VẢI PHẢN QUANG"]:
             if default_cls not in all_existing_classes:
                 all_existing_classes.append(default_cls)
 
@@ -2829,7 +2846,7 @@ if ai_decision_final:
                 "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
-        )
+)
 
         has_changed = False
         for _, row in edited_df.iterrows():
@@ -2838,7 +2855,6 @@ if ai_decision_final:
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
             if len(matched_old_pcs) > 0:
-                # 🛠️ FIXED CHUẨN XÁC: Lấy phần tử [0] từ mảng NumPy để triệt tiêu vĩnh viễn lỗi TypeError
                 old_pcs = float(matched_old_pcs[0])
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
@@ -2848,7 +2864,6 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                # 🛠️ FIXED CHUẨN XÁC: Ép kiểu chuỗi phần tử đầu tiên trích xuất từ mảng [0]
                 old_mat = str(matched_old_mat[0]).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
