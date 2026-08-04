@@ -2545,6 +2545,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
+    # 🛠️ FIXED: Trích xuất an toàn từ bom_ctx để đồng bộ 100% dữ liệu bốc tách từ ô chat
     st_code = str(bom_ctx.get("style_code", "N/A")).upper()
     cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
     detected_size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
@@ -2563,6 +2564,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         for c_idx, val in enumerate(row_data, start=1):
             cell = w_s1.cell(row=r_idx, column=c_idx, value=val)
             cell.border = bd_thin
+            # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột Tiêu đề
             if c_idx == 1 or c_idx == 3:
                 cell.font = f_bold; cell.fill = fill_meta; cell.alignment = Alignment(horizontal="left", vertical="center")
             else:
@@ -2584,6 +2586,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
         for c_idx in range(1, 5):
             cell = w_s1.cell(row=c_row, column=c_idx)
             cell.font = f_normal; cell.border = bd_thin
+            # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột dữ liệu căn giữa
             if c_idx == 2 or c_idx == 4: 
                 cell.alignment = Alignment(horizontal="center", vertical="center")
         c_row += 1
@@ -2598,46 +2601,34 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s2.sheet_view.showGridLines = True
     w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
     
-    det_hd = [
-        "Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", 
-        "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", 
-        "polygon_net_area", "Gross Consumption"
-    ]
+    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     for c_idx, h_text in enumerate(det_hd, start=1):
         cell = w_s2.cell(row=3, column=c_idx, value=h_text)
         cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
 
     c_row = 4
     for _, r in df_det.iterrows():
-        length_val = r.get("Chiều dài rập (inch)", r.get("Dài sản xuất (L-inch)", r.get("Length", 0.0)))
-        width_val = r.get("Chiều rộng rập (inch)", r.get("Rộng sản xuất (W-inch)", r.get("Width", 0.0)))
-        
-        row_cells_data = [
-            r.get("Component Name", ""),
-            r.get("Material Class", ""),
-            r.get("Role/Piece Type", ""),
-            r.get("Khổ vải sản xuất (inch)", 56),
-            r.get("Size tính toán", "32"),
-            r.get("Số lượng rập", 1),
-            length_val,
-            width_val,
-            r.get("polygon_net_area", 0.0),
-            r.get("Gross Consumption", 0.0)
-        ]
-
-        for c_idx, val in enumerate(row_cells_data, start=1):
+        for c_idx, h_col in enumerate(det_hd, start=1):
+            # 🛠️ FIXED: Giải quyết việc đồng bộ tên cột rập - Nếu cột tiếng Anh bị trống, tự động bốc từ cột tiếng Việt
+            if h_col == "Dài sản xuất (L-inch)":
+                val = r.get("Dài sản xuất (L-inch)", r.get("Chiều dài rập (inch)", 0.0))
+            elif h_col == "Rộng sản xuất (W-inch)":
+                val = r.get("Rộng sản xuất (W-inch)", r.get("Chiều rộng rập (inch)", 0.0))
+            else:
+                val = r.get(h_col, "")
+                
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            # VÁ LỖI CÚ PHÁP: Khai báo rõ các mảng cột căn lề
-            if c_idx in:
+            # SỬA LỖI CÚ PHÁP: Cố định đúng chỉ số mảng cột căn lề bảng chi tiết
+            if c_idx == 1 or c_idx == 2 or c_idx == 3:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx in:
+            elif c_idx == 4 or c_idx == 5 or c_idx == 6:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 if isinstance(val, (int, float)):
-                    cell.number_format = '#,##0.0000' if c_idx == 10 else '#,##0.00'
+                    cell.number_format = '#,##0.0000' if h_col == "Gross Consumption" else '#,##0.00'
         c_row += 1
 
     for col_idx, col in enumerate(w_s2.columns, start=1):
@@ -2648,6 +2639,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     workbook.save(output_stream)
     output_stream.seek(0)
     return output_stream
+
 
 
 import pandas as pd
