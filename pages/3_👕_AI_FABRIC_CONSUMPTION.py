@@ -2826,7 +2826,7 @@ if ai_decision_final:
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
-        # =====================================================================
+              # =====================================================================
         # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
         # =====================================================================
         # Thu thập chính xác danh sách số lượng rập từ AI expert hoặc Đoạn 5.1A truyền xuống
@@ -2863,18 +2863,16 @@ if ai_decision_final:
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # 🛠️ FIXED ĐỒNG BỘ: Kết nối trực tiếp vào bộ lưu trữ biến trích xuất từ Techpack lớp trên của bạn
+                    # FIXED ĐỒNG BỘ: Kết nối trực tiếp vào bộ lưu trữ biến trích xuất từ Techpack lớp trên của bạn
                     detected_style = "N/A"
                     if st.session_state.get("style_id"):
                         detected_style = str(st.session_state.style_id).strip()
                     else:
-                        # Dự phòng đa tầng nếu hệ thống chưa nạp dữ liệu vào session_state
                         for style_key in ["style_code", "style_name", "Style", "Mã hàng"]:
                             if ctx.get(style_key):
                                 detected_style = str(ctx.get(style_key)).strip()
                                 break
                     
-                    # Trích xuất an toàn tên Khách hàng (Customer) quét được từ Techpack của bạn
                     detected_customer = "PPJ GROUP"
                     if "pdf_text_cache" in st.session_state and st.session_state.pdf_text_cache is not None:
                         m_cust = re.search(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', st.session_state.pdf_text_cache, re.IGNORECASE)
@@ -2934,15 +2932,21 @@ if ai_decision_final:
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
         )
 
-        # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ CẬP NHẬT TRẠNG THÁI TỨC THÌ
+        # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ TÍNH TOÁN LẠI TỨC THÌ
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
+            
+            # Lấy mảng gốc
             matched_old_pcs = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
+            # 🛠️ FIXED: Thêm index [0] để lấy chính xác giá trị đơn bên trong mảng NumPy, triệt tiêu vĩnh viễn TypeError
             if len(matched_old_pcs) > 0:
-                old_pcs = float(matched_old_pcs)
+                try:
+                    old_pcs = float(matched_old_pcs[0])
+                except:
+                    old_pcs = 1.0
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2951,7 +2955,8 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                old_mat = str(matched_old_mat).upper().strip()
+                # 🛠️ FIXED: Thêm index [0] tương tự cho Material Class để an toàn chuỗi
+                old_mat = str(matched_old_mat[0]).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
