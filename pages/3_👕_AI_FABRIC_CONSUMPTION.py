@@ -2631,7 +2631,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ LỖI HIỂN THỊ KHỔ VẢI CHUẨN)
+       # =====================================================================
+    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ LỖI HIỂN THỊ SỐ LƯỢNG RẬP & KHỔ VẢI CHUẨN)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     ai_decision_final = ctx.get("ai_expert_decision", {})
@@ -2692,11 +2693,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = df_bom_display["_temp_class"]
     df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
     
-    # Đồng bộ số lượng rập hiển thị trên lưới biên tập tránh lặp dòng rác
-    df_bom_display["Số lượng rập"] = [
-        int(st.session_state["user_edited_pieces"].get(idx, r.get("pcs_numeric", 1))) 
-        for idx, r in df_bom.iterrows()
-    ]
+    # 🛠️ VÁ LỖI HIỂN THỊ SỐ LƯỢNG RẬP: Quét tìm tất cả các tên cột số lượng phổ biến có thể có trong file gốc đầu vào
+    possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong"]
+    detected_qty_col = next((col for col in possible_qty_cols if col in df_bom.columns), None)
+
+    qty_list = []
+    for idx, r in df_bom.iterrows():
+        # 1. Ưu tiên số lượng do người dùng đã chỉnh sửa trên giao diện
+        if idx in st.session_state["user_edited_pieces"]:
+            qty_val = int(st.session_state["user_edited_pieces"][idx])
+        # 2. Nếu chưa sửa, tự động bóc từ cột số lượng rập gốc của file
+        elif detected_qty_col is not None:
+            try:
+                qty_val = int(float(r[detected_qty_col]))
+            except (ValueError, TypeError):
+                qty_val = 1
+        # 3. Mặc định là 1 nếu không quét được bất kỳ dữ liệu số lượng nào
+        else:
+            qty_val = 1
+        qty_list.append(qty_val)
+
+    df_bom_display["Số lượng rập"] = qty_list
     df_bom_display["_original_row_index"] = df_bom.index
 
     # Sắp xếp đúng thứ tự cột hiển thị của lưới
@@ -2735,7 +2752,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "_original_row_index": None, 
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-            # 🛠️ FIXED: Khổ vải sản xuất ép hiển thị dạng Số Nguyên (%d) Chặn đứng lỗi mất số 6 biên
+            # FIXED: Khổ vải sản xuất ép hiển thị dạng Số Nguyên (%d) Chặn đứng lỗi mất số 6 biên
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
             "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
             "Material Class": st.column_config.SelectboxColumn(
