@@ -2512,14 +2512,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if real_fusing_sum > 0: msg += f" | Keo : `{real_fusing_sum:.3f} Yds`"
         if real_rib_sum > 0: msg += f" | Bo : `{real_rib_sum:.3f} Yds`"
         st.success(msg)
-  # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
-def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
-    import io
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Side, Border, Alignment
-    from openpyxl.utils import get_column_letter
-    import pandas as pd
+  import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Side, Border, Alignment
+from openpyxl.utils import get_column_letter  # SỬA LỖI: Thêm import để tránh lỗi NameError
 
+# =====================================================================
+# 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
+# =====================================================================
+def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
     output_stream = io.BytesIO()
     workbook = Workbook()
     
@@ -2535,12 +2536,6 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     bd_side = Side(style='thin', color='BDC3C7')
     bd_thin = Border(left=bd_side, right=bd_side, top=bd_side, bottom=bd_side)
     
-    # Đọc an toàn các biến môi trường từ bộ ngữ cảnh bom_ctx hoặc session_state
-    size_code = str(bom_ctx.get("detected_size_code", "38/XL"))
-    f_width = str(bom_ctx.get("fabric_width_inch", "56"))
-    w_shrink = str(bom_ctx.get("warp_shrinkage", "0.0"))
-    we_shrink = str(bom_ctx.get("weft_shrinkage", "0.0"))
-    
     # --- TAB 1: BOM SUMMARY ---
     w_s1 = workbook.active
     w_s1.title = "BOM Summary"
@@ -2550,13 +2545,18 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s1.cell(row=2, column=1, value="BẢNG ĐỊNH MỨC CHI TIẾT SẢN XUẤT ĐẠI TRÀ").font = f_title
     w_s1.cell(row=4, column=1, value="THÔNG SỐ ĐẦU VÀO SƠ ĐỒ CAD (TECHNICAL PROFILE)").font = Font(name=f_family, size=11, bold=True)
     
+    # SỬA LỖI: Lấy tất cả các biến cấu hình từ bom_ctx để tránh lỗi NameError
     st_code = str(bom_ctx.get("style_code", "N/A")).upper()
     cust_name = str(bom_ctx.get("customer_name", "FACTORY STANDARD")).upper()
+    detected_size_code = str(bom_ctx.get("detected_size_code", "N/A")).upper()
+    fabric_width = bom_ctx.get("fabric_width", 0)
+    warp_shrink = bom_ctx.get("warp_shrink", 0)
+    weft_shrink = bom_ctx.get("weft_shrink", 0)
     
     m_data = [
         ("Mã hàng / Style Code:", st_code, "Khách hàng / Đối tác:", cust_name),
-        ("Size may mẫu (Sample Size):", size_code, "Khổ vải hữu dụng (Width):", f'{f_width}"'),
-        ("Co rút dọc (Warp Shrinkage):", f'{w_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{we_shrink}%'),
+        ("Size may mẫu (Sample Size):", detected_size_code, "Khổ vải hữu dụng (Width):", f'{fabric_width}"'),
+        ("Co rút dọc (Warp Shrinkage):", f'{warp_shrink}%', "Co rút ngang (Weft Shrinkage):", f'{weft_shrink}%'),
         ("Chủng loại sản phẩm:", str(product_type).upper(), "Hiệu suất sơ đồ (Density):", f'{density * 100:.1f}%')
     ]
     
@@ -2599,7 +2599,7 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     w_s2.sheet_view.showGridLines = True
     w_s2.cell(row=1, column=1, value=f"CHI TIẾT CẤU TRÚC ĐA GIÁC RẬP GERBER ACCUMULATION - DÒNG: {str(product_type).upper()}").font = Font(name=f_family, size=11, bold=True)
     
-    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption"]
+    det_hd = ["Component Name", "Material Class", "Role/Piece Type", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Dài sản xuất (L-inch)", "Rộng sản xuất (W-inch)", "polygon_net_area", "Gross Consumption"]
     for c_idx, h_text in enumerate(det_hd, start=1):
         cell = w_s2.cell(row=3, column=c_idx, value=h_text)
         cell.font = f_header; cell.fill = fill_header; cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True); cell.border = bd_thin
@@ -2608,17 +2608,12 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     for _, r in df_det.iterrows():
         for c_idx, h_col in enumerate(det_hd, start=1):
             val = r.get(h_col, "")
-            
-            if val == "" and h_col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area"]:
-                val = 0.0
-                
             cell = w_s2.cell(row=c_row, column=c_idx, value=val)
             cell.font = f_normal; cell.border = bd_thin
             
-            # ĐÃ VÁ LỖI HOÀN TOÀN: Bổ sung danh sách cột cụ thể cho câu lệnh điều kiện
-            if c_idx in:
+            if c_idx == 1 or c_idx == 2 or c_idx == 3:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
-            elif c_idx in:
+            elif c_idx == 4 or c_idx == 5 or c_idx == 6:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="right", vertical="center")
