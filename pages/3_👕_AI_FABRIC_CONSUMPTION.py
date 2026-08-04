@@ -2120,7 +2120,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     f_width = current_fabric_width if 'current_fabric_width' in locals() else 58.0
     l_width = lining_width if 'lining_width' in locals() else 60.0
-    fuse_width = fusing_width if 'fusing_width' in locals() else 44.0
+    fuse_width = fusing_width if 'fusing_width' in locals() else 59.0
     local_wastage = target_wastage if 'target_wastage' in locals() else 1.030
 
     if "virtual_pieces_layer" not in locals() or not isinstance(virtual_pieces_layer, dict):
@@ -2147,11 +2147,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "JEAN" in p_type_upper or "KHAKI" in p_type_upper or _is_trouser or _is_short:
         dynamic_marker_efficiency = 0.75  # Quần Jeans/Khaki rải đơn chiếc thực tế đạt ~64%
     elif "JACKET" in p_type_upper or "COAT" in p_type_upper or _is_jacket:
-        dynamic_marker_efficiency = 0.74  
+        dynamic_marker_efficiency = 0.65  
     elif "SHIRT" in p_type_upper or "POLO" in p_type_upper or "BLOUSE" in p_type_upper:
         dynamic_marker_efficiency = 0.78  
     elif "DRESS" in p_type_upper or "SKIRT" in p_type_upper or _is_skirt_or_dress:
-        dynamic_marker_efficiency = 0.68  
+        dynamic_marker_efficiency = 0.61  
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
     def core_engine_router(row, idx):
