@@ -2827,7 +2827,7 @@ if ai_decision_final:
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
 
-        # =====================================================================
+            # =====================================================================
         # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
         # =====================================================================
         # Thu thập chính xác danh sách số lượng rập từ AI expert hoặc Đoạn 5.1A truyền xuống
@@ -2933,8 +2933,12 @@ if ai_decision_final:
             matched_old_pcs = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
+            # 🛠️ FIXED: Trích xuất an toàn phần tử mảng NumPy bằng cách lấy index [0] trước khi so sánh
             if len(matched_old_pcs) > 0:
-                old_pcs = float(matched_old_pcs)
+                try:
+                    old_pcs = float(matched_old_pcs[0])
+                except:
+                    old_pcs = 1.0
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2943,7 +2947,7 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                old_mat = str(matched_old_mat).upper().strip()
+                old_mat = str(matched_old_mat[0]).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
