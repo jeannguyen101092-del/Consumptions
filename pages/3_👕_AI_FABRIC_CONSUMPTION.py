@@ -2635,11 +2635,11 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU (ẨN HOÀN TOÀN BẢNG NẾU AI CHƯA QUÉT XONG)
+# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & ĐỌC NHÃN ĐỘNG (GIỮ NGUYÊN MỌI CHẤT LIỆU AI TRẢ VỀ)
 # =====================================================================
 ai_decision_final = ctx.get("ai_expert_decision", {})
 
-# 🛠️ FIXED: Chặn đứng hiển thị - Chỉ khi AI có dữ liệu quyết định mới xuất hiện block này
+# CHỈ XUẤT HIỆN KHI AI ĐÃ QUÉT XONG DỮ LIỆU THÀNH CÔNG (ẨN HOÀN TOÀN BẢNG TRỐNG)
 if ai_decision_final:
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
@@ -2649,6 +2649,7 @@ if ai_decision_final:
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
     prod_cat_ui = str(ai_decision_final.get("product_category", "JACKET")).upper().strip()
 
+    # Tránh lỗi NameError cho biến ai_product_type và prod
     ai_product_type_val = ai_product_type if 'ai_product_type' in locals() else prod_cat_ui
     prod_val = prod if 'prod' in locals() else prod_cat_ui
 
@@ -2658,12 +2659,14 @@ if ai_decision_final:
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
+    # Khởi tạo cache Session State nếu chưa có
     virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
     if not isinstance(st.session_state.get("user_edited_pieces"), dict):
         st.session_state["user_edited_pieces"] = {}
     if not isinstance(st.session_state.get("user_edited_materials"), dict):
         st.session_state["user_edited_materials"] = {}
 
+    # Khôi phục an toàn biến dữ liệu gốc df_bom từ các đoạn code phía trên
     if 'df_bom' not in locals() and 'df_bom' not in globals():
         if 'df' in locals() or 'df' in globals():
             df_bom = df.copy()
@@ -2672,7 +2675,6 @@ if ai_decision_final:
         else:
             df_bom = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
 
-    # Chỉ chạy tính toán Summary nếu bảng dữ liệu df_bom có bản ghi thực tế
     if len(df_bom) > 0:
         possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
         detected_mat_col = next((col for col in possible_mat_cols if col in df_bom.columns), None)
@@ -2682,36 +2684,56 @@ if ai_decision_final:
             comp_name = str(df_bom.loc[idx, "component_name"] if "component_name" in df_bom.columns else "").upper().strip()
             v_piece = virtual_pieces_layer.get(idx, {})
             
+            # 1. Nếu người dùng chỉnh tay trên lưới, ưu tiên số 1
             if idx in st.session_state["user_edited_materials"]:
                 saved_mat = st.session_state["user_edited_materials"][idx]
+            
+            # 2. ĐỒNG BỘ ĐOẠN 5.2: Bốc phân loại chất liệu chuẩn hóa gốc đã tính toán từ layer ảo
+            elif v_piece and str(v_piece.get("material_class", "")).strip() != "":
+                saved_mat = str(v_piece.get("material_class")).upper().strip()
+            
+            # 3. THUẬT TOÁN QUÉT TỪ KHÓA THÔNG MINH: Đưa về tên nhóm chuẩn nếu lớp ảo bị khuyết thông tin
             elif any(kw in comp_name for kw in ["FUSING", "KEO", "MÉC", "INTERLINING", "FUS"]):
                 saved_mat = "FUSING"
             elif any(kw in comp_name for kw in ["LINING", "LÓT", "LIN"]):
                 saved_mat = "LINING"
             elif any(kw in comp_name for kw in ["RIB", "BO"]):
                 saved_mat = "RIB"
+            elif any(kw in comp_name for kw in ["GÒN", "GON", "PADDING", "WADDING"]):
+                saved_mat = "GÒN"
+            elif any(kw in comp_name for kw in ["PHẢN QUANG", "PHAN QUANG", "REFLECTIVE"]):
+                saved_mat = "VẢI PHẢN QUANG"
+            
+            # 4. Kiểm tra cột phân loại hiện tại trong file dữ liệu gốc
             elif detected_mat_col and pd.notna(df_bom.loc[idx, detected_mat_col]) and str(df_bom.loc[idx, detected_mat_col]).strip() != "":
                 orig_mat = str(df_bom.loc[idx, detected_mat_col]).upper().strip()
                 if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO", "INTERLINING"]: saved_mat = "FUSING"
                 elif orig_mat in ["LINING", "LÓT", "VẢI LÓT", "LINING_PIECE"]: saved_mat = "LINING"
                 elif orig_mat in ["RIB", "PHỐI RIB"]: saved_mat = "RIB"
+                elif orig_mat in ["FABRIC", "SHELL", "SELF", "VẢI CHÍNH"]: saved_mat = "FABRIC"
                 elif orig_mat in ["THREAD", "CHỈ MAY", "CHỈ"]: saved_mat = "THREAD"
                 elif orig_mat in ["ACCESSORY", "PHỤ LIỆU", "TRIM"]: saved_mat = "ACCESSORY"
-                else: saved_mat = "FABRIC"
+                else: saved_mat = orig_mat # 🛠️ GIỮ NGUYÊN MỌI CHẤT LIỆU KHÁC TỪ FILE (Gòn, Phản quang, Tape, Chun...)
             else:
-                ai_inferred = v_piece.get("inferred_class", "FABRIC").upper().strip()
-                saved_mat = ai_inferred if ai_inferred in ["FABRIC", "FUSING", "LINING", "RIB", "THREAD", "ACCESSORY"] else "FABRIC"
+                ai_inferred = str(v_piece.get("inferred_class", "FABRIC")).upper().strip()
+                saved_mat = ai_inferred if ai_inferred != "" else "FABRIC"
+                
             clean_materials_list.append(saved_mat)
             
         df_bom["_temp_class"] = clean_materials_list
         if "Gross Consumption" not in df_bom.columns:
             df_bom["Gross Consumption"] = 0.0
 
+        # Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra bao gồm mọi nhãn động
         summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-        cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
-
+        cls_map = {
+            "FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", 
+            "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU",
+            "GÒN": "LỚP GÒN / PADDING", "VẢI PHẢN QUANG": "VẢI PHẢN QUANG"
+        }
+        
         df_summary = pd.DataFrame({
-            "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
+            "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna(summary_grouped["_temp_class"]),
             "Material Class": summary_grouped["_temp_class"],
             "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
             "UOM": "YDS"
@@ -2734,16 +2756,17 @@ if ai_decision_final:
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
 
+        # Trích xuất số lượng rập chính xác mà cấu trúc AI hoặc Đoạn 5.1A trả về
         possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong", "Pcs"]
         detected_qty_col = next((col for col in possible_qty_cols if col in df_bom.columns), None)
 
         qty_list = []
         for idx, r in df_bom.iterrows():
-            v_piece = virtual_pieces_layer.get(idx, {})
+            v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
             if idx in st.session_state["user_edited_pieces"]:
                 qty_val = int(st.session_state["user_edited_pieces"][idx])
-            elif any(k in v_piece for k in ["pieces_count", "quantity", "qty", "pcs_numeric", "detected_pcs"]):
-                ai_qty_key = next((k for k in ["pieces_count", "quantity", "qty", "pcs_numeric", "detected_pcs"] if k in v_piece), None)
+            elif v_piece and any(k in v_piece for k in ["active_user_pieces", "piece_count", "pieces_count"]):
+                ai_qty_key = next((k for k in ["active_user_pieces", "piece_count", "pieces_count"] if k in v_piece), "piece_count")
                 try: qty_val = int(float(v_piece.get(ai_qty_key, 1)))
                 except: qty_val = 1
             elif detected_qty_col and pd.notna(r[detected_qty_col]) and str(r[detected_qty_col]).strip() != "":
@@ -2778,11 +2801,19 @@ if ai_decision_final:
                         mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
                         file_name=f"PPJ_BOM_{prod_val}_{style_name_clean}.xlsx", 
                         use_container_width=True,
-                        key="btn_download_excel_ppj_split_v7"
+                        key="btn_download_excel_ppj_split_final_v9"
                     )
             except Exception as e: 
                 st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
+        # Lấy danh sách các nhóm chất liệu hiện có để nạp tự động vào dropdown Selectbox trên lưới
+        all_existing_classes = sorted(list(set(df_bom_display["Material Class"].dropna().tolist())))
+        # Bổ sung các nhóm cơ bản phòng hờ nếu bảng chưa có cấu phần đó
+        for default_cls in ["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "GÒN", "VẢI PHẢN QUANG"]:
+            if default_cls not in all_existing_classes:
+                all_existing_classes.append(default_cls)
+
+        # HIỂN THỊ LƯỚI DATA_EDITOR HOÀN CHỈNH
         edited_df = st.data_editor(
             df_bom_display, 
             column_config={
@@ -2793,7 +2824,7 @@ if ai_decision_final:
                 "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
                 "Material Class": st.column_config.SelectboxColumn(
                     "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
-                    options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD"], required=True
+                    options=all_existing_classes, required=True # 🛠️ FIXED: Dropdown hiển thị động đầy đủ mọi chất liệu đặc thù
                 ),
                 "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
@@ -2807,17 +2838,21 @@ if ai_decision_final:
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
             if len(matched_old_pcs) > 0:
-                old_pcs = float(matched_old_pcs[0])
+                old_pcs = float(matched_old_pcs)
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
+                    if isinstance(virtual_pieces_layer.get(orig_idx), dict):
+                        virtual_pieces_layer[orig_idx]["active_user_pieces"] = int(new_pcs)
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                old_mat = str(matched_old_mat[0]).upper().strip()
+                old_mat = str(matched_old_mat).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
+                    if isinstance(virtual_pieces_layer.get(orig_idx), dict):
+                        virtual_pieces_layer[orig_idx]["material_class"] = new_mat
                     has_changed = True
                     
         if has_changed:
