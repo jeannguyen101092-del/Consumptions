@@ -2758,8 +2758,8 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (ĐỒNG BỘ 100% THEO Ô CHAT)
+        # =====================================================================
+    # 🟩 ĐOẠN 7.2: HIỂN THỊ GIAO DIỆN LƯỚI & XỬ LÝ SỰ KIỆN TƯƠNG TÁC (BẢN VÁ QUÉT Ô CHAT CHUẨN XÁC)
     # =====================================================================
     import re
 
@@ -2775,31 +2775,31 @@ if ai_decision_final:
         else:
             user_chat_text = str(st.session_state.get("user_message", st.session_state.get("chat_input", ""))).lower().strip()
 
-        # Thiết lập giá trị mặc định an toàn ban đầu
+        # Thiết lập giá trị mặc định ban đầu an toàn từ Session State hoặc hằng số xưởng
         excel_fabric_width = float(st.session_state.get("fabric_width_inch", 58.0))
         excel_shrink_warp = float(st.session_state.get("shrinkage_warp_percent", 0.0))
         excel_shrink_weft = float(st.session_state.get("shrinkage_weft_percent", 0.0))
         excel_size_code = "32"
 
-        # Quét trích xuất real-time theo nội dung câu gõ chat của bạn
+        # Quét trích xuất real-time theo câu bạn gõ chat (Bổ sung bộ quét chữ không phân biệt hoa thường)
         if user_chat_text:
-            # Quét Khổ vải từ ô chat
-            width_match = re.search(r'(?:khổ|kho)\s*(\d+(?:\.\d+)?)', user_chat_text)
+            # Quét Khổ vải từ ô chat (Bắt cả khổ, kho, khong, width)
+            width_match = re.search(r'(?:khổ|kho|width)\s*[:\-]?\s*(\d+(?:\.\d+)?)', user_chat_text)
             if width_match:
                 excel_fabric_width = float(width_match.group(1))
                 
-            # Quét Co rút dọc từ ô chat
-            warp_match = re.search(r'dọc\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            # Quét Co rút dọc từ ô chat (Bắt cả dọc, doc, warp)
+            warp_match = re.search(r'(?:dọc|doc|warp)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
             if warp_match:
                 excel_shrink_warp = float(warp_match.group(1).replace(',', '.'))
                 
-            # Quét Co rút ngang từ ô chat
-            weft_match = re.search(r'ngang\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
+            # Quét Co rút ngang từ ô chat (Bắt cả ngang, ngang, weft)
+            weft_match = re.search(r'(?:ngang|weft)\s*[:\-]?\s*(\d+(?:[\.,]\d+)?)', user_chat_text)
             if weft_match:
                 excel_shrink_weft = float(weft_match.group(1).replace(',', '.'))
 
-            # Quét Size may mẫu từ ô chat (Ví dụ: size 32, size xl, size 38/xl)
-            size_match = re.search(r'size\s*([a-z0-9\-\/]+)', user_chat_text)
+            # Quét Size từ ô chat (Bắt chuẩn xác mọi định dạng số size như: size 30, size 32)
+            size_match = re.search(r'(?:size|kich\s*thuoc|co)\s*[:\-]?\s*([a-z0-9\-\/]+)', user_chat_text)
             if size_match:
                 excel_size_code = str(size_match.group(1)).upper()
             elif 'detected_size_code' in locals():
@@ -2807,13 +2807,13 @@ if ai_decision_final:
             else:
                 excel_size_code = str(st.session_state.get("detected_size_code", "32"))
 
-        # Gán khổ vải số nguyên cho bảng hiển thị trên lưới Streamlit
+        # Gán khổ vải số nguyên và size tương ứng cho bảng hiển thị trên lưới Streamlit
         df_bom_display["Khổ vải sản xuất (inch)"] = int(excel_fabric_width)
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
 
-        # 2. ĐỒNG BỘ SỐ LƯỢNG RẬP CHÍNH XÁC TỪ AI LAYER (ĐOẠN 5.1A) TRẢ VỀ
+        # 2. ĐỒNG BỘ SỐ LƯỢNG RẬP CHÍNH XÁC TỪ AI LAYER TRẢ VỀ
         qty_list = []
         for idx, r in df_bom.iterrows():
             v_piece = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
@@ -2906,6 +2906,9 @@ if ai_decision_final:
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
         )
+
+    
+
 
         # LẮNG NGHE VÀ XỬ LÝ AN TOÀN SỰ KIỆN CHỈNH SỬA TỪ USER (TRIỆT TIÊU LỖI TYPEERROR)
         has_changed = False
