@@ -693,6 +693,25 @@ with col_left:
                                 "polygon_net_area": float(row["polygon_net_area"]),
                                 "inferred_class": str(row["Material Class"]).upper().strip()
                             }
+# =====================================================================
+# 🛠️ BẢN VÁ AN TOÀN TRÁNH LỖI NAMEERROR 'CTX' (ĐẶT NGAY TRÊN DÒNG BÁO LỖI)
+# =====================================================================
+if 'ctx' not in locals() and 'ctx' not in globals():
+    # 1. Dự phòng 1: Nếu ctx đang nằm trong bộ nhớ tạm session_state của bạn
+    if "ctx" in st.session_state:
+        ctx = st.session_state["ctx"]
+    elif "context" in st.session_state:
+        ctx = st.session_state["context"]
+    # 2. Dự phòng 2: Nếu hệ thống dùng tên biến là context ở luồng ngoài
+    elif 'context' in locals() or 'context' in globals():
+        ctx = context
+    # 3. Dự phòng 3: Tự động khởi tạo mới một dictionary trống để luồng Streamlit không bị sập đỏ màn hình
+    else:
+        ctx = {}
+
+# Đảm bảo đối tượng ai_expert_decision luôn tồn tại trong cấu trúc dữ liệu ngữ cảnh
+if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+    ctx["ai_expert_decision"] = {}
                         
                         if "ai_expert_decision" not in ctx:
                             ctx["ai_expert_decision"] = {}
