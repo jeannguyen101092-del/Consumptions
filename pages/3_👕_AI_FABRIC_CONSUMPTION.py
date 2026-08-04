@@ -2358,6 +2358,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         # =====================================================================
     #    # =====================================================================
+    # =====================================================================
+# ⚙️ LOGIC TỰ ĐỘNG GIẢI PHÓNG BỘ NHỚ ĐỆM KHI ĐỔI MÃ HÀNG MỚI (CHỐNG KẸT SỐ)
+# =====================================================================
+if "current_processed_style" not in st.session_state:
+    st.session_state["current_processed_style"] = ""
+
+# Phát hiện nếu mã hàng hiện tại khác mã hàng vừa xử lý trước đó
+active_style_id = st.session_state.get("style_id", "GENERIC")
+if st.session_state["current_processed_style"] != active_style_id:
+    # Xóa sạch toàn bộ bộ nhớ tạm sửa tay cũ của người dùng để kích hoạt bộ giải Solver tính lại từ đầu
+    if "user_edited_pieces" in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" in st.session_state: st.session_state["user_edited_materials"] = {}
+    if "bom_grid_perfect_v15" in st.session_state: del st.session_state["bom_grid_perfect_v15"]
+    
+    # Ghi nhận mã hàng mới vào trạng thái hệ thống
+    st.session_state["current_processed_style"] = active_style_id
+
     # 🟩 ĐOẠN 7 (VERSION V38 - ĐỒNG BỘ MULTI-DENSITY SIÊU TINH GỌN PHẲNG)
     # =====================================================================
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
