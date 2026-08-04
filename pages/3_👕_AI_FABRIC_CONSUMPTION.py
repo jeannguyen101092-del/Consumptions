@@ -538,59 +538,93 @@ with st.sidebar:
 import streamlit as st
 import re
 import fitz  # Thư viện PyMuPDF để trích xuất văn bản và ảnh tự động từ file PDF
+import pandas as pd
 
-# ------------------------------------------------------------------------------
+# =====================================================================
+# 🟩 BỘ TẢI FILE TECHPACK & PHÂN HỆ KHÔNG GIAN NHẬP LIỆU TRỰC TIẾP Ô CHAT
+# =====================================================================
+
+# 1. Khởi tạo an toàn các biến trạng thái nếu chưa có trong session_state
+if "pdf_name" not in st.session_state: st.session_state.pdf_name = ""
+if "pdf_text_cache" not in st.session_state: st.session_state.pdf_text_cache = None
+if "pdf_page_one_image" not in st.session_state: st.session_state.pdf_page_one_image = None
+if "pdf_bytes" not in st.session_state: st.session_state.pdf_bytes = None
+
 # LƯỚI CHIA ĐÔI CỘT CHÍNH THỰC TẾ (ĐÃ ĐÓNG KHUNG VIỀN ĐẸP MẮT & SỬA LỖI HIỂN THỊ)
-# ------------------------------------------------------------------------------
 col_left, col_right = st.columns(2)
 
-# --- CỘT TRÁI: BỘ TẢI FILE & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
+# --- CỘT TRÁI: BỘ TẢI FILE / NHẬP DIRECT TEXT & HỒ SƠ TÓM TẮT MÃ HÀNG MÀU XANH ---
 with col_left:
     with st.container(border=True, height=520):
-        st.markdown("### 📂 TECHPACK UPLOADER & PROFILE SUMMARY")
+        st.markdown("### 📂 TECHPACK INPUT CHANNELS")
         
-        uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed")
+        # 🛠️ TẠO HAI PHÂN HỆ: TAB 1 LÀ FILE PDF GỐC - TAB 2 LÀ COPY-PASTE THÔNG SỐ VÀ Ô CHAT
+        tab_pdf, tab_direct_chat = st.tabs(["📄 TECHPACK PDF UPLOADER", "💬 COPY-PASTE BOM TEXT"])
         
-        if uploaded_file is not None:
-            # Nếu phát hiện người dùng tải lên một file hoàn toàn mới
-            if st.session_state.pdf_name != uploaded_file.name:
-                st.session_state.pdf_text_cache = None
-                st.session_state.pdf_page_one_image = None
-                if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
-                
-            st.session_state.pdf_bytes = uploaded_file.read()
-            st.session_state.pdf_name = uploaded_file.name
+        with tab_pdf:
+            uploaded_file = st.file_uploader("Upload PDF", type=["pdf"], label_visibility="collapsed", key="pdf_uploader_main")
+            
+            if uploaded_file is not None:
+                if st.session_state.pdf_name != uploaded_file.name:
+                    st.session_state.pdf_text_cache = None
+                    st.session_state.pdf_page_one_image = None
+                    if "accumulated_bom_rows" in st.session_state: st.session_state.accumulated_bom_rows = []
+                    
+                st.session_state.pdf_bytes = uploaded_file.read()
+                st.session_state.pdf_name = uploaded_file.name
 
-            # Tự động bóc tách Văn Bản và chuyển đổi PDF thành hình ảnh Sketch ngay lập tức
-            if st.session_state.pdf_text_cache is None or st.session_state.pdf_page_one_image is None:
-                with st.spinner("🤖 AI đang đọc tài liệu và trích xuất hình ảnh phác thảo..."):
-                    try:
-                        # Mở file PDF trực tiếp từ bộ nhớ bytes
-                        doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
-                        
-                        # 1. Trích xuất toàn bộ text từ tất cả các trang phục vụ Regex tìm mã hàng
-                        full_text = ""
-                        for page in doc:
-                            full_text += page.get_text()
-                        st.session_state.pdf_text_cache = full_text
-                        
-                        # 2. Chuyển đổi trang đầu tiên (Trang 0) thành hình ảnh PNG chất lượng cao
-                        if len(doc) > 0:
-                            page_one = doc[0]
-                            pix = page_one.get_pixmap(matrix=fitz.Matrix(2, 2)) # Zoom x2 để ảnh nét hơn
-                            image_bytes = pix.tobytes("png")
-                            st.session_state.pdf_page_one_image = image_bytes
+                if st.session_state.pdf_text_cache is None or st.session_state.pdf_page_one_image is None:
+                    with st.spinner("🤖 AI đang đọc tài liệu và trích xuất hình ảnh phác thảo..."):
+                        try:
+                            doc = fitz.open(stream=st.session_state.pdf_bytes, filetype="pdf")
+                            full_text = ""
+                            for page in doc:
+                                full_text += page.get_text()
+                            st.session_state.pdf_text_cache = full_text
                             
-                        doc.close()
-                    except Exception as e:
-                        st.error(f"Lỗi khi đọc file PDF kĩ thuật: {e}")
-                
-                # Khởi động lại luồng giao diện để cập nhật ngay lập tức dữ liệu mới lên màn hình
-                st.rerun()
+                            if len(doc) > 0:
+                                page_one = doc[0]
+                                pix = page_one.get_pixmap(matrix=fitz.Matrix(2, 2))
+                                st.session_state.pdf_page_one_image = pix.tobytes("png")
+                                
+                            doc.close()
+                        except Exception as e:
+                            st.error(f"Lỗi khi đọc file PDF kĩ thuật: {e}")
+                    st.rerun()
 
-        # Hiển thị thông tin hồ sơ tóm tắt sau khi đã trích xuất văn bản thành công
+        with tab_direct_chat:
+            st.markdown("<div style='font-size: 12px; color: #64748b; font-style: italic; margin-bottom: 5px;'>Dán nội dung thông số kỹ thuật (BOM/Size chart) từ Excel nhiều sheet vào đây:</div>", unsafe_allow_html=True)
+            direct_bom_text = st.text_area(
+                "Dán văn bản thông số",
+                height=110,
+                label_visibility="collapsed",
+                placeholder="Ví dụ:\nMã hàng: R09-400416\nFront Panel - FABRIC - Dài 32 - Rộng 14 - Qty 2\nBack Panel - FABRIC - Dài 33 - Rộng 15 - Qty 2\nWaistband Fusing - FUSING - Dài 36 - Rộng 3 - Qty 2",
+                key="direct_paste_bom_input"
+            )
+            
+            uploaded_sketch = st.file_uploader("Tải lên ảnh phác thảo Sketch (JPG/PNG)", type=["jpg", "png", "jpeg"], key="direct_sketch_uploader")
+            
+            if st.button("🤖 AI ANALYZE & EXTRACT TEXT", use_container_width=True, key="btn_direct_ai_run"):
+                if not direct_bom_text:
+                    st.warning("⚠️ Vui lòng dán văn bản thông số vào khung trước khi chạy phân tích.")
+                else:
+                    with st.spinner("⚡ AI đang cấu trúc ma trận hình học từ văn bản và ảnh Sketch..."):
+                        # Giả lập AI bốc tách chuỗi văn bản do người dùng paste vào ô chat
+                        st.session_state.pdf_text_cache = direct_bom_text
+                        st.session_state.pdf_name = "DIRECT_PASTE_BOM.pdf"
+                        
+                        # Nếu người dùng tải lên ảnh Sketch rời, đồng bộ hiển thị sang Cột Phải
+                        if uploaded_sketch is not None:
+                            st.session_state.pdf_page_one_image = uploaded_sketch.read()
+                        else:
+                            st.session_state.pdf_page_one_image = None
+                            
+                    st.success("✨ Cấu trúc dữ liệu thông số đã được nạp thành công vào hệ thống cache.")
+                    st.rerun()
+
+        # --- KHỐI HIỂN THỊ HỒ SƠ TÓM TẮT MÀU XANH (CHẠY CHUNG CHO CẢ 2 PHÂN HỆ) ---
         if st.session_state.pdf_text_cache is not None:
-            st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
             txt = st.session_state.pdf_text_cache
             
             def get_meta(pattern, default="N/A"):
@@ -598,11 +632,11 @@ with col_left:
                 return m.group(1).strip() if m else default
 
             # Thực hiện quét thông tin kĩ thuật bằng biểu thức chính quy (Regex)
-            style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
-            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm)\s*[:\-=\s]*([^\n]+)', "THE BAGGY JEANS")
-            customer = get_meta(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
-            season = get_meta(r'(?:Season|Mùa hàng)\s*[:\-=\s]*([^\n]+)', "Fall 2025 Apparel Reitmans")
-            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - MID RISE - POPLIN FABRIC")
+            style_id = get_meta(r'(?:Style ID|Style_ID|Mã hàng|Style|Code)\s*[:\-=\s]*([\w\d\-]+)', st.session_state.pdf_name.replace(".pdf",""))
+            short_desc = get_meta(r'(?:Short Desc|Description|Tên sản phẩm|Kiểu dáng)\s*[:\-=\s]*([^\n]+)', "THE BAGGY JEANS")
+            customer = get_meta(r'(?:Customer|Khách hàng|Brand|Đối tác)\s*[:\-=\s]*([^\n]+)', "FACTORY STANDARD")
+            season = get_meta(r'(?:Season|Mùa hàng|Mùa)\s*[:\-=\s]*([^\n]+)', "Fall 2025 Apparel Reitmans")
+            fabric_type = get_meta(r'(?:Long Description|Chất liệu gốc|Mô tả vải)\s*[:\-=\s]*([^\n]+)', "LIGHT ORANGE - MID RISE - POPLIN FABRIC")
 
             # Ghim mã hàng vào bộ nhớ toàn cục để đồng bộ lên các khối KPIs trần trang và Lịch sử
             st.session_state.style_id = style_id
@@ -612,12 +646,12 @@ with col_left:
                 "background-color: #f8fafc; "
                 "border: 1px solid #e2e8f0; "
                 "border-radius: 6px; "
-                "padding: 12px 14px; "
-                "margin-bottom: 12px; "
-                "box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);"
+                "padding: 8px 12px; "
+                "margin-bottom: 8px; "
+                "box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);"
             )
-            lbl_style = "font-family: 'Segoe UI', sans-serif; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;"
-            val_style = "font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+            lbl_style = "font-family: 'Segoe UI', sans-serif; font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;"
+            val_style = "font-family: 'Segoe UI', sans-serif; font-size: 13px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
 
             # Chia lưới cột nhỏ bên trong khung Techpack Uploader
             m_col1, m_col2 = st.columns(2)
@@ -627,28 +661,28 @@ with col_left:
                 st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Season / Mùa sản xuất</div><div style="{val_style}">{season}</div></div>', unsafe_allow_html=True)
             with m_col2:
                 st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Garment Type / Kiểu dáng</div><div style="{val_style}">{short_desc}</div></div>', unsafe_allow_html=True)
-                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Material Spec / Mô tả vải</div><div style="{val_style}" title="{fabric_type}">{fabric_type[:28]}...</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="{box_style}"><div style="{lbl_style}">Material Spec / Mô tả vải</div><div style="{val_style}" title="{fabric_type}">{fabric_type[:24]}...</div></div>', unsafe_allow_html=True)
                 st.markdown(
-                    f'<div style="{box_style} background-color: #f0fdf4; border-color: #bbf7d0;">'
+                    f'<div style="{box_style} background-color: #f0fdf4; border-color: #bbf7d0; padding: 8px 12px;">'
                     f'  <div style="{lbl_style} color: #166534;">Techpack Status</div>'
-                    f'  <div style="{val_style} color: #15803d; display: flex; align-items: center; gap: 6px;">🟢 READY TO BOM</div>'
+                    f'  <div style="{val_style} color: #15803d; display: flex; align-items: center; gap: 6px; font-size: 12px;">🟢 READY TO BOM</div>'
                     f'</div>', 
                     unsafe_allow_html=True
                 )
         else:
             if st.session_state.pdf_bytes is None:
-                st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu lên hệ thống.</div>", unsafe_allow_html=True)
+                st.markdown("<div style='margin-top: 40px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Bảng tóm tắt hồ sơ trống. Vui lòng tải tài liệu hoặc dán thông số BOM text vào hệ thống.</div>", unsafe_allow_html=True)
 
 # --- CỘT PHẢI: KHÔNG GIAN HIỂN THỊ HÌNH ẢNH SKETCH ---
 with col_right:
     with st.container(border=True, height=520):
         st.markdown("### 🎨 TECHPACK SKETCH VISUALIZER")
         
-        # Hình ảnh phác thảo dạng bytes sau khi trích xuất từ PDF sẽ hiển thị sắc nét tại đây
+        # Hình ảnh phác thảo dạng bytes sau khi trích xuất từ PDF hoặc nạp ảnh rời sẽ hiển thị sắc nét tại đây
         if "pdf_page_one_image" in st.session_state and st.session_state.pdf_page_one_image is not None:
-            st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo trích xuất: {st.session_state.get('pdf_name', '')}", use_container_width=True)
+            st.image(st.session_state.pdf_page_one_image, caption=f"Bản vẽ phác thảo sản phẩm: {st.session_state.get('pdf_name', '')}", use_container_width=True)
         else:
-            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Chưa có hình ảnh phác thảo. Vui lòng tải Techpack PDF để trích xuất hệ thống.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-top: 60px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;'>Chưa có hình ảnh phác thảo. Vui lòng tải tài liệu PDF hoặc upload hình ảnh Sketch ở phân hệ kế bên.</div>", unsafe_allow_html=True)
 
 
 
