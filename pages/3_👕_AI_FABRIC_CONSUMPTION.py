@@ -2631,9 +2631,9 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     return output_stream
 
 
-import pandas as pd
-import streamlit as st
-
+# =====================================================================
+# 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ LỖI HIỂN THỊ KHỔ VẢI CHUẨN)
+# =====================================================================
 st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 ai_decision_final = ctx.get("ai_expert_decision", {})
 estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
@@ -2643,8 +2643,9 @@ ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
 ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
 prod_cat_ui = str(ai_decision_final.get("product_category", "JACKET")).upper().strip()
 
-# Xác định loại hàng nhận diện tránh lỗi NameError
+# Tránh lỗi NameError cho biến ai_product_type và prod
 ai_product_type_val = ai_product_type if 'ai_product_type' in locals() else prod_cat_ui
+prod_val = prod if 'prod' in locals() else prod_cat_ui
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type_val)
@@ -2652,158 +2653,52 @@ m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tie
 m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
 m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-# Khởi tạo vùng lưu trữ tạm thời nếu chưa có
+# ĐỒNG BỘ DANH SÁCH VẬT TƯ LÊN BẢNG BOM SUMMARY TỪ CACHE RAM TRÁNH LỆCH NHÃN
+virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 if not isinstance(st.session_state.get("user_edited_pieces"), dict):
     st.session_state["user_edited_pieces"] = {}
 if not isinstance(st.session_state.get("user_edited_materials"), dict):
     st.session_state["user_edited_materials"] = {}
 
-# Tự động dò tìm biến DataFrame phù hợp từ các đoạn code phía trên
-if 'df_bom' in locals() or 'df_bom' in globals():
-    df_bom_working = df_bom.copy()
-elif 'df' in locals() or 'df' in globals():
-    df_bom_working = df.copy()
-elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
-    df_bom_working = st.session_state["df_bom"].copy()
-else:
-    df_bom_working = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
-
-# Xác định cột phân loại chất liệu trong bảng dữ liệu đầu vào
-possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại", "_temp_class"]
-detected_mat_col = next((col for col in possible_mat_cols if col in df_bom_working.columns), None)
-if not detected_mat_col:
-    detected_mat_col = "Material Class"
-
-# CHUẨN HÓA EXISTING CLASSES ĐỂ TRÁNH CHÈN TRÙNG KEO LÓT TỪ SOLVER
-existing_classes_raw = df_bom_working[detected_mat_col].dropna().astype(str).str.upper().str.strip().tolist() if len(df_bom_working) > 0 else []
-existing_classes = []
-for x in existing_classes_raw:
-    if x in ["KEO LÓT", "KEO", "MÉC", "MÉC / KEO", "INTERLINING", "FUSING"]:
-        existing_classes.append("FUSING")
-    elif x in ["VẢI LÓT", "LÓT", "LINING_PIECE", "LINING"]:
-        existing_classes.append("LINING")
+# 🛠️ FIXED: Tự động khôi phục / định nghĩa lại biến dữ liệu gốc df_bom nếu bị thiếu ở các đoạn trên
+if 'df_bom' not in locals() and 'df_bom' not in globals():
+    if 'df' in locals() or 'df' in globals():
+        df_bom = df.copy()
+    elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
+        df_bom = st.session_state["df_bom"].copy()
     else:
-        existing_classes.append(x)
+        df_bom = pd.DataFrame(columns=["component_name", "Material Class", "Gross Consumption", "pcs_numeric"])
 
-# Đọc định mức tính toán keo lót trực tiếp từ Geometric Solver
-solver_lining_val = float(ai_decision_final.get("solver_lining_consumption", 0.183))
-solver_fusing_val = float(ai_decision_final.get("solver_fusing_consumption", 0.114))
-
-# Tự động chèn dòng FUSING (Méc/Keo) nếu Solver có dữ liệu nhưng bảng bị khuyết
-if "FUSING" not in existing_classes and solver_fusing_val > 0:
-    new_row = {c: "" for c in df_bom_working.columns}
-    new_row["component_name"] = "TOTAL FUSING (TỔNG KEO LÓT TỰ ĐỘNG)"
-    new_row[detected_mat_col] = "FUSING"
-    new_row["Gross Consumption"] = solver_fusing_val
-    new_row["pcs_numeric"] = 1
-    df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
-
-# Tự động chèn dòng LINING (Vải lót) tương tự
-if "LINING" not in existing_classes and solver_lining_val > 0:
-    new_row = {c: "" for c in df_bom_working.columns}
-    new_row["component_name"] = "TOTAL LINING (TỔNG VẢI LÓT TỰ ĐỘNG)"
-    new_row[detected_mat_col] = "LINING"
-    new_row["Gross Consumption"] = solver_lining_val
-    new_row["pcs_numeric"] = 1
-    df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
-
-# 🛠️ CHUẨN HÓA THEO YÊU CẦU: CHỈ GIỮ LẠI CÁC NHÓM CỐT LÕI, CÒN LẠI ĐẨY VÀO ACCESSORY (PHỤ LIỆU)
-virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 clean_materials_list = []
-for idx in df_bom_working.index:
-    comp_name = str(df_bom_working.loc[idx, "component_name"]).upper()
-    
-    if idx in st.session_state["user_edited_materials"]:
-        saved_mat = st.session_state["user_edited_materials"][idx]
-    elif "TOTAL FUSING" in comp_name:
-        saved_mat = "FUSING"
-    elif "TOTAL LINING" in comp_name:
-        saved_mat = "LINING"
-    elif pd.notna(df_bom_working.loc[idx, detected_mat_col]) and str(df_bom_working.loc[idx, detected_mat_col]).strip() != "":
-        orig_mat = str(df_bom_working.loc[idx, detected_mat_col]).upper().strip()
-        
-        # Chỉ giữ lại 4 nhóm chính bạn cần chỉnh
-        if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "INTERLINING", "FUSING"]: 
-            saved_mat = "FUSING"
-        elif orig_mat in ["LINING", "LÓT", "VẢI LÓT", "LINING_PIECE"]: 
-            saved_mat = "LINING"
-        elif orig_mat in ["FABRIC", "SHELL", "SELF", "VẢI CHÍNH"]: 
-            saved_mat = "FABRIC"
-        elif orig_mat in ["RIB", "PHỐI RIB"]: 
-            saved_mat = "RIB"
-        # Chỉ may, nhãn mác, chun tape... gom toàn bộ vào nhóm Phụ liệu / Khác
-        else:
-            saved_mat = "ACCESSORY"
-    else:
-        # Kiểm tra lớp AI gợi ý, nếu không thuộc nhóm chính cũng đưa về ACCESSORY
-        ai_inferred = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
-        saved_mat = ai_inferred if ai_inferred in ["FABRIC", "LINING", "FUSING", "RIB"] else "ACCESSORY"
-        
+for idx in df_bom.index:
+    v_piece = virtual_pieces_layer.get(idx, {})
+    saved_mat = st.session_state["user_edited_materials"].get(idx, v_piece.get("inferred_class", "FABRIC"))
     clean_materials_list.append(saved_mat)
     
-df_bom_working["_temp_class"] = clean_materials_list
-df_bom_working["Gross Consumption"] = df_bom_working.get("Gross Consumption", 0.0).fillna(0.0).astype(float)
+df_bom["_temp_class"] = clean_materials_list
 
-# Gom nhóm xây dựng bảng tổng hợp BOM Summary
-summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+if "Gross Consumption" not in df_bom.columns:
+    df_bom["Gross Consumption"] = 0.0
 
-# Ánh xạ nhãn hiển thị Tiếng Việt gọn gàng
-cls_map = {
-    "FABRIC": "VẢI CHÍNH", 
-    "LINING": "VẢI LÓT", 
-    "FUSING": "MÉC / KEO", 
-    "RIB": "PHỐI RIB", 
-    "ACCESSORY": "PHỤ LIỆU / KHÁC"
-}
+# Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra
+summary_grouped = df_bom.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU", "UNKNOWN": "VẬT TƯ KHÁC"}
 
 df_summary = pd.DataFrame({
-    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("PHỤ LIỆU / KHÁC"),
+    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
     "Material Class": summary_grouped["_temp_class"],
-    "Gross Consumption": summary_grouped["Gross Consumption"].round(4)
+    "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
+    "UOM": "YDS"
 })
-
-# Tính thêm định mức Net Consumption dựa trên hiệu suất sơ đồ CAD
-net_ratio = float(ai_decision_final.get("marker_efficiency", ui_display_density))
-df_summary["Net Consumption"] = (df_summary["Gross Consumption"] * net_ratio).round(4)
-
-# Đơn vị tính động (Vải/Méc/Keo/Rib dùng YDS, Phụ liệu gom chung dùng PCS)
-uom_map = {"FABRIC": "YDS", "LINING": "YDS", "FUSING": "YDS", "RIB": "YDS", "ACCESSORY": "PCS"}
-df_summary["UOM"] = df_summary["Material Class"].map(uom_map).fillna("PCS")
-
-df_summary = df_summary[["Phân loại vật tư", "Material Class", "Net Consumption", "Gross Consumption", "UOM"]]
-
-# SẮP XẾP THỨ TỰ CORES CỐ ĐỊNH CỦA NHÀ MÁY
-factory_order = ["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"]
-df_summary["_sort"] = df_summary["Material Class"].apply(lambda x: factory_order.index(x) if x in factory_order else 999)
-df_summary = df_summary.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
-
-# TỰ ĐỘNG TÍNH TOÁN DÒNG TỔNG CỘNG (GRAND TOTAL) Ở CUỐI BẢNG
-total_net = df_summary["Net Consumption"].sum()
-total_gross = df_summary["Gross Consumption"].sum()
-
-total_row = pd.DataFrame([{
-    "Phân loại vật tư": "🔴 TỔNG CỘNG (GRAND TOTAL)",
-    "Material Class": "TOTAL",
-    "Net Consumption": round(total_net, 4),
-    "Gross Consumption": round(total_gross, 4),
-    "UOM": ""
-}])
-df_summary = pd.concat([df_summary, total_row], ignore_index=True)
 
 st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
+df_bom_display = df_bom.copy()
 
-# =====================================================================
-# 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI (VÁ LỖI ÉP KIỂU ILOC)
-# =====================================================================
-df_bom_display = df_bom_working.copy()
-
-# Chuẩn hóa hiển thị khổ vải số nguyên
+# 🛠️ VÁ LỖI HIỂN THỊ KHỔ VẢI: Ép kiểu Số nguyên (int) trực tiếp, loại bỏ hoàn toàn dấu thập phân gây lỗi mất chữ số biên
 if "Calculated Width (Inch)" in df_bom_display.columns:
-    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].apply(
-        lambda x: int(float(x)) if (pd.notna(x) and str(x).strip() != "" and float(x) > 0) else 56
-    )
+    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].apply(lambda x: int(float(x)) if (pd.notna(x) and str(x).strip() != "" and float(x) > 0) else 56)
 else:
     df_bom_display["Khổ vải sản xuất (inch)"] = int(float(st.session_state.get("fabric_width_inch", 56)))
     
@@ -2811,54 +2706,50 @@ df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' 
 df_bom_display["Material Class"] = df_bom_display["_temp_class"]
 df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
 
-# Đồng bộ số lượng rập tránh lỗi lệch chỉ mục
-qty_list = []
-for idx, r in df_bom_working.iterrows():
-    if idx in st.session_state["user_edited_pieces"]:
-        qty_val = int(st.session_state["user_edited_pieces"][idx])
-    else:
-        try: qty_val = int(float(r.get("pcs_numeric", 1))) if pd.notna(r.get("pcs_numeric")) else 1
-        except: qty_val = 1
-    qty_list.append(qty_val)
+# Đồng bộ số lượng rập hiển thị trên lưới biên tập tránh lặp dòng rác
+df_bom_display["Số lượng rập"] = [
+    int(st.session_state["user_edited_pieces"].get(idx, r.get("pcs_numeric", 1))) 
+    for idx, r in df_bom.iterrows()
+]
+df_bom_display["_original_row_index"] = df_bom.index
 
-df_bom_display["Số lượng rập"] = qty_list
-df_bom_display["_original_row_index"] = df_bom_working.index
-
-# Cấu hình danh sách cột hiển thị bắt buộc lên lưới
+# Sắp xếp đúng thứ tự cột hiển thị của lưới
 ordered_cols = [
-    "_original_row_index", "Component Name", "Material Class", "Role/Piece Type", 
-    "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", 
-    "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"
+    "_original_row_index", 
+    "Component Name", 
+    "Material Class", 
+    "Role/Piece Type", 
+    "Chiều dài rập (inch)",   
+    "Chiều rộng rập (inch)",  
+    "Khổ vải sản xuất (inch)", 
+    "Size tính toán", 
+    "Số lượng rập", 
+    "polygon_net_area", 
+    "Gross Consumption"
 ]
 display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
 df_bom_display = df_bom_display[display_final_cols]
 
-# Tạo bố cục nút bấm xuất file Excel thương mại
-col_space, col_btn = st.columns([3, 1])
-with col_btn:
+col_t1, col_t2 = st.columns(2)
+col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
+
+with col_t2:
     try:
         if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-            df_excel_summary = df_summary[df_summary["Material Class"] != "TOTAL"]
-            
-            excel_file = local_export_excel_ppj_format(
-                df_excel_summary, 
-                df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                prod_cat_ui, ctx, ui_display_density
-            )
+            excel_file = local_export_excel_ppj_format(df_summary, df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), prod_val, ctx, ui_display_density)
             style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            
             st.download_button(
                 label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
                 data=excel_file, 
                 mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
-                file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", 
+                file_name=f"PPJ_BOM_{prod_val}_{style_name_clean}.xlsx", 
                 use_container_width=True,
-                key="btn_download_excel_ppj_final_v3"
+                key="btn_download_excel_ppj_fixed_unique"  # Ép key duy nhất chặn đứng lỗi sập màn hình trùng lặp phần tử
             )
     except Exception as e: 
         st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
-# HIỂN THỊ LƯỚI DATA_EDITOR HOÀN CHỈNH ĐÃ ĐỒNG BỘ CỐ ĐỊNH
+# HIỂN THỊ LƯỚI DATA_EDITOR VỚI ĐỊNH DẠNG KHỔ VẢI CHUẨN SỐ NGUYÊN HOÀN TOÀN
 edited_df = st.data_editor(
     df_bom_display, 
     column_config={
@@ -2868,38 +2759,36 @@ edited_df = st.data_editor(
         "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%d", disabled=True),
         "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1.0, max_value=40.0, step=1.0),
         "Material Class": st.column_config.SelectboxColumn(
-            "Material Class", 
-            help="Chọn lại nhóm vật tư cốt lõi nếu hệ thống phân loại chưa chính xác",
-            options=["FABRIC", "LINING", "FUSING", "RIB", "ACCESSORY"], 
-            required=True
+            "Material Class", help="Chọn lại nhóm vật tư nếu AI nhận diện sai",
+            options=["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD"], required=True
         ),
         "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
         "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
     }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
 )
 
-# LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ CẬP NHẬT TRẠNG THÁI
+# LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ TÍNH TOÁN LẠI TỨC THÌ
 has_changed = False
 for _, row in edited_df.iterrows():
     orig_idx = int(row["_original_row_index"])
     
-    # Lọc ra dòng tương ứng trong bảng dữ liệu hiển thị hiện tại
-    matched_rows = df_bom_display[df_bom_display["_original_row_index"] == orig_idx]
-    if len(matched_rows) == 0:
-        continue
-        
-    # 🛠️ FIXED: Thay .values bằng .iloc[0] để trích xuất trực tiếp giá trị đơn, triệt tiêu hoàn toàn lỗi TypeError
-    old_pcs_val = matched_rows["Số lượng rập"].iloc[0]
-    new_pcs = int(float(row["Số lượng rập"]))
-    if pd.notna(old_pcs_val) and int(float(old_pcs_val)) != new_pcs:
-        st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-        has_changed = True
-        
-    old_mat_val = str(matched_rows["Material Class"].iloc[0]).upper().strip()
-    new_mat = str(row["Material Class"]).upper().strip()
-    if old_mat_val != new_mat:
-        st.session_state["user_edited_materials"][orig_idx] = new_mat
-        has_changed = True
-        
+    # 🛠️ FIXED: Thêm bước lọc kiểm tra an toàn mảng tránh lỗi IndexError / TypeError sập dòng trống của solver
+    matched_old_pcs = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values
+    matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
+    
+    if len(matched_old_pcs) > 0:
+        old_pcs = float(matched_old_pcs[0])
+        new_pcs = float(row["Số lượng rập"])
+        if old_pcs != new_pcs:
+            st.session_state["user_edited_pieces"][orig_idx] = new_pcs
+            has_changed = True
+            
+    if len(matched_old_mat) > 0:
+        old_mat = str(matched_old_mat[0]).upper().strip()
+        new_mat = str(row["Material Class"]).upper().strip()
+        if old_mat != new_mat:
+            st.session_state["user_edited_materials"][orig_idx] = new_mat
+            has_changed = True
+            
 if has_changed:
     st.rerun()
