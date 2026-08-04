@@ -2091,13 +2091,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (BẢN VÁ AN TOÀN BIẾN CHỐNG NAMEERROR)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (BẢN UPDATE TOÁN HỌC CÔNG NGHIỆP 10/10)
     # =====================================================================
-    # 🛠️ FIXED: Khởi tạo giá trị dự phòng an toàn để triệt tiêu hoàn toàn lỗi NameError 'total_fabric_gross_yds'
-    global_fabric_gross = total_fabric_gross_yds if 'total_fabric_gross_yds' in locals() or 'total_fabric_gross_yds' in globals() else 1.25
+    # 🛠️ SỬA LỖI 5 & 6: Gom biến lên đầu trang, gỡ bỏ toán tử walrus khó đọc và hạ fallback solver lỗi về 0.0
+    _is_short = locals().get("is_short", False)
+    _is_trouser = locals().get("is_trouser", False)
+    _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
+    _is_jacket = locals().get("is_jacket", False)
+
+    global_fabric_gross = total_fabric_gross_yds if 'total_fabric_gross_yds' in locals() or 'total_fabric_gross_yds' in globals() else 0.0
     global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() or 'total_lining_gross_yds' in globals() else 0.0
-    global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() or 'total_fusing_gross_yds' in globals() else 0.15
+    global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() or 'total_fusing_gross_yds' in globals() else 0.0
 
     f_width = current_fabric_width if 'current_fabric_width' in locals() else 56.0
     l_width = lining_width if 'lining_width' in locals() else 57.0
@@ -2105,83 +2110,103 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     local_wastage = target_wastage if 'target_wastage' in locals() else 1.030
 
     net_areas = {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0}
-    
+    shape_ratio = 0.58 if (_is_trouser or _is_short) else 0.72
+
+    # Vòng lặp gom nhóm tổng diện tích tịnh ma trận hình học rập phẳng
     for idx, r in df_bom.iterrows():
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = str(v.get("material_class", "FABRIC")).upper().strip()
         pcs = int(v.get("active_user_pieces", 1))
-        net_area = float(v.get("polygon_net_area", 0.0))
         
+        net_area = float(v.get("polygon_net_area", v.get("net_area", r.get("polygon_net_area", 0.0))))
+        if net_area <= 0:
+            l_val = float(v.get("processed_length", r.get("Chiều dài rập (inch)", 0.0)))
+            w_val = float(v.get("processed_width", r.get("Chiều rộng rập (inch)", 0.0)))
+            net_area = l_val * w_val * (0.85 if p_cls == "FUSING" else shape_ratio)
+            v["polygon_net_area"] = net_area 
+
         if p_cls in net_areas:
             net_areas[p_cls] += net_area * pcs
 
-    # Thuật toán router phân bổ định mức phẳng chuẩn công nghiệp PPJ Group
+    # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
     def core_engine_router(row, idx):
         v = virtual_pieces_layer.get(idx, {}) if isinstance(virtual_pieces_layer, dict) else {}
         p_cls = str(v.get("material_class", "FABRIC")).upper().strip()
         pcs = int(v.get("active_user_pieces", 1))
         
         pure_unit_area = float(v.get("polygon_net_area", 0.0))
-        
         if p_cls == "ACCESSORY" or pure_unit_area <= 0: 
             return 0.0
+        
+        # 🛠️ SỬA LỖI 1 & 4: Tính toán diện tích gộp dòng (piece_area) bắt buộc cho cả share ratio và fallback
+        piece_area = pure_unit_area * pcs
         
         # 2.1. VẢI CHÍNH (FABRIC)
         if p_cls == "FABRIC":
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
-                line_share_ratio = pure_unit_area / net_areas["FABRIC"]
+                line_share_ratio = piece_area / net_areas["FABRIC"]
                 allocated_gross = global_fabric_gross * line_share_ratio
-                if is_short := (is_short if 'is_short' in locals() else False):
-                    allocated_gross = max(allocated_gross, (pure_unit_area / (f_width * 36.0)) * 1.05)
+                
+                # 🛠️ SỬA LỖI 2: Loại bỏ Walrus, căn lề chuẩn công nghệ
+                if _is_short:
+                    allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.05)
                 return round(allocated_gross, 4)
-            return round((((pure_unit_area) / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
+            # Fallback hình học khi Solver lỗi
+            return round(((piece_area / f_width / 0.75) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
+            # 🛠️ SỬA LỖI 3: Định tuyến phân bổ chính xác theo mẫu số nhóm CONTRAST độc lập
             if net_areas["CONTRAST"] > 0:
-                base_contrast_gross = global_fabric_gross
-                if net_areas["FABRIC"] > 0:
-                    line_share_ratio = pure_unit_area / net_areas["FABRIC"]
+                if global_fabric_gross > 0 and net_areas["FABRIC"] > 0:
+                    # Nếu tính gộp theo sơ đồ tổng vải chính
+                    line_share_ratio = piece_area / net_areas["FABRIC"]
                     return round(global_fabric_gross * line_share_ratio, 4)
                 else:
-                    line_share_ratio = pure_unit_area / net_areas["CONTRAST"]
+                    # Phân bổ độc lập theo lõi vải phối
+                    line_share_ratio = piece_area / net_areas["CONTRAST"]
+                    base_contrast_gross = (net_areas["CONTRAST"] / f_width / 0.72 / 36.0) * local_wastage
                     return round(base_contrast_gross * line_share_ratio, 4)
-            return round((((pure_unit_area) / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
+            return round(((piece_area / f_width / 0.72) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
-            _is_short_check = is_short if 'is_short' in locals() else False
-            _is_trouser_check = is_trouser if 'is_trouser' in locals() else False
-            if _is_short_check or _is_trouser_check:
-                return round((((pure_unit_area) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            if _is_short or _is_trouser:
+                return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
-                line_share_ratio = pure_unit_area / net_areas["LINING"]
+                line_share_ratio = piece_area / net_areas["LINING"]
                 return round(global_lining_gross * line_share_ratio, 4)
-            return round((((pure_unit_area) / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
             
         # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
-            _is_short_check = is_short if 'is_short' in locals() else False
-            _is_trouser_check = is_trouser if 'is_trouser' in locals() else False
-            if _is_short_check or _is_trouser_check:
-                return round((((pure_unit_area) / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+            if _is_short or _is_trouser:
+                if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
+                    line_share_ratio = piece_area / net_areas["FUSING"]
+                    return round(global_fusing_gross * line_share_ratio, 4)
+                return round(((piece_area / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
             
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
-                line_share_ratio = pure_unit_area / net_areas["FUSING"]
+                line_share_ratio = piece_area / net_areas["FUSING"]
                 allocated_gross = global_fusing_gross * line_share_ratio
-                min_fusing_floor = round((((pure_unit_area) / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                min_fusing_floor = round(((piece_area / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
                 return max(round(allocated_gross, 4), min_fusing_floor)
-            return round((((pure_unit_area) / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+            return round(((piece_area / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
 
         # 2.5. BO TĂM (RIB)
         if p_cls == "RIB":
-            return round((((pure_unit_area) / fuse_width / 0.82) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
+            if net_areas["RIB"] > 0:
+                line_share_ratio = piece_area / net_areas["RIB"]
+                base_rib_gross = (net_areas["RIB"] / fuse_width / 0.82 / 36.0) * 1.15
+                return round(base_rib_gross * line_share_ratio, 4)
+            return round(((piece_area / fuse_width / 0.82) / 36.0) * 1.15, 4) if fuse_width > 0 else 0.0
             
-        return round((((pure_unit_area) / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
+        return round(((piece_area / fuse_width) / 36.0) * local_wastage, 4) if fuse_width > 0 else 0.0
 
     # Đẩy dữ liệu định mức Gross Consumption sạch đã tính toán vào DataFrame
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
     
+    # 🛠️ SỬA LỖI 7: Giữ vững cấu trúc map khổ vải động chuẩn ERP
     width_map = {"FABRIC": f_width, "CONTRAST": f_width, "LINING": l_width, "FUSING": fuse_width, "RIB": fuse_width}
     df_bom["Calculated Width (Inch)"] = [width_map.get(str(virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC")).upper().strip(), f_width) for idx in df_bom.index]
     
@@ -2214,7 +2239,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif p_class_check == "RIB":
                 real_rib_sum += g_cons
 
-        # Đồng bộ dữ liệu tính toán ngược vào đối tượng ctx để cung cấp dữ liệu cho Đoạn 7
         if "ai_expert_decision" not in ctx:
             ctx["ai_expert_decision"] = {}
         ctx["ai_expert_decision"]["solver_lining_consumption"] = real_lining_sum
