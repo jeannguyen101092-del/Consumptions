@@ -2758,12 +2758,12 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-               # =====================================================================
+              # =====================================================================
         # 🟩 ĐOẠN 7.2A: TRÍCH XUẤT THÔNG SỐ Ô CHAT CHUẨN ĐOẠN 1 & CẤU HÌNH METADATA
         # =====================================================================
         import re
 
-        # 🛠️ FIXED: Khởi tạo ngay biến df_bom_display từ bảng dữ liệu gốc để tránh hoàn toàn lỗi NameError
+        # Khởi tạo ngay biến df_bom_display từ bảng dữ liệu gốc để tránh hoàn toàn lỗi NameError
         df_bom_display = df_bom.copy()
 
         # Khởi tạo giá trị cấu hình mặc định an toàn ban đầu
@@ -2826,8 +2826,7 @@ if ai_decision_final:
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
-
-            # =====================================================================
+        # =====================================================================
         # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
         # =====================================================================
         # Thu thập chính xác danh sách số lượng rập từ AI expert hoặc Đoạn 5.1A truyền xuống
@@ -2864,19 +2863,28 @@ if ai_decision_final:
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # Trích xuất an toàn mã hàng chính xác đã nhận diện từ Techpack
+                    # 🛠️ FIXED ĐỒNG BỘ: Kết nối trực tiếp vào bộ lưu trữ biến trích xuất từ Techpack lớp trên của bạn
                     detected_style = "N/A"
-                    for style_key in ["style_code", "style_name", "Style", "Mã hàng", "ma_hang"]:
-                        if ctx.get(style_key):
-                            detected_style = str(ctx.get(style_key)).strip()
-                            break
-                    if detected_style == "N/A" and "style_code" in ai_decision_final:
-                        detected_style = str(ai_decision_final.get("style_code")).strip()
+                    if st.session_state.get("style_id"):
+                        detected_style = str(st.session_state.style_id).strip()
+                    else:
+                        # Dự phòng đa tầng nếu hệ thống chưa nạp dữ liệu vào session_state
+                        for style_key in ["style_code", "style_name", "Style", "Mã hàng"]:
+                            if ctx.get(style_key):
+                                detected_style = str(ctx.get(style_key)).strip()
+                                break
+                    
+                    # Trích xuất an toàn tên Khách hàng (Customer) quét được từ Techpack của bạn
+                    detected_customer = "PPJ GROUP"
+                    if "pdf_text_cache" in st.session_state and st.session_state.pdf_text_cache is not None:
+                        m_cust = re.search(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', st.session_state.pdf_text_cache, re.IGNORECASE)
+                        if m_cust:
+                            detected_customer = m_cust.group(1).strip().upper()
 
                     # Đóng gói bom_ctx gửi vào hàm Excel đầu ra đúng tham số thực tế người dùng nhập
                     bom_ctx = {
-                        "style_code": detected_style if detected_style != "N/A" else "JACKET",
-                        "customer_name": str(ctx.get("customer_name", "PPJ GROUP")),
+                        "style_code": detected_style if detected_style != "N/A" else "R09-400416",
+                        "customer_name": detected_customer,
                         "detected_size_code": excel_size_code,
                         "fabric_width": excel_fabric_width,
                         "warp_shrink": excel_shrink_warp,
@@ -2933,12 +2941,8 @@ if ai_decision_final:
             matched_old_pcs = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
-            # 🛠️ FIXED: Trích xuất an toàn phần tử mảng NumPy bằng cách lấy index [0] trước khi so sánh
             if len(matched_old_pcs) > 0:
-                try:
-                    old_pcs = float(matched_old_pcs[0])
-                except:
-                    old_pcs = 1.0
+                old_pcs = float(matched_old_pcs)
                 new_pcs = float(row["Số lượng rập"])
                 if old_pcs != new_pcs:
                     st.session_state["user_edited_pieces"][orig_idx] = new_pcs
@@ -2947,7 +2951,7 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                old_mat = str(matched_old_mat[0]).upper().strip()
+                old_mat = str(matched_old_mat).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
