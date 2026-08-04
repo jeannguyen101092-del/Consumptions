@@ -2631,91 +2631,171 @@ def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density
     return output_stream
 
 
-    # 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ TỰ ĐỘNG BƠM DÒNG KEO LÓT BỊ THIẾU)
-    # =====================================================================
-    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
-    ai_decision_final = ctx.get("ai_expert_decision", {})
-    estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
-    ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
-    comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
-    ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
-    ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-    prod_cat_ui = str(ai_decision_final.get("product_category", "JACKET")).upper().strip()
+ import pandas as pd
+import streamlit as st
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type if 'ai_product_type' in locals() else "JACKET")
-    m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
-    m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
+# =====================================================================
+# 🟩 ĐOẠN 7: REAL-TIME AUDIT INTERFACE & INTERACTIVE CONTROL (BẢN VÁ TỰ ĐỘNG BƠM DÒNG KEO LÓT BỊ THIẾU)
+# =====================================================================
+st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+ai_decision_final = ctx.get("ai_expert_decision", {})
+estimated_prior_val = float(ai_decision_final.get("estimated_density_prior", 0.78))
+ui_display_density = float(ai_decision_final.get("real_fabric_density", estimated_prior_val))
+comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
+ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
+ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
+prod_cat_ui = str(ai_decision_final.get("product_category", "JACKET")).upper().strip()
 
-    # ĐỒNG BỘ DANH SÁCH VẬT TƯ LÊN BẢNG BOM SUMMARY TỪ CACHE RAM TRÁNH LỆCH NHÃN
-    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
-    if not isinstance(st.session_state.get("user_edited_pieces"), dict):
-        st.session_state["user_edited_pieces"] = {}
-    if not isinstance(st.session_state.get("user_edited_materials"), dict):
-        st.session_state["user_edited_materials"] = {}
+# Xác định loại hàng an toàn tránh lỗi NameError
+ai_product_type_val = ai_product_type if 'ai_product_type' in locals() else prod_cat_ui
 
-    # Sao chép dữ liệu để tránh ghi đè làm hỏng file gốc
-    df_bom_working = df_bom.copy()
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("🤖 Loại Hàng Nhận Diện", ai_product_type_val)
+m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
+m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{ui_display_density*100:.2f}%")
+m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 🛠️ VÁ LỖI: KIỂM TRA VÀ TỰ ĐỘNG BƠM DÒNG KEO/LÓT TỪ GEOMETRIC SOLVER NẾU BẢNG CHI TIẾT BỊ THIẾU
-    existing_classes = []
-    possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
-    detected_mat_col = next((col for col in possible_mat_cols if col in df_bom_working.columns), None)
-    
-    if detected_mat_col is not None:
-        existing_classes = df_bom_working[detected_mat_col].dropna().astype(str).str.upper().str.strip().tolist()
+# ĐỒNG BỘ DANH SÁCH VẬT TƯ LÊN BẢNG BOM SUMMARY TỪ CACHE RAM TRÁNH LỆCH NHÃN
+virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
+if not isinstance(st.session_state.get("user_edited_pieces"), dict):
+    st.session_state["user_edited_pieces"] = {}
+if not isinstance(st.session_state.get("user_edited_materials"), dict):
+    st.session_state["user_edited_materials"] = {}
 
-    # Đọc định mức keo và lót từ bộ giải Solver (giá trị hiển thị ở dòng chữ xanh của bạn)
-    solver_lining_val = float(ai_decision_final.get("solver_lining_consumption", 0.183))
-    solver_fusing_val = float(ai_decision_final.get("solver_fusing_consumption", 0.114))
+# Sao chép dữ liệu để tránh ghi đè làm hỏng file gốc
+df_bom_working = df_bom.copy()
 
-    # Nếu trong bảng chưa có chi tiết nào thuộc nhóm FUSING nhưng solver có số liệu -> Bơm dòng tổng hợp vào
-    if "FUSING" not in existing_classes and "KEO" not in existing_classes and solver_fusing_val > 0:
-        new_row = {c: "" for c in df_bom_working.columns}
-        new_row["component_name"] = "TOTAL FUSING (TỔNG KEO LÓT TỰ ĐỘNG)"
-        if detected_mat_col: new_row[detected_mat_col] = "FUSING"
-        new_row["Gross Consumption"] = solver_fusing_val
-        new_row["pcs_numeric"] = 1
-        df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
+# 🛠️ VÁ LỖI: KIỂM TRA VÀ TỰ ĐỘNG BƠM DÒNG KEO/LÓT TỪ GEOMETRIC SOLVER NẾU BẢNG CHI TIẾT BỊ THIẾU
+existing_classes = []
+possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại"]
+detected_mat_col = next((col for col in possible_mat_cols if col in df_bom_working.columns), None)
 
-    # Tương tự cho LINING (Vải lót)
-    if "LINING" not in existing_classes and "LÓT" not in existing_classes and solver_lining_val > 0:
-        new_row = {c: "" for c in df_bom_working.columns}
-        new_row["component_name"] = "TOTAL LINING (TỔNG VẢI LÓT TỰ ĐỘNG)"
-        if detected_mat_col: new_row[detected_mat_col] = "LINING"
-        new_row["Gross Consumption"] = solver_lining_val
-        new_row["pcs_numeric"] = 1
-        df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
+if detected_mat_col is not None:
+    existing_classes = df_bom_working[detected_mat_col].dropna().astype(str).str.upper().str.strip().tolist()
 
-    # Tiến hành gán nhãn chuẩn hóa cho bảng hiển thị
-    clean_materials_list = []
-    for idx in df_bom_working.index:
-        if idx in st.session_state["user_edited_materials"]:
-            saved_mat = st.session_state["user_edited_materials"][idx]
-        elif detected_mat_col is not None and pd.notna(df_bom_working.loc[idx, detected_mat_col]) and str(df_bom_working.loc[idx, detected_mat_col]).strip() != "":
-            orig_mat = str(df_bom_working.loc[idx, detected_mat_col]).upper().strip()
-            if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
-            elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
-            else: saved_mat = "FABRIC"
-        else:
-            saved_mat = "FABRIC"
-        clean_materials_list.append(saved_mat)
-        
-    df_bom_working["_temp_class"] = clean_materials_list
-    
-    if "Gross Consumption" not in df_bom_working.columns:
-        df_bom_working["Gross Consumption"] = 0.0
+# Đọc định mức keo và lót từ bộ giải Solver
+solver_lining_val = float(ai_decision_final.get("solver_lining_consumption", 0.183))
+solver_fusing_val = float(ai_decision_final.get("solver_fusing_consumption", 0.114))
+
+# Nếu trong bảng chưa có chi tiết nào thuộc nhóm FUSING nhưng solver có số liệu -> Bơm dòng tổng hợp vào
+if "FUSING" not in existing_classes and "KEO" not in existing_classes and solver_fusing_val > 0:
+    new_row = {c: "" for c in df_bom_working.columns}
+    new_row["component_name"] = "TOTAL FUSING (TỔNG KEO LÓT TỰ ĐỘNG)"
+    if detected_mat_col: new_row[detected_mat_col] = "FUSING"
+    new_row["Gross Consumption"] = solver_fusing_val
+    new_row["pcs_numeric"] = 1
+    df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
+
+# Tương tự cho LINING (Vải lót)
+if "LINING" not in existing_classes and "LÓT" not in existing_classes and solver_lining_val > 0:
+    new_row = {c: "" for c in df_bom_working.columns}
+    new_row["component_name"] = "TOTAL LINING (TỔNG VẢI LÓT TỰ ĐỘNG)"
+    if detected_mat_col: new_row[detected_mat_col] = "LINING"
+    new_row["Gross Consumption"] = solver_lining_val
+    new_row["pcs_numeric"] = 1
+    df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
+
+# Tiến hành gán nhãn chuẩn hóa cho bảng hiển thị
+clean_materials_list = []
+for idx in df_bom_working.index:
+    if idx in st.session_state["user_edited_materials"]:
+        saved_mat = st.session_state["user_edited_materials"][idx]
+    elif detected_mat_col is not None and pd.notna(df_bom_working.loc[idx, detected_mat_col]) and str(df_bom_working.loc[idx, detected_mat_col]).strip() != "":
+        orig_mat = str(df_bom_working.loc[idx, detected_mat_col]).upper().strip()
+        if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
+        elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
+        else: saved_mat = "FABRIC"
     else:
-        df_bom_working["Gross Consumption"] = df_bom_working["Gross Consumption"].fillna(0.0).astype(float)
-
-    # Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra
-    summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
-    cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
+        saved_mat = "FABRIC"
+    clean_materials_list.append(saved_mat)
     
-    df_summary = pd.DataFrame({
-        "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
-        "Material Class": summary_grouped["_temp_class"],
+df_bom_working["_temp_class"] = clean_materials_list
+
+if "Gross Consumption" not in df_bom_working.columns:
+    df_bom_working["Gross Consumption"] = 0.0
+else:
+    df_bom_working["Gross Consumption"] = df_bom_working["Gross Consumption"].fillna(0.0).astype(float)
+
+# Gom nhóm chính xác bảng BOM Summary hiển thị trên UI đầu ra
+summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
+cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
+
+df_summary = pd.DataFrame({
+    "Phân loại vật tư": summary_grouped["_temp_class"].map(cls_map).fillna("VẬT TƯ KHÁC"),
+    "Material Class": summary_grouped["_temp_class"],
+    "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
+    "UOM": "YDS"
+})
+
+st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
+st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+df_bom_display = df_bom_working.copy()
+
+# Vá lỗi hiển thị khổ vải số nguyên
+if "Calculated Width (Inch)" in df_bom_display.columns:
+    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display["Calculated Width (Inch)"].apply(lambda x: int(float(x)) if (pd.notna(x) and str(x).strip() != "" and float(x) > 0) else 56)
+else:
+    df_bom_display["Khổ vải sản xuất (inch)"] = int(float(st.session_state.get("fabric_width_inch", 56)))
+    
+df_bom_display["Size tính toán"] = detected_size_code if 'detected_size_code' in locals() else "38/XL"
+df_bom_display["Material Class"] = df_bom_display["_temp_class"]
+df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
+
+# Đồng bộ số lượng rập hiển thị chuẩn xác
+possible_qty_cols = ["pcs_numeric", "quantity", "qty", "pcs", "piece_qty", "Số lượng", "soluong"]
+detected_qty_col = next((col for col in possible_qty_cols if col in df_bom_working.columns), None)
+
+qty_list = []
+for idx, r in df_bom_working.iterrows():
+    if idx in st.session_state["user_edited_pieces"]:
+        qty_val = int(st.session_state["user_edited_pieces"][idx])
+    elif detected_qty_col is not None and pd.notna(r[detected_qty_col]) and str(r[detected_qty_col]).strip() != "":
+        try: qty_val = int(float(r[detected_qty_col]))
+        except: qty_val = 1
+    else:
+        qty_val = 1
+    qty_list.append(qty_val)
+
+df_bom_display["Số lượng rập"] = qty_list
+df_bom_display["_original_row_index"] = df_bom_working.index
+
+# Định dạng các cột hiển thị
+ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "Gross Consumption"]
+display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
+df_bom_display = df_bom_display[display_final_cols]
+
+col_t1, col_t2 = st.columns(2)
+col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
+
+with col_t2:
+    try:
+        # SỬA LỖI: Kiểm tra hàm export đã tồn tại và hoàn thiện nút download bị mất góc
+        if 'local_export_excel_ppj_format' in locals():
+            excel_file = local_export_excel_ppj_format(
+                df_summary, 
+                df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
+                prod_cat_ui,  # Sử dụng biến prod_cat_ui đã có thay vì biến 'prod' chưa khai báo
+                ctx, 
+                ui_display_density
+            )
+            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
+            
+            st.download_button(
+                label="🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", 
+                data=excel_file, 
+                mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", 
+                file_name=f"PPJ_BOM_{prod_cat_ui}_{style_name_clean}.xlsx", 
+                use_container_width=True
+            )
+        else:
+            st.warning("⚠️ Không tìm thấy hàm khởi tạo Excel nội bộ `local_export_excel_ppj_format`.")
+    except Exception as e:
+        st.error(f"❌ Lỗi khi khởi tạo nút tải file Excel: {str(e)}")
+
+# Đưa bảng chi tiết rập ra màn hình chính phía dưới tiêu đề
+st.dataframe(df_bom_display, use_container_width=True, hide_index=True)
+lass"],
         "Gross Consumption": summary_grouped["Gross Consumption"].round(4),
         "UOM": "YDS"
     })
