@@ -2514,7 +2514,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         st.success(msg)
   # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE)
     # =====================================================================
-   def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
+def local_export_excel_ppj_format(df_sum, df_det, product_type, bom_ctx, density):
     import io
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Side, Border, Alignment
