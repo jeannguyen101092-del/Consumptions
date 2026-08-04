@@ -693,25 +693,7 @@ with col_left:
                                 "polygon_net_area": float(row["polygon_net_area"]),
                                 "inferred_class": str(row["Material Class"]).upper().strip()
                             }
-# =====================================================================
-# 🛠️ BẢN VÁ AN TOÀN TRÁNH LỖI NAMEERROR 'CTX' (ĐẶT NGAY TRÊN DÒNG BÁO LỖI)
-# =====================================================================
-if 'ctx' not in locals() and 'ctx' not in globals():
-    # 1. Dự phòng 1: Nếu ctx đang nằm trong bộ nhớ tạm session_state của bạn
-    if "ctx" in st.session_state:
-        ctx = st.session_state["ctx"]
-    elif "context" in st.session_state:
-        ctx = st.session_state["context"]
-    # 2. Dự phòng 2: Nếu hệ thống dùng tên biến là context ở luồng ngoài
-    elif 'context' in locals() or 'context' in globals():
-        ctx = context
-    # 3. Dự phòng 3: Tự động khởi tạo mới một dictionary trống để luồng Streamlit không bị sập đỏ màn hình
-    else:
-        ctx = {}
 
-# Đảm bảo đối tượng ai_expert_decision luôn tồn tại trong cấu trúc dữ liệu ngữ cảnh
-if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
-    ctx["ai_expert_decision"] = {}
                         
                         if "ai_expert_decision" not in ctx:
                             ctx["ai_expert_decision"] = {}
@@ -2894,12 +2876,27 @@ if ai_decision_final:
         st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
         st.dataframe(df_summary, use_container_width=True, hide_index=True)
        # =====================================================================
-              # =====================================================================
-        # 🟩 ĐOẠN 7.2A: TRÍCH XUẤT THÔNG SỐ Ô CHAT CHUẨN ĐOẠN 1 & CẤU HÌNH METADATA
+         # =====================================================================
+        # 🟩 ĐOẠN 7.2A: KHỞI TẠO BIẾN CTX DỰ PHÒNG & TRÍCH XUẤT THÔNG SỐ Ô CHAT
         # =====================================================================
         import re
 
-        # Khởi tạo ngay biến df_bom_display từ bảng dữ liệu gốc để tránh hoàn toàn lỗi NameError
+        # 🛠️ FIXED: Tự động kiểm tra và khởi tạo dự phòng biến ctx để triệt tiêu lỗi đỏ NameError
+        if 'ctx' not in locals() and 'ctx' not in globals():
+            if "ctx" in st.session_state:
+                ctx = st.session_state["ctx"]
+            elif "context" in st.session_state:
+                ctx = st.session_state["context"]
+            elif 'context' in locals() or 'context' in globals():
+                ctx = context
+            else:
+                ctx = {}
+
+        # Đảm bảo đối tượng ai_expert_decision luôn tồn tại trong cấu trúc dữ liệu ngữ cảnh
+        if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+            ctx["ai_expert_decision"] = {}
+
+        # Khởi tạo ngay biến df_bom_display từ bảng dữ liệu gốc
         df_bom_display = df_bom.copy()
 
         # Khởi tạo giá trị cấu hình mặc định an toàn ban đầu
@@ -2910,18 +2907,12 @@ if ai_decision_final:
 
         # ĐỒNG BỘ ĐOẠN 1: Trích xuất câu chat dựa trên cấu trúc chat_history và last_submitted_query
         user_chat_text = ""
-        
-        # Hướng ưu tiên 1: Bốc tin nhắn mới nhất vừa được gửi và lưu tạm ở Đoạn 1
         if st.session_state.get("last_submitted_query"):
             user_chat_text = str(st.session_state["last_submitted_query"]).lower().strip()
-            
-        # Hướng ưu tiên 2: Quét ngược phần tử cuối cùng trong bộ nhớ chat_history của Đoạn 1
         elif st.session_state.get("chat_history") and isinstance(st.session_state.chat_history, list) and len(st.session_state.chat_history) > 0:
             last_msg = st.session_state.chat_history[-1]
             if isinstance(last_msg, dict) and last_msg.get("user"):
                 user_chat_text = str(last_msg["user"]).lower().strip()
-                
-        # Hướng ưu tiên 3: Dự phòng đọc trực tiếp từ key ô chat st.chat_input của Đoạn 1
         else:
             user_chat_text = str(st.session_state.get("ie_workspace_fixed_dynamic_chat_final_patch_v9", "")).lower().strip()
 
@@ -2951,7 +2942,6 @@ if ai_decision_final:
             else:
                 excel_size_code = str(st.session_state.get("detected_size_code", "32")).upper().strip()
         else:
-            # Thu hồi thông số lưu trong bộ nhớ RAM nếu người dùng không gõ câu chat mới
             if 'detected_size_code' in locals() and str(detected_size_code).strip() != "" and str(detected_size_code).strip() != "N/A":
                 excel_size_code = str(detected_size_code).upper().strip()
             else:
@@ -2962,8 +2952,8 @@ if ai_decision_final:
         df_bom_display["Size tính toán"] = excel_size_code
         df_bom_display["Material Class"] = df_bom_display["_temp_class"]
         df_bom_display = df_bom_display.rename(columns={"component_name": "Component Name", "geometry_role": "Role/Piece Type"})
-              # =====================================================================
-        # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI
+        # =====================================================================
+        # 🟩 ĐOẠN 7.2B: ĐỒNG BỘ SỐ LƯỢNG RẬP AI, NÚT TẢI EXCEL & HIỂN THỊ LƯỚI CHI TIẾT
         # =====================================================================
         # Thu thập chính xác danh sách số lượng rập từ AI expert hoặc Đoạn 5.1A truyền xuống
         qty_list = []
@@ -2999,7 +2989,7 @@ if ai_decision_final:
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # FIXED ĐỒNG BỘ: Kết nối trực tiếp vào bộ lưu trữ biến trích xuất từ Techpack lớp trên của bạn
+                    # ĐỒNG BỘ: Kết nối trực tiếp vào bộ lưu trữ biến trích xuất từ Techpack của bạn
                     detected_style = "N/A"
                     if st.session_state.get("style_id"):
                         detected_style = str(st.session_state.style_id).strip()
@@ -3009,6 +2999,7 @@ if ai_decision_final:
                                 detected_style = str(ctx.get(style_key)).strip()
                                 break
                     
+                    # Trích xuất an toàn tên Khách hàng (Customer) quét được từ Techpack
                     detected_customer = "PPJ GROUP"
                     if "pdf_text_cache" in st.session_state and st.session_state.pdf_text_cache is not None:
                         m_cust = re.search(r'(?:Customer|Khách hàng|Brand)\s*[:\-=\s]*([^\n]+)', st.session_state.pdf_text_cache, re.IGNORECASE)
@@ -3044,7 +3035,7 @@ if ai_decision_final:
             except Exception as e: 
                 st.error(f"⚠️ Lỗi nút tải Excel: {str(e)}")
 
-        # Khởi tạo danh mục Dropdown động cho lưới biên tập dữ liệu chi tiết
+        # Khởi tạo danh mục Dropdown động hiển thị đầy đủ mọi chất liệu đặc thù (Gòn, Phản quang...)
         all_existing_classes = sorted(list(set(df_bom_display["Material Class"].dropna().tolist())))
         for default_cls in ["FABRIC", "FUSING", "LINING", "RIB", "ACCESSORY", "THREAD", "GÒN", "VẢI PHẢN QUANG"]:
             if default_cls not in all_existing_classes:
@@ -3068,19 +3059,16 @@ if ai_decision_final:
             }, use_container_width=True, hide_index=True, key="bom_grid_perfect_v15" 
         )
 
-        # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ TÍNH TOÁN LẠI TỨC THÌ
+        # LẮNG NGHE SỰ KIỆN CHỈNH SỬA TỪ USER ĐỂ TÍNH TOÁN LẠI TỨC THÌ VÀ AN TOÀN MẢNG NUMPY
         has_changed = False
         for _, row in edited_df.iterrows():
             orig_idx = int(row["_original_row_index"])
-            
-            # Lấy mảng gốc
             matched_old_pcs = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Số lượng rập"].values
             matched_old_mat = df_bom_display.loc[df_bom_display["_original_row_index"] == orig_idx, "Material Class"].values
             
-            # 🛠️ FIXED: Thêm index [0] để lấy chính xác giá trị đơn bên trong mảng NumPy, triệt tiêu vĩnh viễn TypeError
             if len(matched_old_pcs) > 0:
                 try:
-                    old_pcs = float(matched_old_pcs[0])
+                    old_pcs = float(matched_old_pcs)
                 except:
                     old_pcs = 1.0
                 new_pcs = float(row["Số lượng rập"])
@@ -3091,8 +3079,7 @@ if ai_decision_final:
                     has_changed = True
                     
             if len(matched_old_mat) > 0:
-                # 🛠️ FIXED: Thêm index [0] tương tự cho Material Class để an toàn chuỗi
-                old_mat = str(matched_old_mat[0]).upper().strip()
+                old_mat = str(matched_old_mat).upper().strip()
                 new_mat = str(row["Material Class"]).upper().strip()
                 if old_mat != new_mat:
                     st.session_state["user_edited_materials"][orig_idx] = new_mat
