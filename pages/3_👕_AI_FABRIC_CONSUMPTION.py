@@ -2791,20 +2791,20 @@ if ai_decision_final:
         col_t1, col_t2 = st.columns(2)
         col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
 
-        with col_t2:
+                with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals() or 'local_export_excel_ppj_format' in globals():
-                    # 🛠️ FIXED ĐỒNG BỘ ĐOẠN 6: Đóng gói chính xác cấu trúc bom_ctx để hàm Đoạn 6 bốc đầu vào cho file Excel
+                    # 🛠️ FIXED CHUẨN XÁC: Liên kết trực tiếp giá trị phần trăm co rút bốc từ ô chat ở Đoạn 5.1A để ghi vào file Excel
                     bom_ctx = {
                         "style_code": str(ctx.get("style_code", ctx.get("Style", "JEANS"))),
                         "customer_name": str(ctx.get("customer_name", "PPJ GROUP")),
                         "detected_size_code": str(df_bom_display["Size tính toán"].iloc[0] if len(df_bom_display) > 0 else "32"),
                         "fabric_width": float(st.session_state.get("fabric_width_inch", 58.0)),
+                        # Bốc trực tiếp giá trị phần trăm từ bộ lưu trữ ô chat thực tế của bạn
                         "warp_shrink": float(st.session_state.get("shrinkage_warp_percent", 0.0)),
                         "weft_shrink": float(st.session_state.get("shrinkage_weft_percent", 0.0))
                     }
                     
-                    # Truyền đúng dictionary bom_ctx vào hàm xuất Excel theo cấu hình Đoạn 6 của bạn
                     excel_file = local_export_excel_ppj_format(
                         df_summary, 
                         df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
