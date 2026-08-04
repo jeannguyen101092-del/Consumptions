@@ -2635,7 +2635,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & TỰ ĐỘNG BƠM DÒNG KEO LÓT TỪ SOLVER (BẢN VÁ LỆCH NHÃN)
+# 🟩 ĐOẠN 7.1: XỬ LÝ LOGIC DỮ LIỆU & TỰ ĐỘNG BƠM DÒNG KEO LÓT TỪ SOLVER (BẢN VÁ BIẾN DF)
 # =====================================================================
 st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 ai_decision_final = ctx.get("ai_expert_decision", {})
@@ -2661,8 +2661,17 @@ if not isinstance(st.session_state.get("user_edited_pieces"), dict):
 if not isinstance(st.session_state.get("user_edited_materials"), dict):
     st.session_state["user_edited_materials"] = {}
 
-# Tạo bản sao làm việc từ bảng gốc df_bom
-df_bom_working = df_bom.copy()
+# 🛠️ FIXED: Tự động dò tìm biến DataFrame phù hợp để tránh lỗi NameError 'df_bom'
+if 'df_bom' in locals() or 'df_bom' in globals():
+    df_bom_working = df_bom.copy()
+elif 'df' in locals() or 'df' in globals():
+    df_bom_working = df.copy()
+elif isinstance(st.session_state.get("df_bom"), pd.DataFrame):
+    df_bom_working = st.session_state["df_bom"].copy()
+else:
+    # Tạo bảng trống tạm thời nếu hoàn toàn không tìm thấy để giao diện không bị sập đỏ màn hình
+    st.warning("⚠️ Không tìm thấy biến dữ liệu BOM. Đang khởi tạo bảng tạm thời.")
+    df_bom_working = pd.DataFrame(columns=["component_name", "Gross Consumption"])
 
 # Xác định cột phân loại chất liệu trong bảng dữ liệu đầu vào
 possible_mat_cols = ["material_class", "Material Class", "class", "vattu", "Phân loại", "_temp_class"]
@@ -2696,22 +2705,19 @@ if "LINING" not in existing_classes and "LÓT" not in existing_classes and solve
     new_row["pcs_numeric"] = 1
     df_bom_working = pd.concat([df_bom_working, pd.DataFrame([new_row])], ignore_index=True)
 
-# 🛠️ FIXED LOGIC VÁN LỖI: Chuẩn hóa tách biệt hoàn toàn giữa dòng tự động và dòng gốc
+# Chuẩn hóa tách biệt hoàn toàn giữa dòng tự động và dòng gốc
 virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {})
 clean_materials_list = []
 for idx in df_bom_working.index:
-    # 1. Nếu user đã chủ động sửa trên UI, ưu tiên số 1
     if idx in st.session_state["user_edited_materials"]:
         saved_mat = st.session_state["user_edited_materials"][idx]
     else:
         cell_val = df_bom_working.loc[idx, detected_mat_col] if detected_mat_col else ""
-        # 2. Kiểm tra nếu ô dữ liệu có text cụ thể (Dành cho cả dòng tự động "FUSING"/"LINING" vừa chèn)
         if pd.notna(cell_val) and str(cell_val).strip() != "":
             orig_mat = str(cell_val).upper().strip()
             if orig_mat in ["FUSING", "MÉC", "KEO", "KEO LÓT", "MÉC / KEO"]: saved_mat = "FUSING"
             elif orig_mat in ["LINING", "LÓT", "VẢI LÓT"]: saved_mat = "LINING"
             else: saved_mat = "FABRIC"
-        # 3. Nếu ô rỗng hoàn toàn, tìm trong phân tách lớp của AI layer hoặc gán mặc định
         else:
             saved_mat = virtual_pieces_layer.get(idx, {}).get("inferred_class", "FABRIC")
             
@@ -2720,7 +2726,7 @@ for idx in df_bom_working.index:
 df_bom_working["_temp_class"] = clean_materials_list
 df_bom_working["Gross Consumption"] = df_bom_working.get("Gross Consumption", 0.0).fillna(0.0).astype(float)
 
-# Xây dựng bảng tổng hợp BOM Summary (Bao gồm đầy đủ các nhóm vật tư phân tách)
+# Xây dựng bảng tổng hợp BOM Summary
 summary_grouped = df_bom_working.groupby(["_temp_class"]).agg({"Gross Consumption": "sum"}).reset_index()
 cls_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "RIB": "PHỐI RIB", "THREAD": "CHỈ MAY", "ACCESSORY": "PHỤ LIỆU"}
 
@@ -2733,6 +2739,7 @@ df_summary = pd.DataFrame({
 
 st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
 
 # =====================================================================
 # 🟩 ĐOẠN 7.2: ĐỊNH DẠNG BẢNG CHI TIẾT, XUẤT EXCEL & ĐIỀU KHIỂN TƯƠNG TÁC LƯỚI
