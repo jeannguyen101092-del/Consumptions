@@ -2146,7 +2146,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Cấu hình từ điển tra cứu hiệu suất chuẩn hóa quốc tế cho đa dòng hàng
     MARKER_EFFICIENCY_MAP = {
         "JEAN": 0.64, "KHAKI": 0.64, "TROUSER": 0.64, "PANT": 0.64,
-        "SHORT": 0.68,
+        "SHORT": 0.64,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
