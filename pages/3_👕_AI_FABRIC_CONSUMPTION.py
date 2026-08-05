@@ -2105,7 +2105,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
-       # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V44 - ĐA MẶT HÀNG CHUẨN ĐM)
+        # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V44 - ĐA MẶT HÀNG CHUẨN ĐM)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2126,7 +2126,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         virtual_pieces_layer = {}
 
     net_areas = {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0}
-    shape_ratio = 0.58 if (_is_trouser or _is_short) else 0.72
+    
+    # SỬA LỖI 1: Tách riêng shape_ratio cho Short để bảo toàn diện tích đỉa, túi xu, nẹp nút
+    shape_ratio = 0.65 if _is_short else (0.58 if _is_trouser else 0.72)
 
     # Vòng lặp gom nhóm tổng diện tích tịnh ma trận hình học rập phẳng dựa trên Master Layer
     for idx, r in df_bom.iterrows():
@@ -2139,14 +2141,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             net_areas[p_cls] += net_area * pcs
 
     # 🤖 MA TRẬN ĐỊNH TUYẾN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG TOÀN CẦU
-    # 🛠️ SỬA LỖI 2: Đồng bộ hạ mẫu số hiệu suất Jeans/Khaki thực tế từ 0.75 xuống 0.64 để kéo ĐM lên dải chuẩn thương mại
     dynamic_marker_efficiency = 0.72  
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
     # Cấu hình từ điển tra cứu hiệu suất chuẩn hóa quốc tế cho đa dòng hàng
     MARKER_EFFICIENCY_MAP = {
-        "JEAN": 0.64, "KHAKI": 0.64, "TROUSER": 0.64, "PANT": 0.64,
-        "SHORT": 0.64,
+        "SHORT": 0.68,                                               # Tách riêng Short để sơ đồ tối ưu hơn quần dài
+        "JEAN": 0.64, "KHAKI": 0.64, "TROUSER": 0.64, "PANT": 0.64,  # Đồng bộ hạ mẫu số Jeans/Khaki thực tế đạt ~64%
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
@@ -2165,8 +2166,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             break
 
     if not matched:
-        if _is_trouser: dynamic_marker_efficiency = 0.64
-        elif _is_short: dynamic_marker_efficiency = 0.68
+        if _is_short: dynamic_marker_efficiency = 0.68
+        elif _is_trouser: dynamic_marker_efficiency = 0.64
         elif _is_jacket: dynamic_marker_efficiency = 0.65
         elif _is_skirt_or_dress: dynamic_marker_efficiency = 0.61
 
@@ -2194,7 +2195,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
                 if _is_short:
-                    allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.05)
+                    # SỬA LỖI 2: Nâng chặn sàn từ 1.05 lên 1.12 để đảm bảo hao hụt đầu tấm/biên cho quần Short
+                    allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.12)
                 elif _is_jumpsuit:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.08)
                 return round(allocated_gross, 4)
@@ -2271,6 +2273,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         m_c = str(virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC")).upper().strip()
         if m_c in sum_mats:
             sum_mats[m_c] += float(row["Gross Consumption"])
+
 
 
     # Ghi dữ liệu trực tiếp lên RAM Master (Session State) toàn cục cao nhất
