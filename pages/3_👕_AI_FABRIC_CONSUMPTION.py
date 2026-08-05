@@ -2105,8 +2105,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V44 - ĐA MẶT HÀNG CHUẨN ĐM)
+       # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V44 - ĐA MẶT HÀNG CHUẨN ĐM)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2144,14 +2143,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     dynamic_marker_efficiency = 0.72  
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
-    if "JEAN" in p_type_upper or "KHAKI" in p_type_upper or _is_trouser or _is_short:
-        dynamic_marker_efficiency = 0.75  # Quần Jeans/Khaki rải đơn chiếc thực tế đạt ~64%
-    elif "JACKET" in p_type_upper or "COAT" in p_type_upper or _is_jacket:
-        dynamic_marker_efficiency = 0.65  
-    elif "SHIRT" in p_type_upper or "POLO" in p_type_upper or "BLOUSE" in p_type_upper:
-        dynamic_marker_efficiency = 0.78  
-    elif "DRESS" in p_type_upper or "SKIRT" in p_type_upper or _is_skirt_or_dress:
-        dynamic_marker_efficiency = 0.61  
+    # Cấu hình từ điển tra cứu hiệu suất chuẩn hóa quốc tế cho đa dòng hàng
+    MARKER_EFFICIENCY_MAP = {
+        "JEAN": 0.64, "KHAKI": 0.64, "TROUSER": 0.64, "PANT": 0.64,
+        "SHORT": 0.68,
+        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63,
+        "SHIRT": 0.78, "BLOUSE": 0.78,
+        "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
+        "HOODIE": 0.70, "SWEATER": 0.70,
+        "DRESS": 0.61, "SKIRT": 0.61, "GOWN": 0.58,
+        "JUMPSUIT": 0.60, "ROMPER": 0.60, "OVERALL": 0.60,
+        "UNDERWEAR": 0.82, "PANTY": 0.82, "BRA": 0.78,
+        "KIMONO": 0.72, "ROBE": 0.72
+    }
+
+    matched = False
+    for key, efficiency in MARKER_EFFICIENCY_MAP.items():
+        if key in p_type_upper:
+            dynamic_marker_efficiency = efficiency
+            matched = True
+            break
+
+    if not matched:
+        if _is_trouser: dynamic_marker_efficiency = 0.64
+        elif _is_short: dynamic_marker_efficiency = 0.68
+        elif _is_jacket: dynamic_marker_efficiency = 0.65
+        elif _is_skirt_or_dress: dynamic_marker_efficiency = 0.61
+
+    # Tạo các bộ cờ Boolean định danh nhóm hàng hỗ trợ tính định mức chi tiết
+    _is_knit = any(k in p_type_upper for k in ["POLO", "TEE", "TSHIRT", "TANK", "HOODIE", "SWEATER"])
+    _is_jumpsuit = any(k in p_type_upper for k in ["JUMPSUIT", "ROMPER", "OVERALL"])
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
     def core_engine_router(row, idx):
@@ -2174,8 +2195,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
                 if _is_short:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.05)
+                elif _is_jumpsuit:
+                    allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.08)
                 return round(allocated_gross, 4)
-            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
+            
+            knit_wastage_factor = 1.02 if _is_knit else 1.0
+            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
@@ -2192,6 +2217,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "LINING":
             if _is_short or _is_trouser:
                 return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            if _is_jacket or "COAT" in p_type_upper or "BLAZER" in p_type_upper:
+                return round(((piece_area / l_width / 0.70) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+                
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 return round(global_lining_gross * (piece_area / net_areas["LINING"]), 4)
             return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
@@ -2203,6 +2231,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                     return round(global_fusing_gross * (piece_area / net_areas["FUSING"]), 4)
                 return round(((piece_area / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
             
+            if "SHIRT" in p_type_upper or "POLO" in p_type_upper:
+                return round(((piece_area / fuse_width / 0.88) / 36.0) * 1.03, 4) if fuse_width > 0 else 0.0
+
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                 allocated_gross = global_fusing_gross * (piece_area / net_areas["FUSING"])
                 min_fusing_floor = round(((piece_area / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
@@ -2240,6 +2271,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         m_c = str(virtual_pieces_layer.get(idx, {}).get("material_class", "FABRIC")).upper().strip()
         if m_c in sum_mats:
             sum_mats[m_c] += float(row["Gross Consumption"])
+
 
     # Ghi dữ liệu trực tiếp lên RAM Master (Session State) toàn cục cao nhất
     st.session_state["summary_fabric_gross"] = sum_mats["FABRIC"]
