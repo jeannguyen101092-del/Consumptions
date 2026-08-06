@@ -2253,12 +2253,26 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_decision_d5["marker_efficiency"] = dynamic_marker_efficiency
     st.session_state["active_net_areas"] = net_areas
     st.session_state["current_dynamic_efficiency"] = dynamic_marker_efficiency
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TÍNH ĐỊNH MỨC CHI TIẾT & ĐỒNG BỘ LÊN RAM MASTER (FIX LỖI CHÍNH TẢ TROUSER)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (VERSION V47.2 - FIX ĐM THẤP)
     # =====================================================================
 
-    # KHỤC PHỤC PHẠM VI BIẾN CHỐNG SẬP NAMEERROR: Kéo từ điển diện tích từ Ô 1 về
+    # Kéo từ điển diện tích và thông số hiệu suất đồng bộ từ Phần 1 sang
     net_areas = st.session_state.get("active_net_areas", {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0})
+    dynamic_marker_efficiency = float(st.session_state.get("current_dynamic_efficiency", 0.72))
+
+    # Tái thiết lập bộ cờ Boolean cục bộ để bảo vệ phạm vi xử lý của hàm router
+    if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
+        product_category_local = st.session_state["bom_data"]["ai_expert_decision"].get("product_category", "PANT")
+    else:
+        product_category_local = "PANT"
+
+    _is_short_local = (product_category_local == "SHORT")
+    _is_trouser_local = (product_category_local in ["JEAN", "KHAKI", "TROUSER", "PANT"])
+    _is_skirt_or_dress_local = (product_category_local in ["DRESS", "SKIRT", "GOWN"])
+    _is_jacket_local = (product_category_local in ["JACKET", "COAT", "BLAZER", "SUIT"])
+    _is_knit_local = (product_category_local in ["POLO", "TEE", "TSHIRT", "TANK", "HOODIE", "SWEATER"])
+    _is_jumpsuit_local = (product_category_local in ["JUMPSUIT", "ROMPER", "OVERALL"])
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
     def core_engine_router(row, idx):
@@ -2277,18 +2291,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         piece_area = pure_unit_area * pcs
         
-        # 🚀 1. HỆ SỐ QUY ĐỔI HÌNH HỌC TỔNG LỰC TOÀN CẦU (Bù 22% hao hụt khoảng trống sơ đồ rập đơn lẻ)
+        # 🚀 1. HỆ SỐ QUY ĐỔI HÌNH HỌC TỔNG LỰC TOÀN CẦU (Bù hao hụt khoảng trống sơ đồ rập đơn lẻ)
         GLOBAL_ERP_GEOMETRY_FACTOR = 1.22
         
-        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình thái học theo độ phức tạp của từng nhóm sản phẩm
-        if _is_jacket:
-            shape_multiplier = 1.15  
-        elif _is_skirt_or_dress:
-            shape_multiplier = 1.10  
-        elif _is_trouser:
-            shape_multiplier = 1.05  
+        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình thái học chuẩn kỹ nghệ rập
+        if _is_jacket_local:
+            shape_multiplier = 1.15  # Áo khoác ngoài cong nhiều, hao hụt khe rập lớn nhất
+        elif _is_skirt_or_dress_local:
+            shape_multiplier = 1.14  # Đầm xòe, chân váy dôi dư biên rộng (Điều chỉnh tăng để sửa lỗi ĐM thấp)
+        elif _is_trouser_local:
+            shape_multiplier = 1.05  # Quần dài Jeans/Khaki rập tương đối vuông vức
         else:
-            shape_multiplier = 1.02  
+            shape_multiplier = 1.02  # Shorts hoặc Áo thun cơ bản
 
         # 🌟 GIẢI THUẬT LỒNG XOAY HÌNH HỌC (INTERLOCKING FACTOR): Tính toán khoảng dôi dư biên rập thực tế
         interlocking_factor = 1.0
@@ -2304,8 +2318,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
                 return round(allocated_gross, 4)
             
-            knit_wastage_factor = 1.02 if _is_knit else 1.0
-            calculated_gross = ((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor * GLOBAL_ERP_GEOMETRY_FACTOR * interlocking_factor
+            # Tính ĐM tự động khi không có Gross tổng: Áp dụng hệ số hình học tổng và hệ số nhóm hàng dệt thoi
+            knit_wastage_factor = 1.02 if _is_knit_local else 1.0
+            calculated_gross = ((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor * GLOBAL_ERP_GEOMETRY_FACTOR * shape_multiplier * interlocking_factor
             return round(calculated_gross, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
@@ -2321,12 +2336,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
-            eff_lining = 0.70 if _is_jacket else 0.82
+            eff_lining = 0.70 if _is_jacket_local else 0.82
             return round(((piece_area / l_width / eff_lining) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if l_width > 0 else 0.0
             
         # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
-            eff_fusing = 0.88 if product_category in ["SHIRT", "POLO"] else (0.85 if (_is_short or _is_trouser) else 0.78)
+            eff_fusing = 0.88 if product_category_local in ["SHIRT", "POLO"] else (0.85 if (_is_short_local or _is_trouser_local) else 0.78)
             return round(((piece_area / fuse_width / eff_fusing) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
 
         # 2.5. BO TĂM (RIB)
@@ -2378,7 +2393,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx_decision["virtual_pieces_layer"] = virtual_pieces_layer
 
     if "active_net_areas" in st.session_state: del st.session_state["active_net_areas"]
-    st.success("🚀 Hệ thống kiểm toán định mức đạt cấp độ chính xác 99% thành công!")
+    st.success("🚀 Định mức đa mặt hàng đã được hiệu chỉnh cân bằng tối ưu!")
 
 
 
