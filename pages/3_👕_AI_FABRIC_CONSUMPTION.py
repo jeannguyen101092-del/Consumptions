@@ -2253,13 +2253,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_decision_d5["marker_efficiency"] = dynamic_marker_efficiency
     st.session_state["active_net_areas"] = net_areas
     st.session_state["current_dynamic_efficiency"] = dynamic_marker_efficiency
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (VERSION V47.2 - FIX ĐM THẤP)
+         # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (VERSION V48 - TINH GIẢN VÀ CHUẨN HÓA Gerber)
     # =====================================================================
 
     # Kéo từ điển diện tích và thông số hiệu suất đồng bộ từ Phần 1 sang
     net_areas = st.session_state.get("active_net_areas", {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0})
     dynamic_marker_efficiency = float(st.session_state.get("current_dynamic_efficiency", 0.72))
+
+    # 🛑 10. SAFETY CLAMP (BỘ KẸP BẢO VỆ): Giới hạn hiệu suất marker phòng hờ AI trả giá trị cực đoan
+    dynamic_marker_efficiency = min(max(dynamic_marker_efficiency, 0.58), 0.88)
 
     # Tái thiết lập bộ cờ Boolean cục bộ để bảo vệ phạm vi xử lý của hàm router
     if "bom_data" in st.session_state and "ai_expert_decision" in st.session_state["bom_data"]:
@@ -2272,7 +2275,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     _is_skirt_or_dress_local = (product_category_local in ["DRESS", "SKIRT", "GOWN"])
     _is_jacket_local = (product_category_local in ["JACKET", "COAT", "BLAZER", "SUIT"])
     _is_knit_local = (product_category_local in ["POLO", "TEE", "TSHIRT", "TANK", "HOODIE", "SWEATER"])
-    _is_jumpsuit_local = (product_category_local in ["JUMPSUIT", "ROMPER", "OVERALL"])
+
+    # 🛑 Đọc bổ sung số liệu Gross tổng của vải phối độc lập (Nếu có thiết lập từ ERP)
+    global_contrast_gross = total_contrast_gross_yds if 'total_contrast_gross_yds' in locals() or 'total_contrast_gross_yds' in globals() else 0.0
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
     def core_engine_router(row, idx):
@@ -2281,7 +2286,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs = int(v.get("active_user_pieces", 1))
         
         pure_unit_area = float(v.get("polygon_net_area", row.get("polygon_net_area", 0.0)))
+        
+        # 🛑 4. SAFETY CLAMP CHO SHAPE FILL: Giới hạn nghiêm ngặt từ [0.60, 0.90] chống AI ghi sai số hình học
         shape_fill = float(v.get("shape_fill_ratio", 0.74))
+        shape_fill = min(max(shape_fill, 0.60), 0.90)
         
         if p_cls == "ACCESSORY" or pure_unit_area <= 0: 
             l_val = float(row.get("Chiều dài rập (inch)", 0.0))
@@ -2291,63 +2299,77 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         piece_area = pure_unit_area * pcs
         
-        # 🚀 1. HỆ SỐ QUY ĐỔI HÌNH HỌC TỔNG LỰC TOÀN CẦU (Bù hao hụt khoảng trống sơ đồ rập đơn lẻ)
-        GLOBAL_ERP_GEOMETRY_FACTOR = 1.22
+        # 🛑 1. CHỈNH SỬA BIẾN CỐT LÕI: Hạ thấp Hệ số quy đổi toán học phẳng liên đoàn tránh trùng lặp
+        GLOBAL_ERP_GEOMETRY_FACTOR = 1.05  # Nằm trong dải [1.03 ~ 1.08] anh chỉ định, bù hao hụt đầu tấm/biên thực tế vừa vặn
         
-        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình thái học chuẩn kỹ nghệ rập
+        # 🛑 2. SHAPE MULTIPLIER (TINH GIẢN TOÀN DIỆN): Hạ dải hệ số theo đúng kinh nghiệm sơ đồ Gerber thực tế
         if _is_jacket_local:
-            shape_multiplier = 1.15  # Áo khoác ngoài cong nhiều, hao hụt khe rập lớn nhất
+            shape_multiplier = 1.05  
         elif _is_skirt_or_dress_local:
-            shape_multiplier = 1.14  # Đầm xòe, chân váy dôi dư biên rộng (Điều chỉnh tăng để sửa lỗi ĐM thấp)
+            shape_multiplier = 1.06  
         elif _is_trouser_local:
-            shape_multiplier = 1.05  # Quần dài Jeans/Khaki rập tương đối vuông vức
+            shape_multiplier = 1.02  
         else:
-            shape_multiplier = 1.02  # Shorts hoặc Áo thun cơ bản
+            shape_multiplier = 1.00  
 
-        # 🌟 GIẢI THUẬT LỒNG XOAY HÌNH HỌC (INTERLOCKING FACTOR): Tính toán khoảng dôi dư biên rập thực tế
+        # 🛑 3. INTERLOCKING FACTOR (HIỆU CHỈNH TIỂU VI): Trở thành hệ số tinh chỉnh nhỏ, bảo toàn tính lồng rập đối xứng của Leg
         interlocking_factor = 1.0
         if p_cls == "FABRIC":
             if any(k in str(row.get("Component Name","")).upper() for k in ["LEG", "ỐNG", "THAN"]):
-                interlocking_factor = 0.94 if "SLIM" in p_type_friendly else 0.96
+                interlocking_factor = 0.96 if "SLIM" in p_type_friendly else 0.98  # Thân ống rải Nesting lồng phom rất đẹp
             elif any(k in str(row.get("Component Name","")).upper() for k in ["WAISTBAND", "LƯNG", "CẠP"]):
-                interlocking_factor = 1.08 
+                interlocking_factor = 1.04  # Chi tiết thẳng khó lồng rập biên
 
-        # 2.1. VẢI CHÍNH (FABRIC)
+        # 🚀 2.1. VẢI CHÍNH (FABRIC)
         if p_cls == "FABRIC":
+            # 🛑 5. FABRIC ALLOCATION (GIỮ NGUYÊN MASTER): Cơ chế phân bổ tỷ lệ vàng ERP
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
                 return round(allocated_gross, 4)
             
-            # Tính ĐM tự động khi không có Gross tổng: Áp dụng hệ số hình học tổng và hệ số nhóm hàng dệt thoi
+            # Khung tính toán ĐM Tự động 3 lớp Gerber: [Area / (Width * Eff)] * Wastage * Shape_Adjust
             knit_wastage_factor = 1.02 if _is_knit_local else 1.0
-            calculated_gross = ((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor * GLOBAL_ERP_GEOMETRY_FACTOR * shape_multiplier * interlocking_factor
+            shape_adjust = GLOBAL_ERP_GEOMETRY_FACTOR * shape_multiplier * interlocking_factor
+            
+            calculated_gross = ((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor * shape_adjust
             return round(calculated_gross, 4) if f_width > 0 else 0.0
 
-        # 2.2. VẢI PHỐI (CONTRAST)
+        # 🚀 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
-            if net_areas["CONTRAST"] > 0:
-                if global_fabric_gross > 0 and net_areas["FABRIC"] > 0:
-                    return round(global_fabric_gross * (piece_area / net_areas["FABRIC"]), 4)
-                else:
-                    line_share_ratio = piece_area / net_areas["CONTRAST"]
-                    base_contrast_gross = (net_areas["CONTRAST"] / f_width / dynamic_marker_efficiency / 36.0) * local_wastage
-                    return round(base_contrast_gross * line_share_ratio * GLOBAL_ERP_GEOMETRY_FACTOR, 4)
-            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if f_width > 0 else 0.0
-            
-        # 2.3. VẢI LÓT (LINING)
+            # 🛑 8. CONTRAST MASTER FIX: Ưu tiên phân bổ theo global_contrast_gross riêng biệt của sơ đồ phối thay vì vải chính
+            if net_areas["CONTRAST"] > 0 and global_contrast_gross > 0:
+                return round(global_contrast_gross * (piece_area / net_areas["CONTRAST"]), 4)
+            elif net_areas["CONTRAST"] > 0 and global_fabric_gross > 0 and net_areas["FABRIC"] > 0:
+                # Nhánh fallback nếu xưởng chạy chung sơ đồ phối vào vải chính
+                return round(global_fabric_gross * (piece_area / net_areas["FABRIC"]), 4)
+            else:
+                line_share_ratio = piece_area / (net_areas["CONTRAST"] if net_areas["CONTRAST"] > 0 else 1.0)
+                base_contrast_gross = (net_areas["CONTRAST"] / f_width / dynamic_marker_efficiency / 36.0) * local_wastage
+                return round(base_contrast_gross * line_share_ratio * GLOBAL_ERP_GEOMETRY_FACTOR, 4)
+
+        # 🚀 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
+            # 🛑 6. LINING CONFIG: Bảo toàn dải hiệu suất sơ đồ 0.70 cho Jacket cực chuẩn
             eff_lining = 0.70 if _is_jacket_local else 0.82
+            if net_areas["LINING"] > 0 and global_lining_gross > 0:
+                return round(global_lining_gross * (piece_area / net_areas["LINING"]), 4)
             return round(((piece_area / l_width / eff_lining) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if l_width > 0 else 0.0
             
-        # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
+        # 🚀 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
+            # 🛑 7. FUSING CONFIG: Bảo toàn mẫu số 0.85 hiệu suất keo cho quần dài cực kỳ hợp lý
             eff_fusing = 0.88 if product_category_local in ["SHIRT", "POLO"] else (0.85 if (_is_short_local or _is_trouser_local) else 0.78)
+            if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
+                allocated_gross = global_fusing_gross * (piece_area / net_areas["FUSING"])
+                min_fusing_floor = round(((piece_area / fuse_width / eff_fusing) / 36.0) * 1.05 * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
+                return max(round(allocated_gross, 4), min_fusing_floor)
             return round(((piece_area / fuse_width / eff_fusing) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
 
-        # 2.5. BO TĂM (RIB)
+        # 🚀 2.5. BO TĂM (RIB)
         if p_cls == "RIB":
+            # 🛑 9. RIB ALLOCATION FACTOR: Hạ hệ số dôi dư từ 1.15 xuống 1.05 theo đúng chuẩn định mức bo thực tế
             if net_areas["RIB"] > 0:
-                base_rib_gross = (net_areas["RIB"] / fuse_width / 0.82 / 36.0) * 1.15
+                base_rib_gross = (net_areas["RIB"] / fuse_width / 0.82 / 36.0) * 1.05
                 return round(base_rib_gross * (piece_area / net_areas["RIB"]) * GLOBAL_ERP_GEOMETRY_FACTOR, 4)
             return 0.0
 
@@ -2387,6 +2409,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx_decision = st.session_state["bom_data"]["ai_expert_decision"]
     ctx_decision["solver_fabric_consumption"] = sum_mats["FABRIC"]
     ctx_decision["solver_lining_consumption"] = sum_mats["LINING"]
+
     ctx_decision["solver_fusing_consumption"] = sum_mats["FUSING"]
     ctx_decision["solver_contrast_consumption"] = sum_mats["CONTRAST"]
     ctx_decision["solver_rib_consumption"] = sum_mats["RIB"]
