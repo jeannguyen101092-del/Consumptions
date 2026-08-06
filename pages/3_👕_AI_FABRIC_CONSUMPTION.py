@@ -2324,7 +2324,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🚨 ĐỒNG BỘ ĐẨY LÊN BỘ NHỚ TẠM ĐỂ Ô CODE DƯỚI ĐỌC THỪA KẾ (TRIỆT TIÊU NAMEERROR)
     st.session_state["active_net_areas"] = net_areas
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TÍNH ĐỊNH MỨC CHI TIẾT & ĐỒNG BỘ LÊN RAM MASTER
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (ĐÃ VÁ LỖI ĐM THẤP TOÀN DIỆN)
     # =====================================================================
 
     # 🔬 KHỤC PHỤC PHẠM VI BIẾN CHỐNG SẬP NAMEERROR: Kéo từ điển diện tích từ Ô 1 về
@@ -2345,23 +2346,38 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         piece_area = pure_unit_area * pcs
         
+        # 🚀 1. HỆ SỐ QUY ĐỔI HÌNH HỌC TỔNG LỰC TOÀN CẦU (Bù 22% hao hụt khoảng trống sơ đồ rập đơn lẻ)
+        GLOBAL_ERP_GEOMETRY_FACTOR = 1.22
+        
+        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình態 học theo độ phức tạp của từng nhóm sản phẩm
+        if _is_jacket:
+            shape_multiplier = 1.15  # Áo khoác ngoài cong nhiều, hao hụt khe rập lớn nhất
+        elif _is_skirt_or_dress:
+            shape_multiplier = 1.10  # Đầm xòe, chân váy chữ A dôi dư biên rộng
+        elif _is_trouser:
+            shape_multiplier = 1.05  # Quần dài Jeans/Khaki rập tương đối vuông vức
+        else:
+            shape_multiplier = 1.02  # Shorts hoặc Áo thun cơ bản
+
         # 2.1. VẢI CHÍNH (FABRIC)
         if p_cls == "FABRIC":
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
                 
-                # 🛠️ HOTFIX ĐỊNH MỨC THẤP: Kích sàn tiêu hao bù hao hụt biên/đầu tấm cho từng dòng hàng
+                # Chặn sàn an toàn đầu tấm cho xưởng cắt khi có số liệu Gross đầu vào
                 if _is_short:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.12)
                 elif _is_jumpsuit:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.08)
                 elif _is_jacket:
-                    # Áp hệ số chặn sàn 1.15 đẩy định mức các mảnh rập nhỏ của áo Trucker bò lên cao chuẩn xác
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.15)
                     
                 return round(allocated_gross, 4)
             
-            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor, 4) if f_width > 0 else 0.0
+            # Tính ĐM tự động khi không có Gross tổng: Nhân bù hệ số hình học tổng và hệ số nhóm hàng
+            knit_wastage_factor = 1.02 if _is_knit else 1.0
+            calculated_gross = ((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor * GLOBAL_ERP_GEOMETRY_FACTOR * shape_multiplier
+            return round(calculated_gross, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
         if p_cls == "CONTRAST":
@@ -2371,41 +2387,41 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 else:
                     line_share_ratio = piece_area / net_areas["CONTRAST"]
                     base_contrast_gross = (net_areas["CONTRAST"] / f_width / dynamic_marker_efficiency / 36.0) * local_wastage
-                    return round(base_contrast_gross * line_share_ratio, 4)
-            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage, 4) if f_width > 0 else 0.0
+                    return round(base_contrast_gross * line_share_ratio * GLOBAL_ERP_GEOMETRY_FACTOR, 4)
+            return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if f_width > 0 else 0.0
             
         # 2.3. VẢI LÓT (LINING)
         if p_cls == "LINING":
             if _is_short or _is_trouser:
-                return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+                return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if l_width > 0 else 0.0
             if _is_jacket:
-                return round(((piece_area / l_width / 0.70) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+                return round(((piece_area / l_width / 0.70) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if l_width > 0 else 0.0
                 
             if net_areas["LINING"] > 0 and global_lining_gross > 0:
                 return round(global_lining_gross * (piece_area / net_areas["LINING"]), 4)
-            return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage, 4) if l_width > 0 else 0.0
+            return round(((piece_area / l_width / 0.82) / 36.0) * local_wastage * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if l_width > 0 else 0.0
             
         # 2.4. KEO LÓT / MẾCH DỰNG (FUSING)
         if p_cls == "FUSING":
             if _is_short or _is_trouser:
                 if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                     return round(global_fusing_gross * (piece_area / net_areas["FUSING"]), 4)
-                return round(((piece_area / fuse_width / 0.85) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                return round(((piece_area / fuse_width / 0.85) / 36.0) * 1.05 * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
             
             if product_category in ["SHIRT", "POLO"]:
-                return round(((piece_area / fuse_width / 0.88) / 36.0) * 1.03, 4) if fuse_width > 0 else 0.0
+                return round(((piece_area / fuse_width / 0.88) / 36.0) * 1.03 * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
 
             if net_areas["FUSING"] > 0 and global_fusing_gross > 0:
                 allocated_gross = global_fusing_gross * (piece_area / net_areas["FUSING"])
-                min_fusing_floor = round(((piece_area / fuse_width / 0.80) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+                min_fusing_floor = round(((piece_area / fuse_width / 0.80) / 36.0) * 1.05 * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
                 return max(round(allocated_gross, 4), min_fusing_floor)
-            return round(((piece_area / fuse_width / 0.78) / 36.0) * 1.05, 4) if fuse_width > 0 else 0.0
+            return round(((piece_area / fuse_width / 0.78) / 36.0) * 1.05 * GLOBAL_ERP_GEOMETRY_FACTOR, 4) if fuse_width > 0 else 0.0
 
         # 2.5. BO TĂM (RIB)
         if p_cls == "RIB":
             if net_areas["RIB"] > 0:
                 base_rib_gross = (net_areas["RIB"] / fuse_width / 0.82 / 36.0) * 1.15
-                return round(base_rib_gross * (piece_area / net_areas["RIB"]), 4)
+                return round(base_rib_gross * (piece_area / net_areas["RIB"]) * GLOBAL_ERP_GEOMETRY_FACTOR, 4)
             return 0.0
 
     # Thực thi đẩy ĐM Gross Consumption chuẩn toán học phẳng vào DataFrame chi tiết
@@ -2423,7 +2439,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if idx not in virtual_pieces_layer:
             virtual_pieces_layer[idx] = {}
         virtual_pieces_layer[idx]["gross_consumption"] = float(row["Gross Consumption"])
-        virtual_pieces_layer[idx]["calculated_width"] = float(row["Khổ vải sản xuất (inch)"])
+        virtual_pieces_layer[idx]["calculated_width"] = float(row["Khổ vải sản chunks (inch)"])
 
     # TÍNH TOÁN GOM NHÓM ĐỂ ĐÓNG GÓI RAM
     sum_mats = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2454,11 +2470,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx_decision["marker_efficiency"] = float(dynamic_marker_efficiency)
     ctx_decision["virtual_pieces_layer"] = virtual_pieces_layer
 
-    # Giải phóng vùng nhớ tạm sau khi hoàn tất đồng bộ liên liên đoàn
     if "active_net_areas" in st.session_state:
         del st.session_state["active_net_areas"]
 
-    st.success("✅ Đã tách khối và đồng bộ ma trận hiệu suất động thành công!")
+    st.success("✅ Đã nâng cấp thuật toán toán học phẳng ERP chống ĐM thấp thành công!")
+
 
 
 
