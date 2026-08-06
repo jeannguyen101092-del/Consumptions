@@ -2225,7 +2225,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls in net_areas: 
             net_areas[p_cls] += net_area * pcs
 
-    # 🤖 MA TRẬN ĐỊNH TUYẾN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG TOÀN CẦU
+      # 🤖 MA TRẬN ĐỊNH TUYẾN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG TOÀN CẦU
     MARKER_EFFICIENCY_MAP = {
         "SHORT": 0.68, "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63, "SHIRT": 0.78, 
@@ -2235,9 +2235,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "PANTY": 0.82, "BRA": 0.78, "KIMONO": 0.72, "ROBE": 0.72
     }
 
-    # Bẻ gãy map cứng: Ưu tiên nội suy dynamic mật độ từ form dáng thực tế (Straight, Slim, Wide, Cargo)
-    dynamic_marker_efficiency = 0.68  # Mức sàn mặc định
-    
+    # 🛠️ SỬA LỖI TRÔI BIẾN RAM: Nội suy dynamic mật độ chuẩn xác theo cấu hình Master loại bỏ kẹt số cũ
     if "CARGO" in p_type_friendly: 
         dynamic_marker_efficiency = 0.63
     elif "SLIM" in p_type_friendly: 
@@ -2247,12 +2245,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif "WIDE" in p_type_friendly: 
         dynamic_marker_efficiency = 0.70
     else:
-        dynamic_marker_efficiency = float(st.session_state.get("current_estimated_density_prior", 0.68))
+        # Tra cứu trực tiếp từ map cấu hình hệ thống bằng product_category chuẩn AI (Sẽ ra đúng 0.61 cho DRESS)
+        dynamic_marker_efficiency = MARKER_EFFICIENCY_MAP.get(product_category, 0.68)
 
-    # Cập nhật ngược lại Master để hiển thị đồng bộ lên UI báo cáo Đoạn 7
+    # Đảm bảo kẹp bảo vệ nghiêm ngặt dải hiệu suất
+    dynamic_marker_efficiency = min(max(dynamic_marker_efficiency, 0.58), 0.88)
+
+    # Cập nhật ghi đè đồng bộ lại RAM Master cao nhất để bảo vệ liên liên đoàn
     ai_decision_d5["marker_efficiency"] = dynamic_marker_efficiency
     st.session_state["active_net_areas"] = net_areas
     st.session_state["current_dynamic_efficiency"] = dynamic_marker_efficiency
+
          # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (VERSION V48 - TINH GIẢN VÀ CHUẨN HÓA Gerber)
     # =====================================================================
