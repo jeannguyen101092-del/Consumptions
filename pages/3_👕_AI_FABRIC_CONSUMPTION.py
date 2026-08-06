@@ -1680,8 +1680,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
     # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V22.1 - MASTER CHUẨN ĐỊNH DANH ĐA DÒNG HÀNG TOÀN CẦU)
+      # =====================================================================
+    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V23 - CHỐNG BẪY OVERLAP CHẤT LIỆU DENIM/JEANS CHO ÁO)
     # =====================================================================
     import pandas as pd
 
@@ -1692,7 +1692,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "KHAKI": ["KHAKI", "CHINO"],
         "TROUSER": ["TROUSER", "QUẦN TÂY", "ĐŨNG", "ĐÁY QUẦN", "FLY", "CẠP", "LƯNG QUẦN"],
         "PANT": ["PANT", "QUẦN", "QUAN", "LEG", "WAISTBAND"],
-        "JACKET": ["JACKET", "ÁO KHOÁC", "KHOÁC", "MĂNG TÔ", "PARKA", "BOMBER", "WINDBREAKER"],
+        "JACKET": ["JACKET", "ÁO KHOÁC", "KHOÁC", "MĂNG TÔ", "PARKA", "BOMBER", "WINDBREAKER", "TRUCKER"],
         "COAT": ["COAT", "ÁO CHOÀNG"],
         "BLAZER": ["BLAZER"],
         "SUIT": ["SUIT", "VEST", "COMPLE", "VÉST"],
@@ -1720,9 +1720,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
     
+    # Đọc thêm thông tin từ Header kiểu dáng để tăng độ chính xác của AI
+    garment_type_upper = ""
+    if "df_header" in locals() or "df_header" in globals():
+        # Nếu dự án của bạn có bảng chứa thông tin Header, quét từ khóa kiểu dáng trang phục
+        garment_type_upper = " ".join(df_header.astype(str).str.upper().tolist()) if 'df_header' in locals() else ""
+
     # 🧠 TẦNG 1: Gom toàn bộ văn bản danh sách linh kiện sạch để phân tích
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
-    combined_search_text = f"{prod_upper_name} {all_components_text}"
+    combined_search_text = f"{prod_upper_name} {garment_type_upper} {all_components_text}"
 
     # 🧠 TẦNG 2: ENGINE CHẤM ĐIỂM TRỌNG SỐ (BẢO VỆ CONTEXT - TRÁNH BẪY TRÙNG TỪ KHÓA)
     category_scores = {k: 0 for k in EXTENDED_KEYWORDS.keys()}
@@ -1730,12 +1736,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     for category, keywords in EXTENDED_KEYWORDS.items():
         for kw in keywords:
             if kw in combined_search_text:
-                # Nếu từ khóa xuất hiện ở TIÊU ĐỀ SẢN PHẨM (Header Techpack) -> Trọng số rất cao (x5)
-                if kw in prod_upper_name:
-                    category_scores[category] += 5
+                # Nếu từ khóa xuất hiện ở TIÊU ĐỀ SẢN PHẨM hoặc KIỂU DÁNG -> Trọng số cực cao (x10)
+                if kw in prod_upper_name or kw in garment_type_upper:
+                    category_scores[category] += 10
                 # Nếu từ khóa xuất hiện ở TÊN LINH KIỆN CHI TIẾT RẬP -> Trọng số bổ trợ (x1)
                 if kw in all_components_text:
                     category_scores[category] += 1
+
+    # 🛑 HOTFIX ĐỘT PHÁ: LUẬT KHỬ TRÙNG LẶP VẬT LIỆU (ANTI-OVERLAP RULES)
+    # Nếu sản phẩm chứa từ khóa khẳng định là ÁO KHOÁC/TRUCKER, khóa cứng không cho nhận diện nhầm sang nhóm Quần
+    jacket_signals = ["JACKET", "TRUCKER", "COAT", "ÁO KHOÁC", "SLEEVE", "TAY ÁO", "COLLAR", "CỔ ÁO"]
+    if any(js in combined_search_text for js in jacket_signals):
+        category_scores["JEAN"] = 0
+        category_scores["PANT"] = 0
+        category_scores["TROUSER"] = 0
+        category_scores["KHAKI"] = 0
 
     # Tìm danh mục đạt tổng điểm cao nhất từ hệ thống
     best_category = max(category_scores, key=category_scores.get)
@@ -1746,7 +1761,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         product_category = best_category
 
-    # Đặc cách bảo vệ hình học: Nếu bộ lọc bắt dính chữ SHORT nhưng bị đè bởi các từ khóa quần dài (PANT/TROUSER/JEAN)
+    # Đặc cách bảo vệ hình học: Nếu bộ lọc bắt dính chữ SHORT nhưng bị đè bởi các từ khóa quần dài
     if "SHORT" in combined_search_text and product_category in ["PANT", "TROUSER", "JEAN"]:
         product_category = "SHORT"
 
@@ -1780,8 +1795,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["ai_expert_decision"]["product_category"] = product_category
     ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
     
-    # [LƯU Ý] Biến estimated_density_prior và current_estimated_density_prior sẽ do Đoạn 5 tự truy xuất trực tiếp từ map hiệu suất của nó dựa trên product_category được lưu ở đây
     st.session_state["bom_data"] = ctx
+
 
         # =====================================================================
     # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V22.1 - MASTER GEOMETRY ĐỒNG BỘ ĐA DÒNG HÀNG)
