@@ -1680,57 +1680,94 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
     # =====================================================================
-    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V21 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
+       # =====================================================================
+    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V22.1 - MASTER CHUẨN ĐỊNH DANH ĐA DÒNG HÀNG TOÀN CẦU)
     # =====================================================================
     import pandas as pd
 
-    # 🛠️ TỐI ƯU GERBER THỰC TẾ: Barem mật độ cơ sở an toàn chuẩn phòng sơ đồ dệt thoi/dệt kim
-    COMPANY_DENSITY_PRIOR = {
-        "SHIRT": 0.82, "JEAN_LONG": 0.795, "SHORT": 0.83, 
-        "JACKET": 0.68, "VEST": 0.82, "TOPS_KNIT": 0.78, 
-        "SKIRT": 0.82, "DRESS_FLARE": 0.72
+    # 🛠️ TỪ ĐIỂN TỪ KHÓA BỔ TRỢ (MỞ RỘNG TIẾNG VIỆT & NGÔN NGỮ CAD THỰC TẾ)
+    EXTENDED_KEYWORDS = {
+        "SHORT": ["SHORT", "QUẦN NGẮN", "QUẦN LỬNG", "QUAN NGO", "SOÓC", "SOOC"],
+        "JEAN": ["JEAN", "DENIM", "BÒ"],
+        "KHAKI": ["KHAKI", "CHINO"],
+        "TROUSER": ["TROUSER", "QUẦN TÂY", "ĐŨNG", "ĐÁY QUẦN", "FLY", "CẠP", "LƯNG QUẦN"],
+        "PANT": ["PANT", "QUẦN", "QUAN", "LEG", "WAISTBAND"],
+        "JACKET": ["JACKET", "ÁO KHOÁC", "KHOÁC", "MĂNG TÔ", "PARKA", "BOMBER", "WINDBREAKER"],
+        "COAT": ["COAT", "ÁO CHOÀNG"],
+        "BLAZER": ["BLAZER"],
+        "SUIT": ["SUIT", "VEST", "COMPLE", "VÉST"],
+        "SHIRT": ["SHIRT", "SƠ MI", "SO MI", "COLLAR", "CỔ ÁO", "CUFF", "MANSHET"],
+        "BLOUSE": ["BLOUSE", "ÁO KIỂU"],
+        "POLO": ["POLO", "CỔ BO", "BO CỔ"],
+        "TEE": ["TEE", "ÁO THUN"],
+        "TSHIRT": ["TSHIRT", "T-SHIRT"],
+        "TANK": ["TANK", "BA LỖ", "SÁT NÁCH"],
+        "HOODIE": ["HOODIE", "NÓN", "MŨ", "ÁO TRÙM ĐẦU"],
+        "SWEATER": ["SWEATER", "LEN", "ÁO NỈ"],
+        "DRESS": ["DRESS", "ĐẦM", "DAM", "MAXI", "SHIFT", "XÒE", "FLARE"],
+        "SKIRT": ["SKIRT", "CHÂN VÁY", "VÁY"],
+        "GOWN": ["GOWN", "DẠ HỘI", "ÁO CƯỚI"],
+        "JUMPSUIT": ["JUMPSUIT", "ĐỒ LIỀN QUẦN", "LIỀN THÂN"],
+        "ROMPER": ["ROMPER"],
+        "OVERALL": ["OVERALL", "YẾM"],
+        "UNDERWEAR": ["UNDERWEAR", "ĐỒ LÓT"],
+        "PANTY": ["PANTY", "QUẦN LÓT"],
+        "BRA": ["BRA", "ÁO NGỰC", "CUP NGỰC"],
+        "KIMONO": ["KIMONO"],
+        "ROBE": ["ROBE", "ÁO CHOÀNG TẮM"]
     }
 
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     prod_upper_name = str(prod).upper().strip() if 'prod' in locals() else ""
-    product_category = None
     
-    # 🧠 TẦNG 1: Gom toàn bộ văn bản danh sách linh kiện, loại bỏ ký tự rác để phân tích
+    # 🧠 TẦNG 1: Gom toàn bộ văn bản danh sách linh kiện sạch để phân tích
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
+    combined_search_text = f"{prod_upper_name} {all_components_text}"
 
-    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa đặc trưng hình học độc lập
-    # Ưu tiên nhận diện dòng quần dài/quần short trước để tránh bẫy overlap từ khóa thân áo
-    if any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
-        # Kiểm tra thêm từ khóa để phân biệt quần short và quần dài Jeans
-        if "SHORT" in prod_upper_name or "SHORT" in all_components_text:
-            product_category = "SHORT"
-        else:
-            product_category = "JEAN_LONG"
-        
-    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
-        # ĐÃ SỬA: Loại bỏ "BODY PANEL" ra khỏi bộ lọc JACKET để tránh bắt nhầm BODY FRONT/BACK PANEL của quần Jean
-        product_category = "JACKET"
-        
-    # TẦNG 3: Nếu quét linh kiện rập trống, đọc tiêu đề sản phẩm trên Header Techpack
+    # 🧠 TẦNG 2: ENGINE CHẤM ĐIỂM TRỌNG SỐ (BẢO VỆ CONTEXT - TRÁNH BẪY TRÙNG TỪ KHÓA)
+    category_scores = {k: 0 for k in EXTENDED_KEYWORDS.keys()}
+
+    for category, keywords in EXTENDED_KEYWORDS.items():
+        for kw in keywords:
+            if kw in combined_search_text:
+                # Nếu từ khóa xuất hiện ở TIÊU ĐỀ SẢN PHẨM (Header Techpack) -> Trọng số rất cao (x5)
+                if kw in prod_upper_name:
+                    category_scores[category] += 5
+                # Nếu từ khóa xuất hiện ở TÊN LINH KIỆN CHI TIẾT RẬP -> Trọng số bổ trợ (x1)
+                if kw in all_components_text:
+                    category_scores[category] += 1
+
+    # Tìm danh mục đạt tổng điểm cao nhất từ hệ thống
+    best_category = max(category_scores, key=category_scores.get)
+    
+    # Cơ chế phòng hộ: Nếu không khớp bất kỳ từ khóa nào, mặc định đưa về dòng hàng phổ thông
+    if category_scores[best_category] == 0:
+        product_category = "PANT"  
     else:
-        for k in COMPANY_DENSITY_PRIOR.keys():
-            if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
-                product_category = k
-                break
-        
-        # Mặc định phòng hộ an toàn cho dòng quần dài đại trà của công ty PPJ Group
-        if product_category is None:
-            product_category = "JEAN_LONG"
+        product_category = best_category
 
-    # 🧠 TẦNG 4: Chuẩn hóa chuỗi hiển thị thân thiện lên giao diện UI báo cáo kiểm toán
-    if product_category == "VEST": ai_product_type = "VEST (Áo Vest/Blazer)"
-    elif product_category == "JACKET": ai_product_type = "JACKET (Áo khoác Jacket)"
-    elif product_category == "DRESS_FLARE": ai_product_type = "DRESS_FLARE (Đầm suông/Thời trang)"
-    elif product_category == "SKIRT": ai_product_type = "SKIRT (Chân váy)"
-    elif product_category == "TOPS_KNIT": ai_product_type = "TOPS_KNIT (Áo thun/Polo)"
-    elif product_category == "SHIRT": ai_product_type = "SHIRT (Áo sơ mi)"
-    elif product_category == "SHORT": ai_product_type = "SHORT (Quần short)"
-    else: ai_product_type = "JEAN_LONG (Quần dài Jeans/Pants)"
+    # Đặc cách bảo vệ hình học: Nếu bộ lọc bắt dính chữ SHORT nhưng bị đè bởi các từ khóa quần dài (PANT/TROUSER/JEAN)
+    if "SHORT" in combined_search_text and product_category in ["PANT", "TROUSER", "JEAN"]:
+        product_category = "SHORT"
+
+    # 🧠 TẦNG 3: Chuẩn hóa chuỗi hiển thị thân thiện lên giao diện UI báo cáo kiểm toán
+    FRIENDLY_NAMES = {
+        "SHORT": "SHORT (Quần short)", "JEAN": "JEAN (Quần dài Jeans)", 
+        "KHAKI": "KHAKI (Quần Khaki)", "TROUSER": "TROUSER (Quần tây)", 
+        "PANT": "PANT (Quần dài nói chung)", "JACKET": "JACKET (Áo khoác Jacket)", 
+        "COAT": "COAT (Áo măng tô/Áo choàng)", "BLAZER": "BLAZER (Áo Vest nhẹ/Blazer)", 
+        "SUIT": "SUIT (Bộ Comple/Vest nam nữ)", "SHIRT": "SHIRT (Áo sơ mi)", 
+        "BLOUSE": "BLOUSE (Áo kiểu nữ)", "POLO": "POLO (Áo thun cổ bẻ)", 
+        "TEE": "TEE (Áo thun cổ tròn)", "TSHIRT": "TSHIRT (Áo phông)", 
+        "TANK": "TANK (Áo ba lỗ/Sát nách)", "HOODIE": "HOODIE (Áo nỉ có nón)", 
+        "SWEATER": "SWEATER (Áo len/Áo nỉ chui đầu)", "DRESS": "DRESS (Đầm thời trang)", 
+        "SKIRT": "SKIRT (Chân váy)", "GOWN": "GOWN (Đầm dạ hội/Áo cưới)", 
+        "JUMPSUIT": "JUMPSUIT (Đồ liền quần)", "ROMPER": "ROMPER (Đồ liền ngắn)", 
+        "OVERALL": "OVERALL (Quần yếm)", "UNDERWEAR": "UNDERWEAR (Đồ lót)", 
+        "PANTY": "PANTY (Quần lót nữ)", "BRA": "BRA (Áo ngực)", 
+        "KIMONO": "KIMONO (Áo truyền thống Nhật)", "ROBE": "ROBE (Áo choàng ngủ)"
+    }
+    ai_product_type = FRIENDLY_NAMES.get(product_category, f"{product_category} (Mặt hàng mới)")
     
     # 🚨 ĐỒNG BỘ TUYỆT ĐỐI VÀO BỘ NHỚ HỆ THỐNG MASTER (CHỐNG LỖI CONTEXT BREAKDOWN)
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
@@ -1742,11 +1779,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     ctx["ai_expert_decision"]["product_category"] = product_category
     ctx["ai_expert_decision"]["product_type_friendly"] = ai_product_type
-    ctx["ai_expert_decision"]["estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     
-    # Đẩy lên trục biến tầng ngoài bảo vệ tham số nền cho Đoạn 5.1 gỡ nghẽn
-    st.session_state["current_estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
+    # [LƯU Ý] Biến estimated_density_prior và current_estimated_density_prior sẽ do Đoạn 5 tự truy xuất trực tiếp từ map hiệu suất của nó dựa trên product_category được lưu ở đây
     st.session_state["bom_data"] = ctx
+
     # =====================================================================
     # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V21 - MASTER GEOMETRY Chống Lỗi Kích Thước): GEOMETRIC FEATURE ENGINE
     # =====================================================================
