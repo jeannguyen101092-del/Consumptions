@@ -2324,11 +2324,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🚨 ĐỒNG BỘ ĐẨY LÊN BỘ NHỚ TẠM ĐỂ Ô CODE DƯỚI ĐỌC THỪA KẾ (TRIỆT TIÊU NAMEERROR)
     st.session_state["active_net_areas"] = net_areas
     # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TIÊU HAO ĐA DÒNG HÀNG ERP (ĐÃ VÁ LỖI ĐM THẤP TOÀN DIỆN)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TÍNH ĐỊNH MỨC CHI TIẾT & ĐỒNG BỘ LÊN RAM MASTER (FIX KEYERROR CHUNKS)
     # =====================================================================
 
-    # 🔬 KHỤC PHỤC PHẠM VI BIẾN CHỐNG SẬP NAMEERROR: Kéo từ điển diện tích từ Ô 1 về
+    # KHỤC PHỤC PHẠM VI BIẾN CHỐNG SẬP NAMEERROR: Kéo từ điển diện tích từ Ô 1 về
     net_areas = st.session_state.get("active_net_areas", {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0})
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
@@ -2349,7 +2349,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 🚀 1. HỆ SỐ QUY ĐỔI HÌNH HỌC TỔNG LỰC TOÀN CẦU (Bù 22% hao hụt khoảng trống sơ đồ rập đơn lẻ)
         GLOBAL_ERP_GEOMETRY_FACTOR = 1.22
         
-        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình態 học theo độ phức tạp của từng nhóm sản phẩm
+        # 🚀 2. Tinh chỉnh bổ sung hệ số hao hụt hình thái học theo độ phức tạp của từng nhóm sản phẩm
         if _is_jacket:
             shape_multiplier = 1.15  # Áo khoác ngoài cong nhiều, hao hụt khe rập lớn nhất
         elif _is_skirt_or_dress:
@@ -2434,12 +2434,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "polygon_net_area" in df_bom.columns:
         df_bom["polygon_net_area"] = [round(virtual_pieces_layer.get(idx, {}).get("polygon_net_area", 0.0), 2) for idx in df_bom.index]
 
-    # Phục hồi nạp dữ liệu chi tiết dòng rập ảo để Đoạn 7 thừa kế trực tiếp
+    # Phục hồi nạp dữ liệu chi tiết dòng rập ảo để Đoạn 7 thừa kế trực tiếp (ĐÃ SỬA LỖI CHÍNH TẢ KHỔ VẢI CHUNKS)
     for idx, row in df_bom.iterrows():
         if idx not in virtual_pieces_layer:
             virtual_pieces_layer[idx] = {}
         virtual_pieces_layer[idx]["gross_consumption"] = float(row["Gross Consumption"])
-        virtual_pieces_layer[idx]["calculated_width"] = float(row["Khổ vải sản chunks (inch)"])
+        virtual_pieces_layer[idx]["calculated_width"] = float(row["Khổ vải sản xuất (inch)"])
 
     # TÍNH TOÁN GOM NHÓM ĐỂ ĐÓNG GÓI RAM
     sum_mats = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2473,8 +2473,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "active_net_areas" in st.session_state:
         del st.session_state["active_net_areas"]
 
-    st.success("✅ Đã nâng cấp thuật toán toán học phẳng ERP chống ĐM thấp thành công!")
-
+    st.success("✅ Đã tách khối và đồng bộ ma trận hiệu suất động thành công!")
 
 
 
