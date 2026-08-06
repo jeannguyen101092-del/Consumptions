@@ -2029,7 +2029,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
           # =====================================================================
         # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V28 - MASTER ĐỒNG BỘ ĐA DÒNG HÀNG & MAP HIỆU SUẤT)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V28.1 - MASTER ĐỒNG BỘ ĐA DÒNG HÀNG & SỬA LỖI ĐỐI XỨNG YOKE)
     # =====================================================================
     import json
     import math  
@@ -2115,28 +2116,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         # 🛠️ TỐI ƯU 1: Điều chỉnh hệ số đầy rập (Fill Factor) linh hoạt theo từng dòng hàng cụ thể
         if net_area <= 0 and p_len > 0 and p_wid > 0:
-            if product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL"]):
-                net_area = p_len * p_wid * 0.82  # Giữ nguyên hiệu suất rập phẳng cho dòng quần
+            if product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "YOKE", "ĐÔ", "CƠN"]):
+                net_area = p_len * p_wid * 0.82  
             elif product_category in ["SHIRT", "BLOUSE", "TEE", "TSHIRT", "POLO"] and any(k in c_name_upper for k in ["THAN", "BODY", "FRONT", "BACK"]):
-                net_area = p_len * p_wid * 0.79  # Hệ số tối ưu cho thân áo dệt thun/sơ mi
+                net_area = p_len * p_wid * 0.79  
             elif product_category in ["JACKET", "COAT", "BLAZER", "SUIT"] and any(k in c_name_upper for k in ["THAN", "FRONT", "BACK", "SLEEVE", "TAY"]):
-                net_area = p_len * p_wid * 0.75  # Hệ số cấu trúc cho áo khoác ngoài có độ cong lớn
+                net_area = p_len * p_wid * 0.75  
             else:
                 net_area = p_len * p_wid * (0.76 if "FABRIC" in p_class_check else 0.85)
         
         raw_pcs = float(r.get(pcs_col, 1.0)) if pcs_col else 1.0
         inferred_pcs = raw_pcs
         
-        # 🛠️ TỐI ƯU 2: Bộ điều khiển suy luận số lượng thông minh theo dòng hàng (Chống nhân đôi nhầm thân sau của áo)
+        # 🛠️ TỐI ƯU 2: Bộ điều khiển suy luận số lượng thông minh (ĐÃ SỬA: Thêm YOKE/ĐÔ vào nhóm đối xứng của Quần)
         if inferred_pcs == 1.0 and p_class_check in ["FABRIC", "LINING"]:
-            # Chỉ tự động tăng lên 2 mảnh cho các chi tiết đối xứng của Quần hoặc Tay áo/Thân trước của Áo
-            is_pant_leg = product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL"])
+            # Tự động tăng lên 2 mảnh cho các chi tiết đối xứng bắt buộc của Quần (Thân, Ống, Đô, Cơn) hoặc Áo (Tay, Thân trước)
+            is_pant_leg = product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "YOKE", "ĐÔ", "CƠN"])
             is_jacket_sleeve_or_front = product_category in ["JACKET", "COAT", "BLAZER", "SUIT", "SHIRT", "BLOUSE", "TEE", "TSHIRT", "POLO"] and any(k in c_name_upper for k in ["SLEEVE", "TAY", "FRONT", "THAN TRUOC"])
             
             if is_pant_leg or is_jacket_sleeve_or_front:
                 # Nếu kỹ thuật viên không ghi rõ nhãn Trái/Phải đơn lẻ thì mới nhân đôi bảo vệ
-                if not any(k in c_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)", "BACK PANEL"]):
-                    inferred_pcs = 2.0
+                if not any(k in c_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)"]):
+                    # ĐẶC CÁCH CHỐNG SAI LỆCH: Thân sau quần Jeans đại trà (BACK PANEL) luôn là 1 tấm nguyên, không nhân đôi
+                    if not (product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and "BACK PANEL" in c_name_upper):
+                        inferred_pcs = 2.0
 
         pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
         if pcs_col: df_bom.at[idx, pcs_col] = int(pcs)
@@ -2193,6 +2196,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đưa ngược gói context đã cập nhật map hiệu suất ra ngoài Master ngoài để bảo vệ bộ nhớ
     ctx["ai_expert_decision"] = ai_decision_d5
     st.session_state["bom_data"] = ctx
+
 
        # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN 1: KHỞI TẠO BỘ CỜ LOGIC ĐA DÒNG HÀNG & MA TRẬN DIỆN TÍCH
