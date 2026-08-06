@@ -2044,7 +2044,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
           # =====================================================================
          # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V28.2 - MASTER SỬA TRIỆT ĐỂ SỐ LƯỢNG RẬP TÚI & ĐỐI XỨNG)
+        # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V29 - MASTER SỬA TẬN GỐC VẬT TƯ & NÂNG ĐỊNH MỨC ÁO JACKET)
     # =====================================================================
     import json
     import math  
@@ -2056,19 +2057,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_decision_d5 = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
         
-    virtual_pieces_layer = ai_decision_final.get("virtual_pieces_layer", {}) if 'ai_decision_final' in locals() else ai_decision_d5.get("virtual_pieces_layer", {})
+    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
     if not virtual_pieces_layer or not isinstance(virtual_pieces_layer, dict):
         virtual_pieces_layer = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
     if not virtual_pieces_layer: virtual_pieces_layer = {}
 
-    # 📊 CẤU HÌNH TỪ ĐIỂN TRA CỨU HIỆU SUẤT CHUẨN HÓA QUỐC TẾ
+    # 📊 CẤU HÌNH TỪ ĐIỂN TRA CỨU HIỆU SUẤT CHUẨN HÓA QUỐC TẾ (MASTER TRUY XUẤT ĐẦU RA)
     MARKER_EFFICIENCY_MAP = {
-        "SHORT": 0.68, "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
-        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63, "SHIRT": 0.78, 
-        "BLOUSE": 0.78, "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
-        "HOODIE": 0.70, "SWEATER": 0.70, "DRESS": 0.61, "SKIRT": 0.61, "GOWN": 0.58,
-        "JUMPSUIT": 0.60, "ROMPER": 0.60, "OVERALL": 0.60, "UNDERWEAR": 0.82, 
-        "PANTY": 0.82, "BRA": 0.78, "KIMONO": 0.72, "ROBE": 0.72
+        "SHORT": 0.68,                                               
+        "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
+        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63,
+        "SHIRT": 0.78, "BLOUSE": 0.78,
+        "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
+        "HOODIE": 0.70, "SWEATER": 0.70,
+        "DRESS": 0.61, "SKIRT": 0.61, "GOWN": 0.58,
+        "JUMPSUIT": 0.60, "ROMPER": 0.60, "OVERALL": 0.60,
+        "UNDERWEAR": 0.82, "PANTY": 0.82, "BRA": 0.78,
+        "KIMONO": 0.72, "ROBE": 0.72
     }
 
     # Đọc loại hàng đã được AI định danh từ Đoạn 3.1
@@ -2112,50 +2117,54 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         c_name_upper = str(r.get("component_name", "")).upper().strip()
         p_class_check = str(v_piece.get("inferred_class", r.get("material_class", "FABRIC"))).upper().strip()
 
-        # Ép bóc tách lại lớp vật tư sạch dựa trên tên chi tiết để cứu định mức Keo/Lót
+        # 🧠 BỘ LỌC VẬT TƯ THÔNG MINH (ĐÃ ĐƯỢC VÁ LỖI ÉP NHẦM LÓT TÚI CHO ÁO TRUCKER JACKET)
         if any(x in c_name_upper for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "WAISTBAND FUSING"]): 
             p_class_check = "FUSING"
         elif any(x in c_name_upper for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "POCKET FACING"]): 
-            p_class_check = "LINING"
+            # CHỐNG BẪY OVERLAP: Nếu dòng hàng khẳng định là Áo khoác mà rập là túi ngực/nắp túi -> Giữ chặt về FABRIC
+            if product_category in ["JACKET", "COAT", "BLAZER", "SUIT", "SHIRT"] and any(k in c_name_upper for k in ["CHEST", "PATCH", "FLAP", "NẮP", "POCKET"]):
+                p_class_check = "FABRIC"
+            else:
+                p_class_check = "LINING"
         elif any(x in c_name_upper for x in ["CONTRAST", "PHỐI"]):
             p_class_check = "CONTRAST"
         elif any(x in c_name_upper for x in ["RIB", "BO CỔ", "BO TĂM"]):
             p_class_check = "RIB"
+        elif product_category in ["JACKET", "COAT", "BLAZER", "SUIT", "SHIRT"] and any(k in c_name_upper for k in ["PATCH POCKET", "POCKET FLAP", "CHEST POCKET", "FLAP"]):
+            p_class_check = "FABRIC"
             
         v_piece["material_class"] = p_class_check  
 
-        # 🛠️ TỐI ƯU 1: Điều chỉnh hệ số đầy rập (Fill Factor) linh hoạt theo từng dòng hàng cụ thể
+        # 🛠️ TỐI ƯU 1: ĐIỀU CHỈNH HỆ SỐ ĐẦY RẬP (FILL FACTOR) ĐỘNG ĐỂ FIX LỖI ĐỊNH MỨC THẤP
         if net_area <= 0 and p_len > 0 and p_wid > 0:
-            if product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "YOKE", "ĐÔ", "POCKET", "TÚI", "BAG", "FACING"]):
-                net_area = p_len * p_wid * 0.82  
+            if product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT"] and any(k in c_name_upper for k in ["LEG", "THAN", "ỐNG", "PANEL", "YOKE", "ĐÔ", "CƠN"]):
+                net_area = p_len * p_wid * 0.82  # Hệ số rập phẳng vuông vắn của quần dài
             elif product_category in ["SHIRT", "BLOUSE", "TEE", "TSHIRT", "POLO"] and any(k in c_name_upper for k in ["THAN", "BODY", "FRONT", "BACK"]):
                 net_area = p_len * p_wid * 0.79  
-            elif product_category in ["JACKET", "COAT", "BLAZER", "SUIT"] and any(k in c_name_upper for k in ["THAN", "FRONT", "BACK", "SLEEVE", "TAY"]):
-                net_area = p_len * p_wid * 0.75  
+            elif product_category in ["JACKET", "COAT", "BLAZER", "SUIT"] and any(k in c_name_upper for k in ["THAN", "FRONT", "BACK", "SLEEVE", "TAY", "YOKE", "ĐÔ", "COLLAR", "CỔ", "POCKET", "FLAP"]):
+                # GIẢI PHÁP ĐỊNH MỨC THẤP: Hạ hệ số phẳng xuống 0.74 để bù dòng khoảng trống hao hụt đường cong lớn của Áo khoác ngoài
+                net_area = p_len * p_wid * 0.74  
             else:
-                net_area = p_len * p_wid * (0.76 if "FABRIC" in p_class_check else 0.85)
+                net_area = p_len * p_wid * (0.74 if "FABRIC" in p_class_check else 0.85)
         
         raw_pcs = float(r.get(pcs_col, 1.0)) if pcs_col else 1.0
         inferred_pcs = raw_pcs
         
         # 🛠️ TỐI ƯU 2: BỘ SUY LUẬN SỐ LƯỢNG ĐỐI XỨNG PHIÊN BẢN ĐA DÒNG HÀNG HOÀN CHỈNH
         if inferred_pcs == 1.0 and p_class_check in ["FABRIC", "LINING", "FUSING"]:
-            # Quy tắc đối xứng cho dòng QUẦN / SHORTS
             if product_category in ["JEAN", "KHAKI", "TROUSER", "PANT", "SHORT", "OVERALL"]:
-                # 🛑 ĐỊNH NGHĨA DANH SÁCH CHI TIẾT "ĐƠN TẤM" (CHỈ CÓ 1 MẢNH TRÊN 1 SẢN PHẨM)
                 single_piece_kws = ["WAISTBAND", "LƯNG", "CẠP", "COIN", "TÚI XU", "FLY", "SHIELD", "DÁP", "BACK PANEL", "THAN SAU"]
-                
-                # Nếu đặt tên chứa nhãn Trái/Phải rõ ràng từ CAD thì giữ nguyên 1
                 if not any(k in c_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)"]):
-                    # Nếu chi tiết KHÔNG thuộc nhóm đơn tấm -> Tự động ép x2 cho toàn bộ Thân trước, Thân sau cắt rời, Đô, Túi, Lót túi, Đáp túi
                     if not any(sk in c_name_upper for sk in single_piece_kws):
                         inferred_pcs = 2.0
             
-            # Quy tắc đối xứng cho dòng ÁO / JACKET / SHIRT
             elif product_category in ["JACKET", "COAT", "BLAZER", "SUIT", "SHIRT", "BLOUSE", "TEE", "TSHIRT", "POLO"]:
-                if any(k in c_name_upper for k in ["SLEEVE", "TAY", "FRONT", "THAN TRUOC"]):
+                # Toàn bộ chi tiết cấu thành thân áo khoác ngoài (Thân trước, tay áo, túi ngực, nắp túi, măng sét) đều phải nhân đôi đối xứng
+                if any(k in c_name_upper for k in ["SLEEVE", "TAY", "FRONT", "THAN TRUOC", "POCKET", "TÚI", "FLAP", "NẮP", "CUFF", "MĂNG SÉT"]):
                     if not any(k in c_name_upper for k in ["LEFT", "RIGHT", "TRÁI", "PHẢI", " (L)", " (R)"]):
-                        inferred_pcs = 2.0
+                        # Cô lập các chi tiết trục dọc đơn tâm của áo không được nhân đôi (Thân sau liền tấm, đô sau liền tấm)
+                        if not any(sk in c_name_upper for sk in ["BACK PANEL", "THAN SAU", "BACK YOKE"]):
+                            inferred_pcs = 2.0
 
         pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, inferred_pcs))
         if pcs_col: df_bom.at[idx, pcs_col] = int(pcs)
@@ -2205,6 +2214,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         "material_class": p_class_check, "priority": 3
                     })
 
+   
     raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
@@ -2214,77 +2224,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 1: KHỞI TẠO BỘ CỜ LOGIC ĐA DÒNG HÀNG & MA TRẬN DIỆN TÍCH
-    # =====================================================================
-    import json
-    import math  
-
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    
-    ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): ai_decision_d5 = {}
-
-    # Đọc chính xác mã dòng hàng đã được AI định danh đầu nguồn từ Đoạn 3.1
-    product_category = ai_decision_d5.get("product_category", "PANT")
-    p_type_upper = str(ai_decision_d5.get("product_type_friendly", product_category)).upper().strip()
-
-    # Kích hoạt các bộ cờ Boolean an toàn dựa trên product_category Master ngoài
-    _is_short = (product_category == "SHORT")
-    _is_trouser = (product_category in ["JEAN", "KHAKI", "TROUSER", "PANT"])
-    _is_skirt_or_dress = (product_category in ["DRESS", "SKIRT", "GOWN"])
-    _is_jacket = (product_category in ["JACKET", "COAT", "BLAZER", "SUIT"])
-    _is_knit = (product_category in ["POLO", "TEE", "TSHIRT", "TANK", "HOODIE", "SWEATER"])
-    _is_jumpsuit = (product_category in ["JUMPSUIT", "ROMPER", "OVERALL"])
-
-    # Đọc dải số liệu định mức tổng từ Đoạn 5.1 / Phần B đầu vào
-    global_fabric_gross = total_fabric_gross_yds if 'total_fabric_gross_yds' in locals() or 'total_fabric_gross_yds' in globals() else 0.0
-    global_lining_gross = total_lining_gross_yds if 'total_lining_gross_yds' in locals() or 'total_lining_gross_yds' in globals() else 0.0
-    global_fusing_gross = total_fusing_gross_yds if 'total_fusing_gross_yds' in locals() or 'total_fusing_gross_yds' in globals() else 0.0
-
-    f_width = current_fabric_width if 'current_fabric_width' in locals() else 58.0
-    l_width = lining_width if 'lining_width' in locals() else 60.0
-    fuse_width = fusing_width if 'fusing_width' in locals() else 59.0
-    local_wastage = target_wastage if 'target_wastage' in locals() else 1.030
-
-    if "virtual_pieces_layer" not in locals() or not isinstance(virtual_pieces_layer, dict):
-        virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
-    if not virtual_pieces_layer: virtual_pieces_layer = {}
-
-    net_areas = {"FABRIC": 0.0, "CONTRAST": 0.0, "LINING": 0.0, "FUSING": 0.0, "RIB": 0.0}
-    
-    # Tính toán hình học shape_ratio bảo toàn diện tích chi tiết phụ của quần/áo
-    shape_ratio = 0.65 if _is_short else (0.58 if _is_trouser else 0.72)
-
-    # Vòng lặp gom nhóm tổng diện tích tịnh ma trận hình học rập phẳng dựa trên Master Layer
-    for idx, r in df_bom.iterrows():
-        v = virtual_pieces_layer.get(idx, {})
-        p_cls = str(v.get("material_class", r.get("material_class", "FABRIC"))).upper().strip()
-        pcs = int(v.get("active_user_pieces", r.get("pcs_numeric", 1)))
-        
-        net_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        if p_cls in net_areas:
-            net_areas[p_cls] += net_area * pcs
-
-    # 🤖 MA TRẬN ĐỊNH TUYẾN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG TOÀN CẦU
-    MARKER_EFFICIENCY_MAP = {
-        "SHORT": 0.68, "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
-        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63, "SHIRT": 0.78, 
-        "BLOUSE": 0.78, "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
-        "HOODIE": 0.70, "SWEATER": 0.70, "DRESS": 0.61, "SKIRT": 0.61, "GOWN": 0.58,
-        "JUMPSUIT": 0.60, "ROMPER": 0.60, "OVERALL": 0.60, "UNDERWEAR": 0.82, 
-        "PANTY": 0.82, "BRA": 0.78, "KIMONO": 0.72, "ROBE": 0.72
-    }
-
-    # Truy xuất chính xác giá trị hiệu suất định mức động theo cấu hình Master
-    dynamic_marker_efficiency = MARKER_EFFICIENCY_MAP.get(product_category, 0.72)
-
-    # 🛠️ KHAI BÁO BIẾN HỆ SỐ HAO HỤT VẢI THUN ĐỂ KHỬ TRIỆT ĐỂ LỖI NAMEERROR
-    knit_wastage_factor = 1.02 if _is_knit else 1.0
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN 2: ENGINE TÍNH ĐỊNH MỨC CHI TIẾT & ĐỒNG BỘ LÊN RAM MASTER
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN 2 (PHIÊN BẢN V45.2 - NÂNG CHẶN SÀN ĐM CHO ÁO JACKET)
     # =====================================================================
 
     # Bộ định tuyến phân bổ trọng số tiêu hao chi tiết chuẩn ERP & Gerber xưởng cắt
@@ -2306,12 +2247,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls == "FABRIC":
             if net_areas["FABRIC"] > 0 and global_fabric_gross > 0:
                 allocated_gross = global_fabric_gross * (piece_area / net_areas["FABRIC"])
+                
+                # 🛠️ HOTFIX ĐỊNH MỨC THẤP: Kích sàn tiêu hao bù hao hụt biên/đầu tấm cho từng dòng hàng
                 if _is_short:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.12)
                 elif _is_jumpsuit:
                     allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.08)
+                elif _is_jacket:
+                    # Áp hệ số chặn sàn 1.15 để nâng định mức các mảnh nhỏ của áo Trucker Jacket lên đúng thực tế xưởng
+                    allocated_gross = max(allocated_gross, (piece_area / (f_width * 36.0)) * 1.15)
+                    
                 return round(allocated_gross, 4)
             
+            # Khối lượng tính toán tự động dựa trên hiệu suất sơ đồ động của Jacket (65%)
+            knit_wastage_factor = 1.02 if _is_knit else 1.0
             return round(((piece_area / f_width / dynamic_marker_efficiency) / 36.0) * local_wastage * knit_wastage_factor, 4) if f_width > 0 else 0.0
 
         # 2.2. VẢI PHỐI (CONTRAST)
@@ -2358,6 +2307,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 base_rib_gross = (net_areas["RIB"] / fuse_width / 0.82 / 36.0) * 1.15
                 return round(base_rib_gross * (piece_area / net_areas["RIB"]), 4)
             return 0.0
+
+    # =====================================================================
+    # (Giữ nguyên toàn bộ phần code gán dữ liệu vào DataFrame và đẩy lên RAM Master phía sau...)
+
 
     # Thực thi đẩy ĐM Gross Consumption chuẩn toán học phẳng vào DataFrame chi tiết
     df_bom["Gross Consumption"] = [core_engine_router(row, idx) for idx, row in df_bom.iterrows()]
