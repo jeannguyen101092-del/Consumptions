@@ -2318,9 +2318,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
     #    # =====================================================================
   
-
-        # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY)
+    # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - PA1
     # =====================================================================
     
     # 🔬 KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
@@ -2361,6 +2360,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom.index
+    
+    # Số lượng rập hiển thị cập nhật theo UI
     df_bom_display["Số lượng rập"] = [int(float(st.session_state.get("user_edited_pieces", {}).get(idx, r.get("pcs_numeric", 1.0)))) for idx, r in df_bom.iterrows()]
 
     clean_mats = []
@@ -2371,21 +2372,34 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         orig_idx = row["_original_row_index"]
         solver_piece_data = virtual_pieces.get(orig_idx, virtual_pieces.get(str(orig_idx), {})) if isinstance(virtual_pieces, dict) else {}
         
-        # ƯU TIÊN TUYỆT ĐỐI nhóm vật tư do người dùng chọn lại trên UI
+        # Ưu tiên Material Class do người dùng sửa đổi trực tiếp từ giao diện trước đó
         p_cls = st.session_state.get("user_edited_mats", {}).get(orig_idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
         clean_mats.append(p_cls)
         
         p_width = solver_piece_data.get("calculated_width", df_bom.at[orig_idx, "Khổ vải sản xuất (inch)"] if "Khổ vải sản xuất (inch)" in df_bom.columns else 58.0)
         calculated_widths.append(float(p_width))
         
-        p_gross = df_bom.at[orig_idx, "Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0
-        gross_consumptions.append(float(p_gross))
+        # 🛠️ NGUYÊN TẮC PHƯƠNG ÁN 1: NHÂN ĐM CỤC BỘ DỰA TRÊN TỶ LỆ THAY ĐỔI PCS
+        base_gross = float(df_bom.at[orig_idx, "Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0)
+        
+        # Lấy số lượng mảnh gốc ban đầu từ file CAD/PDF (Đoạn 4)
+        orig_pcs = float(solver_piece_data.get("inferred_pieces", df_bom.at[orig_idx, "pcs_numeric"] if "pcs_numeric" in df_bom.columns else 1.0))
+        orig_pcs = max(orig_pcs, 1.0)
+        
+        # Lấy số lượng mảnh hiện tại sau khi người dùng chỉnh sửa trên UI
+        current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(orig_idx, orig_pcs))
+        
+        # Công thức tính ĐM cục bộ: ĐM mới = ĐM gốc × (PCS mới / PCS gốc)
+        local_multiplier = current_pcs / orig_pcs
+        adjusted_gross = base_gross * local_multiplier
+        
+        gross_consumptions.append(round(adjusted_gross, 4))
 
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Khổ vải sản xuất (inch)"] = calculated_widths
     df_bom_display["Gross Consumption"] = gross_consumptions
 
-    # 🛠️ CƠ CHẾ GOM NHÓM ĐỘNG CHO BẢNG SUMMARY TỪ LƯỚI CHI TIẾT
+    # 🛠️ CƠ CHẾ GOM NHÓM ĐỘNG CHO BẢNG SUMMARY TỪ LƯỚI CHI TIẾT (Tổng ĐM Summary tự tăng theo)
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
     label_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "CONTRAST": "VẢI PHỐI", "RIB": "BO / RIB"}
     grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2407,7 +2421,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
     # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ
+    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - PA1
     # =====================================================================
     
     # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
@@ -2422,7 +2436,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     col_t1, col_t2 = st.columns(2)
     col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
 
-    # XUẤT FILE EXCEL ĐỒNG BỘ THEO DỮ LIỆU ĐÃ XỬ LÝ Ở 7.1
+    # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC ĐÃ NHÂN ĐÔI CỤC BỘ
     with col_t2:
         try:
             if 'local_export_excel_ppj_format' in locals():
@@ -2448,7 +2462,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         column_config={
             "_original_row_index": None, 
             "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
-            # ✅ MỞ KHÓA SELECTBOX: Cho phép chỉnh sửa chọn lại nếu AI phân loại sai
             "Material Class": st.column_config.SelectboxColumn(
                 "🧵 Material Class", 
                 options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB"],
@@ -2466,7 +2479,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         }
     )
 
-    # BỘ LẮNG NGHE SỰ KIỆN: Phát hiện thay đổi và ghi nhận vào State để Đoạn 5.2 xử lý lại tỷ trọng
+    # BỘ LẮNG NGHE SỰ KIỆN: Phát hiện thay đổi trên UI
     if edited_df is not None and "edited_rows" in st.session_state.get("bom_data_editor_matrix", {}):
         changes = st.session_state["bom_data_editor_matrix"]["edited_rows"]
         has_updates = False
@@ -2475,10 +2488,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             row_idx = int(row_idx_str)
             orig_idx = df_bom_display.iloc[row_idx]["_original_row_index"]
             
+            # Lưu số lượng rập mới sửa
             if "Số lượng rập" in updated_cols:
                 st.session_state["user_edited_pieces"][orig_idx] = int(updated_cols["Số lượng rập"])
                 has_updates = True
                 
+            # Lưu Material Class mới sửa
             if "Material Class" in updated_cols:
                 st.session_state["user_edited_mats"][orig_idx] = str(updated_cols["Material Class"]).upper().strip()
                 has_updates = True
