@@ -2556,7 +2556,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         # =====================================================================
        # =====================================================================
-    # 🟩 ĐOẠN 7.1 (VERSION V45 - LOGIC TÍNH TOÁN ĐỊNH MỨC THEO SỐ LƯỢNG MỚI)
+       # =====================================================================
+    # 🟩 ĐOẠN 7.1 (VERSION V49 - LOGIC KIỂM TOÁN VÀ ĐÓN NHẬN CHỈNH SỬA)
     # =====================================================================
     import pandas as pd
     import streamlit as st
@@ -2569,19 +2570,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     virtual_pieces = ai_decision_final.get("virtual_pieces_layer", {})
     marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7800))
 
-    # Khởi tạo bộ nhớ đệm lưu trữ số lượng rập do máy quét nhập vào
+    # Khởi tạo bộ nhớ đệm cho cả số lượng và nhóm vật tư chỉnh sửa
     if "user_edited_pieces" not in st.session_state:
         st.session_state["user_edited_pieces"] = {}
+    if "user_edited_materials" not in st.session_state:
+        st.session_state["user_edited_materials"] = {}
 
-    # Hàm bắt sự kiện khi quét/sửa số lượng trên bảng để kích hoạt nhảy công thức
+    # Hàm bắt sự kiện khi người dùng sửa số lượng HOẶC chọn lại nhóm vật tư trên lưới
     def on_bom_grid_change():
         changes = st.session_state.get("bom_editor_key", {}).get("edited_rows", {})
         for row_idx, updated_cols in changes.items():
+            row_idx_int = int(row_idx)
+            # 1. Nếu sửa/quét lại Số lượng rập
             if "Số lượng rập" in updated_cols:
-                # Đồng bộ giá trị rập mới vào hệ thống RAM phản hồi
-                st.session_state["user_edited_pieces"][int(row_idx)] = int(updated_cols["Số lượng rập"])
+                st.session_state["user_edited_pieces"][row_idx_int] = int(updated_cols["Số lượng rập"])
+            # 2. Nếu chọn lại Nhóm vật tư (Vải chính, lót, keo, phối...)
+            if "Material Class" in updated_cols:
+                st.session_state["user_edited_materials"][row_idx_int] = str(updated_cols["Material Class"]).upper().strip()
 
-    # Xây dựng ma trận dữ liệu đã kiểm toán định mức động
+    # Xây dựng bảng dữ liệu hiển thị động
     df_bom_display = df_bom.copy()
     df_bom_display["_original_row_index"] = df_bom.index
 
@@ -2591,20 +2598,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         orig_idx = row["_original_row_index"]
         solver_piece_data = virtual_pieces.get(orig_idx, virtual_pieces.get(str(orig_idx), {})) if isinstance(virtual_pieces, dict) else {}
         
+        # Lấy giá trị gốc từ bộ não AI làm hệ quy chiếu
         system_mat = solver_piece_data.get("material_class", row.get("Material Class", "FABRIC")).upper().strip()
         system_pcs = int(float(solver_piece_data.get("pcs_numeric", row.get("pcs_numeric", 1.0))))
         system_gross = float(df_bom.at[orig_idx, "Gross Consumption"] if "Gross Consumption" in df_bom.columns else solver_piece_data.get("gross_consumption", 0.0))
         
-        current_mat = str(row.get("Material Class", system_mat)).upper().strip()
+        # Đọc dữ liệu thực tế (Ưu tiên những gì user đã bấm chọn lại hoặc máy quét đè vào RAM)
+        current_mat = st.session_state["user_edited_materials"].get(idx, system_mat)
         current_pcs = int(st.session_state["user_edited_pieces"].get(idx, system_pcs))
 
-        # 🚀 CÔNG THỨC TỰ ĐỘNG NHẢY: Tính toán định mức tỷ lệ thuận theo số lượng rập mới
+        # Công thức tính toán lại định mức chi tiết nhảy theo số lượng rập mới
         calculated_gross = (system_gross / system_pcs) * current_pcs if system_pcs > 0 else system_gross
 
-        # Đối chiếu dữ liệu thực tế với bộ não AI
+        # Kiểm toán lỗi so với thiết kế gốc của rập hình học
         errors = []
-        if current_mat != system_mat: errors.append(f"Sai mã VT ({system_mat})")
-        if current_pcs != system_pcs: errors.append(f"Đổi SL ({system_pcs})")
+        if current_mat != system_mat: errors.append(f"Đã đổi Vật tư (Gốc: {system_mat})")
+        if current_pcs != system_pcs: errors.append(f"Đã đổi SL (Gốc: {system_pcs})")
         scan_status.append(f"⚠️ " + " | ".join(errors) if errors else "✅ Khớp Chuẩn")
 
         clean_mats.append(current_mat)
@@ -2615,19 +2624,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Số lượng rập"] = validated_pieces
     df_bom_display["Gross Consumption"] = gross_consumptions
-       # =====================================================================
-    # 🟩 ĐOẠN 7.2 (VERSION V47 - ĐÃ FIX TRIỆT ĐỂ LỖI C_NAME_COL_RAW)
+    # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V49 - RENDER DROPDOWN CHO PHÉP CHỌN LẠI VẬT TƯ)
     # =====================================================================
     
-    # 1. KHỐI PHỤC HỒI BIẾN ĐỂ FIX LỖI NAMEERROR TRÊN GIAO DIỆN
+    # KHỐI PHỤC HỒI BIẾN ĐỂ FIX LỖI NAMEERROR TRÊN GIAO DIỆN
     ai_decision_final = ctx.get("ai_expert_decision", {})
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
     real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
-    marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7800))
 
-    # HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
@@ -2635,7 +2642,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. TÍNH TOÁN NGƯỢC CHO BẢNG SUMMARY (Tự động nhảy số tổng khi định mức chi tiết thay đổi)
+    # 🚀 TÍNH TOÁN NGƯỢC CHO BẢNG SUMMARY (Tự nhảy số tổng theo nhóm vật tư mới chọn lại)
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
     label_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "CONTRAST": "VẢI PHỐI", "RIB": "BO / RIB"}
     grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2655,30 +2662,35 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-    # 🛠️ KHAI BÁO LẠI C_NAME_COL_RAW ĐỂ ĐỒNG BỘ CHỐNG LỖI ĐỎ DÒNG 2656
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-    # Chuẩn hóa hiển thị và sắp xếp cột lưới chi tiết
     df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "30"))).upper().strip()
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     
     for c in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Khổ vải sản xuất (inch)"]:
-        if c in df_bom_display.columns: 
-            df_bom_display[c] = pd.to_numeric(df_bom_display[c], errors='coerce').fillna(0.0)
+        if c in df_bom_display.columns: df_bom_display[c] = pd.to_numeric(df_bom_display[c], errors='coerce').fillna(0.0)
 
-    ordered_cols = ["Kiểm Tra Quét", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
+    ordered_cols = ["Kiểm Tra Quét", "Component Name", "Material Class", "Số lượng rập", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
 
     st.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
 
-    # 3. RENDER LƯỚI GRID ĐIỀU CHỈNH ĐỘNG
+    # 3. RENDER GRID: MỞ KHÓA CHO PHÉP USER CHỌN LẠI PHÂN LOẠI VẬT TƯ QUA DROPDOWN BOX
     st.data_editor(
         df_bom_display, 
         column_config={
             "Kiểm Tra Quét": st.column_config.TextColumn("🔍 Trạng Thái Quét", disabled=True),
             "Component Name": st.column_config.TextColumn("🧱 Tên Linh Kiện Rập", disabled=True),
-            "Material Class": st.column_config.TextColumn("📦 Nhóm Vật Tư Clean", disabled=True),
+            
+            # 🔥 BIẾN CỘT NÀY THÀNH HỘP CHỌN THẢ XUỐNG ĐỂ CHỌN LẠI KHI QUÈT SAI
+            "Material Class": st.column_config.SelectboxColumn(
+                "📦 Nhóm Vật Tư Clean", 
+                options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB"], 
+                required=True,
+                disabled=False # Mở khóa cho phép sửa đổi
+            ),
+            
             "Role/Piece Type": st.column_config.TextColumn("Vị Trí Rập", disabled=True),
             "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài", format="%.2f", disabled=True),
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng", format="%.2f", disabled=True),
