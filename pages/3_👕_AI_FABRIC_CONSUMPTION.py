@@ -2433,7 +2433,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     #    # =====================================================================
   
 
-      # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 7 (VERSION V41 - CHUẨN HÓA NHẬN DIỆN VẬT TƯ ĐA TẦNG & UI)
     # =====================================================================
     
@@ -2508,7 +2508,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Khổ vải sản xuất (inch)"] = calculated_widths
     df_bom_display["Gross Consumption"] = gross_consumptions
 
-    # 🛠️ CƠ CHẾ TỰ ĐỘNG TÍNH TOÁN NGƯỢC CHO BẢNG SUMMARY (Triệt tiêu hoàn toàn lỗi lệch số giữa hai bảng)
+    # 🛠️ CƠ CHẾ TỰ ĐỘNG TÍNH TOÁN KẾ THỪA TUYỆT ĐỐI TỪ ĐOẠN CODE TRÊN
     summary_data = {
         "Phân loại vật tư": [],
         "Material Class": [],
@@ -2526,7 +2526,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             grouped_gross[m_c] += float(r["Gross Consumption"])
             
     for mat_cls, total_val in grouped_gross.items():
-        if total_val > 0 or mat_cls in ["FABRIC", "FUSING", "LINING"]:
+        # PHẦN SỬA ĐỔI CHÍNH: Chỉ hiển thị những nhóm vật tư THỰC SỰ CÓ DỮ LIỆU kế thừa từ Solver trên (> 0)
+        if total_val > 0:
             summary_data["Phân loại vật tư"].append(label_map.get(mat_cls, mat_cls))
             summary_data["Material Class"].append(mat_cls)
             summary_data["Gross Consumption"].append(round(total_val, 4))
@@ -2577,23 +2578,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
             "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True),
             "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
-            "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f", disabled=True),
-            "Số lượng rập": st.column_config.NumberColumn("Số lượng rập", min_value=1, max_value=40, step=1),
-            "Material Class": st.column_config.SelectboxColumn("Material Class", options=["FABRIC", "FUSING", "LINING", "CONTRAST", "RIB", "ACCESSORY", "THREAD"], required=True)
-        }, use_container_width=True, hide_index=True, key="bom_data_editor_grid_final_v21_master_match" 
+            "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f", disabled=True)
+        }
     )
-
-    # 4. SỰ KIỆN CHỈNH SỬA SỐ LƯỢNG: Trigger re-run quay lại Solver Đoạn 5.2
-    has_changed = False
-    for _, row in edited_df.iterrows():
-        orig_idx = int(row["_original_row_index"])
-        if orig_idx in df_bom.index:
-            old_pcs = float(df_bom.at[orig_idx, "pcs_numeric"]) if "pcs_numeric" in df_bom.columns else 1.0
-            new_pcs = float(row["Số lượng rập"])
-            if old_pcs != new_pcs:
-                st.session_state["user_edited_pieces"][orig_idx] = new_pcs
-                has_changed = True
-                
-    if has_changed:
-        st.session_state["processed_display_rows"] = df_bom.to_dict(orient="records")
-        st.rerun()
