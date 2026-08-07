@@ -2615,14 +2615,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Số lượng rập"] = validated_pieces
     df_bom_display["Gross Consumption"] = gross_consumptions
-    # =====================================================================
-    # 🟩 ĐOẠN 7.2 (VERSION V45 - RENDER GIAO DIỆN VÀ GRID CHỈNH SỬA)
+        # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V46 - ĐÃ SỬA LỖI NAMEERROR BIẾN ĐỘ PHỨC TẠP)
     # =====================================================================
     
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN
+    # 💥 KHỐI PHỤC HỒI BIẾN ĐỂ FIX LỖI NAMEERROR TRÊN GIAO DIỆN
+    ai_decision_final = ctx.get("ai_expert_decision", {})
+    comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
+    ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
+    ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
+    real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
+    marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7800))
+
+    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN CHUẨN XÁC CHỐNG LỖI ĐỎ
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", str(ai_decision_final.get("product_type_friendly", "JEAN_LONG")).strip())
+    m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
