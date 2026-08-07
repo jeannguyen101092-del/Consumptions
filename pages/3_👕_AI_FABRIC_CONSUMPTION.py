@@ -2615,11 +2615,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Số lượng rập"] = validated_pieces
     df_bom_display["Gross Consumption"] = gross_consumptions
-        # =====================================================================
-    # 🟩 ĐOẠN 7.2 (VERSION V46 - ĐÃ SỬA LỖI NAMEERROR BIẾN ĐỘ PHỨC TẠP)
+       # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V47 - ĐÃ FIX TRIỆT ĐỂ LỖI C_NAME_COL_RAW)
     # =====================================================================
     
-    # 💥 KHỐI PHỤC HỒI BIẾN ĐỂ FIX LỖI NAMEERROR TRÊN GIAO DIỆN
+    # 1. KHỐI PHỤC HỒI BIẾN ĐỂ FIX LỖI NAMEERROR TRÊN GIAO DIỆN
     ai_decision_final = ctx.get("ai_expert_decision", {})
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
@@ -2627,7 +2627,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
     marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7800))
 
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN CHUẨN XÁC CHỐNG LỖI ĐỎ
+    # HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
@@ -2655,13 +2655,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
+    # 🛠️ KHAI BÁO LẠI C_NAME_COL_RAW ĐỂ ĐỒNG BỘ CHỐNG LỖI ĐỎ DÒNG 2656
+    c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
+
     # Chuẩn hóa hiển thị và sắp xếp cột lưới chi tiết
     df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "30"))).upper().strip()
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     
     for c in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Khổ vải sản xuất (inch)"]:
-        if c in df_bom_display.columns: df_bom_display[c] = pd.to_numeric(df_bom_display[c], errors='coerce').fillna(0.0)
+        if c in df_bom_display.columns: 
+            df_bom_display[c] = pd.to_numeric(df_bom_display[c], errors='coerce').fillna(0.0)
 
     ordered_cols = ["Kiểm Tra Quét", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
     df_bom_display = df_bom_display[[c for c in ordered_cols if c in df_bom_display.columns]]
