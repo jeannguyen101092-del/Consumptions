@@ -2149,8 +2149,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     # Cập nhật ngược lại bộ não State phục vụ liên tầng độc lập cho Đoạn 5.2 và Đoạn 7
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V57 - AUTO PIECES MATCH)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V58 - TRẢ ĐỀ KHẢ THI)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2158,20 +2158,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     _is_jacket = locals().get("is_jacket", False)
 
     # 🤖 MA TRẬN ĐỊNH TUYẾN HIỆU SUẤT SƠ ĐỒ ĐỘNG THEO CHỦNG LOẠI HÀNG TOÀN CẦU
-    dynamic_marker_efficiency = 0.72  
+    dynamic_marker_efficiency = 0.74  # Tăng hiệu suất sơ đồ mục tiêu lên mức thực tế dập nhà máy
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
     MARKER_EFFICIENCY_MAP = {
-        "SHORT": 0.68,                                               
-        "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
-        "JACKET": 0.62, "COAT": 0.62, "BLAZER": 0.60, "SUIT": 0.60,
-        "SHIRT": 0.76, "BLOUSE": 0.76,
-        "POLO": 0.74, "TEE": 0.74, "TSHIRT": 0.74, "TANK": 0.72,
-        "HOODIE": 0.70, "SWEATER": 0.70,
-        "DRESS": 0.61, "SKIRT": 0.61, "GOWN": 0.58,
-        "JUMPSUIT": 0.60, "ROMPER": 0.60, "OVERALL": 0.60,
-        "UNDERWEAR": 0.82, "PANTY": 0.82, "BRA": 0.78,
-        "KIMONO": 0.72, "ROBE": 0.72
+        "SHORT": 0.72,                                               
+        "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,  
+        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
+        "SHIRT": 0.78, "BLOUSE": 0.78,
+        "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
     }
 
     matched = False
@@ -2181,58 +2176,47 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             matched = True
             break
 
-    if not matched:
-        if _is_short: dynamic_marker_efficiency = 0.68
-        elif _is_trouser: dynamic_marker_efficiency = 0.64
-        elif _is_jacket: dynamic_marker_efficiency = 0.62
-        elif _is_skirt_or_dress: dynamic_marker_efficiency = 0.61
-
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    if not isinstance(stored_virtual_pieces, dict): stored_virtual_pieces = {}
     
     calculated_gross_list = []
     summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
 
-    # 🔥 ENGINE TÍNH ĐỊNH MỨC THEO DIỆN TÍCH HÌNH HỌC THỰC TẾ & KHÓA CHẶT SỐ MẢNH ĐỐI XỨNG
+    # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY
     for idx, r in df_bom.iterrows():
         v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
         
-        # 1. Phân loại nhóm vật tư sạch an toàn tránh lệch Key hoa-thường
+        # Phân loại nhóm vật tư sạch an toàn
         p_cls = "FABRIC"
         for field in ["Material Class", "material_class", "inferred_class"]:
             if field in r and pd.notna(r[field]): p_cls = str(r[field]).upper().strip()
             elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
             if p_cls in summary_grouped_gross: break
 
-        # 2. Đọc diện tích tịnh đơn mảnh
+        # Lấy diện tích tịnh đơn mảnh từ Đoạn 4
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         
-        # 3. 🧠 BỘ LỌC TỰ ĐỘNG KHÔI PHỤC SỐ MẢNH RẬP THEO TIÊU CHUẨN KỸ THUẬT MAY
+        # 🧠 ĐỒNG BỘ ÉP SỐ LƯỢNG MẢNH ĐỐI XỨNG LÊN LƯỚI GIAO DIỆN UI
         c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
-        
-        # Mặc định lấy từ dữ liệu lưu trữ
-        pcs = int(v.get("active_user_pieces", r.get("pcs_numeric", r.get("Số lượng rập", 1))))
-        
-        # Ép logic nhận diện đối xứng nếu hệ thống nhận diện thiếu hụt (bị bằng 1)
-        if pcs <= 1:
-            if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui"]):
-                pcs = 2  # Các chi tiết đối xứng trái/phải bắt buộc phải có ít nhất 2 mảnh
-            elif "pocket flap" in c_name_lower or "nap tui" in c_name_lower:
-                pcs = 2 if "chest" not in c_name_lower else 2
-                
-        # Cập nhật số rập thủ công do người dùng chỉnh sửa trên giao diện nếu có
+        pcs = 1
+        if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui"]):
+            pcs = 2  # Bắt buộc nhận diện 2 mảnh đối xứng
+            
+        # Kiểm tra xem người dùng có can thiệp sửa số lượng mảnh trên UI không
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
             
         pcs = max(pcs, 1)
-        # Đồng bộ ngược số lượng rập chuẩn vào bộ nhớ đệm phục vụ hiển thị cho Đoạn 7.1 và 7.2
+        
+        # Ghi đè đồng bộ thẳng vào DataFrame gốc để Đoạn 7.1 hiển thị số 2 chuẩn xác
+        df_bom.at[idx, "Số lượng rập"] = int(pcs)
         if idx in stored_virtual_pieces:
             stored_virtual_pieces[idx]["active_user_pieces"] = pcs
-        df_bom.at[idx, "Số lượng rập"] = int(pcs)
         
-        # 4. Tổng diện tích hình thái học thực tế của dòng chi tiết sau khi nhân số mảnh chuẩn (inch vuông)
+        # Diện tích dòng chi tiết thực tế (inch vuông)
         total_piece_area = pure_unit_area * pcs
         
-        # 5. Đọc khổ vải sản xuất động tương ứng với nhóm vật tư đang xử lý
+        # Đọc khổ vải sản xuất động
         if p_cls == "FUSING":
             current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING":
@@ -2242,21 +2226,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        # 6. ⚙️ CÔNG THỨC TOÁN HỌC IE ĐỊNH MỨC TIÊU HAO PHẲNG (Tính bằng Yards)
+        # CÔNG THỨC TOÁN HỌC IE ĐỊNH MỨC TIÊU HAO PHẲNG (Tính bằng Yards)
         gross_yds = total_piece_area / (current_w * 36.0 * dynamic_marker_efficiency)
         
-        # 7. 🔥 ĐIỀU CHỈNH NÂNG HỆ SỐ AN TOÀN ĐỊNH MỨC THƯƠNG MẠI (COMMERCIAL IE BUFFER CHỐNG HAO HỤT)
+        # 🔥 ĐIỀU CHỈNH HẠ HỆ SỐ COMMERCIAL BUFFER XUỐNG MỨC CÂN BẰNG THỰC TẾ
         if p_cls == "FABRIC":
-            # Hệ số nhân thương mại tối ưu cho hàng Jean/Khaki để bù khoảng hở dập sơ đồ thực tế
-            ie_commercial_factor = 1.34  
+            ie_commercial_factor = 1.14  # Hạ từ 1.34 xuống 1.14 để định mức quay về vùng an toàn
         elif p_cls == "LINING":
-            ie_commercial_factor = 1.25
-        elif p_cls == "FUSING":
-            ie_commercial_factor = 1.20
+            ie_commercial_factor = 1.10
         else:
-            ie_commercial_factor = 1.15
+            ie_commercial_factor = 1.08
             
-        # Tính toán định mức dòng chi tiết sau nhân hệ số bù thương mại
+        # Tính toán định mức dòng chi tiết cuối cùng
         final_row_gross = round(gross_yds * ie_commercial_factor, 4)
         calculated_gross_list.append(final_row_gross)
         
@@ -2267,7 +2248,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # GHI ĐÈ TRỰC TIẾP KẾT QUẢ ĐÃ NÂNG CẤP VÀO DF_BOM
     df_bom["Gross Consumption"] = calculated_gross_list
     
-    # ĐỒNG BỘ TRỰC TIẾP LÊN BIẾN MONITOR ĐẦU TRANG ĐỂ TRÁNH LỖI NONE CACHE
+    # ĐỒNG BỘ TRỰC TIẾP LÊN BIẾN MONITOR ĐẦU TRANG
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
@@ -2276,12 +2257,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "ai_expert_decision" not in st.session_state["bom_data"]:
             st.session_state["bom_data"]["ai_expert_decision"] = {}
         
-        # Đồng bộ các biến điều khiển liên tầng sang Đoạn 7
         st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency)
-        st.session_state["bom_data"]["ai_expert_decision"]["complexity_score"] = float(complexity_score if 'complexity_score' in locals() else 45.0)
         st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
-        
-        # Đẩy tổng định mức chuẩn nhóm vào bộ não AI để đồng bộ lưới xuất file Excel thương mại
         st.session_state["bom_data"]["ai_expert_decision"]["total_fabric_gross_yds"] = summary_grouped_gross["FABRIC"]
         st.session_state["bom_data"]["ai_expert_decision"]["total_lining_gross_yds"] = summary_grouped_gross["LINING"]
         st.session_state["bom_data"]["ai_expert_decision"]["total_fusing_gross_yds"] = summary_grouped_gross["FUSING"]
