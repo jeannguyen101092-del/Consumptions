@@ -873,41 +873,19 @@ if safe_user_prompt:
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN MASTER V26 - GIẢI PHÓNG ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V24 - MASTER FIX KHÓA CHẶT KHỔ VẢI THEO CHAT)
 # =====================================================================
-
-# 🚨 CHÈN LÊN ĐẦU KHỐI: Luôn luôn trích xuất câu lệnh chat ở mọi vòng đời tải trang, chống bẫy kẹt số 58.0
-import re
-current_query = st.session_state.get("last_submitted_query", "")
-
-# Khởi tạo giá trị barem tiêu chuẩn ngành dệt may
-dynamic_width = float(st.session_state.get("current_active_width", 56.0))
-target_size = str(st.session_state.get("current_active_size", "32"))
-
-if current_query:
-    query_str_lower = str(current_query).lower()
-    
-    # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT ĐỘNG (Ưu tiên tuyệt đối phiên chat hoạt động)
-    w_m = re.search(r"(khổ\s*vải|khổ|width)\s*(\d+(\.\d+)?)", query_str_lower)
-    if w_m: 
-        dynamic_width = float(w_m.group(2))
-        # Khóa chặt giá trị vào RAM hệ thống, bất biến trước mọi luồng nạp hay ghi đè muộn
-        st.session_state["current_active_width"] = dynamic_width
-        
-    # B. BÓC TÁCH KÍCH CỠ SIZE SẢN XUẤT
-    s_m = re.search(r"(cỡ|size)\s*(\d+)", query_str_lower)
-    if s_m: 
-        target_size = str(s_m.group(2)).upper().strip()
-        st.session_state["current_active_size"] = target_size
-else:
-    # Duy trì liên tục thông số cấu hình cũ trong RAM để tránh bị trả về trống khi AI tắt spinner
-    st.session_state["current_active_width"] = dynamic_width
-    st.session_state["current_active_size"] = target_size
-
-
-# 🔥 LUỒNG XỬ LÝ AI PROCESSING CHÍNH
 if st.session_state.ai_processing:
+    current_query = st.session_state["last_submitted_query"]
     active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+
+    dynamic_width, target_size = 58.0, "32"
+    if current_query:
+        import re
+        w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        if w_m: dynamic_width = float(w_m.group(2))
+        s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
+        if s_m: target_size = str(s_m.group(2))
 
     if active_pdf is not None:
         with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
@@ -976,7 +954,7 @@ if st.session_state.ai_processing:
                 - IGNORE them completely. They do NOT have marker dimensions or 2D polygon packing footprints.
                 - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), FUSING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
                 
-                🚨 CRITICAL SINGLE PIECE DIMENSION RULE (LUẬT RẬP ĐƠN CAD):
+                🚨 CRITICAL SINGLE PIECE BLOCK RULE (LUẬT RẬP ĐƠN CAD):
                 - 'bounding_box_width' MUST represent the width of ONE SINGLE physical piece (e.g., around 11-14 inches for a single front/back panel of long pants).
                 - NEVER combine or double the width of left and right symmetric panels into a single row width (Never output 25+ inches for a single panel width).
                 
@@ -1004,22 +982,40 @@ if st.session_state.ai_processing:
                 Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
                 """
 
-                # 3. GỌI HÀM QUÉT AI CACHE ĐÃ ĐỒNG BỘ CHUẨN KHÓA XUẤT BIẾN RAW_JSON_SCHEMA
+                # 3. GỌI HÀM QUÉT AI VÀ VÁ LỖI CẮT CỤT BIẾN RAW_JSON_SCHEMA
                 bom_data = execute_final_gerber_pure_scan(
                     pdf_bytes=active_pdf, current_query=current_query,
                     active_width=dynamic_width, target_size_cmd=target_size,
-                    raw_json_schema=raw_json_schema # ✅ ĐÃ SỬA: Thay thế raw_js lỗi bằng raw_json_schema chuẩn
+                    raw_json_schema=raw_json_schema # ✅ ĐÃ VÁ LỖI CHÍNH TẢ: Đổi raw_js thành raw_json_schema
                 )
                 
-                # Tắt cờ xử lý khi hoàn thành chu kỳ thành công
+                # =====================================================================
+                # 🔥 BỘ KHÓA CHẶT THÔNG SỐ CHAT ĐẦU RA (ANTI-OVERRIDE LAYER)
+                # =====================================================================
+                if bom_data and isinstance(bom_data, dict):
+                    # Cưỡng bức đè giá trị từ chat vào cấu hình AI trả về, triệt tiêu số 58 cũ của file
+                    bom_data["fabric_width_inch"] = float(dynamic_width)
+                    bom_data["usable_width_inch"] = float(dynamic_width)
+                    bom_data["calculated_on_size"] = str(target_size)
+                    
+                    if "ai_expert_decision" in bom_data and isinstance(bom_data["ai_expert_decision"], dict):
+                        bom_data["ai_expert_decision"]["detected_base_size"] = str(target_size)
+                        bom_data["ai_expert_decision"]["fabric_width"] = float(dynamic_width)
+
+                # Đồng bộ tối thượng vào bộ nhớ RAM hệ thống liên tầng cho Đoạn 4, 5, 7 thừa kế
+                st.session_state["bom_data"] = bom_data
+                st.session_state["current_active_width"] = float(dynamic_width)
+                st.session_state["current_active_size"] = str(target_size)
+                
+                # Tắt cờ xử lý khi hoàn thành chu kỳ thành công và làm mới giao diện
                 st.session_state.ai_processing = False
                 st.rerun()
 
             except Exception as e:
-                # 🚨 ĐÃ VÁ LỖI TRIỆT ĐỂ: Hiện bảng báo lỗi chi tiết ra màn hình thay vì im lặng nuốt lỗi (pass)
+                # Vạch trần lỗi ẩn lên màn hình nếu có xung đột cấu trúc dữ liệu
                 st.error(f"❌ Lỗi xử lý luồng AI Execute (Đoạn 2): {str(e)}")
-                # Giải phóng cờ hiệu để gỡ đơ giao diện
                 st.session_state.ai_processing = False
+
                 st.rerun()
 
 
