@@ -2395,6 +2395,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     #    # =====================================================================
   
     # =====================================================================
+# # =====================================================================
 # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - PA1
 # =====================================================================
 
@@ -2505,7 +2506,7 @@ for _, r in df_bom_display.iterrows():
     if m_c in grouped_gross:
         grouped_gross[m_c] += float(r["Gross Consumption"])
         
-幕_for mat_cls, total_val in grouped_gross.items():
+for mat_cls, total_val in grouped_gross.items():
     if total_val > 0 or mat_cls in ["FABRIC", "FUSING"]:
         summary_data["Phân loại vật tư"].append(label_map.get(mat_cls, mat_cls))
         summary_data["Material Class"].append(mat_cls)
@@ -2516,6 +2517,7 @@ df_summary = pd.DataFrame(summary_data)
 
 st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
 st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
 
 
 # =====================================================================
