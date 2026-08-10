@@ -2508,88 +2508,95 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-   # =====================================================================
+# =====================================================================
 # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - PA1
 # =====================================================================
 
-# Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
-for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
-    if col in df_bom_display.columns:
-        df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
+# 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
+if 'df_bom_display' in locals() and df_bom_display is not None:
 
-ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
-display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
-df_bom_display = df_bom_display[display_final_cols]
+    # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
+    for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
+        if col in df_bom_display.columns:
+            df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
 
-col_t1, col_t2 = st.columns(2)
-col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
+    ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
+    display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
+    df_bom_display = df_bom_display[display_final_cols]
 
-# XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC ĐÃ NHÂN ĐÔI CỤC BỘ
-with col_t2:
-    try:
-        if 'local_export_excel_ppj_format' in locals():
-            excel_file = local_export_excel_ppj_format(
-                df_summary, 
-                df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                prod if 'prod' in locals() else "JEAN", 
-                ctx, 
-                marker_efficiency
-            )
-            style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
-            st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{style_name_clean}.xlsx", use_container_width=True)
-    except Exception as e: pass
+    col_t1, col_t2 = st.columns(2)
+    col_t1.subheader("📋 Bảng Kế Hoạch Định Mức Rải Sơ Đồ Chi Tiết")
 
-# Đảm bảo khởi tạo vùng nhớ State lưu trữ chỉnh sửa thủ công
-if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
-if "user_edited_mats" not in st.session_state: st.session_state["user_edited_mats"] = {}
+    # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC ĐÃ NHÂN ĐÔI CỤC BỘ
+    with col_t2:
+        try:
+            if 'local_export_excel_ppj_format' in locals():
+                excel_file = local_export_excel_ppj_format(
+                    df_summary if 'df_summary' in locals() else None, 
+                    df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
+                    prod if 'prod' in locals() else "JEAN", 
+                    ctx if 'ctx' in locals() else {}, 
+                    marker_efficiency if 'marker_efficiency' in locals() else 0.78
+                )
+                style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_') if 'ctx' in locals() else 'Style'
+                st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{style_name_clean}.xlsx", use_container_width=True)
+        except Exception as e: pass
 
-# 🔥 GIẢI PHÁP PHÁ TRẠNG THÁI CACHE: Tạo Key động dựa trên khổ vải và kích cỡ hiện hành
-current_active_width_key = str(st.session_state.get("current_active_width", 56.0)).replace(".", "_")
-current_active_size_key = str(st.session_state.get("current_active_size", "30")).strip().lower()
-dynamic_editor_key = f"bom_editor_w_{current_active_width_key}_s_{current_active_size_key}"
+    # Đảm bảo khởi tạo vùng nhớ State lưu trữ chỉnh sửa thủ công
+    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_mats" not in st.session_state: st.session_state["user_edited_mats"] = {}
 
-# RENDER GRID CHI TIẾT - Áp dụng dynamic_editor_key để ép giải phóng bộ nhớ đệm
-edited_df = st.data_editor(
-    df_bom_display, 
-    key=dynamic_editor_key,
-    column_config={
-        "_original_row_index": None, 
-        "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
-        "Material Class": st.column_config.SelectboxColumn(
-            "🧵 Material Class", 
-            options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB"],
-            required=True,
-            disabled=False
-        ),
-        "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
-        "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
-        "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
-        "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f", disabled=True),
-        "Size tính toán": st.column_config.TextColumn("Size tính toán", disabled=True),
-        "Số lượng rập": st.column_config.NumberColumn("🔢 Số lượng rập", format="%d", min_value=1, disabled=False),
-        "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True),
-        "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True)
-    }
-)
+    # GIẢI PHÁP PHÁ TRẠNG THÁI CACHE: Tạo Key động dựa trên khổ vải và kích cỡ hiện hành
+    current_active_width_key = str(st.session_state.get("current_active_width", 56.0)).replace(".", "_")
+    current_active_size_key = str(st.session_state.get("current_active_size", "30")).strip().lower()
+    dynamic_editor_key = f"bom_editor_w_{current_active_width_key}_s_{current_active_size_key}"
 
-# BỘ LẮNG NGHE SỰ KIỆN: Cập nhật lắng nghe theo dynamic_editor_key mới
-if edited_df is not None and "edited_rows" in st.session_state.get(dynamic_editor_key, {}):
-    changes = st.session_state[dynamic_editor_key]["edited_rows"]
-    has_updates = False
-    
-    for row_idx_str, updated_cols in changes.items():
-        row_idx = int(row_idx_str)
-        orig_idx = df_bom_display.iloc[row_idx]["_original_row_index"]
+    # RENDER GRID CHI TIẾT - Áp dụng dynamic_editor_key để ép giải phóng bộ nhớ đệm
+    edited_df = st.data_editor(
+        df_bom_display, 
+        key=dynamic_editor_key,
+        column_config={
+            "_original_row_index": None, 
+            "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
+            "Material Class": st.column_config.SelectboxColumn(
+                "🧵 Material Class", 
+                options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB"],
+                required=True,
+                disabled=False
+            ),
+            "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
+            "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
+            "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
+            "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f", disabled=True),
+            "Size tính toán": st.column_config.TextColumn("Size tính toán", disabled=True),
+            "Số lượng rập": st.column_config.NumberColumn("🔢 Số lượng rập", format="%d", min_value=1, disabled=False),
+            "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True),
+            "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True)
+        }
+    )
+
+    # BỘ LẮNG NGHE SỰ KIỆN: Cập nhật lắng nghe theo dynamic_editor_key mới
+    if edited_df is not None and "edited_rows" in st.session_state.get(dynamic_editor_key, {}):
+        changes = st.session_state[dynamic_editor_key]["edited_rows"]
+        has_updates = False
         
-        # Lưu số lượng rập mới sửa
-        if "Số lượng rập" in updated_cols:
-            st.session_state["user_edited_pieces"][orig_idx] = int(updated_cols["Số lượng rập"])
-            has_updates = True
+        for row_idx_str, updated_cols in changes.items():
+            row_idx = int(row_idx_str)
+            orig_idx = df_bom_display.iloc[row_idx]["_original_row_index"]
             
-        # Lưu Material Class mới sửa
-        if "Material Class" in updated_cols:
-            st.session_state["user_edited_mats"][orig_idx] = str(updated_cols["Material Class"]).upper().strip()
-            has_updates = True
-            
-    if has_updates:
-        st.rerun()
+            # Lưu số lượng rập mới sửa
+            if "Số lượng rập" in updated_cols:
+                st.session_state["user_edited_pieces"][orig_idx] = int(updated_cols["Số lượng rập"])
+                has_updates = True
+                
+            # Lưu Material Class mới sửa
+            if "Material Class" in updated_cols:
+                st.session_state["user_edited_mats"][orig_idx] = str(updated_cols["Material Class"]).upper().strip()
+                has_updates = True
+                
+        if has_updates:
+            st.rerun()
+
+else:
+    # Trả về thông báo nhẹ nhàng nếu hệ thống chưa có dữ liệu để tính toán
+    st.info("💡 Vui lòng chờ hệ thống xử lý hoặc tải lên tệp phôi rập để hiển thị bảng định mức chi tiết.")
