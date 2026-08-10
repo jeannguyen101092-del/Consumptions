@@ -883,9 +883,21 @@ if st.session_state.ai_processing:
     if current_query:
         import re
         w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-        if w_m: dynamic_width = float(w_m.group(2))
+        if w_m: 
+            dynamic_width = float(w_m.group(2))
+            # 🔥 ĐỒNG BỘ ÉP VÀO BỘ NHỚ HỆ THỐNG
+            st.session_state["current_active_width"] = dynamic_width
+            
         s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
-        if s_m: target_size = str(s_m.group(2))
+        if s_m: 
+            target_size = str(s_m.group(2))
+            # 🔥 ĐỒNG BỘ CỠ/SIZE VÀO BỘ NHỚ HỆ THỐNG
+            st.session_state["current_active_size"] = target_size
+    else:
+        # Nếu không có câu lệnh chat, đồng bộ giá trị mặc định tránh lỗi rỗng
+        st.session_state["current_active_width"] = dynamic_width
+        st.session_state["current_active_size"] = target_size
+
 
     if active_pdf is not None:
         with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
