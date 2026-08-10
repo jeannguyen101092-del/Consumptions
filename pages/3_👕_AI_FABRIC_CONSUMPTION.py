@@ -2173,7 +2173,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     MARKER_EFFICIENCY_MAP = {
         "SHORT": 0.68,                                               
         "JEAN": 0.68, "KHAKI": 0.68, "TROUSER": 0.68, "PANT": 0.68,  
-        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.63,
+        "JACKET": 0.6, "COAT": 0.6, "BLAZER": 0.6, "SUIT": 0.6,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.75, "TEE": 0.75, "TSHIRT": 0.75, "TANK": 0.75,
         "HOODIE": 0.70, "SWEATER": 0.70,
