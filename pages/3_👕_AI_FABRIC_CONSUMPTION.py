@@ -2256,14 +2256,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V59 - CHUẨN KIẾN TRÚC XƯỞNG)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V60 - FIX ĐM THẤP TOÀN CẦU)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
     _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
     _is_jacket = locals().get("is_jacket", False)
 
-    # 🤖 1. DYNAMIC MARKER EFFICIENCY - MA TRẬN V59 CHUẨN CHO ĐẦM/VÁY
+    # 🤖 1. DYNAMIC MARKER EFFICIENCY - MA TRẬN V60 CHUẨN CHO ĐẦM/VÁY/QUẦN ÁO
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
     dynamic_marker_efficiency = 0.74  # Fallback mặc định cho đồ Jean/Khaki
 
@@ -2321,41 +2321,42 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
             if p_cls in summary_grouped_gross: break
 
-        # 🧠 SỬA LỖI 3: XỬ LÝ FALLBACK KHI DIỆN TÍCH TỊNH BẰNG 0 (ĐỒNG BỘ VỚI ĐOẠN 7.1)
-        pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        
-        if pure_unit_area <= 0.0:
-            # Nếu không có diện tích tịnh, lấy kích thước dài x rộng của rập nhân hệ số bao phủ hình học bao quanh
-            piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập", 0.0))))
-            piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập", 0.0))))
-            # Fallback diện tích dựa trên hình chữ nhật bao phủ ngoại tiếp rập (Bounding Box)
-            pure_unit_area = piece_length * piece_width * 0.74 
-        
-        # 🧠 SỬA LỖI 2: CƠ CHẾ KIỂM TRA SỐ LƯỢNG MẢNH (PCS) THEO 3 TẦNG ĐA NHIỆM
-        # Tầng 1: Ưu tiên tuyệt đối nếu người dùng đã chủ động chỉnh sửa trên UI
+        c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
+
+        # 🧠 CẢI TIẾN 1: ÉP KHÔI PHỤC SỐ LƯỢNG MẢNH (PCS) THEO CẶP ĐỐI XỨNG CỦA NGÀNH MAY IE
+        if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
+            pcs_default = 2  # Các chi tiết chính, tay, túi, đáp che luôn có cặp đối xứng trái/phải
+        else:
+            pcs_default = 1  # Chi tiết đơn như lưng, đỉa, túi xu
+
+        # Cơ chế gác cổng 3 tầng kiểm tra số lượng mảnh:
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
-        
-        # Tầng 2: Sử dụng số lượng rập gốc đã được BOM/Solver tính toán từ trước (Nếu có dữ liệu hợp lệ)
-        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
+        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) > 1:
             pcs = int(r["Số lượng rập"])
-        elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
+        elif "active_user_pieces" in v and int(v["active_user_pieces"]) > 1:
             pcs = int(v["active_user_pieces"])
-            
-        # Tầng 3: Giải pháp cuối cùng - Chỉ phân tích từ ngữ tên chi tiết nếu các tầng trên trống dữ liệu
         else:
-            c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
-            pcs = 1
-            if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui"]):
-                pcs = 2  # Gợi ý nhận diện cặp đối xứng trái/phải nếu hệ thống chưa có số liệu gốc
+            pcs = pcs_default
 
         pcs = max(pcs, 1)
         
-        # Ghi đè đồng bộ ngược lại DataFrame gốc và Bộ nhớ tạm để hiển thị đồng nhất ở Đoạn 7.1
+        # Ghi đè đồng bộ ngược lại DataFrame gốc và Bộ nhớ tạm
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
         if idx not in stored_virtual_pieces:
             stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
+
+        # 📐 CẢI TIẾN 2: THUẬT TOÁN BẢO VỆ DIỆN TÍCH - CHỐNG AI TRÍCH XUẤT THIẾU HOẶC SAI LỆCH RẬP CAD
+        pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
+        piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
+        piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
+        bbox_area = piece_length * piece_width
+
+        # Khử lỗi: Nếu diện tích tịnh bằng 0 hoặc nhỏ bất thường (<72%) so với khung hình chữ nhật ngoại tiếp của chi tiết chính
+        if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * 0.72):
+            # Áp dụng công thức ước lượng an toàn hình học của IE ngành may (Dài x Rộng x Hệ số diện tích bao phủ thực tế)
+            pure_unit_area = bbox_area * (0.82 if p_cls == "FUSING" else 0.76)
         
         # Tính tổng diện tích dòng chi tiết thực tế (inch vuông)
         total_piece_area = pure_unit_area * pcs
@@ -2368,7 +2369,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             current_w = float(st.session_state.get("current_active_width", 56.0))
             
-        if current_w <= 0: current_w = 56.0 
+        if current_w <= 0: 
+            current_w = 56.0 
 
         # CÔNG THỨC TOÁN HỌC IE ĐỊNH MỨC TIÊU HAO PHẲNG (Tính bằng Yards)
         gross_yds = total_piece_area / (current_w * 36.0 * dynamic_marker_efficiency)
@@ -2408,6 +2410,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"]["ai_expert_decision"]["total_fabric_gross_yds"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["bom_data"]["ai_expert_decision"]["total_lining_gross_yds"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["bom_data"]["ai_expert_decision"]["total_fusing_gross_yds"] = round(summary_grouped_gross["FUSING"], 4)
+
 
 
         # =====================================================================
