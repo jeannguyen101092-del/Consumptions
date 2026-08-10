@@ -2537,8 +2537,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
     #    # =====================================================================
   
-        # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - VERSION V59 CHUẨN ĐỒNG BỘ
+         # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V59 CHUẨN ĐỒNG BỘ
     # =====================================================================
     import re
     import pandas as pd
@@ -2568,7 +2568,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Rút đúng hiệu suất động từ Đoạn 5.2 truyền xuống
     marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7400))
 
-    # Đọc khổ vải sản xuất động từ Session State (Đã được xử lý hoặc đồng bộ từ đoạn chat)
+    # Đọc khổ vải sản xuất động từ Session State
     chat_width_override = st.session_state.get("current_active_width", 56.0)
     st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
 
@@ -2579,7 +2579,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT - LẤY DỮ LIỆU GỐC TỪ ĐOẠN 5.2 (BỎ ENGINE TÍNH LẠI)
+    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH (CHỈ GÁN THÔNG TIN, KHÔNG TÍNH TOÁN LẠI)
     df_bom_display = df_bom.copy()
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
     
@@ -2587,17 +2587,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
 
-    # Mảng map để gán cột hiển thị khổ vải lên UI cho người dùng xem
     calculated_widths = []
     clean_mats = []
 
     for idx, row in df_bom_display.iterrows():
-        # Lấy Material Class hiện tại
         solver_piece_data = virtual_pieces.get(idx, virtual_pieces.get(str(idx), {})) if isinstance(virtual_pieces, dict) else {}
         p_cls = st.session_state.get("user_edited_mats", {}).get(idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
         clean_mats.append(p_cls)
 
-        # Khổ vải hiển thị chuẩn hóa đồng bộ với Đoạn 5.2
         if p_cls == "FUSING":
             p_width = 59.0
         elif p_cls == "LINING":
@@ -2609,7 +2606,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Khổ vải sản xuất (inch)"] = calculated_widths
 
-    # 🔥 ĐỒNG BỘ TUYỆT ĐỐI TỪ ĐOẠN 5.2 - KHÔNG TÍNH TOÁN LẠI
+    # Đồng bộ tuyệt đối dữ liệu định mức và số lượng rập từ Single Source Đoạn 5.2
     if "Gross Consumption" in df_bom.columns:
         df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
     else:
@@ -2620,7 +2617,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom_display["Số lượng rập"] = 1
 
-    # 3. CƠ CHẾ GOM NHÓM ĐỘNG CHO BẢNG SUMMARY TỪ LƯỚI CHI TIẾT SẠCH
+    # 3. 📊 BẢNG 1: BẢNG TỔNG HỢP BOM SUMMARY (YARDS)
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
     label_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "CONTRAST": "VẢI PHỐI", "RIB": "BO / RIB"}
     grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2641,9 +2638,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
+    # 4. 🔍 BẢNG 2: LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS) - CHỈ GIỮ LẠI LƯỚI NÀY
     st.subheader("🔍 LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS)")
-    # Render bảng chi tiết cuối cùng ra UI
-    st.data_editor(df_bom_display, use_container_width=True)
+    
+    # Chỉ lọc các cột cần thiết đưa lên UI cho người dùng xem để tránh rối mắt
+    display_cols = [
+        "Component Name", "Material Class", "Role/Piece Type", 
+        "Chiều dài rập (inch)", "Chiều rộng rập (inch)", 
+        "Khổ vải sản xuất (inch)", "Size tính toán", 
+        "Số lượng rập", "polygon_net_area", "Gross Consumption"
+    ]
+    # Lọc an toàn phòng trường hợp thiếu cột
+    existing_cols = [c for c in display_cols if c in df_bom_display.columns]
+    
+    st.data_editor(
+        df_bom_display[existing_cols], 
+        use_container_width=True,
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True),
+            "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True)
+        }
+    )
 
 
 
