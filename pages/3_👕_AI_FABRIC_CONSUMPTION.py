@@ -835,9 +835,42 @@ safe_user_prompt = st.chat_input(
 
 # 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
 if safe_user_prompt:
-    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
+    query_text = str(safe_user_prompt).strip()
+    st.session_state["last_submitted_query"] = query_text
     st.session_state.ai_processing = True
+    
+    # =====================================================================
+    # ⚙️ BỘ TRÍ TUỆ NHÂN DIỆN LỆNH CHAT ĐỘNG (ROUTING PARSER LAYER)
+    # =====================================================================
+    import re
+    query_lower = query_text.lower()
+    
+    # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT (Ví dụ: "khổ 56", "khổ vải 54.5", "khổ sản xuất 58")
+    width_match = re.search(r'(?:khổ|kho|width|khổ vải|khổ sản xuất)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if width_match:
+        detected_width = float(width_match.group(1))
+        # Khóa chặt giá trị vào vùng nhớ liên tầng
+        st.session_state["current_active_width"] = detected_width
+        
+    # B. BÓC TÁCH CỠ/SIZE SẢN XUẤT (Mở rộng thêm - Ví dụ: "cỡ 32", "size 34", "cỡ l")
+    size_match = re.search(r'(?:cỡ|size|coer)\s*([a-z0-9]+)', query_lower)
+    if size_match:
+        detected_size = str(size_match.group(1)).upper().strip()
+        st.session_state["current_active_size"] = detected_size
+
+    # C. BÓC TÁCH TỶ LỆ CO RÚT (Mở rộng thêm nếu bạn cần dùng cho cấu hình sơ đồ)
+    # Tìm "co rút dọc 3" -> 3%
+    shrink_v_match = re.search(r'(?:dọc|doc)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if shrink_v_match:
+        st.session_state["shrinkage_vertical"] = float(shrink_v_match.group(1))
+    # Tìm "ngang 14" -> 14%    
+    shrink_h_match = re.search(r'(?:ngang)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if shrink_h_match:
+        st.session_state["shrinkage_horizontal"] = float(shrink_h_match.group(1))
+
+    # Thực hiện làm sạch luồng và rerun để cập nhật toàn bộ hệ thống
     st.rerun()
+
 
 # =====================================================================
 # 🟩 ĐOẠN 2 (PHIÊN BẢN V23 - CHUẨN ĐỒNG BỘ): SCHEMAS, PROMPTS & AI EXECUTE
