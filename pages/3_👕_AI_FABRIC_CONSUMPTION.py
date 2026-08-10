@@ -2485,11 +2485,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
     #    # =====================================================================
   
+       # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V28
     # =====================================================================
-      # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - PA1
-    # =====================================================================
-    
+    import re
+    import pandas as pd
+
     # 🔬 KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
     st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM")
     d_c1, d_c2, d_c3 = st.columns(3)
@@ -2515,10 +2516,36 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Rút đúng hiệu suất động từ Đoạn 5.2 truyền xuống
     marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7400))
 
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐẦU GIAO DIỆN
+    # =====================================================================
+    # 🔒 SINGLE SOURCE OF TRUTH - BỘ GÁC CỔNG TRÍCH XUẤT KHỔ VẢI TỪ CHAT V28
+    # =====================================================================
+    user_query_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
+    chat_width_override = st.session_state.get("current_active_width", None)
+
+    # Phòng hộ tối thượng: Nếu tầng chat chưa lưu biến, Đoạn 7.1 tự động bốc Regex từ chuỗi chữ thô ô chat
+    if chat_width_override is None and user_query_text:
+        chat_width_match = re.search(r"(khổ\s*vải|khổ|width)\s*(\d+(\.\d+)?)", user_query_text)
+        if chat_width_match:
+            chat_width_override = float(chat_width_match.group(2))
+            st.session_state["current_active_width"] = chat_width_override
+
+    # Fallback an toàn nếu không tìm thấy bất kỳ dữ liệu chat nào
+    if chat_width_override is None:
+        chat_width_override = 56.0
+
+    try:
+        chat_width_override = float(chat_width_override)
+    except (TypeError, ValueError):
+        chat_width_override = 56.0
+
+    chat_width_override = max(chat_width_override, 1.0)
+
+    # 🛠️ HIỂN THỊ CHI TIẾT NỒNG ĐỘ ĐỒNG BỘ PHIÊN CHAT ĐỘNG LÊN TRÊN ĐẦU BẢNG LƯỚI
+    st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
+
+    # 1. ✅ ĐÃ SỬA: HIỂN THỊ MA TRẬN METRICS (LOẠI BỎ DÒNG ĐÈ MỨC ĐỘ PHỨC TẠP 2 LẦN)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
-    m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
@@ -2545,34 +2572,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_cls = st.session_state.get("user_edited_mats", {}).get(orig_idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
         clean_mats.append(p_cls)
         
-        # =====================================================================
-        # 🔥 BIỆN PHÁP TOÀN CỤC: ÉP CHẾT SỐ PHIÊN CHAT ĐẦU RA (ANTI-CACHE 58 VÀ SỐ 1)
-        # =====================================================================
-        # A. CƯỠNG BỨC ÉP SỐ KHỔ VẢI CHAT BẤT KỲ (Bỏ hẳn vế lấy số 58 gốc của file)
-        chat_width_override = st.session_state.get("current_active_width", 56.0)
-        
+        # ✅ KHÓA ĐỒNG BỘ KHỔ VẢI THEO KHUÔN KHỔ QUY PHẠM THƯƠNG MẠI
         if p_cls == "FUSING":
-            p_width = 59.0
+            p_width = 59.0  # Định mức Keo/Mếch chạy theo sơ đồ khổ mếch tiêu chuẩn 59"
         elif p_cls == "LINING":
-            p_width = 57.0
+            p_width = 57.0  # Định mức Vải lót chạy theo sơ đồ khổ lót tiêu chuẩn 57"
         else:
-            p_width = float(chat_width_override) # Ép dùng số động từ ô chat (54, 48,...) cho toàn bộ vải chính FABRIC
+            p_width = chat_width_override # Ép dùng số động trích xuất từ ô chat (54, 48, 56,...) cho toàn bộ vải chính FABRIC
             
         calculated_widths.append(float(p_width))
         df_bom.at[orig_idx, "Khổ vải sản xuất (inch)"] = float(p_width)
 
-        # B. CƯỠNG BỨC ÉP SỐ LƯỢNG MẢNH ĐỐI XỨNG TRÁI/PHẢI (KHÔI PHỤC SỐ 2 CHO THÂN CHÍNH)
+        # ✅ CƯỠNG BỨC KHÔI PHỤC SỐ LƯỢNG MẢNH ĐỐI XỨNG TRÁI/PHẢI NGÀNH MAY IE (CHỐNG KẸT SỐ 1)
         comp_name_lower = str(row.get("Component Name", row.get("component_name", ""))).lower().strip()
-        
-        # Mặc định lấy số lượng từ bộ não ảo hoặc file
         pcs_final = int(float(solver_piece_data.get("active_user_pieces", row.get("Số lượng rập", 1))))
         
-        # Khôi phục logic rập cặp đối xứng công nghiệp dệt may nếu bộ nhớ thô báo bằng 1
         if pcs_final <= 1:
             if any(x in comp_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui"]):
                 pcs_final = 2  # Thân chính, tay áo, lót túi bắt buộc khôi phục về 2 chi tiết đối xứng trái phải
             
-        # Ưu tiên nếu người dùng tự click gõ sửa số lượng trên ô lưới UI
         if "user_edited_pieces" in st.session_state and orig_idx in st.session_state["user_edited_pieces"]:
             pcs_final = int(st.session_state["user_edited_pieces"][orig_idx])
             
@@ -2580,20 +2598,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         validated_pieces.append(int(pcs_final))
         
         # ✅ ENGINE TOÁN HỌC IE TÍNH ĐỊNH MỨC THEO KHỔ VẢI CHAT THỜI GIAN THỰC
-        # Lấy diện tích tịnh đơn mảnh từ rập hình học CAD phẳng
         pure_unit_area = float(solver_piece_data.get("polygon_net_area", row.get("polygon_net_area", 0.0)))
         if pure_unit_area <= 0:
             l_val = float(row.get("Chiều dài rập (inch)", 0.0))
             w_val = float(row.get("Chiều rộng rập (inch)", 0.0))
             pure_unit_area = l_val * w_val * (0.85 if p_cls == "FUSING" else 0.74)
             
-        # Tổng diện tích hình thái học thực tế của dòng chi tiết rập (inch vuông)
         total_piece_area = pure_unit_area * pcs_final
-        
-        # Định mức thô hình học = Tổng diện tích / (Khổ vải chat động * 36 inch * Hiệu suất sơ đồ chỉ chỉ định)
         gross_yds = total_piece_area / (p_width * 36.0 * marker_efficiency)
         
-        # Áp hệ số nhân hao hụt thương mại nhà máy (Commercial Buffer Layer)
         if p_cls == "FABRIC":
             commercial_factor = 1.14 
         elif p_cls == "LINING":
