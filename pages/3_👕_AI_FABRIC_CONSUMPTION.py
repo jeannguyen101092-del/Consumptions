@@ -2242,7 +2242,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     # Cập nhật ngược lại bộ não State phục vụ liên tầng độc lập cho Đoạn 5.2 và Đoạn 7
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-     import pandas as pd
+    import pandas as pd
     import streamlit as st
 
     # =====================================================================
