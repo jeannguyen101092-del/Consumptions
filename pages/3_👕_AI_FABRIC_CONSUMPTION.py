@@ -2131,11 +2131,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
 
-     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V28 - CHUẨN HÓA VÀ ĐỒNG BỘ LIÊN TẦNG ERP)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V59 - CHUẨN HÓA VÀ ĐỒNG BỘ LIÊN TẦNG ERP)
     # =====================================================================
     import json
     import math  
+    import re
+
+    # 🛒 SINGLE SOURCE OF TRUTH - BỘ TRÍCH XUẤT KHỔ VẢI TỪ ĐOẠN CHAT THỜI GIAN THỰC
+    user_query_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
+    if user_query_text:
+        chat_width_match = re.search(r"(khổ\s*vải|khổ|width)\s*(\d+(\.\d+)?)", user_query_text)
+        if chat_width_match:
+            # Ép biến toàn cục nhận số khổ vải mới nhất từ đoạn chat
+            st.session_state["current_active_width"] = float(chat_width_match.group(2))
 
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
         st.session_state["bom_data"] = {}
@@ -2183,8 +2192,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         c_name_upper = str(r.get("component_name", "")).upper().strip()
         
-        # Đồng bộ phân loại vật tư sạch từ Đoạn 4
-        p_class_check = str(v_piece.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
+        # SỬA LỖI NAME ERROR: Đổi row.get thành r.get cho đồng bộ vòng lặp iterrows
+        p_class_check = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         if any(x in c_name_upper for x in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "WAISTBAND FUSING"]): 
             p_class_check = "FUSING"
         elif any(x in c_name_upper for x in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "POCKET FACING"]): 
@@ -2242,6 +2251,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     # Cập nhật ngược lại bộ não State phục vụ liên tầng độc lập cho Đoạn 5.2 và Đoạn 7
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
     import pandas as pd
     import streamlit as st
 
@@ -2527,8 +2537,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
     #    # =====================================================================
   
-       # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V28
+        # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - VERSION V59 CHUẨN ĐỒNG BỘ
     # =====================================================================
     import re
     import pandas as pd
@@ -2558,114 +2568,59 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Rút đúng hiệu suất động từ Đoạn 5.2 truyền xuống
     marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7400))
 
-    # =====================================================================
-    # 🔒 SINGLE SOURCE OF TRUTH - BỘ GÁC CỔNG TRÍCH XUẤT KHỔ VẢI TỪ CHAT V28
-    # =====================================================================
-    user_query_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
-    chat_width_override = st.session_state.get("current_active_width", None)
-
-    # Phòng hộ tối thượng: Nếu tầng chat chưa lưu biến, Đoạn 7.1 tự động bốc Regex từ chuỗi chữ thô ô chat
-    if chat_width_override is None and user_query_text:
-        chat_width_match = re.search(r"(khổ\s*vải|khổ|width)\s*(\d+(\.\d+)?)", user_query_text)
-        if chat_width_match:
-            chat_width_override = float(chat_width_match.group(2))
-            st.session_state["current_active_width"] = chat_width_override
-
-    # Fallback an toàn nếu không tìm thấy bất kỳ dữ liệu chat nào
-    if chat_width_override is None:
-        chat_width_override = 56.0
-
-    try:
-        chat_width_override = float(chat_width_override)
-    except (TypeError, ValueError):
-        chat_width_override = 56.0
-
-    chat_width_override = max(chat_width_override, 1.0)
-
-    # 🛠️ HIỂN THỊ CHI TIẾT NỒNG ĐỘ ĐỒNG BỘ PHIÊN CHAT ĐỘNG LÊN TRÊN ĐẦU BẢNG LƯỚI
+    # Đọc khổ vải sản xuất động từ Session State (Đã được xử lý hoặc đồng bộ từ đoạn chat)
+    chat_width_override = st.session_state.get("current_active_width", 56.0)
     st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
 
-    # 1. ✅ ĐÃ SỬA: HIỂN THỊ MA TRẬN METRICS (LOẠI BỎ DÒNG ĐÈ MỨC ĐỘ PHỨC TẠP 2 LẦN)
+    # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT ĐỒNG BỘ AN TOÀN TRƯỚC HIỂN THỊ
+    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT - LẤY DỮ LIỆU GỐC TỪ ĐOẠN 5.2 (BỎ ENGINE TÍNH LẠI)
     df_bom_display = df_bom.copy()
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
     
     df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "32"))).upper().strip()
     df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
     df_bom_display["Role/Piece Type"] = "PRIMARY"
-    df_bom_display["_original_row_index"] = df_bom.index
 
-    clean_mats = []
+    # Mảng map để gán cột hiển thị khổ vải lên UI cho người dùng xem
     calculated_widths = []
-    validated_pieces = []
-    gross_consumptions = []
+    clean_mats = []
 
     for idx, row in df_bom_display.iterrows():
-        orig_idx = row["_original_row_index"]
-        solver_piece_data = virtual_pieces.get(orig_idx, virtual_pieces.get(str(orig_idx), {})) if isinstance(virtual_pieces, dict) else {}
-        
-        # Nhận diện nhóm vật tư (Ưu tiên từ UI chỉnh sửa)
-        p_cls = st.session_state.get("user_edited_mats", {}).get(orig_idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
+        # Lấy Material Class hiện tại
+        solver_piece_data = virtual_pieces.get(idx, virtual_pieces.get(str(idx), {})) if isinstance(virtual_pieces, dict) else {}
+        p_cls = st.session_state.get("user_edited_mats", {}).get(idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
         clean_mats.append(p_cls)
-        
-        # ✅ KHÓA ĐỒNG BỘ KHỔ VẢI THEO KHUÔN KHỔ QUY PHẠM THƯƠNG MẠI
+
+        # Khổ vải hiển thị chuẩn hóa đồng bộ với Đoạn 5.2
         if p_cls == "FUSING":
-            p_width = 59.0  # Định mức Keo/Mếch chạy theo sơ đồ khổ mếch tiêu chuẩn 59"
+            p_width = 59.0
         elif p_cls == "LINING":
-            p_width = 57.0  # Định mức Vải lót chạy theo sơ đồ khổ lót tiêu chuẩn 57"
+            p_width = 57.0
         else:
-            p_width = chat_width_override # Ép dùng số động trích xuất từ ô chat (54, 48, 56,...) cho toàn bộ vải chính FABRIC
-            
-        calculated_widths.append(float(p_width))
-        df_bom.at[orig_idx, "Khổ vải sản xuất (inch)"] = float(p_width)
+            p_width = float(chat_width_override)
+        calculated_widths.append(p_width)
 
-        # ✅ CƯỠNG BỨC KHÔI PHỤC SỐ LƯỢNG MẢNH ĐỐI XỨNG TRÁI/PHẢI NGÀNH MAY IE (CHỐNG KẸT SỐ 1)
-        comp_name_lower = str(row.get("Component Name", row.get("component_name", ""))).lower().strip()
-        pcs_final = int(float(solver_piece_data.get("active_user_pieces", row.get("Số lượng rập", 1))))
-        
-        if pcs_final <= 1:
-            if any(x in comp_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui"]):
-                pcs_final = 2  # Thân chính, tay áo, lót túi bắt buộc khôi phục về 2 chi tiết đối xứng trái phải
-            
-        if "user_edited_pieces" in st.session_state and orig_idx in st.session_state["user_edited_pieces"]:
-            pcs_final = int(st.session_state["user_edited_pieces"][orig_idx])
-            
-        pcs_final = max(pcs_final, 1)
-        validated_pieces.append(int(pcs_final))
-        
-        # ✅ ENGINE TOÁN HỌC IE TÍNH ĐỊNH MỨC THEO KHỔ VẢI CHAT THỜI GIAN THỰC
-        pure_unit_area = float(solver_piece_data.get("polygon_net_area", row.get("polygon_net_area", 0.0)))
-        if pure_unit_area <= 0:
-            l_val = float(row.get("Chiều dài rập (inch)", 0.0))
-            w_val = float(row.get("Chiều rộng rập (inch)", 0.0))
-            pure_unit_area = l_val * w_val * (0.85 if p_cls == "FUSING" else 0.74)
-            
-        total_piece_area = pure_unit_area * pcs_final
-        gross_yds = total_piece_area / (p_width * 36.0 * marker_efficiency)
-        
-        if p_cls == "FABRIC":
-            commercial_factor = 1.14 
-        elif p_cls == "LINING":
-            commercial_factor = 1.10
-        else:
-            commercial_factor = 1.08
-            
-        final_row_gross = round(gross_yds * commercial_factor, 4)
-        gross_consumptions.append(final_row_gross)
-
-    # Đổ ngược dữ liệu sạch hoàn chỉnh vào DataFrame hiển thị đầu ra
     df_bom_display["Material Class"] = clean_mats
     df_bom_display["Khổ vải sản xuất (inch)"] = calculated_widths
-    df_bom_display["Số lượng rập"] = validated_pieces
-    df_bom_display["Gross Consumption"] = gross_consumptions
 
-    # 🛠️ CƠ CHẾ GOM NHÓM ĐỘNG CHO BẢNG SUMMARY TỪ LƯỚI CHI TIẾT (Tự động cập nhật tổng ĐM)
+    # 🔥 ĐỒNG BỘ TUYỆT ĐỐI TỪ ĐOẠN 5.2 - KHÔNG TÍNH TOÁN LẠI
+    if "Gross Consumption" in df_bom.columns:
+        df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
+    else:
+        df_bom_display["Gross Consumption"] = 0.0
+
+    if "Số lượng rập" in df_bom.columns:
+        df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"]
+    else:
+        df_bom_display["Số lượng rập"] = 1
+
+    # 3. CƠ CHẾ GOM NHÓM ĐỘNG CHO BẢNG SUMMARY TỪ LƯỚI CHI TIẾT SẠCH
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
     label_map = {"FABRIC": "VẢI CHÍNH", "FUSING": "MÉC / KEO", "LINING": "VẢI LÓT", "CONTRAST": "VẢI PHỐI", "RIB": "BO / RIB"}
     grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0}
@@ -2680,17 +2635,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             summary_data["Phân loại vật tư"].append(label_map.get(mat_cls, mat_cls))
             summary_data["Material Class"].append(mat_cls)
             summary_data["Gross Consumption"].append(round(total_val, 4))
-            summary_data["UOM"].append("YDS")
-            
+            summary_data["UOM"].append("Yds")
+
     df_summary = pd.DataFrame(summary_data)
-
-    # Đồng bộ ngược thông số gộp nhóm lên RAM để hiển thị khối DEBUG đầu trang ổn định
-    st.session_state["summary_fabric_gross"] = round(grouped_gross["FABRIC"], 4)
-    st.session_state["summary_lining_gross"] = round(grouped_gross["LINING"], 4)
-    st.session_state["summary_fusing_gross"] = round(grouped_gross["FUSING"], 4)
-
-    st.markdown("##### 📊 Bảng Tổng Hợp Tiêu Hao Vật Tư Đại Trà (BOM Summary)")
+    st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+    st.subheader("🔍 LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS)")
+    # Render bảng chi tiết cuối cùng ra UI
+    st.data_editor(df_bom_display, use_container_width=True)
+
 
 
 # =====================================================================
