@@ -873,7 +873,7 @@ if safe_user_prompt:
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V24 - GIẢI PHÓNG ĐỒNG BỘ ĐA TẦNG): SCHEMAS, PROMPTS & AI EXECUTE
+# 🟩 ĐOẠN 2 (PHIÊN BẢN MASTER V25 - GIẢI PHÓNG ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
 # =====================================================================
 
 # 🚨 CHÈN LÊN ĐẦU KHỐI: Luôn luôn trích xuất câu lệnh chat ở mọi vòng đời tải trang, chống bẫy kẹt số 58.0
@@ -905,7 +905,7 @@ else:
     st.session_state["current_active_size"] = target_size
 
 
-# 🔥 HẠ KHỐI XỬ LÝ AI PROCESSING XUỐNG DƯỚI ĐỘC LẬP HOÀN TOÀN TẦNG NGOÀI
+# 🔥 LUỒNG XỬ LÝ AI PROCESSING CHÍNH
 if st.session_state.ai_processing:
     active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
 
@@ -1002,9 +1002,20 @@ if st.session_state.ai_processing:
                 
                 🚨 SECTION 4: RECONSTRUCTION & VALIDATION
                 Output inference_source, cad_reconstruction_score, f"""
-                # (Phần xử lý gọi API OpenAI/Gemini của bạn phía dưới giữ nguyên nguyên bản...)
+                
+                # -------------------------------------------------------------
+                # 💡 CHÚ Ý: ĐOẠN KHỐI GỌI API OPENAI/GEMINI CỦA BẠN DƯỚI ĐÂY GIỮ NGUYÊN BẢN
+                # (Ví dụ: response = client.chat.completions.create...)
+                # Đảm bảo cuối luồng xử lý thành công sẽ tắt cờ: st.session_state.ai_processing = False
+                # -------------------------------------------------------------
+
             except Exception as e:
-                pass
+                # 🚨 ĐÃ VÁ LỖI TRIỆT ĐỂ: Hiện bảng báo lỗi chi tiết ra màn hình thay vì im lặng nuốt lỗi (pass)
+                st.error(f"❌ Lỗi xử lý luồng AI Execute (Đoạn 2): {str(e)}")
+                # Giải phóng cờ hiệu để gỡ đơ giao diện
+                st.session_state.ai_processing = False
+                st.rerun()
+
 
 
 
