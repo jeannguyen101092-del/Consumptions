@@ -873,7 +873,7 @@ if safe_user_prompt:
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V24 - MASTER FIX KHÓA CHẶT KHỔ VẢI THEO CHAT)
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V27 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
 # =====================================================================
 if st.session_state.ai_processing:
     current_query = st.session_state["last_submitted_query"]
@@ -982,11 +982,14 @@ if st.session_state.ai_processing:
                 Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
                 """
 
-                # 3. GỌI HÀM QUÉT AI VÀ VÁ LỖI CẮT CỤT BIẾN RAW_JSON_SCHEMA
+                # 3. GỌI HÀM QUÉT AI VÀ BỔ SUNG ĐẦY ĐỦ THAM SỐ PROMPT_AGENT_2 
                 bom_data = execute_final_gerber_pure_scan(
-                    pdf_bytes=active_pdf, current_query=current_query,
-                    active_width=dynamic_width, target_size_cmd=target_size,
-                    raw_json_schema=raw_json_schema # ✅ ĐÃ VÁ LỖI CHÍNH TẢ: Đổi raw_js thành raw_json_schema
+                    pdf_bytes=active_pdf, 
+                    current_query=current_query,
+                    active_width=dynamic_width, 
+                    target_size_cmd=target_size,
+                    raw_json_schema=raw_json_schema,
+                    prompt_agent_2=prompt_agent_2  # ✅ ĐÃ SỬA: Thêm tham số chỉ thị AI bị thiếu để phá vỡ lỗi đỏ positional argument
                 )
                 
                 # =====================================================================
@@ -1010,6 +1013,9 @@ if st.session_state.ai_processing:
                 # Tắt cờ xử lý khi hoàn thành chu kỳ thành công và làm mới giao diện
                 st.session_state.ai_processing = False
                 st.rerun()
+
+          
+
 
             except Exception as e:
                 # Vạch trần lỗi ẩn lên màn hình nếu có xung đột cấu trúc dữ liệu
