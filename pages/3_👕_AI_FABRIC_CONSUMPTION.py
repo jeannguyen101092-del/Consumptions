@@ -2294,7 +2294,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V69 - THUẬT TOÁN DIỆN TÍCH SÀN)
+    # 🟩 ĐOẠN 5.2 - PHẦN 1: CONSUMPTION ROUTER & PUBLISHING (VERSION V70)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2307,10 +2307,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
 
+    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CƠ SỞ CHUẨN CÔNG NGHIỆP IE
     MARKER_EFFICIENCY_MAP = {
-        "DRESS": 0.66,
-        "SKIRT": 0.66,
-        "SHORT": 0.68,
+        "DRESS": 0.66, "SKIRT": 0.66, "SHORT": 0.68,
         "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
         "SHIRT": 0.78, "BLOUSE": 0.78,
@@ -2340,6 +2339,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             dynamic_marker_efficiency = 0.74
             detected_type_label = "JEAN_LONG"
 
+    # 🔥 DYNAMIC CAD PENALTY: ĐỌC TRẠNG THÁI CHECKBOX TỪ GIAO DIỆN (UI CONTROLS)
+    is_nap_mode = st.session_state.get("is_nap_fabric", False)          # Checkbox 2: Cắt mỗi bộ 1 chiều (Nap)
+    is_one_way_mode = st.session_state.get("is_one_way_fabric", False)  # Checkbox 3: Tất cả size 1 chiều (One-Way)
+
+    if is_one_way_mode:
+        dynamic_marker_efficiency -= 0.05  # Ép tất cả size một chiều (Vải tuyết/nhung): Trừ 5% hiệu suất
+    elif is_nap_mode:
+        dynamic_marker_efficiency -= 0.03  # Cắt mỗi bộ một chiều (Sơ đồ Nap): Trừ 3% hiệu suất
+
+    dynamic_marker_efficiency = max(0.52, dynamic_marker_efficiency)
+
+    # Đồng bộ ngược nhãn hiển thị chủng loại lên màn hình báo cáo
     if detected_type_label and "DRESS" in detected_type_label:
         st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
     elif detected_type_label and "SKIRT" in detected_type_label:
@@ -2356,8 +2367,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if "Số lượng rập" not in df_bom.columns:
         df_bom["Số lượng rập"] = None
-
-    # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY
+    # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY (TIẾP THEO)
     for idx, r in df_bom.iterrows():
         v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
         if not isinstance(v, dict): 
@@ -2385,15 +2395,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        # 🧠 THUẬT TOÁN DIỆN TÍCH SÀN CHUẨN IE: Tự động khôi phục mảnh dựa trên độ lớn hình học thực tế
+        # 🧠 THUẬT TOÁN DIỆN TÍCH SÀN CHUẨN IE: Tự động khôi phục mảnh dựa trên kích thước hộp bao hình
         if any(x in c_name_lower for x in ["back body", "collar top", "collar band"]):
             pcs_default = 1
         elif any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
-            # Nếu là rập thân hoặc tay nhưng diện tích bao hình hộp quá nhỏ (< 450 inch vuông), ép nhân đôi vì đó là rập vế đơn lẻ
             if bbox_area > 0 and bbox_area < 450.0:
                 pcs_default = 2
             else:
-                # Nếu rập to lớn sẵn (ví dụ rập mở đôi cả thân sau), giữ nguyên 1 mảnh để tránh bị cao ngất
                 pcs_default = 1
         else:
             pcs_default = 1  
@@ -2401,7 +2409,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
-            # Nếu file BOM/CAD ban đầu đã chỉ định số lượng lớn hơn mặc định của hệ thống, tôn trọng file gốc
             pcs = max(int(r["Số lượng rập"]), pcs_default)
         elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
             pcs = int(v["active_user_pieces"])
@@ -2430,7 +2437,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        row_efficiency = dynamic_marker_efficiency if dynamic_marker_efficiency else 0.74
+        row_efficiency = dynamic_marker_efficiency
         if p_cls == "RIB": row_efficiency = 0.82
         elif p_cls == "PADDING": row_efficiency = 0.85
 
@@ -2453,6 +2460,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Gross Consumption"] = calculated_gross_list
 
+    # ĐỒNG BỘ MONITOR LÊN DASHBOARD
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
@@ -2463,7 +2471,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict): st.session_state["bom_data"] = {}
     if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st.session_state["bom_data"]["ai_expert_decision"], dict): st.session_state["bom_data"]["ai_expert_decision"] = {}
         
-    st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency if dynamic_marker_efficiency else 0.74)
+    st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency)
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
     st.session_state["bom_data"]["ai_expert_decision"]["summary_grouped_gross"] = summary_grouped_gross
 
