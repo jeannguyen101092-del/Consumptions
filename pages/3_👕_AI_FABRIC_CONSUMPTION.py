@@ -1726,7 +1726,7 @@ st.session_state["current_weft_shrinkage"] = weft_shrink
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V21 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V25 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
 # =====================================================================
 import re
 import pandas as pd
@@ -1739,7 +1739,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
+    # 🚨 ĐỒNG BỘ ÉP NHẬN DIỆN CHỦNG LOẠI THỰC TẾ (CHỐNG AI BẮT NHẦM JEAN_LONG)
+    style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
+    material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
+    p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
+    
+    # Chuỗi tổng hợp phục vụ quét từ khóa chủng loại
+    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
+    
+    # Mặc định ban đầu lấy từ context
     prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JEAN_LONG"))).upper().strip()
+    
+    # Ép từ khóa ưu tiên cao từ mã hàng thực tế lên biến Master của hệ thống
+    if "DRESS" in combined_search_text:
+        prod = "DRESS"
+    elif "SKIRT" in combined_search_text:
+        prod = "SKIRT"
+    elif "SHORT" in combined_search_text:
+        prod = "SHORT"
+    elif "JACKET" in combined_search_text or "COAT" in combined_search_text:
+        prod = "JACKET"
+    elif "SHIRT" in combined_search_text:
+        prod = "SHIRT"
+
+    # Lưu ngược vào ctx và session để các công cụ hạ nguồn đồng bộ chính xác
+    ctx["detected_product_type"] = prod
+    ctx["product_segmented"] = prod
+    
     fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
@@ -1774,8 +1800,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         pcs_raw_str = str(row.get(pcs_col, "1"))
         pcs_extracted = re.search(r'(\d+)', pcs_raw_str)
         pcs_val = float(pcs_extracted.group(1)) if pcs_extracted else 1.0
-        
-        # 🛠️ CHỐNG LỖI NHÂN ĐÔI LŨY TIẾN: Giữ nguyên số lượng rập gốc nguyên bản từ file thô đầu vào
         return pcs_val
 
     df_bom["pcs_numeric"] = [
@@ -1787,9 +1811,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (CHỐNG PHẠT SAI LỆCH)
     # =====================================================================
-    # Loại bỏ hoàn toàn Regex quét lại lỏng lẻo ở Đoạn 2 để triệt tiêu lỗi bắt nhầm số rác làm phóng đại rập dài 50"
-    
-    # Đọc đồng bộ thời gian thực từ các khóa Master an toàn đã được Đoạn 1 xử lý sạch sẽ
     fabric_width = float(st.session_state.get("current_active_width", 58.0))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
@@ -1802,6 +1823,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["fabric_width_inch"] = fabric_width
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
+
     # =====================================================================
     # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V21 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
     # =====================================================================
