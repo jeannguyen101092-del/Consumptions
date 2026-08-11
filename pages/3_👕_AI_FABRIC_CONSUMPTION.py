@@ -2294,25 +2294,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V67 - TĂNG ĐM VÁY SKIRT)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V68 - FIX CAO NGẤT)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
     _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
     _is_jacket = locals().get("is_jacket", False)
 
-    # Đọc dữ liệu từ mã hàng và mô tả vải trên UI để ép nhận diện nếu AI trả về sai
     style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
     material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
     p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
-    # Chuỗi tổng hợp dùng để quét từ khóa chủng loại sản phẩm
     combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
 
-    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP (ĐÃ HẠ SKIRT XUỐNG 0.66 ĐỂ TĂNG ĐM)
     MARKER_EFFICIENCY_MAP = {
         "DRESS": 0.66,
-        "SKIRT": 0.66, # Hạ từ 0.71 xuống 0.66 giúp tăng định mức vải chính lên an toàn hơn
+        "SKIRT": 0.66,
         "SHORT": 0.68,
         "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
@@ -2320,7 +2317,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
     }
 
-    # 🔥 ENGINE QUÉT TỪ KHÓA ĐA TẦNG: Ép nhận diện chủng loại từ Mã hàng thực tế trước tiên
     dynamic_marker_efficiency = None
     detected_type_label = None
 
@@ -2330,7 +2326,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             detected_type_label = key
             break
 
-    # Nếu không quét được từ chuỗi text, check tiếp qua các Flag hệ thống
     if dynamic_marker_efficiency is None:
         if _is_skirt_or_dress:
             dynamic_marker_efficiency = 0.66
@@ -2345,7 +2340,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             dynamic_marker_efficiency = 0.74
             detected_type_label = "JEAN_LONG"
 
-    # Đồng bộ ngược nhãn hiển thị lên giao diện hiển thị cho người dùng thấy đúng chủng loại
     if detected_type_label and "DRESS" in detected_type_label:
         st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
     elif detected_type_label and "SKIRT" in detected_type_label:
@@ -2386,17 +2380,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung"]): p_cls = "FUSING"
             else: p_cls = "FABRIC"
 
-        # Ép số lượng mảnh rập theo cặp đối xứng
-        if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
+        # 🧠 THUẬT TOÁN KIỂM SOÁT SỐ LƯỢNG MẢNH - CHỐNG LỖI NHÂN ĐÔI LŨY TIẾN SƠ MI
+        # Nếu tên rập đã ghi rõ vế Trái/Phải (Left/Right) hoặc là mảng lưng đơn lẻ, mặc định bằng 1
+        if any(x in c_name_lower for x in ["left", "right", "trai", "phai", "back body", "collar top", "collar band"]):
+            pcs_default = 1
+        elif any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
             pcs_default = 2  
         else:
             pcs_default = 1  
 
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
-        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) > 1:
+        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
+            # Ưu tiên tôn trọng tuyệt đối số lượng rập gốc có trong file BOM đầu vào
             pcs = int(r["Số lượng rập"])
-        elif "active_user_pieces" in v and int(v["active_user_pieces"]) > 1:
+        elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
             pcs = int(v["active_user_pieces"])
         else:
             pcs = pcs_default
@@ -2433,7 +2431,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
-        # 🔥 ĐÃ TĂNG BUFFER HAO HỤT THƯƠNG MẠI CHO CHÂN VÁY LÊN VỪA VẶN HƠN (1.16 CHO VẢI CHÍNH)
+        # Hệ số hao hụt thương mại tương ứng với chủng loại quét được
         if detected_type_label and "SHORT" in detected_type_label:
             ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
         elif detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label):
