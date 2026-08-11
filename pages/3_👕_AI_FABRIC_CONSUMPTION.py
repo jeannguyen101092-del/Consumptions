@@ -1913,7 +1913,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"] = ctx
 
 
-        # =====================================================================
+         # =====================================================================
     # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V24 - MASTER GEOMETRY - FIXED SYNTAX): GEOMETRIC FEATURE ENGINE
     # =====================================================================
     import numpy as np
@@ -2056,6 +2056,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
+
 
 
 
