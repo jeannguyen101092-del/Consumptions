@@ -1726,7 +1726,7 @@ st.session_state["current_weft_shrinkage"] = weft_shrink
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V21 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V22 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
 # =====================================================================
 import re
 import pandas as pd
@@ -1739,7 +1739,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom = pd.DataFrame(rows) if isinstance(rows, list) else rows.copy()
     df_bom = df_bom.loc[:, ~df_bom.columns.duplicated()].copy()
     
+    # 🚨 ĐỒNG BỘ ÉP NHẬN DIỆN CHỦNG LOẠI THỰC TẾ (CHỐNG AI BẮT NHẦM JEAN_LONG)
+    style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
+    material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
+    p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
+    
+    # Chuỗi tổng hợp phục vụ quét từ khóa
+    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
+    
+    # Mặc định ban đầu
     prod = str(ctx.get("detected_product_type", ctx.get("product_segmented", "JEAN_LONG"))).upper().strip()
+    
+    # Ép từ khóa ưu tiên cao từ mã hàng thực tế lên biến Master của hệ thống
+    if "DRESS" in combined_search_text:
+        prod = "DRESS"
+    elif "SKIRT" in combined_search_text:
+        prod = "SKIRT"
+    elif "SHORT" in combined_search_text:
+        prod = "SHORT"
+    elif "JACKET" in combined_search_text or "COAT" in combined_search_text:
+        prod = "JACKET"
+    elif "SHIRT" in combined_search_text:
+        prod = "SHIRT"
+
+    # Lưu ngược vào ctx và session để các công cụ hạ nguồn (Đoạn 5.2) đồng bộ chính xác
+    ctx["detected_product_type"] = prod
+    ctx["product_segmented"] = prod
+    
     fabric_pattern_raw = str(ctx.get("fabric_pattern", "SOLID")).upper()
     
     m_col = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
@@ -1787,8 +1813,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # =====================================================================
     # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (CHỐNG PHẠT SAI LỆCH)
     # =====================================================================
-    # Loại bỏ hoàn toàn Regex quét lại lỏng lẻo ở Đoạn 2 để triệt tiêu lỗi bắt nhầm số rác làm phóng đại rập dài 50"
-    
     # Đọc đồng bộ thời gian thực từ các khóa Master an toàn đã được Đoạn 1 xử lý sạch sẽ
     fabric_width = float(st.session_state.get("current_active_width", 58.0))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
@@ -1803,8 +1827,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
     # =====================================================================
-      # =====================================================================
-    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V22 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
+======
+     # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V23 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
     # =====================================================================
     import pandas as pd
 
@@ -1822,19 +1846,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🧠 TẦNG 1: Gom toàn bộ văn bản danh sách linh kiện, loại bỏ ký tự rác để phân tích
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
 
-    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): Quét từ khóa đặc trưng hình học độc lập
-    if any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
-        if "SHORT" in prod_upper_name or "SHORT" in all_components_text:
-            product_category = "SHORT"
-        else:
-            product_category = "JEAN_LONG"
+    # Đọc thêm thông tin mã hàng/mô tả từ session để tăng độ chính xác khi quét
+    style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
+    material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
+    combined_context_text = f"{style_code_upper} {material_spec_upper} {prod_upper_name} {all_components_text}"
+
+    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): ĐÃ THAY ĐỔI THỨ TỰ ƯU TIÊN ĐỂ KHÔNG BỊ BẮT NHẦM QUẦN
+    # 👗 Ưu tiên 1: Kiểm tra xem có từ khóa Đầm/Váy trong ngữ cảnh/mã hàng/tên chi tiết không
+    if any(x in combined_context_text for x in ["SKIRT", "VÁY", "CHÂN VÁY", "CHAN VAY"]):
+        product_category = "SKIRT"
+    elif any(x in combined_context_text for x in ["DRESS", "ĐẦM", "DAM", "FLARE", "SHIFT", "MAXI"]):
+        product_category = "DRESS_FLARE"
+    elif any(x in combined_context_text for x in ["JACKET", "KHOÁC", "COAT", "BLAZER"]):
+        product_category = "JACKET"
+    elif "SHORT" in combined_context_text or "QUẦN SHORT" in combined_context_text:
+        product_category = "SHORT"
         
-    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO", "JACKET", "KHOÁC"]):
+    # 👖 Ưu tiên 2: Nếu không phải đầm/váy/áo khoác, mới quét đến cấu trúc Quần dài (Jean/Pant)
+    elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
+        product_category = "JEAN_LONG"
+        
+    elif any(x in all_components_text for x in ["SLEEVE", "COLLAR", "CỔ ÁO", "TAY ÁO"]):
         product_category = "JACKET"
         
     else:
         for k in COMPANY_DENSITY_PRIOR.keys():
-            if k in prod_upper_name or (k == "DRESS_FLARE" and any(d in prod_upper_name for d in ["DRESS", "FLARE", "ĐẦM", "XÒE", "SHIFT", "MAXI"])):
+            if k in prod_upper_name:
                 product_category = k
                 break
         
@@ -1875,8 +1912,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["current_estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     st.session_state["bom_data"] = ctx
 
-        # =====================================================================
-    # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V22 - MASTER GEOMETRY Chống Lỗi Kích Thước): GEOMETRIC FEATURE ENGINE
+
+      # =====================================================================
+    # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V23 - MASTER GEOMETRY Chống Lỗi Kích Thước): GEOMETRIC FEATURE ENGINE
     # =====================================================================
     import numpy as np
     import pandas as pd
@@ -1909,7 +1947,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     piece_areas = []
     total_pattern_pieces, total_pocket_pieces, max_piece_length = 0.0, 0.0, 0.0
 
-    # 🛠️ BỘ PHÂN LOẠI CHẤT LIỆU LAYER TRÍ THỨC
+    # 🛠️ BỘ PHÂN LOẠI CHẤT LIỆU LAYER TRÍ THỨC (ĐÃ SỬA LỖI ĐỒNG BỘ TOÀN DIỆN)
     def _d3_internal_material_classify(row, idx, prod_cat):
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][idx]).upper().strip()
@@ -1919,14 +1957,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         fusing_kws = ["FUSING", "INTERLINING", "INTERFACING", "KEO", "MEC", "MẾCH", "BOND", "ADHESIVE", "LOT KEO", "TRICOT"]
         lining_kws = ["LINING", "LOT", "LÓT", "POCKETING", "MESH", "TAFFETA", "VAI LOT", "VẢI LÓT", "POCKET BAG"]
-        rib_kws = ["RIB", "BO GÂN", "BO", "CỔ BO", "TAY BO"]
+        rib_kws = ["RIB", "BO GÂN", "BO", "CỔ BO", "TAY BO", "BO CO", "BO TAY", "BO LAI", "BO LUNG"]
+        contrast_kws = ["CONTRAST", "PHOI", "VẢI PHOI", "VAI PHOI", "COMBO", "MATCHING"]
+        padding_kws = ["PADDING", "GÒN", "GON", "WADDING", "BÔNG LÓT", "BONG LOT", "QUILTING"]
         
-        if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT", "POCKET"]) and not any(x in mat_str or x in comp_str for x in fusing_kws + lining_kws):
+        # Kiểm tra chi tiết túi/lưng thuộc vải chính
+        if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT", "POCKET"]) and not any(x in mat_str or x in comp_str for x in fusing_kws + lining_kws + rib_kws + contrast_kws + padding_kws):
             return "FABRIC"
             
         if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
         if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
-        if any(k in mat_str or k in comp_str for k in rib_kws): return "LINING"
+        if any(k in mat_str or k in comp_str for k in rib_kws): return "RIB"        # Đã sửa lỗi map nhầm thành LINING
+        if any(k in mat_str or k in comp_str for k in contrast_kws): return "CONTRAST" # Thêm mới nhận diện vải phối
+        if any(k in mat_str or k in comp_str for k in padding_kws): return "PADDING"   # Thêm mới nhận diện gòn
         return "FABRIC"
 
     for idx, r in df_bom.iterrows():
@@ -1938,22 +1981,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             continue
 
         try:
-            # ✅ ĐÃ SỬA: Quét đa trường khóa để lấy đúng số rập nguyên bản từ hệ thống
+            # Quét đa trường khóa để lấy đúng số rập nguyên bản từ hệ thống
             pcs_numeric_val = float(r.get("pcs_numeric", r.get("Số lượng rập", r.get("original_piece_count", 1.0))))
             if np.isnan(pcs_numeric_val): pcs_numeric_val = 1.0
         except:
             pcs_numeric_val = 1.0
 
-        # ✅ 🧠 BỘ LỌC KHÔI PHỤC SỐ MẢNH ĐỐI XỨNG TRÁI/PHẢI (CHỐNG LỖI HIỂN THỊ SỐ 1 VÀ HẠ ĐM)
+        # ✅ 🧠 BỘ LỌC KHÔI PHỤC SỐ MẢNH ĐỐI XỨNG TRÁI/PHẢI MỞ RỘNG CHO ĐẦM VÀ CHÂN VÁY
         c_name_lower = comp_name_clean.lower()
         if pcs_numeric_val <= 1.0:
-            if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui"]):
+            # Bổ sung thêm từ khóa "váy", "đầm", "skirt", "sleeve", "go", "đô" để tránh sót rập đối xứng của đồ nữ
+            if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "than vay", "than dam", "skirt panel", "side front", "side back"]):
                 pcs_numeric_val = 2.0  # Các chi tiết thân chính đối xứng bắt buộc khôi phục về số lượng bằng 2
 
         if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT", "BAG"]):
             total_pocket_pieces += float(st.session_state["user_edited_pieces"].get(idx, pcs_numeric_val))
 
-        if p_class_clean in ["FABRIC", "FUSING", "LINING"]:
+        if p_class_clean in ["FABRIC", "FUSING", "LINING", "CONTRAST", "RIB", "PADDING"]:
             current_pcs = float(st.session_state.get("user_edited_pieces", {}).get(idx, pcs_numeric_val))
             total_pattern_pieces += current_pcs
             
@@ -1966,7 +2010,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             l_val = float(r.get(l_prod_col_check, 0.0))
             w_val = float(r.get(w_prod_col_check, 0.0))
             
-            if p_class_clean == "FABRIC" and w_val > 16.0:
+            if p_class_clean == "FABRIC" and w_val > 16.0 and "SKIRT" not in product_category and "DRESS" not in product_category:
+                # Không tự động chia đôi chiều rộng đối với rập tà váy rộng xòe của đồ nữ
                 w_val = w_val / 2.0
                 if net_area > 0: net_area = net_area / 2.0
             
@@ -2008,6 +2053,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
+
 
         # =====================================================================
         # =====================================================================
