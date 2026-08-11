@@ -2294,7 +2294,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V68 - FIX CAO NGẤT)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V69 - THUẬT TOÁN DIỆN TÍCH SÀN)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2380,20 +2380,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             elif any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung"]): p_cls = "FUSING"
             else: p_cls = "FABRIC"
 
-        # 🧠 THUẬT TOÁN KIỂM SOÁT SỐ LƯỢNG MẢNH - CHỐNG LỖI NHÂN ĐÔI LŨY TIẾN SƠ MI
-        # Nếu tên rập đã ghi rõ vế Trái/Phải (Left/Right) hoặc là mảng lưng đơn lẻ, mặc định bằng 1
-        if any(x in c_name_lower for x in ["left", "right", "trai", "phai", "back body", "collar top", "collar band"]):
+        # Đọc thông số kích thước hình học rập để thẩm định diện tích thực
+        piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
+        piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
+        bbox_area = piece_length * piece_width
+
+        # 🧠 THUẬT TOÁN DIỆN TÍCH SÀN CHUẨN IE: Tự động khôi phục mảnh dựa trên độ lớn hình học thực tế
+        if any(x in c_name_lower for x in ["back body", "collar top", "collar band"]):
             pcs_default = 1
         elif any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
-            pcs_default = 2  
+            # Nếu là rập thân hoặc tay nhưng diện tích bao hình hộp quá nhỏ (< 450 inch vuông), ép nhân đôi vì đó là rập vế đơn lẻ
+            if bbox_area > 0 and bbox_area < 450.0:
+                pcs_default = 2
+            else:
+                # Nếu rập to lớn sẵn (ví dụ rập mở đôi cả thân sau), giữ nguyên 1 mảnh để tránh bị cao ngất
+                pcs_default = 1
         else:
             pcs_default = 1  
 
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
-            # Ưu tiên tôn trọng tuyệt đối số lượng rập gốc có trong file BOM đầu vào
-            pcs = int(r["Số lượng rập"])
+            # Nếu file BOM/CAD ban đầu đã chỉ định số lượng lớn hơn mặc định của hệ thống, tôn trọng file gốc
+            pcs = max(int(r["Số lượng rập"]), pcs_default)
         elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
             pcs = int(v["active_user_pieces"])
         else:
@@ -2404,11 +2413,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # Thuật toán bảo vệ diện tích rập
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
-        piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
-        bbox_area = piece_length * piece_width
 
         min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
 
@@ -2431,7 +2436,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
-        # Hệ số hao hụt thương mại tương ứng với chủng loại quét được
         if detected_type_label and "SHORT" in detected_type_label:
             ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
         elif detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label):
@@ -2449,7 +2453,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     df_bom["Gross Consumption"] = calculated_gross_list
 
-    # ĐỒNG BỘ MONITOR LÊN DASHBOARD
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
