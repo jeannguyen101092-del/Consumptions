@@ -1726,7 +1726,7 @@ st.session_state["current_weft_shrinkage"] = weft_shrink
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V25 - CHUẨN CAD): DATA CLEANING & PARAMETER SYNC
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V26 - CHUẨN CAD - NO INDENT): DATA CLEANING & PARAMETER SYNC
 # =====================================================================
 import re
 import pandas as pd
@@ -1809,9 +1809,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
     # =====================================================================
-    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (CHỐNG PHẠT SAI LỆCH)
+    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (FIXED TRÙM CACHE 58.0)
     # =====================================================================
-    fabric_width = float(st.session_state.get("current_active_width", 58.0))
+    # Ép đọc real-time trực tiếp từ ô UI giao diện, mặc định sàn là 56.0 nếu trống
+    fabric_width = float(st.session_state.get("current_active_width", 56.0))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
 
@@ -1823,6 +1824,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["fabric_width_inch"] = fabric_width
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
+
 
        # =====================================================================
     # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V27 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
