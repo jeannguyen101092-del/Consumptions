@@ -2307,7 +2307,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V65 - SỬA LỖI NHẬN DIỆN SAI CHỦNG LOẠI)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V66 - SỬA LỖI CỤT CHỮ)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2359,11 +2359,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             detected_type_label = "JEAN_LONG"
 
     # Đồng bộ ngược nhãn hiển thị lên giao diện hiển thị cho người dùng thấy đúng chủng loại
-    if "DRESS" in detected_type_label:
+    if detected_type_label and "DRESS" in detected_type_label:
         st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
-    elif "SKIRT" in detected_type_label:
+    elif detected_type_label and "SKIRT" in detected_type_label:
         st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SKIRT (Chân váy)"
-    elif "SHORT" in detected_type_label:
+    elif detected_type_label and "SHORT" in detected_type_label:
         st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SHORT (Quần short)"
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2425,7 +2425,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        min_coverage = 0.76 if ("DRESS" in detected_type_label or "SKIRT" in detected_type_label) else 0.72
+        min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
 
         if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
             pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.78)
@@ -2440,16 +2440,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        row_efficiency = dynamic_marker_efficiency
+        row_efficiency = dynamic_marker_efficiency if dynamic_marker_efficiency else 0.74
         if p_cls == "RIB": row_efficiency = 0.82
         elif p_cls == "PADDING": row_efficiency = 0.85
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
         # Hệ số hao hụt thương mại tương ứng với chủng loại quét được
-        if "SHORT" in detected_type_label:
+        if detected_type_label and "SHORT" in detected_type_label:
             ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
-        elif "DRESS" in detected_type_label or "SKIRT" in detected_type_label:
+        elif detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label):
             ie_commercial_factor = 1.12 if p_cls in ["FABRIC", "CONTRAST"] else 1.08
         else:
             if p_cls in ["FABRIC", "CONTRAST"]: ie_commercial_factor = 1.14  
@@ -2475,7 +2475,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict): st.session_state["bom_data"] = {}
     if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st.session_state["bom_data"]["ai_expert_decision"], dict): st.session_state["bom_data"]["ai_expert_decision"] = {}
         
-    st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency)
+    st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency if dynamic_marker_efficiency else 0.74)
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
     st.session_state["bom_data"]["ai_expert_decision"]["summary_grouped_gross"] = summary_grouped_gross
 
