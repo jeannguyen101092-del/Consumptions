@@ -2704,12 +2704,31 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_summary = pd.DataFrame(summary_data)
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
-    # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V59 CHUẨN HÓA
+       # =====================================================================
+    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V60 ĐỒNG BỘ KHỔ VẢI REAL-TIME
     # =====================================================================
 
     # 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
     if 'df_bom_display' in locals() and df_bom_display is not None:
+
+        # 🔄 THUẬT TOÁN ÉP ĐỒNG BỘ KHỔ VẢI THỰC TẾ: Chọn khổ nào tính khổ đó hiển thị lên màn hình
+        def apply_dynamic_width_to_ui(row):
+            material_class = str(row.get("Material Class", "FABRIC")).upper().strip()
+            if material_class == "FUSING":
+                return float(st.session_state.get("fusing_width", 59.0))
+            elif material_class == "LINING":
+                return float(st.session_state.get("lining_width", 57.0))
+            elif material_class == "RIB":
+                return float(st.session_state.get("rib_width", 40.0))
+            elif material_class == "PADDING":
+                return float(st.session_state.get("padding_width", 60.0))
+            else:
+                # Vải chính (FABRIC/CONTRAST): Ép lấy đúng khổ vải bạn vừa gõ/chọn thực tế trên UI (Ví dụ: 56.0)
+                return float(st.session_state.get("current_active_width", 56.0))
+
+        # Ghi đè trực tiếp thông số khổ vải động vào bảng hiển thị
+        if "Khổ vải sản xuất (inch)" in df_bom_display.columns:
+            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display.apply(apply_dynamic_width_to_ui, axis=1)
 
         # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
