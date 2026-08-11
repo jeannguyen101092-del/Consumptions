@@ -1825,7 +1825,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ctx["weft_shrinkage_percent"] = weft_shrink
 
        # =====================================================================
-    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V26 - CHUẨN ĐỊNH DANH CAD - INDENTED): AI PRODUCT CLASSIFIER
+    # 🟩 ĐOẠN 3.1 (PHIÊN BẢN V27 - CHUẨN ĐỊNH DANH CAD): AI PRODUCT CLASSIFIER
     # =====================================================================
     import pandas as pd
 
@@ -1843,14 +1843,16 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Gom toàn bộ văn bản danh sách linh kiện, loại bỏ ký tự rác để phân tích
     all_components_text = " ".join(df_bom[comp_col_check].astype(str).str.upper().tolist())
 
-    # Đọc thêm thông tin mã hàng/mô tả từ session để tăng độ chính xác khi quét chủng loại đồ nữ
+    # Đọc thêm thông tin mã hàng/mô tả từ session để tăng độ chính xác khi quét chủng loại đồ nữ/áo
     style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
     material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
     combined_context_text = f"{style_code_upper} {material_spec_upper} {prod_upper_name} {all_components_text}"
 
-    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): ĐÃ ĐẢO THỨ TỰ ƯU TIÊN ĐỂ FIX BẪY BẮT NHẦM QUẦN JEAN
-    # Ưu tiên nhận diện nhóm Đầm / Váy thời trang nữ trước để không bị dính từ khóa Waistband/Lưng từ quần Jean
-    if any(x in combined_context_text for x in ["SKIRT", "VÁY", "CHÂN VÁY", "CHAN VAY"]):
+    # 🧠 TẦNG 2 (AI QUYẾT ĐỊNH LOẠI HÀNG): ĐÃ FIX BẪY TỪ KHÓA ÉP SHIRT LÊN TRÊN JACKET
+    # 👗 👔 Ưu tiên 1: Ép nhận diện các nhóm Áo sơ mi, Đầm, Váy trước để không bị Sleeve/Collar bẫy sang Áo khoác
+    if any(x in combined_context_text for x in ["SHIRT", "SƠ MI", "SO MI", "BLOUSE"]):
+        product_category = "SHIRT"
+    elif any(x in combined_context_text for x in ["SKIRT", "VÁY", "CHÂN VÁY", "CHAN VAY"]):
         product_category = "SKIRT"
     elif any(x in combined_context_text for x in ["DRESS", "ĐẦM", "DAM", "FLARE", "SHIFT", "MAXI"]):
         product_category = "DRESS_FLARE"
@@ -1859,7 +1861,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif "SHORT" in combined_context_text or "QUẦN SHORT" in combined_context_text:
         product_category = "SHORT"
 
-    # Nếu không dính đồ nữ/áo khoác, mới quét sang cấu trúc linh kiện Quần dài
+    # 👖 Ưu tiên 2: Nếu không dính sơ mi/đồ nữ/áo khoác rõ ràng, mới quét sang cấu trúc linh kiện Quần dài
     elif any(x in all_components_text for x in ["TROUSER", "LEG", "ĐŨNG", "ĐÁY QUẦN", "JEAN", "PANTS", "QUẦN", "QUAN", "WAISTBAND", "FLY", "CẠP", "LƯNG", "POCKET FACING"]):
         product_category = "JEAN_LONG"
         
@@ -1904,6 +1906,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đẩy lên trục biến tầng ngoài bảo vệ tham số nền cho Đoạn 5.1 gỡ nghẽn
     st.session_state["current_estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     st.session_state["bom_data"] = ctx
+
 
        # =====================================================================
     # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V27 - MASTER GEOMETRY - INDENTED): GEOMETRIC FEATURE ENGINE
