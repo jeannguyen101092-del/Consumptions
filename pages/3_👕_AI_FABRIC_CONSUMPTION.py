@@ -2291,7 +2291,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V66 - SỬA LỖI CỤT CHỮ)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V67 - TĂNG ĐM VÁY SKIRT)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
@@ -2306,10 +2306,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Chuỗi tổng hợp dùng để quét từ khóa chủng loại sản phẩm
     combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
 
-    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP
+    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP (ĐÃ HẠ SKIRT XUỐNG 0.66 ĐỂ TĂNG ĐM)
     MARKER_EFFICIENCY_MAP = {
-        "DRESS": 0.69,
-        "SKIRT": 0.71,
+        "DRESS": 0.66,
+        "SKIRT": 0.66, # Hạ từ 0.71 xuống 0.66 giúp tăng định mức vải chính lên an toàn hơn
         "SHORT": 0.68,
         "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
@@ -2330,7 +2330,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Nếu không quét được từ chuỗi text, check tiếp qua các Flag hệ thống
     if dynamic_marker_efficiency is None:
         if _is_skirt_or_dress:
-            dynamic_marker_efficiency = 0.69 if "DRESS" in combined_search_text else 0.71
+            dynamic_marker_efficiency = 0.66
             detected_type_label = "DRESS/SKIRT"
         elif _is_short or "SHORT" in combined_search_text:
             dynamic_marker_efficiency = 0.68
@@ -2339,7 +2339,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             dynamic_marker_efficiency = 0.65
             detected_type_label = "JACKET"
         else:
-            dynamic_marker_efficiency = 0.74  # Fallback cuối cùng cho quần dài
+            dynamic_marker_efficiency = 0.74
             detected_type_label = "JEAN_LONG"
 
     # Đồng bộ ngược nhãn hiển thị lên giao diện hiển thị cho người dùng thấy đúng chủng loại
@@ -2430,11 +2430,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
-        # Hệ số hao hụt thương mại tương ứng với chủng loại quét được
+        # 🔥 ĐÃ TĂNG BUFFER HAO HỤT THƯƠNG MẠI CHO CHÂN VÁY LÊN VỪA VẶN HƠN (1.16 CHO VẢI CHÍNH)
         if detected_type_label and "SHORT" in detected_type_label:
             ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
         elif detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label):
-            ie_commercial_factor = 1.12 if p_cls in ["FABRIC", "CONTRAST"] else 1.08
+            ie_commercial_factor = 1.16 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
         else:
             if p_cls in ["FABRIC", "CONTRAST"]: ie_commercial_factor = 1.14  
             elif p_cls == "LINING": ie_commercial_factor = 1.10
