@@ -1913,20 +1913,20 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"] = ctx
 
 
-      # =====================================================================
-    # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V23 - MASTER GEOMETRY Chống Lỗi Kích Thước): GEOMETRIC FEATURE ENGINE
+        # =====================================================================
+    # 🟩 ĐOẠN 3.2 (PHIÊN BẢN V24 - MASTER GEOMETRY - FIXED SYNTAX): GEOMETRIC FEATURE ENGINE
     # =====================================================================
     import numpy as np
     import pandas as pd
 
-    # ĐỒNG BỘ CHUẨN XÁC: Định vị trực tiếp về cột dữ liệu gốc sạch đã được Đoạn 2 chuẩn hóa
+    # Định vị trực tiếp về cột dữ liệu gốc sạch đã được Đoạn 2 chuẩn hóa
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     l_prod_col_check = next((c for c in ["bounding_box_length", "Dài (L-inch)", "Chiều dài rập (inch)"] if c in df_bom.columns), "bounding_box_length")
     w_prod_col_check = next((c for c in ["bounding_box_width", "Rộng (W-inch)", "Chiều rộng rập (inch)"] if c in df_bom.columns), "bounding_box_width")
     area_col_check = next((c for c in ["polygon_net_area", "net_area", "Diện tích (inch²)", "polygon_net_area"] if c in df_bom.columns), "polygon_net_area")
     m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
 
-    # Đọc đồng bộ thời gian thực từ các trục biến Master của Đoạn 1 để chống bẫy kẹt thông số cũ
+    # Đọc đồng bộ thời gian thực từ các trục biến Master của Đoạn 1
     fabric_width = float(st.session_state.get("current_active_width", 56.0))
     rotation_freedom = st.session_state.get("allow_rotation_90", True)      
     one_way_flag = st.session_state.get("is_one_way_fabric", False)          
@@ -1942,12 +1942,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     product_category = ctx["ai_expert_decision"].get("product_category", "JEAN_LONG")
     
-    if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
+    if "user_edited_pieces" not in st.session_state: 
+        st.session_state["user_edited_pieces"] = {}
 
     piece_areas = []
-    total_pattern_pieces, total_pocket_pieces, max_piece_length = 0.0, 0.0, 0.0
+    total_pattern_pieces = 0.0
+    total_pocket_pieces = 0.0
+    max_piece_length = 0.0
 
-    # 🛠️ BỘ PHÂN LOẠI CHẤT LIỆU LAYER TRÍ THỨC (ĐÃ SỬA LỖI ĐỒNG BỘ TOÀN DIỆN)
+    # 🛠️ BỘ PHÂN LOẠI CHẤT LIỆU LAYER TRÍ THỨC
     def _d3_internal_material_classify(row, idx, prod_cat):
         if "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             return str(st.session_state["user_edited_materials"][idx]).upper().strip()
@@ -1961,38 +1964,37 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         contrast_kws = ["CONTRAST", "PHOI", "VẢI PHOI", "VAI PHOI", "COMBO", "MATCHING"]
         padding_kws = ["PADDING", "GÒN", "GON", "WADDING", "BÔNG LÓT", "BONG LOT", "QUILTING"]
         
-        # Kiểm tra chi tiết túi/lưng thuộc vải chính
         if any(k in comp_str for k in ["WAISTBAND", "LƯNG", "CẠP", "BELT", "POCKET"]) and not any(x in mat_str or x in comp_str for x in fusing_kws + lining_kws + rib_kws + contrast_kws + padding_kws):
             return "FABRIC"
             
         if any(k in mat_str or k in comp_str for k in fusing_kws): return "FUSING"
         if any(k in mat_str or k in comp_str for k in lining_kws): return "LINING"
-        if any(k in mat_str or k in comp_str for k in rib_kws): return "RIB"        # Đã sửa lỗi map nhầm thành LINING
-        if any(k in mat_str or k in comp_str for k in contrast_kws): return "CONTRAST" # Thêm mới nhận diện vải phối
-        if any(k in mat_str or k in comp_str for k in padding_kws): return "PADDING"   # Thêm mới nhận diện gòn
+        if any(k in mat_str or k in comp_str for k in rib_kws): return "RIB"
+        if any(k in mat_str or k in comp_str for k in contrast_kws): return "CONTRAST"
+        if any(k in mat_str or k in comp_str for k in padding_kws): return "PADDING"
         return "FABRIC"
 
+    # Duyệt và tính toán các đặc trưng hình học chi tiết
     for idx, r in df_bom.iterrows():
         p_class_clean = _d3_internal_material_classify(r, idx, product_category)
         comp_name_clean = str(r.get(comp_col_check, "")).upper().strip()
-        
         mat_clean_str = str(r.get(m_col_check, "")).upper().strip() if m_col_check in r else ""
+        
         if any(x in comp_name_clean or x in mat_clean_str for x in ["BUTTON", "ZIP", "THREAD", "NÚT", "CHỈ", "RIVET", "LABEL", "NHÃN", "MÁC", "SHANK", "SLIDER", "PULLER", "ACCESSORY", "PHỤ LIỆU"]):
             continue
 
         try:
-            # Quét đa trường khóa để lấy đúng số rập nguyên bản từ hệ thống
             pcs_numeric_val = float(r.get("pcs_numeric", r.get("Số lượng rập", r.get("original_piece_count", 1.0))))
-            if np.isnan(pcs_numeric_val): pcs_numeric_val = 1.0
+            if np.isnan(pcs_numeric_val): 
+                pcs_numeric_val = 1.0
         except:
             pcs_numeric_val = 1.0
 
-        # ✅ 🧠 BỘ LỌC KHÔI PHỤC SỐ MẢNH ĐỐI XỨNG TRÁI/PHẢI MỞ RỘNG CHO ĐẦM VÀ CHÂN VÁY
+        # Khôi phục số lượng mảnh đối xứng trái/phải mở rộng cho đồ nữ
         c_name_lower = comp_name_clean.lower()
         if pcs_numeric_val <= 1.0:
-            # Bổ sung thêm từ khóa "váy", "đầm", "skirt", "sleeve", "go", "đô" để tránh sót rập đối xứng của đồ nữ
             if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "than vay", "than dam", "skirt panel", "side front", "side back"]):
-                pcs_numeric_val = 2.0  # Các chi tiết thân chính đối xứng bắt buộc khôi phục về số lượng bằng 2
+                pcs_numeric_val = 2.0
 
         if any(k in comp_name_clean for k in ["POCKET", "TÚI", "WELT", "BAG"]):
             total_pocket_pieces += float(st.session_state["user_edited_pieces"].get(idx, pcs_numeric_val))
@@ -2003,7 +2005,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
             try:
                 net_area = float(r.get(area_col_check, 0.0))
-                if np.isnan(net_area): net_area = 0.0
+                if np.isnan(net_area): 
+                    net_area = 0.0
             except:
                 net_area = 0.0
                 
@@ -2011,9 +2014,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             w_val = float(r.get(w_prod_col_check, 0.0))
             
             if p_class_clean == "FABRIC" and w_val > 16.0 and "SKIRT" not in product_category and "DRESS" not in product_category:
-                # Không tự động chia đôi chiều rộng đối với rập tà váy rộng xòe của đồ nữ
                 w_val = w_val / 2.0
-                if net_area > 0: net_area = net_area / 2.0
+                if net_area > 0: 
+                    net_area = net_area / 2.0
             
             bbox_area_check = l_val * w_val
             if net_area > bbox_area_check and bbox_area_check > 0:
@@ -2022,12 +2025,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if net_area <= 0.0 and l_val > 0 and w_val > 0:
                 net_area = l_val * w_val * (0.76 if p_class_clean == "FABRIC" else 0.85)
                 
-            if l_val > max_piece_length: max_piece_length = l_val
+            if l_val > max_piece_length: 
+                max_piece_length = l_val
             if net_area > 0:
                 for _ in range(int(current_pcs)):
                     piece_areas.append(net_area)
 
-    # 🛠️ ĐỒNG BỘ SIÊU DỮ LIỆU SẠCH
+    # Đồng bộ dữ liệu hình học tổng quát
     features = {
         "total_pieces": float(total_pattern_pieces),
         "largest_piece_area": float(max(piece_areas)) if piece_areas else 0.0,
@@ -2042,10 +2046,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     complexity_score = min(100.0, max(1.0, (total_pattern_pieces * 1.2) + (total_pocket_pieces * 1.5)))
     
-    # Kế thừa an toàn lớp ảo tránh bị ghi đè rỗng
+    # Đồng bộ an toàn lên context hệ thống
     virtual_pieces_layer_backup = ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 
-    # Xuất bản dữ liệu kiểm toán sạch ra trục ngoài
     ctx["ai_expert_decision"]["geometry_features"] = features
     ctx["ai_expert_decision"]["longest_piece_length"] = max_piece_length
     ctx["ai_expert_decision"]["complexity_score"] = complexity_score
@@ -2053,6 +2056,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
+
 
 
         # =====================================================================
