@@ -2256,20 +2256,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V63 - TỰ ĐỘNG PHÂN LOẠI PHỐI/RIB/GÒN)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V64 - TĂNG ĐM SHORT)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
     _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
     _is_jacket = locals().get("is_jacket", False)
 
-    # 🤖 1. DYNAMIC MARKER EFFICIENCY - ĐÃ TINH CHỈNH TĂNG HIỆU SUẤT ĐỂ GIẢM ĐM
+    # 🤖 1. DYNAMIC MARKER EFFICIENCY - ĐÃ HẠ HIỆU SUẤT SHORT ĐỂ ĐẨY ĐM LÊN
     p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
     MARKER_EFFICIENCY_MAP = {
+        # Quần Short: Hạ từ 0.72 xuống 0.68 để định mức vải chính tăng lên an toàn hơn
+        "SHORT": 0.68,
         "DRESS": 0.69,
         "SKIRT": 0.71,
-        "SHORT": 0.72,
         "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
         "SHIRT": 0.78, "BLOUSE": 0.78,
@@ -2283,12 +2284,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             break
 
     if dynamic_marker_efficiency is None:
-        if _is_skirt_or_dress:
+        if _is_short:
+            dynamic_marker_efficiency = 0.68
+        elif _is_skirt_or_dress:
             dynamic_marker_efficiency = 0.69 if "DRESS" in p_type_upper else 0.71
         elif _is_jacket:
             dynamic_marker_efficiency = 0.65
-        elif _is_short:
-            dynamic_marker_efficiency = 0.72
         else:
             dynamic_marker_efficiency = 0.74
 
@@ -2298,7 +2299,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     calculated_gross_list = []
     
-    # 🔄 MỞ RỘNG BẢNG TỔNG HỢP: Thêm RIB, CONTRAST (Phối), PADDING (Gòn)
     summary_grouped_gross = {
         "FABRIC": 0.0, 
         "FUSING": 0.0, 
@@ -2319,7 +2319,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
 
-        # 🧠 CẢI TIẾN THÔNG MINH: TỰ ĐỘNG PHÂN LOẠI NHÓM VẬT TƯ NẾU DATA GỐC CHƯA CHUẨN
+        # Tự động phân loại nhóm vật tư
         p_cls = None
         for field in ["Material Class", "material_class", "inferred_class"]:
             if field in r and pd.notna(r[field]): 
@@ -2329,7 +2329,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             if p_cls in summary_grouped_gross: 
                 break
 
-        # Nếu trường dữ liệu gốc trống hoặc chưa phân loại đúng, tự động phân loại bằng từ khóa ký tự:
         if not p_cls or p_cls not in summary_grouped_gross or p_cls == "FABRIC":
             if any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung"]):
                 p_cls = "RIB"
@@ -2344,7 +2343,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             else:
                 p_cls = "FABRIC"
 
-        # 🧠 ÉP SỐ LƯỢNG MẢNH (PCS) THEO CẶP ĐỐI XỨNG
+        # Ép số lượng mảnh rập theo cặp đối xứng trái/phải
         if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
             pcs_default = 2  
         else:
@@ -2366,43 +2365,45 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # 📐 THUẬT TOÁN BẢO VỆ DIỆN TÍCH
+        # THUẬT TOÁN BẢO VỆ DIỆN TÍCH RẬP
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        min_coverage = 0.76 if ("DRESS" in p_type_upper or "SKIRT" in p_type_upper) else 0.72
+        # Thiết lập hệ số bao phủ tối thiểu bảo vệ diện tích quần short
+        min_coverage = 0.74 if "SHORT" in p_type_upper else 0.72
 
         if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
             pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.78)
         
         total_piece_area = pure_unit_area * pcs
         
-        # Thiết lập cấu hình khổ rộng cho các nhóm vật tư phụ động
+        # Đọc khổ vải động
         if p_cls == "FUSING":
             current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING":
             current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB":
-            current_w = float(st.session_state.get("rib_width", 40.0))  # Khổ bo mặc định thường nhỏ
+            current_w = float(st.session_state.get("rib_width", 40.0))
         elif p_cls == "PADDING":
-            current_w = float(st.session_state.get("padding_width", 60.0)) # Khổ gòn mặc định
+            current_w = float(st.session_state.get("padding_width", 60.0))
         else:
             current_w = float(st.session_state.get("current_active_width", 56.0))
             
         if current_w <= 0: 
             current_w = 56.0 
 
-        # Đầm phối hoặc chi tiết nhỏ, co giãn có hiệu suất sơ đồ riêng biệt
         row_efficiency = dynamic_marker_efficiency
-        if p_cls == "RIB": row_efficiency = 0.82  # Bo thường đi sơ đồ rất khít
-        elif p_cls == "PADDING": row_efficiency = 0.85  # Gòn cuộn đi sơ đồ thẳng hàng cực tiết kiệm
+        if p_cls == "RIB": row_efficiency = 0.82
+        elif p_cls == "PADDING": row_efficiency = 0.85
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
-        # Hệ số hao hụt thương mại
-        if "DRESS" in p_type_upper or "SKIRT" in p_type_upper:
+        # 🔥 ĐIỀU CHỈNH TĂNG BUFFER HAO HỤT THƯƠNG MẠI CHO QUẦN SHORT LÊN 1.15 CHO VẢI CHÍNH
+        if "SHORT" in p_type_upper:
+            ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
+        elif "DRESS" in p_type_upper or "SKIRT" in p_type_upper:
             ie_commercial_factor = 1.12 if p_cls in ["FABRIC", "CONTRAST"] else 1.08
         else:
             if p_cls in ["FABRIC", "CONTRAST"]: ie_commercial_factor = 1.14  
@@ -2412,14 +2413,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         final_row_gross = round(gross_yds * ie_commercial_factor, 4)
         calculated_gross_list.append(final_row_gross)
         
-        # Cộng dồn đúng nhóm vật tư vào bảng tổng
         if p_cls in summary_grouped_gross:
             summary_grouped_gross[p_cls] += final_row_gross
 
     # GHI ĐÈ TRỰC TIẾP KẾT QUẢ ĐÃ NÂNG CẤP VÀO DF_BOM
     df_bom["Gross Consumption"] = calculated_gross_list
 
-    # ĐỒNG BỘ TRỰC TIẾP LÊN BIẾN MONITOR ĐẦU TRANG VÀ LƯU DICTIONARY HỆ THỐNG
+    # ĐỒNG BỘ TRỰC TIẾP LÊN BIẾN MONITOR ĐẦU TRANG VÀ BIẾN LƯU TRỮ TRÁNH SẬP TRANG
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
@@ -2435,6 +2435,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency)
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
     st.session_state["bom_data"]["ai_expert_decision"]["summary_grouped_gross"] = summary_grouped_gross
+
 
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
