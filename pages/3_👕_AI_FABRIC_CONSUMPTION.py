@@ -2256,57 +2256,71 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V64 - TĂNG ĐM SHORT)
+    # 🟩 ĐOẠN 5.2: CONSUMPTION ROUTER & PUBLISHING (VERSION V65 - SỬA LỖI NHẬN DIỆN SAI CHỦNG LOẠI)
     # =====================================================================
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
     _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
     _is_jacket = locals().get("is_jacket", False)
 
-    # 🤖 1. DYNAMIC MARKER EFFICIENCY - ĐÃ HẠ HIỆU SUẤT SHORT ĐỂ ĐẨY ĐM LÊN
-    p_type_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
+    # Đọc dữ liệu từ mã hàng và mô tả vải trên UI để ép nhận diện nếu AI trả về sai
+    style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
+    material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
+    p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
 
+    # Chuỗi tổng hợp dùng để quét từ khóa chủng loại sản phẩm
+    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
+
+    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CHUẨN CÔNG NGHIỆP
     MARKER_EFFICIENCY_MAP = {
-        # Quần Short: Hạ từ 0.72 xuống 0.68 để định mức vải chính tăng lên an toàn hơn
-        "SHORT": 0.68,
         "DRESS": 0.69,
         "SKIRT": 0.71,
+        "SHORT": 0.68,
         "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
         "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
     }
 
+    # 🔥 ENGINE QUÉT TỪ KHÓA ĐA TẦNG: Ép nhận diện chủng loại từ Mã hàng thực tế trước tiên
     dynamic_marker_efficiency = None
+    detected_type_label = None
+
     for key, efficiency in MARKER_EFFICIENCY_MAP.items():
-        if key in p_type_upper:
+        if key in combined_search_text:
             dynamic_marker_efficiency = efficiency
+            detected_type_label = key
             break
 
+    # Nếu không quét được từ chuỗi text, check tiếp qua các Flag hệ thống
     if dynamic_marker_efficiency is None:
-        if _is_short:
+        if _is_skirt_or_dress:
+            dynamic_marker_efficiency = 0.69 if "DRESS" in combined_search_text else 0.71
+            detected_type_label = "DRESS/SKIRT"
+        elif _is_short or "SHORT" in combined_search_text:
             dynamic_marker_efficiency = 0.68
-        elif _is_skirt_or_dress:
-            dynamic_marker_efficiency = 0.69 if "DRESS" in p_type_upper else 0.71
+            detected_type_label = "SHORT"
         elif _is_jacket:
             dynamic_marker_efficiency = 0.65
+            detected_type_label = "JACKET"
         else:
-            dynamic_marker_efficiency = 0.74
+            dynamic_marker_efficiency = 0.74  # Fallback cuối cùng cho quần dài
+            detected_type_label = "JEAN_LONG"
+
+    # Đồng bộ ngược nhãn hiển thị lên giao diện hiển thị cho người dùng thấy đúng chủng loại
+    if "DRESS" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
+    elif "SKIRT" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SKIRT (Chân váy)"
+    elif "SHORT" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SHORT (Quần short)"
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
     if not isinstance(stored_virtual_pieces, dict): 
         stored_virtual_pieces = {}
 
     calculated_gross_list = []
-    
-    summary_grouped_gross = {
-        "FABRIC": 0.0, 
-        "FUSING": 0.0, 
-        "LINING": 0.0, 
-        "CONTRAST": 0.0, 
-        "RIB": 0.0,
-        "PADDING": 0.0
-    }
+    summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
     if "Số lượng rập" not in df_bom.columns:
         df_bom["Số lượng rập"] = None
@@ -2319,31 +2333,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
 
-        # Tự động phân loại nhóm vật tư
+        # Phân loại nhóm vật tư động
         p_cls = None
         for field in ["Material Class", "material_class", "inferred_class"]:
-            if field in r and pd.notna(r[field]): 
-                p_cls = str(r[field]).upper().strip()
-            elif field in v and pd.notna(v[field]): 
-                p_cls = str(v[field]).upper().strip()
-            if p_cls in summary_grouped_gross: 
-                break
+            if field in r and pd.notna(r[field]): p_cls = str(r[field]).upper().strip()
+            elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
+            if p_cls in summary_grouped_gross: break
 
         if not p_cls or p_cls not in summary_grouped_gross or p_cls == "FABRIC":
-            if any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung"]):
-                p_cls = "RIB"
-            elif any(x in c_name_lower for x in ["contrast", "phoi", "vai phoi", "combo", "matching"]):
-                p_cls = "CONTRAST"
-            elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]):
-                p_cls = "PADDING"
-            elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui"]):
-                p_cls = "LINING"
-            elif any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung"]):
-                p_cls = "FUSING"
-            else:
-                p_cls = "FABRIC"
+            if any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung"]): p_cls = "RIB"
+            elif any(x in c_name_lower for x in ["contrast", "phoi", "vai phoi", "combo", "matching"]): p_cls = "CONTRAST"
+            elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]): p_cls = "PADDING"
+            elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui"]): p_cls = "LINING"
+            elif any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung"]): p_cls = "FUSING"
+            else: p_cls = "FABRIC"
 
-        # Ép số lượng mảnh rập theo cặp đối xứng trái/phải
+        # Ép số lượng mảnh rập theo cặp đối xứng
         if any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
             pcs_default = 2  
         else:
@@ -2359,40 +2364,30 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             pcs = pcs_default
 
         pcs = max(pcs, 1)
-        
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
-        if idx not in stored_virtual_pieces:
-            stored_virtual_pieces[idx] = {}
+        if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # THUẬT TOÁN BẢO VỆ DIỆN TÍCH RẬP
+        # Thuật toán bảo vệ diện tích rập
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        # Thiết lập hệ số bao phủ tối thiểu bảo vệ diện tích quần short
-        min_coverage = 0.74 if "SHORT" in p_type_upper else 0.72
+        min_coverage = 0.76 if ("DRESS" in detected_type_label or "SKIRT" in detected_type_label) else 0.72
 
         if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
             pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.78)
         
         total_piece_area = pure_unit_area * pcs
         
-        # Đọc khổ vải động
-        if p_cls == "FUSING":
-            current_w = float(st.session_state.get("fusing_width", 59.0))
-        elif p_cls == "LINING":
-            current_w = float(st.session_state.get("lining_width", 57.0))
-        elif p_cls == "RIB":
-            current_w = float(st.session_state.get("rib_width", 40.0))
-        elif p_cls == "PADDING":
-            current_w = float(st.session_state.get("padding_width", 60.0))
-        else:
-            current_w = float(st.session_state.get("current_active_width", 56.0))
+        if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
+        elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
+        elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
+        elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
+        else: current_w = float(st.session_state.get("current_active_width", 56.0))
             
-        if current_w <= 0: 
-            current_w = 56.0 
+        if current_w <= 0: current_w = 56.0 
 
         row_efficiency = dynamic_marker_efficiency
         if p_cls == "RIB": row_efficiency = 0.82
@@ -2400,10 +2395,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         
-        # 🔥 ĐIỀU CHỈNH TĂNG BUFFER HAO HỤT THƯƠNG MẠI CHO QUẦN SHORT LÊN 1.15 CHO VẢI CHÍNH
-        if "SHORT" in p_type_upper:
+        # Hệ số hao hụt thương mại tương ứng với chủng loại quét được
+        if "SHORT" in detected_type_label:
             ie_commercial_factor = 1.15 if p_cls in ["FABRIC", "CONTRAST"] else 1.10
-        elif "DRESS" in p_type_upper or "SKIRT" in p_type_upper:
+        elif "DRESS" in detected_type_label or "SKIRT" in detected_type_label:
             ie_commercial_factor = 1.12 if p_cls in ["FABRIC", "CONTRAST"] else 1.08
         else:
             if p_cls in ["FABRIC", "CONTRAST"]: ie_commercial_factor = 1.14  
@@ -2416,10 +2411,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if p_cls in summary_grouped_gross:
             summary_grouped_gross[p_cls] += final_row_gross
 
-    # GHI ĐÈ TRỰC TIẾP KẾT QUẢ ĐÃ NÂNG CẤP VÀO DF_BOM
     df_bom["Gross Consumption"] = calculated_gross_list
 
-    # ĐỒNG BỘ TRỰC TIẾP LÊN BIẾN MONITOR ĐẦU TRANG VÀ BIẾN LƯU TRỮ TRÁNH SẬP TRANG
+    # ĐỒNG BỘ MONITOR LÊN DASHBOARD
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
@@ -2427,10 +2421,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
 
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st.session_state["bom_data"]["ai_expert_decision"], dict):
-        st.session_state["bom_data"]["ai_expert_decision"] = {}
+    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict): st.session_state["bom_data"] = {}
+    if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st.session_state["bom_data"]["ai_expert_decision"], dict): st.session_state["bom_data"]["ai_expert_decision"] = {}
         
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = float(dynamic_marker_efficiency)
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
