@@ -2610,7 +2610,6 @@ if not df_bom.empty:
         # -----------------------------------------------------------------
         # TRƯỜNG KIỂM TOÁN 4: THẨM ĐỊNH DIỆN TÍCH TỊNH ĐA GIÁC (AREA SOURCE)
         # -----------------------------------------------------------------
-        # Kiểm tra ngưỡng diện tích tịnh hợp lệ chống lỗi triệt tiêu rỗng của file rập thô phụ liệu
         if pure_unit_area > (bbox_area * 0.15) and pure_unit_area <= bbox_area:
             df_bom.at[idx, "area_source"] = "CAD_GEOMETRY"
         else:
@@ -2627,32 +2626,33 @@ if not df_bom.empty:
         # -----------------------------------------------------------------
         # RULE 5: ĐỒNG BỘ KHỔ VẢI VÀ ĐIỀU HƯỚNG HIỆU SUẤT SƠ ĐỒ ĐỘC LẬP
         # -----------------------------------------------------------------
-        # Khởi tạo bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
-        trim_waste_factor = 1.0  # Mặc định của vải chính là 1.0 (không nhân dôi dư ngầm)
+        # Bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
+        trim_waste_factor = 1.0  # Mặc định của vải chính là 1.0
         
         if p_cls == "FUSING": 
             current_w = float(st.session_state.get("fusing_width_inch", 59.0))
             row_efficiency = 0.84  
-            trim_waste_factor = 1.20  # 🚨 ÉP TĂNG 20%: Bù hao hụt nhiệt và cắt vụn biên cho MÉC / KEO
+            trim_waste_factor = 1.20  # ÉP TĂNG 20%: Cho MÉC / KEO
         elif p_cls == "LINING": 
             current_w = float(st.session_state.get("lining_width_inch", 57.0))
             row_efficiency = 0.82  
-            trim_waste_factor = 1.15  # 🚨 ÉP TĂNG 15%: Bù hao hụt cắt lồng ghép mảnh phụ cho VẢI LÓT
+            trim_waste_factor = 1.15  # ÉP TĂNG 15%: Cho VẢI LÓT
         elif p_cls == "RIB": 
             current_w = float(st.session_state.get("rib_width", 40.0))
             row_efficiency = 0.82
-            trim_waste_factor = 1.12  # 🚨 ÉP TĂNG 12%: Bù hao hụt đầu cây cho BO / RIB
+            trim_waste_factor = 1.12  # ÉP TĂNG 12%: Cho BO / RIB
         elif p_cls == "PADDING": 
             current_w = float(st.session_state.get("padding_width", 60.0))
             row_efficiency = 0.85
-            trim_waste_factor = 1.12  # 🚨 ÉP TĂNG 12%: Bù hao hụt biên xéo cho GÒN LÓT THÂN
+            trim_waste_factor = 1.12  # ÉP TĂNG 12%: Cho GÒN LÓT THÂN
         else: 
             current_w = float(st.session_state.get("current_active_width", 54.0))
             row_efficiency = dynamic_marker_efficiency
             
         if current_w <= 0: current_w = 54.0 
 
-        w_col_display_field = next((c walkways for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
+        # ✅ ĐÃ FIX LỖI CÚ PHÁP: Dọn sạch từ rác "walkways", đưa về cấu trúc chuẩn chỉnh 100%
+        w_col_display_field = next((c for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
         df_bom.at[idx, w_col_display_field] = float(current_w)
 
         # -----------------------------------------------------------------
@@ -2665,7 +2665,7 @@ if not df_bom.empty:
         if p_cls in summary_grouped_gross:
             summary_grouped_gross[p_cls] += gross_yds
 
-    # Đẩy trọn vẹn kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP phục vụ hiển thị công khai ở Khối 7.1
+    # Đẩy kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP cho Khối 7.1 hiển thị
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"] + summary_grouped_gross["CONTRAST"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
