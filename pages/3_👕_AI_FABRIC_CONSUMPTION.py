@@ -2491,7 +2491,8 @@ if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st
 
 st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
 # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN 1.2: COMPONENT CALCULATOR & CONSUMPTION GENERATOR (V90 - GEOMETRY PATCH)
+# =====================================================================
+# 🟩 ĐOẠN 5.2 - PHẦN 1.2: COMPONENT CALCULATOR & CONSUMPTION GENERATOR (V95 - INDEPENDENT FUSING/LINING CORES)
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 if not isinstance(stored_virtual_pieces, dict): 
@@ -2520,7 +2521,6 @@ if not df_bom.empty:
         elif "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             p_cls = str(st.session_state["user_edited_materials"][idx]).upper().strip()
         else:
-            # Nếu người dùng chưa sửa, chạy thuật toán AI phân loại tự động ban đầu
             p_cls = None
             for field in ["Material Class", "material_class", "inferred_class"]:
                 if field in r and pd.notna(r[field]): p_cls = str(r[field]).upper().strip()
@@ -2545,14 +2545,13 @@ if not df_bom.empty:
         piece_width = float(v.get("production_w", r.get("Chiều rộng rập (inch)", 0.0)))
         pure_unit_area = float(r.get("polygon_net_area", v.get("polygon_net_area", 0.0)))
 
-        # 🚨 PYTHON GEOMETRY ENGINE: TỰ ĐỘNG KHỬ BẪY NHÂN ĐÔI CHIỀU RỘNG THÂN QUẦN (FIX LỖI ĐM CAO)
-        # Nếu chi tiết thuộc Vải chính (FABRIC) mà có chiều rộng vọt lên quá 16.0 inch (bẫy mở đôi rập)
+        # PYTHON GEOMETRY ENGINE: TỰ ĐỘNG KHỬ BẪY NHÂN ĐÔI CHIỀU RỘNG THÂN QUẦN (Vải chính giữ nguyên)
         if p_cls == "FABRIC" and piece_width > 16.0 and any(x in c_name_lower for x in ["panel", "leg", "front", "back", "than", "ong"]):
-            piece_width = round(piece_width / 2.0, 2)    # Thu nhỏ chiều rộng về kích thước bán thành phẩm thực tế (25.36 -> 12.68)
+            piece_width = round(piece_width / 2.0, 2)
             if pure_unit_area > 0.0:
-                pure_unit_area = pure_unit_area / 2.0     # Thu nhỏ tỷ lệ diện tích đa giác phẳng tương ứng
+                pure_unit_area = pure_unit_area / 2.0
 
-        # Cập nhật ngược lại cột kích thước trên lưới hiển thị để người dùng nhìn thấy số liệu sạch đã xử lý
+        # Cập nhật ngược lại cột kích thước trên lưới hiển thị
         l_col_display = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), "Chiều dài rập (inch)")
         w_col_display = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), "Chiều rộng rập (inch)")
         df_bom.at[idx, l_col_display] = piece_length
@@ -2568,7 +2567,7 @@ if not df_bom.empty:
         else:
             pcs_default = 1  
 
-        # ĐỒNG BỘ SỐ LƯỢNG CHỈNH SỬA: Ưu tiên số 1 cho người dùng tự thay đổi số lượng trên lưới
+        # ĐỒNG BỘ SỐ LƯỢNG CHỈNH SỬA: Ưu tiên người dùng tự sửa đổi số lượng
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
@@ -2580,14 +2579,16 @@ if not df_bom.empty:
 
         pcs = max(pcs, 1)
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
-        if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
-        stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # 4. THẨM ĐỊNH HIỆU SUẤT DIỆN TÍCH BỀ MẶT PHẲNG RẬP
+        # 4. THẨM ĐỊNH HIỆU SUẤT DIỆN TÍCH BỀ MẶT PHẲNG RẬP TỰ ĐỘNG
         min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
 
         if pure_unit_area <= 0.0 or pure_unit_area > bbox_area or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
-            pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.74)
+            # 🚨 ĐỘC LẬP TỶ LỆ PHỦ BIÊN: Keo và lót cắt vuông vắn hơn vải chính nên tỷ lệ diện tích tịnh rất cao (85% - 88%)
+            if p_cls in ["FUSING", "LINING"]:
+                pure_unit_area = bbox_area * 0.88
+            else:
+                pure_unit_area = bbox_area * 0.74
         
         total_piece_area = pure_unit_area * pcs
         df_bom.at[idx, "polygon_net_area"] = round(pure_unit_area, 2)
@@ -2604,11 +2605,22 @@ if not df_bom.empty:
         w_col_display_field = next((c for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
         df_bom.at[idx, w_col_display_field] = float(current_w)
 
-        row_efficiency = dynamic_marker_efficiency
-        if p_cls == "RIB": row_efficiency = 0.82
-        elif p_cls == "PADDING": row_efficiency = 0.85
+        # 🚨 6. THIẾT LẬP CÔNG THỨC MẬT ĐỘ SƠ ĐỒ ĐỘC LẬP (BỎ XEN KẼ CHO KEO VÀ LÓT)
+        if p_cls == "FUSING":
+            # Méc keo tính mật độ sơ đồ cắt cụm độc lập siêu cao cố định = 88%
+            row_efficiency = 0.88  
+        elif p_cls == "LINING":
+            # Vải lót tính mật độ sơ đồ cắt lót độc lập cố định = 85%
+            row_efficiency = 0.85  
+        elif p_cls == "RIB": 
+            row_efficiency = 0.82
+        elif p_cls == "PADDING": 
+            row_efficiency = 0.85
+        else: 
+            # Vải chính (FABRIC/CONTRAST) giữ nguyên công thức tính xen kẽ lớn nhỏ theo chủng loại hàng của IE
+            row_efficiency = dynamic_marker_efficiency
 
-        # 6. KÍCH HOẠT TÍNH ĐỊNH MỨC SẢN XUẤT CHO TỪNG DÒNG
+        # 7. KÍCH HOẠT TÍNH ĐỊNH MỨC SẢN XUẤT CHO TỪNG DÒNG THEO CÔNG THỨC MỚI
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
