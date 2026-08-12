@@ -2522,7 +2522,7 @@ rules = PRODUCT_RULE_MATRIX.get(
 fabric_coverage_fallback = rules["fabric_coverage_fallback"]
 dynamic_marker_efficiency = rules["default_efficiency"]
 # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (TRIMS AMPLIFIER PATCH)
+# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (FIX KẸT SỐ LƯỢNG MẢNH = 1)
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 if not isinstance(stored_virtual_pieces, dict): 
@@ -2560,23 +2560,27 @@ if not df_bom.empty:
                 elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
                 if p_cls in summary_grouped_gross: break
             
-            if p_cls:
-                df_bom.at[idx, "material_source"] = "AI_CAD_EXTRACTED"
-            else:
+            # Khôi phục phân loại tự động nếu AI quét sai mex/lót ở bảng chi tiết rập
+            if any(x in c_name_lower for x in ["fusing", "mex", "mec", "keo", "interlining", "tricot"]):
+                p_cls = "FUSING"
+            elif any(x in c_name_lower for x in ["lining", "lót", "lot tui", "pocket bag", "pocketing"]):
+                p_cls = "LINING"
+            elif not p_cls:
                 p_cls = "FABRIC"
                 df_bom.at[idx, "material_source"] = "DEFAULT_FALLBACK"
+            else:
+                df_bom.at[idx, "material_source"] = "AI_CAD_EXTRACTED"
 
         m_col_field = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "Material Class")
         df_bom.at[idx, m_col_field] = p_cls
 
         # -----------------------------------------------------------------
-        # TRƯỜNG KIỂM TOÁN 2: XÁC ĐỊNH HÌNH HỌC RẬP VÀ SỬA ĐẢO TRỤC TỌA ĐỘ PHỤ LIỆU
+        # TRƯỜNG KIỂM TOÁN 2: XÁC ĐỊNH HÌNH HỌC RẬP VÀ SỬA ĐẢO TRỤC TỌA ĐỘ
         # -----------------------------------------------------------------
         piece_length = float(v.get("production_l", r.get("Chiều dài rập (inch)", r.get("bounding_box_length", 0.0))))
         piece_width = float(v.get("production_w", r.get("Chiều rộng rập (inch)", r.get("bounding_box_width", 0.0))))
         pure_unit_area = float(r.get("polygon_net_area", v.get("polygon_net_area", 0.0)))
 
-        # ASPECT RATIO CORRECTION CHO PHỤ LIỆU NGOẠI LÕI: Tự động xoay chiều rập nếu file CAD bị ngược trục dọc/ngang
         if p_cls in ["FUSING", "LINING", "RIB", "PADDING"] and piece_width > piece_length and piece_length > 0:
             piece_length, piece_width = piece_width, piece_length
 
@@ -2588,19 +2592,30 @@ if not df_bom.empty:
         bbox_area = piece_length * piece_width
 
         # -----------------------------------------------------------------
-        # TRƯỜNG KIỂM TOÁN 3: ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP (PIECE COUNT)
+        # 🚨 TRƯỜNG KIỂM TOÁN 3: GIẢI PHÁP GỠ KẸT SỐ LƯỢNG MẢNH = 1 ĐỐI XỨNG
         # -----------------------------------------------------------------
+        # Bộ từ khóa nhận diện chi tiết cặp đối xứng chuẩn xưởng may
+        pair_keywords = ["panel", "leg", "front", "back", "than", "ong", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly facing", "sleeve", "tay", "flap", "nap tui"]
+        single_keywords = ["coin", "túi xu", "waistband", "cap", "lung", "fly shield"]
+
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
             df_bom.at[idx, "piece_count_source"] = "USER_EDITED"
         else:
             pcs_raw = r.get("Số lượng rập", r.get("piece_count", v.get("active_user_pieces", v.get("piece_count", None))))
-            if pd.notna(pcs_raw) and float(pcs_raw) >= 1.0:
+            
+            # Sửa lỗi: Nếu file CAD nạp lên trả về số mảnh = 1 nhưng tên chi tiết thuộc danh sách đối xứng Trái/Phải bắt buộc
+            if pd.notna(pcs_raw) and float(pcs_raw) > 1.0:
                 pcs = int(float(pcs_raw))
                 df_bom.at[idx, "piece_count_source"] = "AI_CAD_EXTRACTED"
             else:
-                pcs = 1
-                df_bom.at[idx, "piece_count_source"] = "DEFAULT_FALLBACK"
+                # Ép kích hoạt bộ lọc khôi phục mảnh đối xứng của Python nếu dữ liệu thô bị kẹt số 1
+                if any(x in c_name_lower for x in pair_keywords) and not any(skw in c_name_lower for skw in single_keywords):
+                    pcs = 2
+                    df_bom.at[idx, "piece_count_source"] = "MATRIX_PAIR_FALLBACK"
+                else:
+                    pcs = 1
+                    df_bom.at[idx, "piece_count_source"] = "DEFAULT_FALLBACK"
 
         pcs = max(pcs, 1)
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
@@ -2625,18 +2640,16 @@ if not df_bom.empty:
         # -----------------------------------------------------------------
         # RULE 5: ĐỒNG BỘ KHỔ VẢI VÀ ĐIỀU HƯỚNG HIỆU SUẤT SƠ ĐỒ ĐỘC LẬP
         # -----------------------------------------------------------------
-        # Khởi tạo bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
-        trim_waste_factor = 1.0  # Mặc định của vải chính là 1.0
+        trim_waste_factor = 1.0  
         
-        # ✅ TỐI ƯU HỆ SỐ HAO HỤT: Đẩy mạnh dôi dư phụ liệu bàn cắt lên đúng barem xưởng may thực tế
         if p_cls == "FUSING": 
             current_w = float(st.session_state.get("fusing_width_inch", 59.0))
-            row_efficiency = 0.82  # Hạ mẫu số hiệu suất keo từ 0.84 xuống 0.82 để tăng định mức Yards tổng
-            trim_waste_factor = 1.25  # Nâng hệ số dôi dư sản xuất của Keo lên 1.25 (Bù hao hụt nhiệt và co rút móp biên)
+            row_efficiency = 0.82  
+            trim_waste_factor = 1.25  # Hệ số dôi dư sản xuất 25% cho Keo/Mex
         elif p_cls == "LINING": 
             current_w = float(st.session_state.get("lining_width_inch", 57.0))
-            row_efficiency = 0.78  # Hạ mẫu số hiệu suất lót xuống 0.78 để đẩy định mức Yards tổng lên
-            trim_waste_factor = 1.35  # Nâng mạnh dôi dư Lót lên 1.35 (Bù hao hụt cắt lồng ráp túi sâu quần Jean)
+            row_efficiency = 0.78  
+            trim_waste_factor = 1.35  # Hệ số dôi dư sản xuất 35% cho Vải lót túi
         elif p_cls == "RIB": 
             current_w = float(st.session_state.get("rib_width", 40.0))
             row_efficiency = 0.82
@@ -2660,18 +2673,16 @@ if not df_bom.empty:
         gross_yds = (total_piece_area * trim_waste_factor) / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
-        # 🚨 KHỐI TỰ ĐỘNG BÙ ĐỊNH MỨC KEO PHỐI (FIX LỖI KEO QUÁ THẤP DO KHUYẾT DÒNG RẬP CAD)
-        # Nếu gặp các chi tiết rập vải chính cần ép mex cứng bên trong (Cạp quần, nẹp cửa quần)
+        # Tự động quét dồn bù định mức Keo phối nếu xưởng cắt thiếu chi tiết Keo rời trên rập CAD
         if any(x in c_name_lower for x in ["waistband", "cap", "fly", "shield"]) and p_cls == "FABRIC":
-            # Tự động trích xuất diện tích rập của chi tiết này để tính toán bù thêm một lượng định mức Keo tương ứng
-            fusing_fallback_area = total_piece_area * 1.05 # Lượng keo phủ biên dôi dư tương đương mảnh gốc
+            fusing_fallback_area = total_piece_area * 1.05 
             fusing_gross_fallback = (fusing_fallback_area * 1.25) / (59.0 * 36.0 * 0.82)
             summary_grouped_gross["FUSING"] += fusing_gross_fallback
 
         if p_cls in summary_grouped_gross:
             summary_grouped_gross[p_cls] += gross_yds
 
-    # Đẩy trọn vẹn kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP phục vụ hiển thị công khai ở Khối 7.1
+    # Đẩy trọn vẹn kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP cho Khối 7.1 hiển thị
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"] + summary_grouped_gross["CONTRAST"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
