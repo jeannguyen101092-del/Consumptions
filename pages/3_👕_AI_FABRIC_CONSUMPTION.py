@@ -2492,7 +2492,7 @@ if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st
 st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
 # =====================================================================
 # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN 1.2: COMPONENT CALCULATOR & CONSUMPTION GENERATOR (V95 - INDEPENDENT FUSING/LINING CORES)
+# 🟩 ĐOẠN 5.2 - PHẦN 1.2: COMPONENT CALCULATOR & CONSUMPTION GENERATOR (VERSION MASTER PPJ - FIXED)
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 if not isinstance(stored_virtual_pieces, dict): 
@@ -2515,43 +2515,37 @@ if not df_bom.empty:
         
         c_name_lower = str(r.get("component_name", r.get("Component Name", v.get("component_name", "")))).lower().strip()
 
-        # 1. ĐỒNG BỘ CHẤT LIỆU CHỈNH SỬA: Ưu tiên số 1 cho thao tác sửa đổi của người dùng trên lưới giao diện
+        # 1. ĐỒNG BỘ CHẤT LIỆU CHỈNH SỬA VÀ QUYẾT ĐỊNH VẬT TƯ NGHIÊM NGẶT
         if "user_edited_mats" in st.session_state and idx in st.session_state["user_edited_mats"]:
             p_cls = str(st.session_state["user_edited_mats"][idx]).upper().strip()
         elif "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
             p_cls = str(st.session_state["user_edited_materials"][idx]).upper().strip()
         else:
-            p_cls = None
-            for field in ["Material Class", "material_class", "inferred_class"]:
-                if field in r and pd.notna(r[field]): p_cls = str(r[field]).upper().strip()
-                elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
-                if p_cls in summary_grouped_gross: break
-
-            if any(x in c_name_lower for x in ["facing", "back pocket", "coin pocket"]):
+            # Quy tắc ép nhóm vật tư chuẩn phòng sơ đồ (Sửa lỗi mất dòng Méc/Keo)
+            if any(x in c_name_lower for x in ["fusing", "mex", "mec", "keo", "interlining", "tricot"]):
+                p_cls = "FUSING"
+            elif any(x in c_name_lower for x in ["lining", "lót", "lot tui", "pocket bag", "pocketing", "pocket lining"]):
+                p_cls = "LINING"
+            elif any(x in c_name_lower for x in ["facing", "back pocket", "coin pocket", "panel", "leg", "waistband", "belt loop", "fly"]):
                 p_cls = "FABRIC"
-            elif not p_cls or p_cls not in summary_grouped_gross or p_cls == "FABRIC":
-                if any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung"]): p_cls = "RIB"
-                elif any(x in c_name_lower for x in ["contrast", "phoi", "vai phoi", "combo", "matching"]): p_cls = "CONTRAST"
-                elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]): p_cls = "PADDING"
-                elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui", "pocket bag", "pocketing"]): p_cls = "LINING"
-                elif any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung"]): p_cls = "FUSING"
-                else: p_cls = "FABRIC"
+            else:
+                p_cls = "FABRIC"
 
         m_col_field = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "Material Class")
         df_bom.at[idx, m_col_field] = p_cls
 
-        # 2. ĐỌC THÔNG SỐ KÍCH THƯỚC HÌNH HỌC RẬP THÔ
+        # 2. ĐỌC THÔNG SỐ KÍCH THƯỚC HÌNH HỌC RẬP THÔ NGUYÊN BẢN CỦA CAD
         piece_length = float(v.get("production_l", r.get("Chiều dài rập (inch)", 0.0)))
         piece_width = float(v.get("production_w", r.get("Chiều rộng rập (inch)", 0.0)))
         pure_unit_area = float(r.get("polygon_net_area", v.get("polygon_net_area", 0.0)))
 
-        # PYTHON GEOMETRY ENGINE: TỰ ĐỘNG KHỬ BẪY NHÂN ĐÔI CHIỀU RỘNG THÂN QUẦN (Vải chính giữ nguyên)
-        if p_cls == "FABRIC" and piece_width > 16.0 and any(x in c_name_lower for x in ["panel", "leg", "front", "back", "than", "ong"]):
+        # 🚨 ĐÃ SỬA: CHỈ CHIA ĐÔI KHI CHIỀU RỘNG BỊ LỖI PHÌNH TO BẤT THƯỜNG (> 20 INCH), GIỮ NGUYÊN NẾU RẬP ĐÃ CHUẨN (~15 INCH)
+        if p_cls == "FABRIC" and piece_width > 20.0 and any(x in c_name_lower for x in ["panel", "leg", "front", "back", "than", "ong"]):
             piece_width = round(piece_width / 2.0, 2)
             if pure_unit_area > 0.0:
                 pure_unit_area = pure_unit_area / 2.0
 
-        # Cập nhật ngược lại cột kích thước trên lưới hiển thị
+        # Cập nhật thông số kích thước hình học sạch ra lưới hiển thị ngoài UI
         l_col_display = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), "Chiều dài rập (inch)")
         w_col_display = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), "Chiều rộng rập (inch)")
         df_bom.at[idx, l_col_display] = piece_length
@@ -2567,7 +2561,6 @@ if not df_bom.empty:
         else:
             pcs_default = 1  
 
-        # ĐỒNG BỘ SỐ LƯỢNG CHỈNH SỬA: Ưu tiên người dùng tự sửa đổi số lượng
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
@@ -2580,47 +2573,45 @@ if not df_bom.empty:
         pcs = max(pcs, 1)
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
 
-        # 4. THẨM ĐỊNH HIỆU SUẤT DIỆN TÍCH BỀ MẶT PHẲNG RẬP TỰ ĐỘNG
-        min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
-
-        if pure_unit_area <= 0.0 or pure_unit_area > bbox_area or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
-            # 🚨 ĐỘC LẬP TỶ LỆ PHỦ BIÊN: Keo và lót cắt vuông vắn hơn vải chính nên tỷ lệ diện tích tịnh rất cao (85% - 88%)
-            if p_cls in ["FUSING", "LINING"]:
-                pure_unit_area = bbox_area * 0.88
-            else:
+        # 4. 📐 THUẬT TOÁN DIỆN TÍCH PHẲNG RẬP ĐỘC LẬP THEO CHẤT LIỆU (ÉP TĂNG ĐỊNH MỨC KEO/LÓT THỰC TẾ)
+        if p_cls == "FUSING":
+            # Tăng mạnh diện tích méc keo phủ biên đạt 88% diện tích hộp bao hình học
+            pure_unit_area = bbox_area * 0.88
+        elif p_cls == "LINING":
+            # Tăng mạnh diện tích vải lót đạt 85% diện tích hộp bao hình học túi quần
+            pure_unit_area = bbox_area * 0.85
+        else:
+            # Vải chính giữ nguyên barem diện tích bao phủ 74% an toàn
+            min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
+            if pure_unit_area <= 0.0 or pure_unit_area > bbox_area or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
                 pure_unit_area = bbox_area * 0.74
         
         total_piece_area = pure_unit_area * pcs
         df_bom.at[idx, "polygon_net_area"] = round(pure_unit_area, 2)
         
         # 5. ĐỒNG BỘ CẤU HÌNH KHỔ RỘNG THỜI GIAN THỰC ĐỘC LẬP THEO CHẤT LIỆU
-        if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width_inch", 59.0))
-        elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width_inch", 57.0))
-        elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
-        elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
-        else: current_w = float(st.session_state.get("current_active_width", 54.0))
+        if p_cls == "FUSING": 
+            current_w = float(st.session_state.get("fusing_width_inch", 59.0))
+            row_efficiency = 0.86  # Giữ hiệu suất keo cố định cao độc lập
+        elif p_cls == "LINING": 
+            current_w = float(st.session_state.get("lining_width_inch", 57.0))
+            row_efficiency = 0.80  # Giữ hiệu suất lót cố định cao độc lập
+        elif p_cls == "RIB": 
+            current_w = float(st.session_state.get("rib_width", 40.0))
+            row_efficiency = 0.82
+        elif p_cls == "PADDING": 
+            current_w = float(st.session_state.get("padding_width", 60.0))
+            row_efficiency = 0.85
+        else: 
+            current_w = float(st.session_state.get("current_active_width", 54.0))
+            row_efficiency = dynamic_marker_efficiency
             
         if current_w <= 0: current_w = 54.0 
 
         w_col_display_field = next((c for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
         df_bom.at[idx, w_col_display_field] = float(current_w)
 
-        # 🚨 6. THIẾT LẬP CÔNG THỨC MẬT ĐỘ SƠ ĐỒ ĐỘC LẬP (BỎ XEN KẼ CHO KEO VÀ LÓT)
-        if p_cls == "FUSING":
-            # Méc keo tính mật độ sơ đồ cắt cụm độc lập siêu cao cố định = 88%
-            row_efficiency = 0.88  
-        elif p_cls == "LINING":
-            # Vải lót tính mật độ sơ đồ cắt lót độc lập cố định = 85%
-            row_efficiency = 0.85  
-        elif p_cls == "RIB": 
-            row_efficiency = 0.82
-        elif p_cls == "PADDING": 
-            row_efficiency = 0.85
-        else: 
-            # Vải chính (FABRIC/CONTRAST) giữ nguyên công thức tính xen kẽ lớn nhỏ theo chủng loại hàng của IE
-            row_efficiency = dynamic_marker_efficiency
-
-        # 7. KÍCH HOẠT TÍNH ĐỊNH MỨC SẢN XUẤT CHO TỪNG DÒNG THEO CÔNG THỨC MỚI
+        # 6. KÍCH HOẠT TÍNH ĐỊNH MỨC SẢN XUẤT CHO TỪNG DÒNG
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
@@ -2633,7 +2624,6 @@ if not df_bom.empty:
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
-
 
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
