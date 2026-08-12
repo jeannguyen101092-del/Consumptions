@@ -742,20 +742,7 @@ from openpyxl.utils import get_column_letter
 # =====================================================================
 # 🟩 ĐOẠN 1 (PHIÊN BẢN V21 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
 # =====================================================================
-
-# 🚨 1. KHỐI TẢI FILE VÀ GIỮ FILE RẬP CỐ ĐỊNH KHI BẤM ENTER Ô CHAT
-uploaded_cad_file = st.file_uploader("Tải lên tệp phôi rập CAD / Sơ đồ", type=["csv", "xlsx", "json", "pdf"])
-
-if uploaded_cad_file is not None:
-    # Ép lưu file dữ liệu thô vào bộ nhớ đệm hệ thống để không bị xóa khi rerun ô chat
-    st.session_state["saved_cad_file_data"] = uploaded_cad_file
-    
-# Khôi phục dữ liệu rập cũ từ bộ nhớ nếu người dùng tương tác với ô chat hạ nguồn
-if uploaded_cad_file is None and "saved_cad_file_data" in st.session_state:
-    uploaded_cad_file = st.session_state["saved_cad_file_data"]
-
-
-# 🚨 2. KHỐI Ô CHAT LUÔN HIỂN THỊ TẠI TẦNG NGOÀI CÙNG GIAO DIỆN
+# 🚨 KHÓA CHẶT Ô CHAT ĐỘC LẬP TẦNG NGOÀI CÙNG (KHÔNG BIẾN MẤT, KHÔNG TỰ TẠO THÊM NÚT UPLOAD)
 chat_input_raw = st.chat_input("Nhập yêu cầu (Ví dụ: tính định mức khổ vải 54, co rút dọc 2)...")
 
 if chat_input_raw:
@@ -763,8 +750,6 @@ if chat_input_raw:
 
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 
-
-# 🚨 3. THUẬT TOÁN TRÍCH XUẤT THAM SỐ TỰ ĐỘNG
 def extract_param(pattern, text, session_key, default_val):
     match = re.search(pattern, text)
     if match:
@@ -773,7 +758,7 @@ def extract_param(pattern, text, session_key, default_val):
         return val
     return float(st.session_state.get(session_key, default_val))
 
-# Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
+# 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
 warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
 weft_shrink = extract_param(r'(co rút ngang|ngang)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
 
@@ -781,7 +766,7 @@ ctx = st.session_state.get("bom_data", {})
 if not isinstance(ctx, dict): 
     ctx = {}
 
-# SỬA TẬN GỐC LUỒNG BỐC SIZE: Bóc tách đơn nguyên để gỡ bẫy kẹt size 32
+# 🛠️ 2. SỬA TẬN GỐC LUỒNG BỐC SIZE: Bóc tách đơn nguyên để gỡ bẫy kẹt size 32
 detected_size_code = ""
 if ctx.get("detected_base_size") and str(ctx.get("detected_base_size")).strip() != "":
     detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
@@ -808,7 +793,7 @@ st.session_state["detected_base_size"] = detected_size_code
 ctx["calculated_on_size"] = detected_size_code
 ctx["detected_base_size"] = detected_size_code
 
-# 🚨 4. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Tối ưu bắt số 54 làm sàn cơ sở)
+# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Ổn định sàn 54.0 đồng bộ)
 fabric_width = 54.0 
 
 if chat_input_text:
@@ -826,7 +811,7 @@ st.session_state["current_active_width"] = fabric_width
 st.session_state["fabric_width_inch"] = fabric_width
 ctx["fabric_width_inch"] = fabric_width
 
-# Trích xuất khổ vải Keo và khổ Vải lót độc lập
+# 4. Trích xuất khổ vải Keo và khổ Vải lót độc làm việc độc lập
 fusing_width = extract_param(r'\b(khổ\s*keo|keo\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fusing_width_inch", 59.0)
 if fusing_width <= 0: fusing_width = 59.0
 st.session_state["fusing_width_inch"] = fusing_width
