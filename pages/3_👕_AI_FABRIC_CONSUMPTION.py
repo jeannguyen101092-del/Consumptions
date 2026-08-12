@@ -2503,7 +2503,7 @@ PRODUCT_RULE_MATRIX = {
     "SHORT":       {"fabric_coverage_fallback": 0.76, "default_efficiency": 0.68},
     "SHIRT":       {"fabric_coverage_fallback": 0.72, "default_efficiency": 0.78},
     "JACKET":      {"fabric_coverage_fallback": 0.70, "default_efficiency": 0.65},
-    "DRESS_FLARE": {"fabric_coverage_fallback": 0.62, "default_efficiency": 0.66},
+    "DRESS_FLARE": {"fabric_coverage_fallback": 0.6, "default_efficiency": 0.62},
     "SKIRT":       {"fabric_coverage_fallback": 0.68, "default_efficiency": 0.66},
     "HOODIE":      {"fabric_coverage_fallback": 0.70, "default_efficiency": 0.72},
     "TOPS_KNIT":   {"fabric_coverage_fallback": 0.74, "default_efficiency": 0.78},
