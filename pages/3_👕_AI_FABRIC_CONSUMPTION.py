@@ -729,7 +729,6 @@ def execute_final_gerber_pure_scan(
 
 
 
-
 import io
 import re
 import numpy as np
@@ -743,6 +742,12 @@ from openpyxl.utils import get_column_letter
 # =====================================================================
 # 🟩 ĐOẠN 1 (PHIÊN BẢN V21 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
 # =====================================================================
+# 🚨 ĐÃ SỬA: Đưa hàm st.chat_input ra tầng ngoài cùng để ô chat luôn hiển thị trên giao diện, không bị ẩn khi chưa có file rập
+chat_input_raw = st.chat_input("Nhập yêu cầu (Ví dụ: tính định mức khổ vải 54, co rút dọc 2)...")
+
+if chat_input_raw:
+    st.session_state["last_submitted_query"] = chat_input_raw
+
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 
 def extract_param(pattern, text, session_key, default_val):
@@ -779,7 +784,7 @@ else:
 
 # Giải phóng chuỗi kích thước nhảy size phức tạp (Ví dụ: "32X33" -> lấy eo "32")
 if "X" in detected_size_code:
-    detected_size_code = detected_size_code.split("X")[0].strip()
+    detected_size_code = detected_size_code.split("X").strip()
 
 # ĐỒNG BỘ LÊN TRỤC BIẾN MASTER NGOÀI VÀ TRONG ĐỂ KHÓA CHẶT BẢNG SIZE ĐOẠN 5.2
 st.session_state["current_active_size"] = detected_size_code
@@ -788,21 +793,19 @@ st.session_state["detected_base_size"] = detected_size_code
 ctx["calculated_on_size"] = detected_size_code
 ctx["detected_base_size"] = detected_size_code
 
-# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Đã sửa thuật toán bóc tách tối ưu bắt số 54)
-fabric_width = 54.0 # Đặt sàn mặc định cơ sở là 54.0 để đồng bộ yêu cầu của bạn
+# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Ổn định sàn 54.0 đồng bộ)
+fabric_width = 54.0 
 
 if chat_input_text:
-    # Bộ quét Regex thông minh nâng cao: Tìm bất kỳ cụm số nào đi độc lập hoặc đi sau từ khóa khổ/width
     width_keywords_match = re.search(r'\b(khổ\s*vải|khổ|width|cắt\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text)
     if width_keywords_match:
         fabric_width = float(width_keywords_match.group(2))
     else:
-        # Nếu người dùng chỉ gõ đúng một số cô đơn (Ví dụ chat mỗi chữ "54"), hệ thống vẫn tự động bắt lấy số đó làm khổ vải
         pure_number_match = re.search(r'^\s*(\d+(?:\.\d+)?)\s*$', chat_input_text)
         if pure_number_match:
             fabric_width = float(pure_number_match.group(1))
 
-# Lưu trữ trọn vẹn lên trục điều khiển Master ngoài để tất cả các đoạn xử lý hạ nguồn đồng bộ theo
+# Lưu trữ trọn vẹn lên trục điều khiển Master ngoài để các đoạn sau bóc tách động
 st.session_state["current_active_width"] = fabric_width
 st.session_state["fabric_width_inch"] = fabric_width
 ctx["fabric_width_inch"] = fabric_width
