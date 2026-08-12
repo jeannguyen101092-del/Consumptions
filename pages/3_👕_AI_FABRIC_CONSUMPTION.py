@@ -777,14 +777,13 @@ if safe_user_prompt:
     # =====================================================================
     query_lower = query_text.lower()
     
-    # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT CHUẨN XƯỞNG MAY (Ví dụ: "khổ 54", "khổ vải 54")
+    # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT CHUẨN XƯỞNG MAY
     width_match = re.search(r'(?:khổ|kho|width|khổ vải|khổ sản xuất)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
     if width_match:
         detected_width = float(width_match.group(1))
         st.session_state["current_active_width"] = detected_width
         st.session_state["fabric_width_inch"] = detected_width
     else:
-        # Cơ chế phòng hộ: Nếu chỉ gõ độc lập một số cô đơn (Ví dụ gõ mỗi chữ "54" rồi enter)
         pure_number_match = re.search(r'^\s*(\d+(?:\.\d+)?)\s*$', query_lower)
         if pure_number_match:
             detected_width = float(pure_number_match.group(1))
@@ -799,23 +798,37 @@ if safe_user_prompt:
         st.session_state["target_size"] = detected_size
         st.session_state["detected_base_size"] = detected_size
 
-    # C. BÓC TÁCH TỶ LỆ CO RÚT
-    shrink_v_match = re.search(r'(?:dọc|doc)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    # 🚨 C. BÓC TÁCH TỶ LỆ CO RÚT ĐA TẦNG (KHÓA CHẶT TẤT CẢ BIẾN CHUYỂN XUỐNG ĐOẠN MAY HẠ NGUỒN)
+    # Tìm từ khóa co rút dọc (Ví dụ: "dọc 3", "co rút dọc 2") -> Gán 3%
+    shrink_v_match = re.search(r'(?:dọc|doc|warp)\s*[:=-]?\s*(-?[0-9]+(?:\.[0-9]+)?)', query_lower)
     if shrink_v_match:
-        st.session_state["current_warp_shrinkage"] = float(shrink_v_match.group(1))
-        st.session_state["warp_shrinkage"] = float(shrink_v_match.group(1))
-        
-    shrink_h_match = re.search(r'(?:ngang)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+        val_v = float(shrink_v_match.group(1))
+        # Ép đồng bộ ghi đè vào tất cả các loại tên biến của Đoạn 4, Đoạn 5.1 và ERP
+        st.session_state["current_warp_shrinkage"] = val_v
+        st.session_state["warp_shrinkage"] = val_v
+        st.session_state["shrinkage_vertical"] = val_v
+
+    # Tìm từ khóa co rút ngang (Ví dụ: "ngang 14", "co rút ngang 1.5") -> Gán 14%    
+    shrink_h_match = re.search(r'(?:ngang|weft)\s*[:=-]?\s*(-?[0-9]+(?:\.[0-9]+)?)', query_lower)
     if shrink_h_match:
-        st.session_state["current_weft_shrinkage"] = float(shrink_h_match.group(1))
-        st.session_state["weft_shrinkage"] = float(shrink_h_match.group(1))
+        val_h = float(shrink_h_match.group(1))
+        # Ép đồng bộ ghi đè vào tất cả các loại tên biến của Đoạn 4, Đoạn 5.1 và ERP
+        st.session_state["current_weft_shrinkage"] = val_h
+        st.session_state["weft_shrinkage"] = val_h
+        st.session_state["shrinkage_horizontal"] = val_h
 
     # Thực hiện làm sạch luồng và rerun để ép cập nhật toàn bộ hệ thống ngay lập tức
     st.rerun()
 
-# Khôi phục hoặc khởi tạo các tham số nền từ bộ đệm sang biến cục bộ phục vụ các đoạn mã hạ nguồn
+# =====================================================================
+# ⚙️ KHỐI PHỤC HỒI THAM SỐ RA BIẾN CỤC BỘ ĐỂ TRUYỀN TẢI LIÊN TẦNG CAD
+# =====================================================================
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 fabric_width = float(st.session_state.get("current_active_width", 54.0))
+
+# Trích xuất phục hồi hệ số co rút thời gian thực ra biến Master cục bộ
+warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
+weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
 
 ctx = st.session_state.get("bom_data", {})
 if not isinstance(ctx, dict): 
@@ -826,10 +839,16 @@ detected_size_code = str(st.session_state.get("current_active_size", "32")).uppe
 if "X" in detected_size_code:
     detected_size_code = detected_size_code.split("X")[0].strip()
 
-# Khóa chặt đồng bộ dữ liệu vào context chung
+# 🚨 ĐỒNG BỘ TUYỆT ĐỐI VÀO CONTEXT GỐC CỦA HỆ THỐNG ĐỂ ĐOẠN 4 VÀ ĐOẠN 5 ĐỌC RA TÍNH
 ctx["fabric_width_inch"] = fabric_width
 ctx["calculated_on_size"] = detected_size_code
 ctx["detected_base_size"] = detected_size_code
+ctx["warp_shrinkage_percent"] = warp_shrink
+ctx["weft_shrinkage_percent"] = weft_shrink
+
+# Đảm bảo trục Master ngoài luôn được giữ chắc chắn phục vụ Khối Math Engine
+st.session_state["current_warp_shrinkage"] = warp_shrink
+st.session_state["current_weft_shrinkage"] = weft_shrink
 
 
 
