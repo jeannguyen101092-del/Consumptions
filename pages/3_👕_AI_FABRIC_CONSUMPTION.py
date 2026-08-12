@@ -2692,115 +2692,114 @@ if not df_bom.empty:
         output_stream.seek(0)
         return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
 
-  # =====================================================================
-# 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V60 CHUẨN ĐỒNG BỘ TUYỆT ĐỐI
-# =====================================================================
-import re
-import pandas as pd
+     # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V60 CHUẨN ĐỒNG BỘ TUYỆT ĐỐI
+    # =====================================================================
+    import re
+    import pandas as pd
 
-# KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
-st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM May Mặc")
-d_c1, d_c2, d_c3 = st.columns(3)
-d_c1.write(f"**DEBUG VẢI CHÍNH (FABRIC):** `{st.session_state.get('summary_fabric_gross')}` Yds")
-d_c2.write(f"**DEBUG VẢI LÓT (LINING):** `{st.session_state.get('summary_lining_gross')}` Yds")
-d_c3.write(f"**DEBUG MÉC KEO (FUSING):** `{st.session_state.get('summary_fusing_gross')}` Yds")
-st.divider()
+    # KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
+    st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM May Mặc")
+    d_c1, d_c2, d_c3 = st.columns(3)
+    d_c1.write(f"**DEBUG VẢI CHÍNH (FABRIC):** `{st.session_state.get('summary_fabric_gross')}` Yds")
+    d_c2.write(f"**DEBUG VẢI LÓT (LINING):** `{st.session_state.get('summary_lining_gross')}` Yds")
+    d_c3.write(f"**DEBUG MÉC KEO (FUSING):** `{st.session_state.get('summary_fusing_gross')}` Yds")
+    st.divider()
 
-st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
+    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 
-if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-    st.session_state["bom_data"] = {}
-ctx = st.session_state["bom_data"]
+    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
+        st.session_state["bom_data"] = {}
+    ctx = st.session_state["bom_data"]
 
-ai_decision_final = ctx.get("ai_expert_decision", {})
-virtual_pieces = ai_decision_final.get("virtual_pieces_layer", {})
+    ai_decision_final = ctx.get("ai_expert_decision", {})
+    virtual_pieces = ai_decision_final.get("virtual_pieces_layer", {})
 
-comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
-ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
-ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
+    comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
+    ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
+    ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
+    real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
 
-marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7400))
-chat_width_override = st.session_state.get("current_active_width", 54.0)
-st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
+    marker_efficiency = float(ai_decision_final.get("marker_efficiency", 0.7400))
+    chat_width_override = st.session_state.get("current_active_width", 54.0)
+    st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
 
-# 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
-m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
-m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
-m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
+    # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
+    m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
+    m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
+    m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-# 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH
-df_bom_display = df_bom.copy()
-c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
+    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH
+    df_bom_display = df_bom.copy()
+    c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
 
-df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "32"))).upper().strip()
-df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
-df_bom_display["Role/Piece Type"] = "PRIMARY"
-df_bom_display["_original_row_index"] = df_bom.index
+    df_bom_display["Size tính toán"] = str(st.session_state.get("current_active_size", ctx.get("detected_base_size", "32"))).upper().strip()
+    df_bom_display["Component Name"] = df_bom_display[c_name_col_raw]
+    df_bom_display["Role/Piece Type"] = "PRIMARY"
+    df_bom_display["_original_row_index"] = df_bom.index
 
-df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0
-df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"] if "Số lượng rập" in df_bom.columns else 1
-df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"] if "Khổ vải sản xuất (inch)" in df_bom.columns else float(chat_width_override)
+    df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"] if "Gross Consumption" in df_bom.columns else 0.0
+    df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"] if "Số lượng rập" in df_bom.columns else 1
+    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"] if "Khổ vải sản xuất (inch)" in df_bom.columns else float(chat_width_override)
 
-# Đồng bộ chất liệu sạch từ bộ đệm người dùng sửa đổi lên lưới chi tiết hiển thị
-clean_mats = []
-for idx, row in df_bom_display.iterrows():
-    p_cls = row.get("Material Class", "FABRIC")
-    if "user_edited_mats" in st.session_state and idx in st.session_state["user_edited_mats"]:
-        p_cls = st.session_state["user_edited_mats"][idx]
-    elif "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
-        p_cls = st.session_state["user_edited_materials"][idx]
-    clean_mats.append(str(p_cls).upper().strip())
-df_bom_display["Material Class"] = clean_mats
+    # Đồng bộ chất liệu sạch từ bộ đệm người dùng sửa đổi lên lưới chi tiết hiển thị
+    clean_mats = []
+    for idx, row in df_bom_display.iterrows():
+        p_cls = row.get("Material Class", "FABRIC")
+        if "user_edited_mats" in st.session_state and idx in st.session_state["user_edited_mats"]:
+            p_cls = st.session_state["user_edited_mats"][idx]
+        elif "user_edited_materials" in st.session_state and idx in st.session_state["user_edited_materials"]:
+            p_cls = st.session_state["user_edited_materials"][idx]
+        clean_mats.append(str(p_cls).upper().strip())
+    df_bom_display["Material Class"] = clean_mats
 
-# 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ DỰA TRÊN DỮ LIỆU ĐÃ LÀM SẠCH
-# Đọc trực tiếp định mức thực tế từ lưới chi tiết hiển thị để tránh lệch số
-total_fabric = df_bom_display[df_bom_display["Material Class"] == "FABRIC"]["Gross Consumption"].sum()
-total_contrast = df_bom_display[df_bom_display["Material Class"] == "CONTRAST"]["Gross Consumption"].sum()
-total_fusing = df_bom_display[df_bom_display["Material Class"] == "FUSING"]["Gross Consumption"].sum()
-total_lining = df_bom_display[df_bom_display["Material Class"] == "LINING"]["Gross Consumption"].sum()
-total_rib = df_bom_display[df_bom_display["Material Class"] == "RIB"]["Gross Consumption"].sum()
-total_padding = df_bom_display[df_bom_display["Material Class"] == "PADDING"]["Gross Consumption"].sum()
+    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ DỰA TRÊN DỮ LIỆU ĐÃ LÀM SẠCH
+    total_fabric = df_bom_display[df_bom_display["Material Class"] == "FABRIC"]["Gross Consumption"].sum()
+    total_contrast = df_bom_display[df_bom_display["Material Class"] == "CONTRAST"]["Gross Consumption"].sum()
+    total_fusing = df_bom_display[df_bom_display["Material Class"] == "FUSING"]["Gross Consumption"].sum()
+    total_lining = df_bom_display[df_bom_display["Material Class"] == "LINING"]["Gross Consumption"].sum()
+    total_rib = df_bom_display[df_bom_display["Material Class"] == "RIB"]["Gross Consumption"].sum()
+    total_padding = df_bom_display[df_bom_display["Material Class"] == "PADDING"]["Gross Consumption"].sum()
 
-summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
+    summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
 
-# 🚨 ĐIỀU KIỆN KHÓA CHẶT: Chỉ append hiển thị nếu định mức tổng lớn hơn 0 (Mất hẳn nếu mã đó không có lót)
-if total_fabric > 0:
-    summary_data["Phân loại vật tư"].append("VẢI CHÍNH")
-    summary_data["Material Class"].append("FABRIC")
-    summary_data["Gross Consumption"].append(round(total_fabric, 4))
-    summary_data["UOM"].append("Yds")
-if total_contrast > 0:
-    summary_data["Phân loại vật tư"].append("VẢI PHỐI")
-    summary_data["Material Class"].append("CONTRAST")
-    summary_data["Gross Consumption"].append(round(total_contrast, 4))
-    summary_data["UOM"].append("Yds")
-if total_fusing > 0:
-    summary_data["Phân loại vật tư"].append("MÉC / KEO")
-    summary_data["Material Class"].append("FUSING")
-    summary_data["Gross Consumption"].append(round(total_fusing, 4))
-    summary_data["UOM"].append("Yds")
-if total_lining > 0:
-    summary_data["Phân loại vật tư"].append("VẢI LÓT")
-    summary_data["Material Class"].append("LINING")
-    summary_data["Gross Consumption"].append(round(total_lining, 4))
-    summary_data["UOM"].append("Yds")
-if total_rib > 0:
-    summary_data["Phân loại vật tư"].append("BO / RIB")
-    summary_data["Material Class"].append("RIB")
-    summary_data["Gross Consumption"].append(round(total_rib, 4))
-    summary_data["UOM"].append("Yds")
-if total_padding > 0:
-    summary_data["Phân loại vật tư"].append("GÒN LÓT THÂN")
-    summary_data["Material Class"].append("PADDING")
-    summary_data["Gross Consumption"].append(round(total_padding, 4))
-    summary_data["UOM"].append("Yds")
+    if total_fabric > 0:
+        summary_data["Phân loại vật tư"].append("VẢI CHÍNH")
+        summary_data["Material Class"].append("FABRIC")
+        summary_data["Gross Consumption"].append(round(total_fabric, 4))
+        summary_data["UOM"].append("Yds")
+    if total_contrast > 0:
+        summary_data["Phân loại vật tư"].append("VẢI PHỐI")
+        summary_data["Material Class"].append("CONTRAST")
+        summary_data["Gross Consumption"].append(round(total_contrast, 4))
+        summary_data["UOM"].append("Yds")
+    if total_fusing > 0:
+        summary_data["Phân loại vật tư"].append("MÉC / KEO")
+        summary_data["Material Class"].append("FUSING")
+        summary_data["Gross Consumption"].append(round(total_fusing, 4))
+        summary_data["UOM"].append("Yds")
+    if total_lining > 0:
+        summary_data["Phân loại vật tư"].append("VẢI LÓT")
+        summary_data["Material Class"].append("LINING")
+        summary_data["Gross Consumption"].append(round(total_lining, 4))
+        summary_data["UOM"].append("Yds")
+    if total_rib > 0:
+        summary_data["Phân loại vật tư"].append("BO / RIB")
+        summary_data["Material Class"].append("RIB")
+        summary_data["Gross Consumption"].append(round(total_rib, 4))
+        summary_data["UOM"].append("Yds")
+    if total_padding > 0:
+        summary_data["Phân loại vật tư"].append("GÒN LÓT THÂN")
+        summary_data["Material Class"].append("PADDING")
+        summary_data["Gross Consumption"].append(round(total_padding, 4))
+        summary_data["UOM"].append("Yds")
 
-df_summary = pd.DataFrame(summary_data)
-st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY MAY MẶC (YARDS)")
-st.dataframe(df_summary, use_container_width=True, hide_index=True)
+    df_summary = pd.DataFrame(summary_data)
+    st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY MAY MẶC (YARDS)")
+    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
 
 # =====================================================================
     # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V60 ĐỒNG BỘ KHỔ VẢI REAL-TIME
