@@ -2522,7 +2522,7 @@ rules = PRODUCT_RULE_MATRIX.get(
 fabric_coverage_fallback = rules["fabric_coverage_fallback"]
 dynamic_marker_efficiency = rules["default_efficiency"]
 # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (PRODUCTION)
+# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (PRODUCTION TRIM UPGRADE)
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 if not isinstance(stored_virtual_pieces, dict): 
@@ -2537,7 +2537,7 @@ if not df_bom.empty:
         if col not in df_bom.columns:
             df_bom[col] = None
 
-    # 🔥 ENGINE TIÊU HAO TOÁN HỌC THUẦN TÚY (PURE GEOMETRY ENGINE)
+    # 🔥 ENGINE TÍNH ĐỊNH MỨC THEO NGUYÊN TẮC KIỂM TOÁN THUẦN TÚY (PURE GEOMETRY ENGINE)
     for idx, r in df_bom.iterrows():
         v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
         if not isinstance(v, dict): v = {}
@@ -2545,7 +2545,7 @@ if not df_bom.empty:
         c_name_lower = str(r.get("component_name", r.get("Component Name", v.get("component_name", "")))).lower().strip()
 
         # -----------------------------------------------------------------
-        # AUDIT FIELD 1: XÁC ĐỊNH CHẤT LIỆU (MATERIAL CLASS)
+        # TRƯỜNG KIỂM TOÁN 1: XÁC ĐỊNH CHẤT LIỆU (MATERIAL CLASS)
         # -----------------------------------------------------------------
         if "user_edited_mats" in st.session_state and idx in st.session_state["user_edited_mats"]:
             p_cls = str(st.session_state["user_edited_mats"][idx]).upper().strip()
@@ -2570,11 +2570,16 @@ if not df_bom.empty:
         df_bom.at[idx, m_col_field] = p_cls
 
         # -----------------------------------------------------------------
-        # AUDIT FIELD 2: ĐỌC THÔNG SỐ KÍCH THƯỚC HÌNH HỌC (CAD HOÀN TOÀN)
+        # TRƯỜNG KIỂM TOÁN 2: XÁC ĐỊNH HÌNH HỌC RẬP VÀ SỬA ĐẢO TRỤC TỌA ĐỘ PHỤ LIỆU
         # -----------------------------------------------------------------
         piece_length = float(v.get("production_l", r.get("Chiều dài rập (inch)", r.get("bounding_box_length", 0.0))))
         piece_width = float(v.get("production_w", r.get("Chiều rộng rập (inch)", r.get("bounding_box_width", 0.0))))
-        
+        pure_unit_area = float(r.get("polygon_net_area", v.get("polygon_net_area", 0.0)))
+
+        # ASPECT RATIO CORRECTION CHO PHỤ LIỆU NGOẠI LÕI: Tự động xoay chiều rập nếu file CAD bị ngược trục dọc/ngang
+        if p_cls in ["FUSING", "LINING", "RIB", "PADDING"] and piece_width > piece_length and piece_length > 0:
+            piece_length, piece_width = piece_width, piece_length
+
         l_col_display = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), "Chiều dài rập (inch)")
         w_col_display = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), "Chiều rộng rập (inch)")
         df_bom.at[idx, l_col_display] = piece_length
@@ -2583,19 +2588,17 @@ if not df_bom.empty:
         bbox_area = piece_length * piece_width
 
         # -----------------------------------------------------------------
-        # AUDIT FIELD 3: ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP (PIECE COUNT)
+        # TRƯỜNG KIỂM TOÁN 3: ĐỒNG BỘ SỐ LƯỢNG MẢNH RẬP (PIECE COUNT)
         # -----------------------------------------------------------------
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
             df_bom.at[idx, "piece_count_source"] = "USER_EDITED"
         else:
-            # ✅ ƯU TIÊN SỐ LƯỢNG AI/CAD ĐỌC ĐƯỢC LÊN ĐẦU, LOẠI BỎ TOÀN BỘ VIỆC TỰ ĐOÁN THEO TÊN KEYWORD
             pcs_raw = r.get("Số lượng rập", r.get("piece_count", v.get("active_user_pieces", v.get("piece_count", None))))
             if pd.notna(pcs_raw) and float(pcs_raw) >= 1.0:
                 pcs = int(float(pcs_raw))
                 df_bom.at[idx, "piece_count_source"] = "AI_CAD_EXTRACTED"
             else:
-                # Fallback cuối cùng nếu cả AI lẫn dữ liệu gốc không trả về số lượng rập (Phòng hộ khuyết rỗng)
                 pcs = 1
                 df_bom.at[idx, "piece_count_source"] = "DEFAULT_FALLBACK"
 
@@ -2605,16 +2608,15 @@ if not df_bom.empty:
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
         # -----------------------------------------------------------------
-        # AUDIT FIELD 4: THẨM ĐỊNH DIỆN TÍCH TỊNH ĐA GIÁC (POLYGON NET AREA)
+        # TRƯỜNG KIỂM TOÁN 4: THẨM ĐỊNH DIỆN TÍCH TỊNH ĐA GIÁC (AREA SOURCE)
         # -----------------------------------------------------------------
-        pure_unit_area = float(r.get("polygon_net_area", v.get("polygon_net_area", 0.0)))
-        
-        if pure_unit_area > 0.0 and pure_unit_area <= bbox_area:
+        # Kiểm tra ngưỡng diện tích tịnh hợp lệ chống lỗi triệt tiêu rỗng của file rập thô phụ liệu
+        if pure_unit_area > (bbox_area * 0.15) and pure_unit_area <= bbox_area:
             df_bom.at[idx, "area_source"] = "CAD_GEOMETRY"
         else:
-            # ✅ ĐÃ SỬA: Áp dụng hệ số phủ biến động `fabric_coverage_fallback` lấy trực tiếp từ Matrix theo chủng loại hàng chỉ định
-            if p_cls in ["FUSING", "LINING"]:
-                pure_unit_area = bbox_area * 0.85
+            # Chạy cơ chế Fallback diện tích sàn động lấy trực tiếp tỷ lệ phủ từ ma trận chủng loại hàng
+            if p_cls in ["FUSING", "LINING", "RIB", "PADDING"]:
+                pure_unit_area = bbox_area * 0.88
             else:
                 pure_unit_area = bbox_area * fabric_coverage_fallback
             df_bom.at[idx, "area_source"] = "BBOX_MATRIX_FALLBACK"
@@ -2625,33 +2627,39 @@ if not df_bom.empty:
         # -----------------------------------------------------------------
         # RULE 5: ĐỒNG BỘ KHỔ VẢI VÀ ĐIỀU HƯỚNG HIỆU SUẤT SƠ ĐỒ ĐỘC LẬP
         # -----------------------------------------------------------------
+        # Khởi tạo bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
+        trim_waste_factor = 1.0  # Mặc định của vải chính là 1.0 (không nhân dôi dư ngầm)
+        
         if p_cls == "FUSING": 
             current_w = float(st.session_state.get("fusing_width_inch", 59.0))
-            row_efficiency = 0.88  # Phụ liệu Keo đạt 88% hiệu suất sơ đồ cố định độc lập
+            row_efficiency = 0.84  
+            trim_waste_factor = 1.20  # 🚨 ÉP TĂNG 20%: Bù hao hụt nhiệt và cắt vụn biên cho MÉC / KEO
         elif p_cls == "LINING": 
             current_w = float(st.session_state.get("lining_width_inch", 57.0))
-            row_efficiency = 0.85  # Phụ liệu Lót đạt 85% hiệu suất sơ đồ cố định độc lập
+            row_efficiency = 0.82  
+            trim_waste_factor = 1.15  # 🚨 ÉP TĂNG 15%: Bù hao hụt cắt lồng ghép mảnh phụ cho VẢI LÓT
         elif p_cls == "RIB": 
             current_w = float(st.session_state.get("rib_width", 40.0))
             row_efficiency = 0.82
+            trim_waste_factor = 1.12  # 🚨 ÉP TĂNG 12%: Bù hao hụt đầu cây cho BO / RIB
         elif p_cls == "PADDING": 
             current_w = float(st.session_state.get("padding_width", 60.0))
             row_efficiency = 0.85
+            trim_waste_factor = 1.12  # 🚨 ÉP TĂNG 12%: Bù hao hụt biên xéo cho GÒN LÓT THÂN
         else: 
-            # Khổ vải chính nhận lệnh trực tiếp từ ô chat
             current_w = float(st.session_state.get("current_active_width", 54.0))
-            # ✅ ĐÃ SỬA: Ép lấy hiệu suất sơ đồ động của loại hàng chỉ định từ Matrix làm Single Source of Truth
             row_efficiency = dynamic_marker_efficiency
             
         if current_w <= 0: current_w = 54.0 
 
-        w_col_display_field = next((c for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
+        w_col_display_field = next((c walkways for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
         df_bom.at[idx, w_col_display_field] = float(current_w)
 
         # -----------------------------------------------------------------
         # RULE 6: THỰC THI TOÁN HỌC TÍNH TOÁN ĐỊNH MỨC PURE GROSS CONSUMPTION
         # -----------------------------------------------------------------
-        gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
+        # Công thức tích hợp bộ nhân dôi dư sản xuất phụ liệu chuẩn hệ thống ERP
+        gross_yds = (total_piece_area * trim_waste_factor) / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
         if p_cls in summary_grouped_gross:
@@ -2663,6 +2671,7 @@ if not df_bom.empty:
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
+
 
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
