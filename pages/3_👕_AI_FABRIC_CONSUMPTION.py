@@ -2451,7 +2451,7 @@ elif detected_type_label and "SKIRT" in detected_type_label:
     st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SKIRT (Chân váy)"
 elif detected_type_label and "SHORT" in detected_type_label:
     st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SHORT (Quần short)"
-# =====================================================================
+## =====================================================================
 # 🟩 ĐOẠN 5.2 - PHẦN 1.2: COMPONENT CALCULATOR & CONSUMPTION GENERATOR
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2498,20 +2498,26 @@ if not df_bom.empty:
         piece_width = float(v.get("production_w", r.get("Chiều rộng rập (inch)", 0.0)))
         bbox_area = piece_length * piece_width
 
-        if any(x in c_name_lower for x in ["back body", "collar top", "collar band"]):
+        # 🧠 🚨 THUẬT TOÁN KHÔI PHỤC CHI TIẾT ĐỐI XỨNG CHUẨN CAD (ĐÃ FIX SẬP TAY ÁO SLEEVE VÀ CỔ)
+        # Loại bỏ hoàn toàn bẫy chặn diện tích < 450 để ép các chi tiết cặp đối xứng lớn luôn nhận số lượng = 2
+        if any(x in c_name_lower for x in ["back body", "collar top", "collar band", "chân cổ", "lá cổ"]):
             pcs_default = 1
-        elif any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing", "pocket"]):
+        elif any(x in c_name_lower for x in ["sleeve", "tay", "tay áo", "mang tay", "panel", "front", "than truoc", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing", "pocket", "flap", "nắp túi"]):
             if "coin" in c_name_lower:
                 pcs_default = 1
             else:
-                pcs_default = 2
+                pcs_default = 2  # Ép cứng số lượng bằng 2 cho chi tiết đối xứng Trái/Phải
         else:
             pcs_default = 1  
 
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
-            pcs = max(int(r["Số lượng rập"]), pcs_default)
+            # 🚨 ĐÃ SỬA: Loại bỏ bẫy giữ nguyên số lượng cũ lỗi từ file nạp lên, ưu tiên barem đối xứng chuẩn IE xưởng may
+            if int(r["Số lượng rập"]) == 1 and pcs_default == 2:
+                pcs = 2
+            else:
+                pcs = int(r["Số lượng rập"])
         elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
             pcs = int(v["active_user_pieces"])
         else:
@@ -2546,7 +2552,7 @@ if not df_bom.empty:
         if p_cls == "RIB": row_efficiency = 0.82
         elif p_cls == "PADDING": row_efficiency = 0.85
 
-        # 🚨 ĐÃ SỬA LỖI MẤT ĐỊNH MỨC: Tính toán và dán trực tiếp giá trị vào cột Gross Consumption
+        # Tính toán và dán trực tiếp giá trị vào cột Gross Consumption
         gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
