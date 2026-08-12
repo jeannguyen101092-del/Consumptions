@@ -604,6 +604,7 @@ def execute_final_gerber_pure_scan(
     import re
     import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
     import google.generativeai as genai
+    import streamlit as st
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -656,7 +657,7 @@ def execute_final_gerber_pure_scan(
                 if idx not in spec_pages:
                     spec_pages.append(idx)
 
-        # ✅ GIỚI HẠN THEO LOẠI TRANG ĐỂ TRÁNH BÙNG NỔ CHI PHÍ GỬI ẢNH (TOKEN SAVING LOGIC)
+        # GIỚI HẠN THEO LOẠI TRANG ĐỂ TRÁNH BÙNG NỔ CHI PHÍ GỬI ẢNH (TOKEN SAVING LOGIC)
         final_sketch_selection = sketch_pages[:2]               # SKETCH -> Tối đa 2 trang đầu
         final_bom_selection = bom_pages                         # BOM -> Lấy toàn bộ chuỗi liên tục
         final_spec_selection = spec_pages[:3]                   # SPEC -> Tối đa 3 trang thông số cốt lõi
@@ -702,19 +703,29 @@ def execute_final_gerber_pure_scan(
     """
     gemini_inputs.append(extended_prompt)
 
+    # 🚨 BẮT ĐẦU KHỐI GỌI MODEL AI VÀ KIỂM SOÁT LỖI DUNG LƯỢNG TIỀN TÀI KHOẢN
     model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content(
-        gemini_inputs,
-        generation_config={
-            "response_mime_type": "application/json",
-            "response_schema": raw_json_schema,
-            "temperature": 0.0,
-        },
-        request_options={"timeout": 120.0},
-    )
+    
+    try:
+        response = model.generate_content(
+            gemini_inputs,
+            generation_config={
+                "response_mime_type": "application/json",
+                "response_schema": raw_json_schema,
+                "temperature": 0.0,
+            },
+            request_options={"timeout": 120.0},
+        )
+    except Exception as api_err:
+        # Bắt trực tiếp lỗi phản hồi từ Google nếu tài khoản bị sập gói, hết tiền hoặc chặn Quota
+        st.error("❌ THÔNG BÁO TỪ GOOGLE: Tài khoản API Key của bạn đã HẾT TIỀN hoặc VƯỢT QUÁ HẠN MỨC DUNG LƯỢNG (Quota Exhausted)!")
+        st.info("💡 Hướng xử lý: Vui lòng nạp thêm tiền vào Google AI Studio Billing hoặc đổi một mã API KEY mới còn dung lượng vào file cấu hình.")
+        st.stop() # Ngắt luồng chạy lập tức, giải phóng vòng quay vô tận trên giao diện
 
+    # Kiểm tra phòng vệ nếu máy chủ Google chặn ngầm trả về chuỗi rỗng
     if not response or not response.text:
-        raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
+        st.error("❌ Máy chủ Google trả về kết quả rỗng! (Dấu hiệu tài khoản API Key bị khóa băng thông hoặc cạn số dư Billing)")
+        st.stop()
 
     txt = response.text.strip()
     if txt.startswith("```"):
@@ -738,7 +749,6 @@ def execute_final_gerber_pure_scan(
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
             
-            # Ép kiểu bảo vệ cấu trúc thô nguyên bản của tài liệu trước khi nạp xuống Python
             try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
             except: row["bounding_box_length"] = 0.0
             try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
@@ -757,9 +767,6 @@ def execute_final_gerber_pure_scan(
                 mat_class = "LINING"
             row["material_class"] = mat_class
 
-            # ĐÃ GỠ BỎ TOÀN BỘ LOGIC CŨ AI TỰ Ý CHIA ĐÔI CANH SỢI VÀ KHỐNG CHẾ BIÊN DIỆN TÍCH.
-            # Nhường quyền thực thi tính toán và xử lý hình học hoàn toàn cho Python (Đoạn 4 / 5.2).
-
             try:
                 forced_width = float(active_width)
                 if current_query:
@@ -769,9 +776,11 @@ def execute_final_gerber_pure_scan(
             except:
                 row["fabric_width_inch"] = float(active_width)
 
-    # ✅ SỬA 2: ĐỔI TÊN BIẾN ĐẾM SỐ KÝ TỰ VĂN BẢN ĐẦU VÀO ĐÚNG BẢN CHẤT (Không gọi sai thành token)
+    # Đếm số lượng ký tự văn bản đầu vào thực tế
     if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
     if "input_chars" not in st.session_state: st.session_state["input_chars"] = 0
+        
+
         
     st.session_state["api_calls_count"] += 1
     st.session_state["input_chars"] += len(filtered_pdf_text)
