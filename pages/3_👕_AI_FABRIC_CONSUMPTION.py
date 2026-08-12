@@ -2522,7 +2522,7 @@ rules = PRODUCT_RULE_MATRIX.get(
 fabric_coverage_fallback = rules["fabric_coverage_fallback"]
 dynamic_marker_efficiency = rules["default_efficiency"]
 # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (PRODUCTION TRIM UPGRADE)
+# 🟩 ĐOẠN 5.2 - PHẦN 1.2.2: PURE CALCULATION & AUDIT TRAIL CORE ENGINE (TRIMS AMPLIFIER PATCH)
 # =====================================================================
 stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
 if not isinstance(stored_virtual_pieces, dict): 
@@ -2613,7 +2613,6 @@ if not df_bom.empty:
         if pure_unit_area > (bbox_area * 0.15) and pure_unit_area <= bbox_area:
             df_bom.at[idx, "area_source"] = "CAD_GEOMETRY"
         else:
-            # Chạy cơ chế Fallback diện tích sàn động lấy trực tiếp tỷ lệ phủ từ ma trận chủng loại hàng
             if p_cls in ["FUSING", "LINING", "RIB", "PADDING"]:
                 pure_unit_area = bbox_area * 0.88
             else:
@@ -2626,52 +2625,58 @@ if not df_bom.empty:
         # -----------------------------------------------------------------
         # RULE 5: ĐỒNG BỘ KHỔ VẢI VÀ ĐIỀU HƯỚNG HIỆU SUẤT SƠ ĐỒ ĐỘC LẬP
         # -----------------------------------------------------------------
-        # Bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
+        # Khởi tạo bộ gom nhóm hệ số dôi dư sản xuất thực tế tại bàn cắt (Trim Waste Engine)
         trim_waste_factor = 1.0  # Mặc định của vải chính là 1.0
         
+        # ✅ TỐI ƯU HỆ SỐ HAO HỤT: Đẩy mạnh dôi dư phụ liệu bàn cắt lên đúng barem xưởng may thực tế
         if p_cls == "FUSING": 
             current_w = float(st.session_state.get("fusing_width_inch", 59.0))
-            row_efficiency = 0.84  
-            trim_waste_factor = 1.20  # ÉP TĂNG 20%: Cho MÉC / KEO
+            row_efficiency = 0.82  # Hạ mẫu số hiệu suất keo từ 0.84 xuống 0.82 để tăng định mức Yards tổng
+            trim_waste_factor = 1.25  # Nâng hệ số dôi dư sản xuất của Keo lên 1.25 (Bù hao hụt nhiệt và co rút móp biên)
         elif p_cls == "LINING": 
             current_w = float(st.session_state.get("lining_width_inch", 57.0))
-            row_efficiency = 0.82  
-            trim_waste_factor = 1.15  # ÉP TĂNG 15%: Cho VẢI LÓT
+            row_efficiency = 0.78  # Hạ mẫu số hiệu suất lót xuống 0.78 để đẩy định mức Yards tổng lên
+            trim_waste_factor = 1.35  # Nâng mạnh dôi dư Lót lên 1.35 (Bù hao hụt cắt lồng ráp túi sâu quần Jean)
         elif p_cls == "RIB": 
             current_w = float(st.session_state.get("rib_width", 40.0))
             row_efficiency = 0.82
-            trim_waste_factor = 1.12  # ÉP TĂNG 12%: Cho BO / RIB
+            trim_waste_factor = 1.15
         elif p_cls == "PADDING": 
             current_w = float(st.session_state.get("padding_width", 60.0))
             row_efficiency = 0.85
-            trim_waste_factor = 1.12  # ÉP TĂNG 12%: Cho GÒN LÓT THÂN
+            trim_waste_factor = 1.15
         else: 
             current_w = float(st.session_state.get("current_active_width", 54.0))
             row_efficiency = dynamic_marker_efficiency
             
         if current_w <= 0: current_w = 54.0 
 
-        # ✅ ĐÃ FIX LỖI CÚ PHÁP: Dọn sạch từ rác "walkways", đưa về cấu trúc chuẩn chỉnh 100%
         w_col_display_field = next((c for c in ["Khổ vải sản xuất (inch)", "Khổ vải sản xuất"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
         df_bom.at[idx, w_col_display_field] = float(current_w)
 
         # -----------------------------------------------------------------
         # RULE 6: THỰC THI TOÁN HỌC TÍNH TOÁN ĐỊNH MỨC PURE GROSS CONSUMPTION
         # -----------------------------------------------------------------
-        # Công thức tích hợp bộ nhân dôi dư sản xuất phụ liệu chuẩn hệ thống ERP
         gross_yds = (total_piece_area * trim_waste_factor) / (current_w * 36.0 * row_efficiency)
         df_bom.at[idx, "Gross Consumption"] = round(float(gross_yds), 4)
         
+        # 🚨 KHỐI TỰ ĐỘNG BÙ ĐỊNH MỨC KEO PHỐI (FIX LỖI KEO QUÁ THẤP DO KHUYẾT DÒNG RẬP CAD)
+        # Nếu gặp các chi tiết rập vải chính cần ép mex cứng bên trong (Cạp quần, nẹp cửa quần)
+        if any(x in c_name_lower for x in ["waistband", "cap", "fly", "shield"]) and p_cls == "FABRIC":
+            # Tự động trích xuất diện tích rập của chi tiết này để tính toán bù thêm một lượng định mức Keo tương ứng
+            fusing_fallback_area = total_piece_area * 1.05 # Lượng keo phủ biên dôi dư tương đương mảnh gốc
+            fusing_gross_fallback = (fusing_fallback_area * 1.25) / (59.0 * 36.0 * 0.82)
+            summary_grouped_gross["FUSING"] += fusing_gross_fallback
+
         if p_cls in summary_grouped_gross:
             summary_grouped_gross[p_cls] += gross_yds
 
-    # Đẩy kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP cho Khối 7.1 hiển thị
+    # Đẩy trọn vẹn kết quả gom nhóm sạch lên bộ nhớ phiên liên tầng ERP phục vụ hiển thị công khai ở Khối 7.1
     st.session_state["summary_fabric_gross"] = round(summary_grouped_gross["FABRIC"] + summary_grouped_gross["CONTRAST"], 4)
     st.session_state["summary_fusing_gross"] = round(summary_grouped_gross["FUSING"], 4)
     st.session_state["summary_lining_gross"] = round(summary_grouped_gross["LINING"], 4)
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
-
 
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
