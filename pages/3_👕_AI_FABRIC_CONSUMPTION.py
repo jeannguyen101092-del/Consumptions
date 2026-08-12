@@ -2304,9 +2304,23 @@ _is_trouser = locals().get("is_trouser", False)
 _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
 _is_jacket = locals().get("is_jacket", False)
 
-style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
-material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
-p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
+# 🚨 SỬA TRIỆT ĐỂ LỖI ATTRIBUTEERROR TẠI DÒNG 2387: Thêm khối kiểm tra cấu trúc an toàn khi chưa nạp dữ liệu
+ctx_data = st.session_state.get("bom_data")
+if not isinstance(ctx_data, dict): 
+    ctx_data = {}
+
+ai_decision = ctx_data.get("ai_expert_decision")
+if not isinstance(ai_decision, dict): 
+    ai_decision = {}
+
+style_code_upper = str(ai_decision.get("style_code", "")).upper().strip()
+if style_code_upper == "NONE": style_code_upper = ""
+
+material_spec_upper = str(ai_decision.get("material_spec", "")).upper().strip()
+if material_spec_upper == "NONE": material_spec_upper = ""
+
+p_type_friendly = str(ai_decision.get("product_type_friendly", "JEAN_LONG")).upper().strip()
+if p_type_friendly == "NONE": p_type_friendly = "JEAN_LONG"
 
 combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
 
@@ -2354,6 +2368,11 @@ elif is_nap_mode:
 dynamic_marker_efficiency = max(0.52, dynamic_marker_efficiency)
 
 # Đồng bộ ngược nhãn hiển thị chủng loại lên màn hình báo cáo
+if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
+    st.session_state["bom_data"] = {}
+if "ai_expert_decision" not in st.session_state["bom_data"] or not isinstance(st.session_state["bom_data"]["ai_expert_decision"], dict):
+    st.session_state["bom_data"]["ai_expert_decision"] = {}
+
 if detected_type_label and "DRESS" in detected_type_label:
     st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
 elif detected_type_label and "SKIRT" in detected_type_label:
@@ -2460,7 +2479,6 @@ for idx, r in df_bom.iterrows():
 
     # ✅ ĐÓNG NGOẶC TRÒN HOÀN THIỆN CÔNG THỨC HÌNH HỌC PHẲNG CHUẨN XƯỞNG MAY
     gross_yds = total_piece_area / (current_w * 36.0 * row_efficiency)
-
 
 
         # =====================================================================
