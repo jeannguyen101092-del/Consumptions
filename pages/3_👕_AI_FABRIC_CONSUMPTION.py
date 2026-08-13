@@ -582,17 +582,9 @@ with col_right:
 
 
 
-import copy
-import hashlib
-import json
-import re
-import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
-import google.generativeai as genai
-import streamlit as st
-
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V24.2 - OPTIMIZED RESOURCE ENGINE)
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V23) - ĐÃ PHÁ VỠ BẪY CACHE CŨ HOÀN TOÀN
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -607,181 +599,61 @@ def execute_final_gerber_pure_scan(
     raw_json_schema,
     prompt_agent_2,
 ):
+    import copy
+    import hashlib
+    import json
+    import re
+    import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
+    import google.generativeai as genai
+
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
     if not isinstance(pdf_bytes, bytes):
         raise TypeError("Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!")
 
-    # -----------------------------------------------------------------
-    # 🔍 BỘ PHÂN LOẠI VÀ KIỂM SOÁT SỐ TRANG THEO HẠN ĐỊNH (PAGES MINING MATRIX)
-    # -----------------------------------------------------------------
-    filtered_pdf_text = ""
+    full_pdf_raw_text = ""
     image_payloads = []
-
-    sketch_pages = []
-    bom_pages = []
-    spec_pages = []
-
-    target_keywords_bom = [
-        "bom",
-        "bill of material",
-        "b.o.m",
-        "vật tư",
-        "phụ liệu",
-        "component list",
-    ]
-    target_keywords_spec = [
-        "measurement",
-        "spec",
-        "specification",
-        "thông số",
-        "bảng size",
-        "size chart",
-    ]
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
         total_pages = len(doc_recovery)
 
-        # 1. Thu thập trang SKETCH (Luôn lấy tối đa 2 trang đầu)
-        for idx in range(min(2, total_pages)):
-            sketch_pages.append(idx)
-
-        # 2. Thu thập các trang BOM liên tục
-        bom_started = False
         for idx in range(total_pages):
-            page_text_lower = doc_recovery[idx].get_text("text").lower()
-            is_bom_page = any(
-                kw in page_text_lower for kw in target_keywords_bom
-            )
-
-            if is_bom_page:
-                bom_started = True
-                if idx not in bom_pages:
-                    bom_pages.append(idx)
-            elif bom_started:
-                # Nếu là trang nối tiếp liên tục chứa bảng vật tư
-                if any(
-                    kw in page_text_lower
-                    for kw in [
-                        "fabric",
-                        "lining",
-                        "fusing",
-                        "yarn",
-                        "zipper",
-                        "thread",
-                        "button",
-                    ]
-                ):
-                    if idx not in bom_pages:
-                        bom_pages.append(idx)
-                else:
-                    bom_started = False
-
-        # 3. Thu thập các trang SPEC / POM thực sự cần thiết
-        for idx in range(total_pages):
-            page_text_lower = doc_recovery[idx].get_text("text").lower()
-            if any(kw in page_text_lower for kw in target_keywords_spec):
-                if idx not in spec_pages:
-                    spec_pages.append(idx)
-
-        # GIỚI HẠN THEO LOẠI TRANG ĐỂ TRÁNH BÙNG NỔ CHI PHÍ GỬI ẢNH (TOKEN SAVING LOGIC)
-        final_sketch_selection = sketch_pages[
-            :2
-        ]  # SKETCH -> Tối đa 2 trang đầu
-        final_bom_selection = bom_pages  # BOM -> Lấy toàn bộ chuỗi liên tục
-        final_spec_selection = spec_pages[
-            :3
-        ]  # SPEC -> Tối đa 3 trang thông số cốt lõi
-
-        # Hợp nhất và loại bỏ trang trùng lặp, giữ đúng thứ tự tài liệu
-        all_selected_pages = sorted(
-            list(
-                set(
-                    final_sketch_selection
-                    + final_bom_selection
-                    + final_spec_selection
-                )
-            )
-        )
-
-        # Phòng hộ nếu file scan lỗi không đọc được text thô
-        if not all_selected_pages:
-            all_selected_pages = list(range(min(3, total_pages)))
-
-        # Trích xuất text và kết xuất hình ảnh gửi lên API
-        for idx in all_selected_pages:
             page_text = doc_recovery[idx].get_text("text")
-            filtered_pdf_text += (
-                f"\n--- TARGET PAGE {idx + 1} ---\n{page_text}"
-            )
+            full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            try:
-                pix = doc_recovery[idx].get_pixmap(
-                    dpi=120, colorspace=fitz.csRGB
-                )
-                image_payloads.append(
-                    {"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")}
-                )
-            except Exception:
-                continue
+            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
+            if len(image_payloads) < 2:
+                try:
+                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                except Exception:
+                    continue
 
-    # -----------------------------------------------------------------
-    # 🧠 ĐÓNG GÓI PAYLOAD & SIẾT CHẶT PHẠM VI 4 NHIỆM VỤ CỦA AI
-    # -----------------------------------------------------------------
     gemini_inputs = list(image_payloads)
-    gemini_inputs.insert(
-        0,
-        f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== FILTERED TARGET PAGES TEXT ===\n{filtered_pdf_text}\n",
-    )
+    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    extended_prompt = (
-        prompt_agent_2
-        + """
-    CRITICAL AI SCOPE ENFORCEMENT RULES:
-    You are strictly a PURE DATA EXTRACTION ENGINE. You are forbidden from performing calculations, estimation, or self-adjusting dimension/yield numbers. 
-    You MUST execute exactly 4 tasks and map them cleanly into the fields of the requested JSON schema:
-    1. IDENTIFY PRODUCT TYPE: Recognize the overall garment category (e.g., JACKET, JEAN_LONG, SHORT, SHIRT) from the visual Sketch provided in pages 1-2.
-    2. EXTRACT BOM ROWS: Read the raw material tables. Map every single pattern piece component and assign its accurate "material_class" (FABRIC, LINING, FUSING, RIB, etc.) based purely on text indicators. 
-       - If a component name contains "FUSING", "MEX", "KEO", classify as "FUSING".
-       - If a component name contains "LINING", "LÓT", "POCKET BAG", classify as "LINING".
-    3. CAPTURE KEY SPECS: Extract exact physical specifications (garment_length, waist, hip, sleeve_length) matching the target requested size.
-    4. RETURN CLEAN RAW JSON: Populate the raw extracted text values into the exact structured format of the schema.
-    
-    STRICTLY FORBIDDEN:
-    - Do NOT generate, calculate, or output "gross_consumption", "marker_efficiency", "allocated_gross", or estimate consumption yields.
-    - Leave all downstream engineering decisions and consumption business rules to the core Python geometry engine.
+    extended_prompt = prompt_agent_2 + """
+    CRITICAL MULTI-MATERIAL EXTRACTION RULES:
+    - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_class strictly as "LINING".
     """
-    )
     gemini_inputs.append(extended_prompt)
 
-    # 🚨 BẮT ĐẦU KHỐI GỌI MODEL AI VÀ KIỂM SOÁT LỖI DUNG LƯỢNG TIỀN TÀI KHOẢN
     model = genai.GenerativeModel("gemini-2.5-flash")
-
-    try:
-        response = model.generate_content(
-            gemini_inputs,
-            generation_config={
-                "response_mime_type": "application/json",
-                "response_schema": raw_json_schema,
-                "temperature": 0.0,
-            },
-            request_options={"timeout": 120.0},
-        )
-    except Exception as api_err:
-        st.error(
-            "❌ THÔNG BÁO TỪ GOOGLE: Tài khoản API Key của bạn đã HẾT TIỀN hoặc VƯỢT QUÁ HẠN MỨC DUNG LƯỢNG (Quota Exhausted)!"
-        )
-        st.info(
-            "💡 Hướng xử lý: Vui lòng nạp thêm tiền vào Google AI Studio Billing hoặc đổi một mã API KEY mới còn dung lượng vào file cấu hình."
-        )
-        st.stop()
+    response = model.generate_content(
+        gemini_inputs,
+        generation_config={
+            "response_mime_type": "application/json",
+            "response_schema": raw_json_schema,
+            "temperature": 0.0,
+        },
+        request_options={"timeout": 120.0},
+    )
 
     if not response or not response.text:
-        st.error(
-            "❌ Máy chủ Google trả về kết quả rỗng! (Dấu hiệu tài khoản API Key bị khóa băng thông hoặc cạn số dư Billing)"
-        )
-        st.stop()
+        raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
     txt = response.text.strip()
     if txt.startswith("```"):
@@ -793,26 +665,67 @@ def execute_final_gerber_pure_scan(
     try:
         blueprint_worker = json.loads(txt)
     except json.JSONDecodeError as json_err:
-        raise RuntimeError(
-            f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}"
-        ) from json_err
+        raise RuntimeError(f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}") from json_err
 
-    # -----------------------------------------------------------------
-    # 🎛️ KHỐI HẬU XỬ LÝ (POST-PROCESSING) - CHUẨN HÓA DỮ LIỆU ĐỐI ỨNG PYTHON
-    # -----------------------------------------------------------------
     if blueprint_worker and "bom_rows" in blueprint_worker:
         blueprint_worker["calculated_on_size"] = target_size_cmd
-
+        
         for row in blueprint_worker.get("bom_rows", []):
-            if "component_name" in row and row["component_name"]:
-                # Chuẩn hóa khoảng trắng dư thừa trong tên linh kiện
-                row["component_name"] = " ".join(
-                    str(row["component_name"]).split()
-                )
+            if "component_name" in row:
+                row["component_name"] = " ".join(str(row["component_name"]).upper().split())
+            
+            # Ép kiểu dữ liệu an toàn ban đầu
+            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
+            except: row["bounding_box_length"] = 0.0
+            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
+            except: row["bounding_box_width"] = 0.0
+            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+            except: row["polygon_net_area"] = 0.0
+            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+            except: row["piece_count"] = 1
+            
+            comp_name = str(row.get("component_name", "")).upper()
+            mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
+            
+            # Sửa lỗi phân loại vật tư nghiêm ngặt cho Keo/Lót/Rib
+            if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
+                mat_class = "FUSING"
+            elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
+                mat_class = "LINING"
+            row["material_class"] = mat_class
+
+            # CHUẨN HÓA HÌNH HỌC PHẲNG: Gỡ hoàn toàn bẫy nhân đôi bề rộng của rập vải chính
+            if mat_class == "FABRIC" and row["bounding_box_width"] > 16.0:
+                row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
+                row["polygon_net_area"] = row["polygon_net_area"] / 2.0
+                row["piece_count"] = int(row["piece_count"] * 2)
+
+            # GEOMETRY GUARD: Khống chế diện tích tinh không cho lấn át diện tích hộp bao phẳng
+            bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
+            if row["polygon_net_area"] > bbox_area and bbox_area > 0:
+                row["polygon_net_area"] = bbox_area * (0.76 if mat_class == "FABRIC" else 0.85)
+
+            try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
+            except: row["gross_consumption"] = 0.0415
+            try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
+            except: row["marker_efficiency"] = "82.5%"
+            
+            try:
+                forced_width = float(active_width)
+                if current_query:
+                    width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+                    if width_match: forced_width = float(width_match.group(2))
+                row["fabric_width_inch"] = forced_width
+            except:
+                row["fabric_width_inch"] = float(active_width)
+
+    if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
+    if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
+        
+    st.session_state["api_calls_count"] += 1
+    st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
-
 
 import io
 import re
