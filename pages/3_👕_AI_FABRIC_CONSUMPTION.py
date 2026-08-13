@@ -584,7 +584,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V23) - ĐÃ PHÁ VỠ BẪY CACHE CŨ HOÀN TOÀN
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V24) - ĐÃ SỬA BẪY 16 INCH & GEOMETRY
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -633,11 +633,13 @@ def execute_final_gerber_pure_scan(
     gemini_inputs = list(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
+    # Bổ sung chỉ thị ép AI nhận diện rập mở đôi/đối xứng vào prompt
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
     - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
     - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_class strictly as "LINING".
+    - You MUST identify if a piece is symmetrical or folded. If it's a folded/symmetrical piece, set symmetry_type to "FOLD", otherwise leave it empty or "NONE".
     """
     gemini_inputs.append(extended_prompt)
 
@@ -694,16 +696,19 @@ def execute_final_gerber_pure_scan(
                 mat_class = "LINING"
             row["material_class"] = mat_class
 
-            # CHUẨN HÓA HÌNH HỌC PHẲNG: Gỡ hoàn toàn bẫy nhân đôi bề rộng của rập vải chính
-            if mat_class == "FABRIC" and row["bounding_box_width"] > 16.0:
+            # CHUẨN HÓA HÌNH HỌC PHẲNG mới: Gỡ bỏ hoàn toàn kiểm tra > 16.0 inch [1]
+            # Chỉ xử lý chia đôi nếu AI chủ động gắn cờ rập mở đôi (Symmetry)
+            is_symmetry = str(row.get("symmetry_type", "")).upper() in ["FOLD", "MỞ ĐÔI", "SYMMETRY"]
+            if mat_class == "FABRIC" and is_symmetry:
                 row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            # GEOMETRY GUARD: Khống chế diện tích tinh không cho lấn át diện tích hộp bao phẳng
+            # GEOMETRY GUARD mới: Chỉ sửa khi lỗi vật lý (Diện tích chi tiết không thể lớn hơn hộp bao vuông)
             bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
-                row["polygon_net_area"] = bbox_area * (0.76 if mat_class == "FABRIC" else 0.85)
+                # Trả về bằng đúng diện tích hộp bao thay vì nhân tỷ lệ ảo 0.76 hay 0.85 gây thiếu hụt mã hàng lớn [1]
+                row["polygon_net_area"] = bbox_area
 
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
             except: row["gross_consumption"] = 0.0415
