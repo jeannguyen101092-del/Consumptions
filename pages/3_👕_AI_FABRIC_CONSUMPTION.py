@@ -584,7 +584,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V24) - ĐÃ SỬA BẪY 16 INCH & GEOMETRY
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V25) - KHẮC PHỤC LỖI TẬP TIN LỚN & QUẦN JEANS
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -622,18 +622,18 @@ def execute_final_gerber_pure_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
-            if len(image_payloads) < 2:
-                try:
-                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-                except Exception:
-                    continue
+            # ĐÃ SỬA: Quét toàn bộ hình ảnh của tất cả các trang (không chặn ở trang thứ 2 nữa)
+            # Giúp AI nhìn thấy đầy đủ bản vẽ rập sơ đồ ở trang 3, trang 4 trở đi của file 14 trang
+            try:
+                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+            except Exception:
+                continue
 
     gemini_inputs = list(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # Bổ sung chỉ thị ép AI nhận diện rập mở đôi/đối xứng vào prompt
+    # Bổ sung chỉ chỉ thị kiểm tra rập mở đôi/đối xứng để AI phân loại chính xác
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
@@ -696,18 +696,18 @@ def execute_final_gerber_pure_scan(
                 mat_class = "LINING"
             row["material_class"] = mat_class
 
-            # CHUẨN HÓA HÌNH HỌC PHẲNG mới: Gỡ bỏ hoàn toàn kiểm tra > 16.0 inch [1]
-            # Chỉ xử lý chia đôi nếu AI chủ động gắn cờ rập mở đôi (Symmetry)
+            # ĐÃ SỬA: Gỡ bỏ hoàn toàn kiểm tra cứng > 16.0 inch để không làm hỏng thông số quần Jeans lớn.
+            # Chỉ xử lý chia đôi kích thước nếu AI chủ động gán cờ rập mở đôi (symmetry_type)
             is_symmetry = str(row.get("symmetry_type", "")).upper() in ["FOLD", "MỞ ĐÔI", "SYMMETRY"]
             if mat_class == "FABRIC" and is_symmetry:
                 row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            # GEOMETRY GUARD mới: Chỉ sửa khi lỗi vật lý (Diện tích chi tiết không thể lớn hơn hộp bao vuông)
+            # ĐÃ SỬA GEOMETRY GUARD: Chỉ can thiệp khi có lỗi logic vật lý (Diện tích rập tinh lớn hơn cả hộp vuông bao ngoài)
             bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
-                # Trả về bằng đúng diện tích hộp bao thay vì nhân tỷ lệ ảo 0.76 hay 0.85 gây thiếu hụt mã hàng lớn [1]
+                # Gán bằng diện tích hộp bao tối đa, loại bỏ tỷ lệ nhân ảo cũ (0.76 / 0.85) để tránh thiếu hụt định mức mã lớn
                 row["polygon_net_area"] = bbox_area
 
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
@@ -731,7 +731,6 @@ def execute_final_gerber_pure_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
 
 
 
