@@ -582,13 +582,12 @@ with col_right:
 
 
 
-
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V27) - ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (V27.1 - TỐI ƯU TỐC ĐỘ, CHỈ QUÉT 2 TRANG ĐẦU)
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
-    ttl=3600,  # Khóa chặt bộ nhớ Cache trong 1 tiếng để sửa UI thoải mái không bị tính tiền lần 2
+    ttl=3600,
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
 def execute_final_gerber_pure_scan(
@@ -605,7 +604,7 @@ def execute_final_gerber_pure_scan(
     import re
     import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
     import google.generativeai as genai
-    import streamlit as st  # ✅ ĐÃ SỬA: Thêm import streamlit để tránh lỗi NameError sập hàm
+    import streamlit as st
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -620,20 +619,22 @@ def execute_final_gerber_pure_scan(
         total_pages = len(doc_recovery)
 
         for idx in range(total_pages):
+            # 1. ĐỌC TEXT: Vẫn đọc text toàn bộ các trang để lấy thông số (Rất nhẹ, không tốn tài nguyên)
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Quét toàn bộ hình ảnh của tất cả các trang phục vụ AI Vision
-            try:
-                pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
-            except Exception:
-                continue
+            # 2. CHỤP ẢNH (⚡ TỐI ƯU TỐC ĐỘ): Chỉ chụp ảnh Trang 1 & Trang 2 (idx < 2) để lấy hình Sketch/Sơ đồ
+            # Bỏ qua việc Render ảnh từ trang 3 trở đi để giảm tải dung lượng gửi lên API
+            if idx < 2:
+                try:
+                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
+                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                except Exception:
+                    continue
 
     gemini_inputs = list(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # Bổ sung chỉ thị phân loại vật tư dựa theo bộ quy chuẩn dữ liệu V27
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
@@ -651,7 +652,7 @@ def execute_final_gerber_pure_scan(
             "response_schema": raw_json_schema,
             "temperature": 0.0,
         },
-        request_options={"timeout": 120.0},
+        request_options={"timeout": 60.0}, # Giảm timeout xuống 60s vì dữ liệu đã nhẹ hơn rất nhiều
     )
 
     if not response or not response.text:
@@ -676,25 +677,21 @@ def execute_final_gerber_pure_scan(
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
             
-            # 1. ÉP KIỂU KÍCH THƯỚC HỘP BAO (BBOX) BAN ĐẦU AN TOÀN
             try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
             except: row["bounding_box_length"] = 0.0
             try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
             except: row["bounding_box_width"] = 0.0
             
-            # 2. ĐỒNG BỘ BIẾN SỐ LƯỢNG CHI TIẾT: Lấy trực tiếp từ 'cut_quantity' của JSON Schema V27
             raw_count = row.get("cut_quantity") or row.get("piece_count") or 1
             try: row["piece_count"] = int(float(raw_count))
             except: row["piece_count"] = 1
             
-            # 3. ĐỒNG BỘ BIẾN CHỦNG LOẠI VẬT TƯ: Lấy từ 'material_zone' (Bản V27) đưa về 'material_class' hệ thống cũ
             mat_zone = str(row.get("material_zone", "SELF")).upper().strip()
             if mat_zone == "SELF":
                 mat_class = "FABRIC"
             else:
-                mat_class = mat_zone  # Thừa hưởng LINING, FUSING, RIB, CONTRAST từ Schema V27
+                mat_class = mat_zone
                 
-            # Bộ lọc bảo vệ nghiêm ngặt bằng Python (Đề phòng AI phân loại sai Material Zone trên các chi tiết nhỏ)
             comp_name = str(row.get("component_name", "")).upper()
             if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
                 mat_class = "FUSING"
@@ -703,21 +700,16 @@ def execute_final_gerber_pure_scan(
                 mat_class = "LINING"
                 mat_zone = "LINING"
             elif any(k in comp_name for k in ["RIB", "BO GÂN"]):
-                mat_class = "LINING"  # Quy về nhóm lót tính toán hoặc giữ RIB tùy thuật toán cũ
+                mat_class = "LINING"
                 mat_zone = "RIB"
             
             row["material_class"] = mat_class
             row["material_zone"] = mat_zone
 
-            # 4. KHẮC PHỤC LỖI polygon_net_area TRÊN SCHEMA V27 KHÔNG CÓ DIỆN TÍCH TINH
-            # Sử dụng convex_fill_ratio (Tỷ lệ lấp đầy hình học) của AI tính toán logic vật lý diện tích tinh thực tế
             bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
             fill_ratio = float(row.get("convex_fill_ratio", 0.75))
-            
-            # Nếu AI có trả về diện tích ngoài schema thì lấy, không thì tự động suy luận logic
             row["polygon_net_area"] = float(row.get("polygon_net_area") or (bbox_area * fill_ratio))
 
-            # 5. XỬ LÝ ĐỐI XỨNG RẬP VẬT LÝ TRUYỀN THỐNG (ĐỒNG BỘ THEO fold_type & mirror_piece)
             is_symmetry = (
                 str(row.get("fold_type", "")).upper() in ["CENTER_FOLD", "EDGE_FOLD", "ON_FOLD"] or 
                 row.get("mirror_piece") is True
@@ -727,17 +719,14 @@ def execute_final_gerber_pure_scan(
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            # GEOMETRY GUARD: Chặn lỗi ảo thuật toán khi diện tích rập tinh lớn hơn cả hộp vuông bao ngoài
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
                 row["polygon_net_area"] = bbox_area
 
-            # 6. ÉP KIỂU CÁC CHỈ SỐ HAO HỤT MẶC ĐỊNH
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
             except: row["gross_consumption"] = 0.0415
             try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
             except: row["marker_efficiency"] = "82.5%"
             
-            # 7. KHỔ VẢI ĐỒNG BỘ DỰA TRÊN CÂU LỆNH USER CHAT
             try:
                 forced_width = float(active_width)
                 if current_query:
@@ -754,6 +743,7 @@ def execute_final_gerber_pure_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
+
 
 
 
