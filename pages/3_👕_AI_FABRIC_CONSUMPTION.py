@@ -584,7 +584,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V25) - KHẮC PHỤC LỖI TẬP TIN LỚN & QUẦN JEANS
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V25) - ĐÃ SỬA LỖI KHÔNG QUÉT ĐƯỢC DỮ LIỆU
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -605,6 +605,7 @@ def execute_final_gerber_pure_scan(
     import re
     import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
     import google.generativeai as genai
+    import streamlit as st  # ✅ ĐÃ SỬA: Thêm import streamlit vào đây để tránh lỗi NameError
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -622,8 +623,7 @@ def execute_final_gerber_pure_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # ĐÃ SỬA: Quét toàn bộ hình ảnh của tất cả các trang (không chặn ở trang thứ 2 nữa)
-            # Giúp AI nhìn thấy đầy đủ bản vẽ rập sơ đồ ở trang 3, trang 4 trở đi của file 14 trang
+            # ĐÃ SỬA: Quét toàn bộ hình ảnh của tất cả các trang
             try:
                 pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
                 image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
@@ -633,7 +633,7 @@ def execute_final_gerber_pure_scan(
     gemini_inputs = list(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # Bổ sung chỉ chỉ thị kiểm tra rập mở đôi/đối xứng để AI phân loại chính xác
+    # Bổ sung chỉ thị kiểm tra rập mở đôi/đối xứng để AI phân loại chính xác
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
@@ -676,38 +676,38 @@ def execute_final_gerber_pure_scan(
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
             
-            # Ép kiểu dữ liệu an toàn ban đầu
-            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
+            # ✅ ĐÃ SỬA: Thêm fallback linh hoạt nếu AI viết sai tên key viết tắt (length -> L, width -> W)
+            raw_len = row.get("bounding_box_length") or row.get("length") or row.get("L", 0.0)
+            raw_wid = row.get("bounding_box_width") or row.get("width") or row.get("W", 0.0)
+            raw_area = row.get("polygon_net_area") or row.get("net_area") or row.get("area", 0.0)
+            raw_count = row.get("piece_count") or row.get("count") or row.get("qty", 1)
+
+            try: row["bounding_box_length"] = round(float(raw_len), 2)
             except: row["bounding_box_length"] = 0.0
-            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
+            try: row["bounding_box_width"] = round(float(raw_wid), 2)
             except: row["bounding_box_width"] = 0.0
-            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
+            try: row["polygon_net_area"] = float(raw_area)
             except: row["polygon_net_area"] = 0.0
-            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
+            try: row["piece_count"] = int(float(raw_count))
             except: row["piece_count"] = 1
             
             comp_name = str(row.get("component_name", "")).upper()
             mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
             
-            # Sửa lỗi phân loại vật tư nghiêm ngặt cho Keo/Lót/Rib
             if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
                 mat_class = "FUSING"
             elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
                 mat_class = "LINING"
             row["material_class"] = mat_class
 
-            # ĐÃ SỬA: Gỡ bỏ hoàn toàn kiểm tra cứng > 16.0 inch để không làm hỏng thông số quần Jeans lớn.
-            # Chỉ xử lý chia đôi kích thước nếu AI chủ động gán cờ rập mở đôi (symmetry_type)
             is_symmetry = str(row.get("symmetry_type", "")).upper() in ["FOLD", "MỞ ĐÔI", "SYMMETRY"]
             if mat_class == "FABRIC" and is_symmetry:
                 row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            # ĐÃ SỬA GEOMETRY GUARD: Chỉ can thiệp khi có lỗi logic vật lý (Diện tích rập tinh lớn hơn cả hộp vuông bao ngoài)
             bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
-                # Gán bằng diện tích hộp bao tối đa, loại bỏ tỷ lệ nhân ảo cũ (0.76 / 0.85) để tránh thiếu hụt định mức mã lớn
                 row["polygon_net_area"] = bbox_area
 
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
@@ -731,6 +731,7 @@ def execute_final_gerber_pure_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
+
 
 
 
