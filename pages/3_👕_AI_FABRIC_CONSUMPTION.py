@@ -584,7 +584,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V25) - ĐÃ SỬA LỖI KHÔNG QUÉT ĐƯỢC DỮ LIỆU
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V27) - ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -605,7 +605,7 @@ def execute_final_gerber_pure_scan(
     import re
     import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
     import google.generativeai as genai
-    import streamlit as st  # ✅ ĐÃ SỬA: Thêm import streamlit vào đây để tránh lỗi NameError
+    import streamlit as st  # ✅ ĐÃ SỬA: Thêm import streamlit để tránh lỗi NameError sập hàm
 
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
@@ -623,7 +623,7 @@ def execute_final_gerber_pure_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # ĐÃ SỬA: Quét toàn bộ hình ảnh của tất cả các trang
+            # Quét toàn bộ hình ảnh của tất cả các trang phục vụ AI Vision
             try:
                 pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
                 image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
@@ -633,13 +633,13 @@ def execute_final_gerber_pure_scan(
     gemini_inputs = list(image_payloads)
     gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
-    # Bổ sung chỉ thị kiểm tra rập mở đôi/đối xứng để AI phân loại chính xác
+    # Bổ sung chỉ thị phân loại vật tư dựa theo bộ quy chuẩn dữ liệu V27
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
     - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
-    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_class strictly as "LINING".
-    - You MUST identify if a piece is symmetrical or folded. If it's a folded/symmetrical piece, set symmetry_type to "FOLD", otherwise leave it empty or "NONE".
+    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_zone strictly as "FUSING".
+    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_zone strictly as "LINING"/"RIB" accordingly.
+    - Analyze fold_type and mirror_piece precisely to determine symmetry.
     """
     gemini_inputs.append(extended_prompt)
 
@@ -676,45 +676,68 @@ def execute_final_gerber_pure_scan(
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
             
-            # ✅ ĐÃ SỬA: Thêm fallback linh hoạt nếu AI viết sai tên key viết tắt (length -> L, width -> W)
-            raw_len = row.get("bounding_box_length") or row.get("length") or row.get("L", 0.0)
-            raw_wid = row.get("bounding_box_width") or row.get("width") or row.get("W", 0.0)
-            raw_area = row.get("polygon_net_area") or row.get("net_area") or row.get("area", 0.0)
-            raw_count = row.get("piece_count") or row.get("count") or row.get("qty", 1)
-
-            try: row["bounding_box_length"] = round(float(raw_len), 2)
+            # 1. ÉP KIỂU KÍCH THƯỚC HỘP BAO (BBOX) BAN ĐẦU AN TOÀN
+            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
             except: row["bounding_box_length"] = 0.0
-            try: row["bounding_box_width"] = round(float(raw_wid), 2)
+            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
             except: row["bounding_box_width"] = 0.0
-            try: row["polygon_net_area"] = float(raw_area)
-            except: row["polygon_net_area"] = 0.0
+            
+            # 2. ĐỒNG BỘ BIẾN SỐ LƯỢNG CHI TIẾT: Lấy trực tiếp từ 'cut_quantity' của JSON Schema V27
+            raw_count = row.get("cut_quantity") or row.get("piece_count") or 1
             try: row["piece_count"] = int(float(raw_count))
             except: row["piece_count"] = 1
             
+            # 3. ĐỒNG BỘ BIẾN CHỦNG LOẠI VẬT TƯ: Lấy từ 'material_zone' (Bản V27) đưa về 'material_class' hệ thống cũ
+            mat_zone = str(row.get("material_zone", "SELF")).upper().strip()
+            if mat_zone == "SELF":
+                mat_class = "FABRIC"
+            else:
+                mat_class = mat_zone  # Thừa hưởng LINING, FUSING, RIB, CONTRAST từ Schema V27
+                
+            # Bộ lọc bảo vệ nghiêm ngặt bằng Python (Đề phòng AI phân loại sai Material Zone trên các chi tiết nhỏ)
             comp_name = str(row.get("component_name", "")).upper()
-            mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
-            
             if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
                 mat_class = "FUSING"
-            elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
+                mat_zone = "FUSING"
+            elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT"]):
                 mat_class = "LINING"
+                mat_zone = "LINING"
+            elif any(k in comp_name for k in ["RIB", "BO GÂN"]):
+                mat_class = "LINING"  # Quy về nhóm lót tính toán hoặc giữ RIB tùy thuật toán cũ
+                mat_zone = "RIB"
+            
             row["material_class"] = mat_class
+            row["material_zone"] = mat_zone
 
-            is_symmetry = str(row.get("symmetry_type", "")).upper() in ["FOLD", "MỞ ĐÔI", "SYMMETRY"]
+            # 4. KHẮC PHỤC LỖI polygon_net_area TRÊN SCHEMA V27 KHÔNG CÓ DIỆN TÍCH TINH
+            # Sử dụng convex_fill_ratio (Tỷ lệ lấp đầy hình học) của AI tính toán logic vật lý diện tích tinh thực tế
+            bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
+            fill_ratio = float(row.get("convex_fill_ratio", 0.75))
+            
+            # Nếu AI có trả về diện tích ngoài schema thì lấy, không thì tự động suy luận logic
+            row["polygon_net_area"] = float(row.get("polygon_net_area") or (bbox_area * fill_ratio))
+
+            # 5. XỬ LÝ ĐỐI XỨNG RẬP VẬT LÝ TRUYỀN THỐNG (ĐỒNG BỘ THEO fold_type & mirror_piece)
+            is_symmetry = (
+                str(row.get("fold_type", "")).upper() in ["CENTER_FOLD", "EDGE_FOLD", "ON_FOLD"] or 
+                row.get("mirror_piece") is True
+            )
             if mat_class == "FABRIC" and is_symmetry:
                 row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
+            # GEOMETRY GUARD: Chặn lỗi ảo thuật toán khi diện tích rập tinh lớn hơn cả hộp vuông bao ngoài
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
                 row["polygon_net_area"] = bbox_area
 
+            # 6. ÉP KIỂU CÁC CHỈ SỐ HAO HỤT MẶC ĐỊNH
             try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
             except: row["gross_consumption"] = 0.0415
             try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
             except: row["marker_efficiency"] = "82.5%"
             
+            # 7. KHỔ VẢI ĐỒNG BỘ DỰA TRÊN CÂU LỆNH USER CHAT
             try:
                 forced_width = float(active_width)
                 if current_query:
@@ -969,47 +992,26 @@ if st.session_state.ai_processing:
                 Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
                 """
 
-                # 3. GỌI HÀM QUÉT AI VÀ BỔ SUNG ĐẦY ĐỦ THAM SỐ PROMPT_AGENT_2 
+                # 3. GỌI HÀM QUÉT AI VÀ BỔ SUNG ĐẦY ĐỦ THAM SỐ VÀO BIẾN BOM_DATA
                 bom_data = execute_final_gerber_pure_scan(
                     pdf_bytes=active_pdf, 
                     current_query=current_query,
                     active_width=dynamic_width, 
                     target_size_cmd=target_size,
                     raw_json_schema=raw_json_schema,
-                    prompt_agent_2=prompt_agent_2  # ✅ ĐÃ SỬA: Thêm tham số chỉ thị AI bị thiếu để phá vỡ lỗi đỏ positional argument
+                    prompt_agent_2=prompt_agent_2
                 )
                 
-                # =====================================================================
-                # 🔥 BỘ KHÓA CHẶT THÔNG SỐ CHAT ĐẦU RA (ANTI-OVERRIDE LAYER)
-                # =====================================================================
-                if bom_data and isinstance(bom_data, dict):
-                    # Cưỡng bức đè giá trị từ chat vào cấu hình AI trả về, triệt tiêu số 58 cũ của file
-                    bom_data["fabric_width_inch"] = float(dynamic_width)
-                    bom_data["usable_width_inch"] = float(dynamic_width)
-                    bom_data["calculated_on_size"] = str(target_size)
-                    
-                    if "ai_expert_decision" in bom_data and isinstance(bom_data["ai_expert_decision"], dict):
-                        bom_data["ai_expert_decision"]["detected_base_size"] = str(target_size)
-                        bom_data["ai_expert_decision"]["fabric_width"] = float(dynamic_width)
-
-                # Đồng bộ tối thượng vào bộ nhớ RAM hệ thống liên tầng cho Đoạn 4, 5, 7 thừa kế
-                st.session_state["bom_data"] = bom_data
-                st.session_state["current_active_width"] = float(dynamic_width)
-                st.session_state["current_active_size"] = str(target_size)
+                # 4. ĐẨY DỮ LIỆU ĐÃ ĐỒNG BỘ VÀO SESSION STATE ĐỂ XỬ LÝ PYTHON PHÍA DƯỚI
+                st.session_state["final_bom_blueprint"] = bom_data
+                st.session_state.ai_processing = False  # Tắt trạng thái xử lý sau khi hoàn thành
+                st.success("✅ AI đã hoàn tất quét phôi rập! Đang đẩy xuống Python tính định mức...")
+                st.rerun()  # Làm mới giao diện để cập nhật bảng tính toán mới
                 
-                # Tắt cờ xử lý khi hoàn thành chu kỳ thành công và làm mới giao diện
+            except Exception as api_err:
                 st.session_state.ai_processing = False
-                st.rerun()
+                st.error(f"❌ Lỗi trong quá trình AI xử lý tài liệu kỹ thuật: {str(api_err)}")
 
-          
-
-
-            except Exception as e:
-                # Vạch trần lỗi ẩn lên màn hình nếu có xung đột cấu trúc dữ liệu
-                st.error(f"❌ Lỗi xử lý luồng AI Execute (Đoạn 2): {str(e)}")
-                st.session_state.ai_processing = False
-
-                st.rerun()
 
 
 
