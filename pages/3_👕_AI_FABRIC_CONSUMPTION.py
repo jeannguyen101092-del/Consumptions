@@ -2047,8 +2047,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
     # =====================================================================
-        # =====================================================================
-    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V35 - ĐỒNG BỘ ĐA TẦNG VÀ BẢO VỆ ĐỊNH MỨC)
+         # =====================================================================
+    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V36 - CHUẨN HÓA DIỆN TÍCH ĐƠN MẢNH CHUẨN CAD)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2121,16 +2121,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        # 🚨 4. FIX DỨT ĐIỂM ĐỊNH MỨC THẤP: Chuẩn hóa lại toán học diện tích Master toàn cục
-        # Tổng diện tích hộp bao hình của toàn bộ tổng số mảnh rập thực tế
-        total_bbox_area = w_prod * l_prod * final_pcs
+        # 🚨 4. CHUẨN HÓA DIỆN TÍCH ĐƠN MẢNH: Quy đổi net_area_real về giá trị của 1 mảnh đơn duy nhất
+        single_bbox_area = w_prod * l_prod
         
-        # Nếu AI trả về diện tích lỗi (<= 0), khôi phục dựa trên hệ số dồn mảnh an toàn
+        # Nếu diện tích đầu vào ban đầu lớn hơn hộp bao đơn mảnh chứng tỏ AI đang trả về diện tích gộp của nhiều mảnh
+        if net_area_real > single_bbox_area and final_pcs > 1:
+            # Quy đổi ngược về diện tích tịnh của một mảnh đơn để Đoạn 5.2 nhân cấp số nhân dòng sau
+            net_area_real = net_area_real / final_pcs
+
+        # Kiểm tra phòng vệ diện tích đơn mảnh theo hằng số bao hình phẳng
         if net_area_real <= 0:
-            net_area_real = total_bbox_area * (0.83 if p_class == "FUSING" else 0.78)
-        # Chỉ kích hoạt bẫy khống chế nếu tổng diện tích vượt quá hẳn hộp bao hình của TỔNG số lượng mảnh
-        elif net_area_real > total_bbox_area:
-            net_area_real = total_bbox_area * 0.85
+            net_area_real = single_bbox_area * (0.83 if p_class == "FUSING" else 0.78)
+        elif net_area_real > single_bbox_area:
+            net_area_real = single_bbox_area * 0.85
 
         virtual_pieces_layer[idx] = {
             "material_class": p_class,                      
