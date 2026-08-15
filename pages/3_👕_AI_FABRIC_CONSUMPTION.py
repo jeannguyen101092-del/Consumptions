@@ -741,7 +741,7 @@ def execute_final_gerber_pure_scan(
 
 
 
-        import re
+    import re
     import streamlit as st
 
     # =====================================================================
