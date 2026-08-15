@@ -2593,20 +2593,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         output_stream.seek(0)
         return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
 
-        # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V61 CHUẨN ĐỒNG BỘ TUYỆT ĐỐI
-    # =====================================================================
-    import re
+         import re
     import pandas as pd
     import streamlit as st
 
-    # 🔬 KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
+    # =====================================================================
+    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V61
+    # =====================================================================
     st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM")
     d_c1, d_c2, d_c3 = st.columns(3)
-    d_c1.write(f"**DEBUG FABRIC:** `{st.session_state.get('summary_fabric_gross')}`")
-    d_c2.write(f"**DEBUG LINING:** `{st.session_state.get('summary_lining_gross')}`")
-    d_c3.write(f"**DEBUG FUSING:** `{st.session_state.get('summary_fusing_gross')}`")
+    d_c1.write(f"**DEBUG FABRIC:** `{st.session_state.get('summary_fabric_gross'):.4f}`")
+    d_c2.write(f"**DEBUG LINING:** `{st.session_state.get('summary_lining_gross'):.4f}`")
+    d_c3.write(f"**DEBUG FUSING:** `{st.session_state.get('summary_fusing_gross'):.4f}`")
     st.divider()
 
     st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
@@ -2623,21 +2621,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
     real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
 
-    # 🚨 SỬA LỖI HIỂN THỊ MẬT ĐỘ SƠ ĐỒ: Đọc chính xác real-time biến Master 78.00% từ Đoạn 3.1 và Đoạn 5.2
-    marker_efficiency = float(st.session_state.get("current_estimated_density_prior", ai_decision_final.get("marker_efficiency", 0.7800)))
+    marker_efficiency = dynamic_marker_efficiency
 
-    # 🚨 SỬA LỖI KẸT KHỔ VẢI ĐẦU TRANG: Trích xuất trực tiếp từ Single Source Trục Master chính xác
-    chat_width_override = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 58.0)))
+    # 🚨 SỬA LỖI HIỂN THỊ KHỔ VẢI ĐẦU TRANG THEO BIẾN MASTER
+    chat_width_override = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 55.0)))
     st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
 
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ THỜI GIAN THỰC
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH THỪA HƯỞNG TỪ LÕI MASTER ĐOẠN 5.2
     df_bom_display = df_bom.copy()
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
 
@@ -2646,33 +2641,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Đồng bộ tuyệt đối dữ liệu định mức, số lượng rập và KHỔ VẢI ĐỘNG từ Single Source Đoạn 5.2
-    if "Gross Consumption" in df_bom.columns:
-        df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
-    else:
-        df_bom_display["Gross Consumption"] = 0.0
+    df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
+    df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"]
+    df_bom_display["Khổ vải sản xuất (inch)"] = df_bom[width_display_col]
 
-    if "Số lượng rập" in df_bom.columns:
-        df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"]
-    else:
-        df_bom_display["Số lượng rập"] = 1
-
-    # 🚨 FIX DỨT ĐIỂM KẸT KHỔ VẢI 58.0 TRÊN LƯỚI CHI TIẾT: Tìm đúng cột hiển thị để ánh xạ dữ liệu sạch từ Đoạn 5.2 ra ngoài UI
-    width_col_check = next((c for c in ["Khổ vải sản xuất (inch)", "fabric_width_inch", "fabric_width"] if c in df_bom.columns), "Khổ vải sản xuất (inch)")
-    if width_col_check in df_bom.columns:
-        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom[width_col_check]
-    else:
-        df_bom_display["Khổ vải sản xuất (inch)"] = float(chat_width_override)
-
-    # Đồng bộ chất liệu sạch lên bảng hiển thị
     clean_mats = []
     for idx, row in df_bom_display.iterrows():
-        solver_piece_data = virtual_pieces.get(idx, virtual_pieces.get(str(idx), {})) if isinstance(virtual_pieces, dict) else {}
-        p_cls = st.session_state.get("user_edited_mats", {}).get(idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))).upper().strip()
-        clean_mats.append(p_cls)
+        clean_mats.append(df_bom.at[idx, "Material Class" if "Material Class" in df_bom.columns else "material_class"])
     df_bom_display["Material Class"] = clean_mats
 
-    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ 100% THEO LÕI STATE
     total_fabric = st.session_state.get("summary_fabric_gross", 0.0)
     total_fusing = st.session_state.get("summary_fusing_gross", 0.0)
     total_lining = st.session_state.get("summary_lining_gross", 0.0)
@@ -2716,41 +2693,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_summary = pd.DataFrame(summary_data)
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
-
-    # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V61 ĐỒNG BỘ KHỔ VẢI REAL-TIME
-    # =====================================================================
     import pandas as pd
     import streamlit as st
 
-    # 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
+    # =====================================================================
+    # 🟩 ĐOẠN 7.2: RENDER LƯỚI CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP (VERSION V61)
+    # =====================================================================
     if 'df_bom_display' in locals() and df_bom_display is not None:
 
-        # 🔄 THUẬT TOÁN ÉP ĐỒNG BỘ KHỔ VẢI THỰC TẾ: Đọc chuẩn xác từ hệ thống trục biến Master của Đoạn 1 và Đoạn 5.2
-        def apply_dynamic_width_to_ui(row):
-            material_class = str(row.get("Material Class", "FABRIC")).upper().strip()
-            if material_class == "FUSING" or material_class == "MEX":
-                return float(st.session_state.get("fusing_width_inch", 59.0))
-            elif material_class == "LINING" or material_class == "LÓT":
-                return float(st.session_state.get("lining_width_inch", 57.0))
-            elif material_class == "RIB" or material_class == "BO GÂN":
-                return float(st.session_state.get("rib_width", 40.0))
-            elif material_class == "PADDING" or material_class == "GÒN":
-                return float(st.session_state.get("padding_width", 60.0))
-            else:
-                # Vải chính (FABRIC/CONTRAST): Ép lấy đúng khổ vải Master đã xử lý thời gian thực từ đoạn chat (Ví dụ: 55.0)
-                return float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 58.0)))
-
-        # Ghi đè thông số khổ vải động đồng bộ hoàn toàn vào bảng hiển thị
-        if "Khổ vải sản xuất (inch)" in df_bom_display.columns:
-            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display.apply(apply_dynamic_width_to_ui, axis=1)
-
-        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại để tránh lỗi định dạng chuỗi văn bản trên lưới
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
             if col in df_bom_display.columns:
                 df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
 
-        # Sắp xếp thứ tự các cột hiển thị đẹp mắt và loại bỏ bảng thô thừa
         ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
         display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
         df_bom_display = df_bom_display[display_final_cols]
@@ -2758,30 +2712,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         col_t1, col_t2 = st.columns(2)
         col_t1.subheader("🔍 LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS)")
 
-        # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC GỐC VÀ HIỆU SUẤT THỰC TẾ 78%
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals():
-                    # Lấy chuẩn xác mật độ sơ đồ chỉ định real-time (Ví dụ: 0.78) thay vì ép cứng 0.74
-                    current_eff_excel = float(st.session_state.get("current_estimated_density_prior", marker_efficiency if 'marker_efficiency' in locals() else 0.78))
-                    
                     excel_file = local_export_excel_ppj_format(
-                        df_summary if 'df_summary' in locals() else None, 
+                        df_summary, 
                         df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
-                        prod if 'prod' in locals() else "JEAN", 
-                        ctx if 'ctx' in locals() else {}, 
-                        current_eff_excel
+                        prod if 'prod' in locals() else "SHIRT", 
+                        ctx, 
+                        marker_efficiency
                     )
-                    style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_') if 'ctx' in locals() else 'Style'
+                    style_name_clean = str(ctx.get('style_code', 'Style')).strip().replace('/', '_').replace('\\', '_')
                     st.download_button("🟢 DOWNLOAD EXCEL ĐỊNH MỨC THƯƠNG MẠI", data=excel_file, mime="application/vnd.openpyxl_formats-officedocument.spreadsheetml.sheet", file_name=f"PPJ_BOM_{style_name_clean}.xlsx", use_container_width=True)
-            except Exception as e: 
+            except: 
                 pass
 
-        # Đảm bảo khởi tạo vùng nhớ State lưu trữ chỉnh sửa thủ công
-        if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
-        if "user_edited_mats" not in st.session_state: st.session_state["user_edited_mats"] = {}
-
-        # DUY NHẤT 1 BẢNG CHỈNH SỬA DỮ LIỆU ĐỘNG FIXED V9
+        # HIỂN THỊ BẢNG SỬA ĐỔI THỦ CÔNG LINH HOẠT TRÊN UI
         edited_df = st.data_editor(
             df_bom_display, 
             key="bom_data_editor_matrix_fixed_v9",
@@ -2806,7 +2752,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             }
         )
 
-        # BỘ LẮNG NGHE SỰ KIỆN: Chỉ kích hoạt rerun khi có tương tác thủ công thật từ người dùng trên ô lưới
+        # 🚨 BỘ LẮNG NGHE SỰ KIỆN PHẢN HỒI NGƯỢC (REVERSE PROPAGATION ENGINE)
         if edited_df is not None and "bom_data_editor_matrix_fixed_v9" in st.session_state:
             editor_state = st.session_state["bom_data_editor_matrix_fixed_v9"]
             
@@ -2823,10 +2769,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                         has_updates = True
                         
                     if "Material Class" in updated_cols:
+                        # 🎯 KHÓA CHẶT TRỤC BIẾN CHUYỂN LOGIC NGƯỢC LÊN ĐOẠN 5.2
                         st.session_state["user_edited_mats"][orig_idx] = str(updated_cols["Material Class"]).upper().strip()
                         has_updates = True
                         
                 if has_updates:
+                    # Ép ứng dụng chạy lại lập tức từ đầu để cập nhật định mức mới giải toán tỉ lệ nghịch
                     st.rerun()
     else:
         st.info("💡 Vui lòng chờ hệ thống xử lý hoặc tải lên tệp phôi rập để hiển thị bảng định mức chi tiết.")
