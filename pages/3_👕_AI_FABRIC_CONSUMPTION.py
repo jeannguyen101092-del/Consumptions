@@ -2047,7 +2047,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["current_longest_piece_length"] = max_piece_length
     st.session_state["bom_data"] = ctx
     # =====================================================================
-    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V34 - ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
+        # =====================================================================
+    # 🟩 ĐOẠN 4 (PHIÊN BẢN MASTER V35 - ĐỒNG BỘ ĐA TẦNG VÀ BẢO VỆ ĐỊNH MỨC)
     # =====================================================================
     import pandas as pd
     import numpy as np
@@ -2056,7 +2057,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
     m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
 
-    # 🚨 SỬA LỖI ĐỒNG BỘ KHỔ VẢI: Đọc chính xác real-time trực tiếp từ trục biến Master của Đoạn 1 và Đoạn 2
+    # Đọc chính xác real-time trực tiếp từ trục biến Master của Đoạn 1 và Đoạn 2
     fabric_width = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 58.0)))
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
@@ -2080,13 +2081,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         mat_str = str(row.get(m_col_check, "")).upper().strip()
         
         if any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "ACCESSORY"]):
-            p_class, class_confidence = "ACCESSORY", 1.0
+            p_class = "ACCESSORY"
         elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING"]):
-            p_class, class_confidence = "FUSING", 1.0
+            p_class = "FUSING"
         elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "RIB"]):
-            p_class, class_confidence = "LINING", 1.0
+            p_class = "LINING"
         else:
-            p_class, class_confidence = "FABRIC", 0.95
+            p_class = "FABRIC"
 
         l_orig = float(row.get("bounding_box_length", 0.0))
         w_orig = float(row.get("bounding_box_width", 0.0))
@@ -2098,47 +2099,38 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if w_orig > l_orig:
             l_orig, w_orig = w_orig, l_orig
 
-        # 🚨 2. BẢO VỆ ĐỊNH MỨC THẤP: Loại bỏ hoàn toàn thuật toán bóp nhỏ rập (Inference OBB cũ)
-        # Giữ nguyên bản l_orig và w_orig gốc từ file thiết kế rập CAD để bảo đảm độ an toàn của định mức sản xuất.
-        # Đoạn code cũ bóp nhỏ w_orig và l_orig đã bị loại bỏ tại đây.
-
-        # 4. PCS MASTER - KHÔNG SUY LUẬN NHÂN ĐÔI THEO TÊN
+        # 2. Đọc chính xác số lượng mảnh rập (Lắng nghe biên tập từ UI)
         raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
         raw_pcs = max(raw_pcs, 1.0)
-
-        if idx in st.session_state.get("user_edited_pieces", {}):
-            final_pcs = float(st.session_state["user_edited_pieces"][idx])
-        else:
-            final_pcs = raw_pcs
+        final_pcs = float(st.session_state["user_edited_pieces"][idx]) if idx in st.session_state.get("user_edited_pieces", {}) else raw_pcs
         final_pcs = max(final_pcs, 1.0)
 
-        # 5. Shrinkage Matrix Application
+        # 3. Shrinkage Matrix Application
         if p_class == "FABRIC":
             w_prod = round(w_orig * (1 + weft_shrink / 100.0), 3) if w_orig > 0 else fabric_width
             l_prod = round(l_orig * (1 + warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
-            
-            # 🔥 ĐỒNG BỘ HIỂN THỊ THỜI GIAN THỰC: Ép chuẩn khổ vải 55.0 bắt từ đoạn chat vào lưới chi tiết
             df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(fabric_width)
-            
         elif p_class == "FUSING":
             w_prod = round(w_orig * (1 + fusing_weft_shrink / 100.0), 3) if w_orig > 0 else 59.0
             l_prod = round(l_orig * (1 + fusing_warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
             df_bom.at[idx, "Khổ vải sản xuất (inch)"] = 59.0
-            
         elif p_class == "LINING":
             w_prod = round(w_orig * (1 + lining_weft_shrink / 100.0), 3) if w_orig > 0 else 57.0
             l_prod = round(l_orig * (1 + lining_warp_shrink / 100.0), 3) if l_orig > 0 else 0.0
             df_bom.at[idx, "Khổ vải sản xuất (inch)"] = 57.0
-            
         else:
             w_prod, l_prod = w_orig, l_orig
 
-        # 6. DIỆN TÍCH MASTER
-        prod_bbox_area = w_prod * l_prod
+        # 🚨 4. FIX DỨT ĐIỂM ĐỊNH MỨC THẤP: Chuẩn hóa lại toán học diện tích Master toàn cục
+        # Tổng diện tích hộp bao hình của toàn bộ tổng số mảnh rập thực tế
+        total_bbox_area = w_prod * l_prod * final_pcs
+        
+        # Nếu AI trả về diện tích lỗi (<= 0), khôi phục dựa trên hệ số dồn mảnh an toàn
         if net_area_real <= 0:
-            net_area_real = prod_bbox_area * 0.74
-        elif net_area_real > prod_bbox_area:
-            net_area_real = prod_bbox_area * 0.85
+            net_area_real = total_bbox_area * (0.83 if p_class == "FUSING" else 0.78)
+        # Chỉ kích hoạt bẫy khống chế nếu tổng diện tích vượt quá hẳn hộp bao hình của TỔNG số lượng mảnh
+        elif net_area_real > total_bbox_area:
+            net_area_real = total_bbox_area * 0.85
 
         virtual_pieces_layer[idx] = {
             "material_class": p_class,                      
@@ -2152,13 +2144,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     for idx, vp in virtual_pieces_layer.items():
         if idx in df_bom.index:
-            # Đồng bộ các cột hiển thị trên lưới UI chuẩn xác theo đơn nguyên may mặc
             df_bom.at[idx, "Chiều dài rập (inch)"] = vp["production_l"]
             df_bom.at[idx, "Chiều rộng rập (inch)"] = vp["production_w"]
             df_bom.at[idx, "polygon_net_area"] = vp["production_net_area"]
             df_bom.at[idx, "Material Class"] = vp["material_class"]
 
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+
     # =====================================================================
     # 🟩 ĐOẠN 5.1 (PHIÊN BẢN V60 - CHUẨN HÓA VÀ ĐỒNG BỘ LIÊN TẦNG ERP)
     # =====================================================================
