@@ -745,10 +745,32 @@ def execute_final_gerber_pure_scan(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 1 (PHIÊN BẢN V23 - CHUẨN ĐỒNG BỘ TRỤC MASTER TUYỆT ĐỐI)
+    # 🟩 ĐOẠN 1 (PHIÊN BẢN V25 - TÍCH HỢP Ô CHAT ĐIỀU KHIỂN & MASTER PARAM SYNC)
     # =====================================================================
+    # 1. KHỞI TẠO BỘ ĐỆM RAM AN TOÀN TRÁNH LỖI MẤT BIẾN KHI XÓA BỘ NHỚ HỆ THỐNG
+    if "last_submitted_query" not in st.session_state:
+        st.session_state["last_submitted_query"] = ""
+        
+    if "chat_history_list" not in st.session_state:
+        st.session_state["chat_history_list"] = []
+
+    # 2. XUẤT BẢN Ô NHẬP LỆNH CHAT ĐỘC LẬP NGAY ĐẦU CHƯƠNG TRÌNH CHỐNG BỊ NUỐT MẤT
+    user_chat_command = st.chat_input("💬 Nhập câu lệnh điều chỉnh định mức (Ví dụ: tính khổ 55, co rút dọc 3)...")
+
+    # Bộ lắng nghe sự kiện: Ghi nhận câu lệnh và ép làm mới hệ thống thời gian thực
+    if user_chat_command:
+        st.session_state["last_submitted_query"] = str(user_chat_command).strip()
+        st.session_state["chat_history_list"].append(str(user_chat_command).strip())
+        st.rerun()
+
+    # Ghìm thông báo câu lệnh đang chạy lên giao diện để người dùng dễ kiểm soát
+    if st.session_state["last_submitted_query"]:
+        st.info(f"🎯 **Câu lệnh điều khiển hiện tại:** {st.session_state['last_submitted_query']}")
+
+    # Rút chuỗi câu lệnh chat thô phục vụ thuật toán phân tích Regex
     chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 
+    # 3. HÀM TRÍCH XUẤT THAM SỐ THÔNG MINH - CHỐNG BẪY QUÊN NHẮC TỪ KHÓA LÀM RESET SỐ
     def extract_param(pattern, text, session_key, default_val):
         match = re.search(pattern, text)
         if match:
@@ -761,7 +783,8 @@ def execute_final_gerber_pure_scan(
             return float(st.session_state[session_key])
         return float(default_val)
 
-    # 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
+    # 4. TIẾN HÀNH BÓC TÁCH CÁC THAM SỐ CẤU HÌNH KIỂM TOÁN
+    # Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
     warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
     weft_shrink = extract_param(r'(co rút ngang|ngang)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
 
@@ -769,7 +792,7 @@ def execute_final_gerber_pure_scan(
     if not isinstance(ctx, dict): 
         ctx = {}
 
-    # 2. Luồng bóc tách đồng bộ bảng Size
+    # 5. LUỒNG BÓC TÁCH VÀ ĐỒNG BỘ BẢNG SIZE CHUẨN CAD
     detected_size_code = ""
     if ctx.get("detected_base_size") and str(ctx.get("detected_base_size")).strip() != "":
         detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
@@ -793,18 +816,17 @@ def execute_final_gerber_pure_scan(
     ctx["calculated_on_size"] = detected_size_code
     ctx["detected_base_size"] = detected_size_code
 
-    # 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (BÈ GÃY HOÀN TOÀN BẪY KẸT KHỔ 58)
-    # Hàm extract_param mới sẽ bảo vệ số khổ vải (Ví dụ: 55.0) không bị reset về 58.0 ở các lượt rerun sau
+    # 🚨 6. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (BẺ GÃY HOÀN TOÀN BẪY KẸT KHỔ 58)
     fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fabric_width_inch", 55.0) 
     if fabric_width <= 0: 
         fabric_width = 55.0
 
-    # Lưu trữ đồng nhất lên toàn bộ các trục điều khiển hệ thống
+    # Khóa cứng lưu trữ đồng nhất lên toàn bộ các trục điều khiển hệ thống
     st.session_state["fabric_width_inch"] = fabric_width
     st.session_state["current_active_width"] = fabric_width
     ctx["fabric_width_inch"] = fabric_width
 
-    # 4. Trích xuất khổ vải Keo và khổ Vải lót độc lập
+    # 7. TRÍCH XUẤT THAM SỐ KHỔ VẬT TƯ HẠ NGUỒN ĐỘC LẬP
     fusing_width = extract_param(r'\b(khổ\s*keo|keo\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fusing_width_inch", 59.0)
     if fusing_width <= 0: fusing_width = 59.0
     st.session_state["fusing_width_inch"] = fusing_width
