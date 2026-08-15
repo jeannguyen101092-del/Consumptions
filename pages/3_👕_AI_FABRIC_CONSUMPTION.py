@@ -819,157 +819,142 @@ def execute_final_gerber_pure_scan(
     st.session_state["current_weft_shrinkage"] = weft_shrink
     st.session_state["bom_data"] = ctx
 
-# =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V27 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
-# =====================================================================
-if st.session_state.ai_processing:
-    current_query = st.session_state["last_submitted_query"]
-    active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+    # =====================================================================
+    # 🟩 ĐOẠN 2 (PHIÊN BẢN V28 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI - FIXED)
+    # =====================================================================
+    if st.session_state.ai_processing:
+        current_query = st.session_state["last_submitted_query"]
+        active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
 
-    dynamic_width, target_size = 58.0, "32"
-    if current_query:
-        import re
-        w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-        if w_m: dynamic_width = float(w_m.group(2))
-        s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
-        if s_m: target_size = str(s_m.group(2))
+        # 🚨 ĐIỂM SỬA CHÍ MẠNG: Đọc trực tiếp từ trục Master an toàn của Đoạn 1, hạ fallback xuống 55.0 để chặn đứng bẫy reset 58.0
+        dynamic_width = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 55.0)))
+        target_size = str(st.session_state.get("current_active_size", "32"))
+        
+        if current_query:
+            import re
+            w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+            if w_m: 
+                dynamic_width = float(w_m.group(2))
+                st.session_state["fabric_width_inch"] = dynamic_width # Khóa ngay vào State
+                st.session_state["current_active_width"] = dynamic_width
+                
+            s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
+            if s_m: 
+                target_size = str(s_m.group(2))
+                st.session_state["current_active_size"] = target_size
 
-    if active_pdf is not None:
-        with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
-            try:
-                # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ ĐÃ ĐỒNG BỘ THUẬT NGỮ
-                raw_json_schema = {
-                    "type": "OBJECT",
-                    "properties": {
-                        "detected_product_type": {"type": "STRING"},
-                        "detected_base_size": {"type": "STRING"},
-                        "bom_rows": {
-                            "type": "ARRAY",
-                            "items": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "component_name": {"type": "STRING"},
-                                    "bounding_box_length": {"type": "NUMBER"},
-                                    "bounding_box_width": {"type": "NUMBER"},
-                                    "piece_shape": {"type": "STRING"},
-                                    "piece_function": {"type": "STRING"},
-                                    "fold_type": {"type": "STRING"},
-                                    "material_zone": {"type": "STRING", "enum": ["SELF", "LINING", "FUSING", "RIB", "CONTRAST"]},
-                                    "grain_constraint": {"type": "STRING"},
-                                    "packing_priority": {"type": "INTEGER"},
-                                    "convex_fill_ratio": {"type": "NUMBER"},
-                                    "seam_allowance": {"type": "STRING"},
-                                    "mirror_piece": {"type": "BOOLEAN"},
-                                    "is_left_right_pair": {"type": "BOOLEAN"},
-                                    "requires_matching": {"type": "BOOLEAN"},
-                                    "critical_alignment": {"type": "STRING"},
-                                    "cut_quantity": {"type": "INTEGER"},
-                                    "grain_direction": {"type": "STRING"},
-                                    "rotation_allowed": {"type": "STRING"},
-                                    "edge_curvature": {"type": "STRING"},
-                                    "shape_complexity": {"type": "STRING"},
-                                    "inference_source": {"type": "STRING"},
-                                    "cad_reconstruction_score": {"type": "INTEGER"},
-                                    "field_confidence": {
-                                        "type": "OBJECT",
-                                        "properties": {"dimensions": {"type": "STRING"}, "geometry_shape": {"type": "STRING"}, "grain_alignment": {"type": "STRING"}},
-                                        "required": ["dimensions", "geometry_shape", "grain_alignment"]
-                                    },
-                                    "shape_parameters": {
-                                        "type": "OBJECT",
-                                        "properties": {
-                                            "estimated_corner_points": {"type": "INTEGER"}, "dominant_axis": {"type": "STRING"},
-                                            "top_width_ratio": {"type": "NUMBER"}, "bottom_width_ratio": {"type": "NUMBER"},
-                                            "left_edge_profile": {"type": "STRING"}, "right_edge_profile": {"type": "STRING"},
-                                            "waist_curve_depth": {"type": "NUMBER"}, "hem_curve_depth": {"type": "NUMBER"}, "crotch_projection_ratio": {"type": "NUMBER"}
+        if active_pdf is not None:
+            with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
+                try:
+                    # 1. JSON SCHEMA GIỚI HẠN CHẶN CỨNG CHỦNG LOẠI VẬT TƯ ĐÃ ĐỒNG BỘ THUẬT NGỮ
+                    raw_json_schema = {
+                        "type": "OBJECT",
+                        "properties": {
+                            "detected_product_type": {"type": "STRING"},
+                            "detected_base_size": {"type": "STRING"},
+                            "bom_rows": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "component_name": {"type": "STRING"},
+                                        "bounding_box_length": {"type": "NUMBER"},
+                                        "bounding_box_width": {"type": "NUMBER"},
+                                        "piece_shape": {"type": "STRING"},
+                                        "piece_function": {"type": "STRING"},
+                                        "fold_type": {"type": "STRING"},
+                                        "material_zone": {"type": "STRING", "enum": ["SELF", "LINING", "FUSING", "RIB", "CONTRAST"]},
+                                        "grain_constraint": {"type": "STRING"},
+                                        "packing_priority": {"type": "INTEGER"},
+                                        "convex_fill_ratio": {"type": "NUMBER"},
+                                        "seam_allowance": {"type": "STRING"},
+                                        "mirror_piece": {"type": "BOOLEAN"},
+                                        "is_left_right_pair": {"type": "BOOLEAN"},
+                                        "requires_matching": {"type": "BOOLEAN"},
+                                        "critical_alignment": {"type": "STRING"},
+                                        "cut_quantity": {"type": "INTEGER"},
+                                        "grain_direction": {"type": "STRING"},
+                                        "rotation_allowed": {"type": "STRING"},
+                                        "edge_curvature": {"type": "STRING"},
+                                        "shape_complexity": {"type": "STRING"},
+                                        "inference_source": {"type": "STRING"},
+                                        "cad_reconstruction_score": {"type": "INTEGER"},
+                                        "field_confidence": {
+                                            "type": "OBJECT",
+                                            "properties": {"dimensions": {"type": "STRING"}, "geometry_shape": {"type": "STRING"}, "grain_alignment": {"type": "STRING"}},
+                                            "required": ["dimensions", "geometry_shape", "grain_alignment"]
+                                        },
+                                        "shape_parameters": {
+                                            "type": "OBJECT",
+                                            "properties": {
+                                                "estimated_corner_points": {"type": "INTEGER"}, "dominant_axis": {"type": "STRING"},
+                                                "top_width_ratio": {"type": "NUMBER"}, "bottom_width_ratio": {"type": "NUMBER"},
+                                                "left_edge_profile": {"type": "STRING"}, "right_edge_profile": {"type": "STRING"},
+                                                "waist_curve_depth": {"type": "NUMBER"}, "hem_curve_depth": {"type": "NUMBER"}, "crotch_projection_ratio": {"type": "NUMBER"}
+                                            }
                                         }
-                                    }
+                                    },
+                                    "required": ["component_name", "bounding_box_length", "bounding_box_width", "piece_shape", "piece_function", "fold_type", "material_zone", "packing_priority", "convex_fill_ratio", "mirror_piece"],
                                 },
-                                "required": ["component_name", "bounding_box_length", "bounding_box_width", "piece_shape", "piece_function", "fold_type", "material_zone", "packing_priority", "convex_fill_ratio", "mirror_piece"],
                             },
                         },
-                    },
-                    "required": ["detected_product_type", "detected_base_size", "bom_rows"],
-                }
-                
-                # 2. PROMPT CHỈ THỊ CHẶN LỖI PHÌNH TO BỀ RỘNG RẬP ĐƠN VÀ LỌC PHỤ LIỆU
-                prompt_agent_2 = f"""
-                You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Reconstruct the multi-layered CAD metadata for EVERY valid fabric/fusing piece in the Techpack for Size {target_size}.
-                
-                🚨 CRITICAL ACCESSORY OMISSION MANDATE (LỆNH KHỬ TRỪ PHỤ LIỆU):
-                - NEVER extract buttons, sewing threads, zippers, sliders, rivets, main labels, care labels, size tabs, hangtags, polybags, or any metal/plastic accessories.
-                - IGNORE them completely. They do NOT have marker dimensions or 2D polygon packing footprints.
-                - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), FUSING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
-                
-                🚨 CRITICAL SINGLE PIECE BLOCK RULE (LUẬT RẬP ĐƠN CAD):
-                - 'bounding_box_width' MUST represent the width of ONE SINGLE physical piece (e.g., around 11-14 inches for a single front/back panel of long pants).
-                - NEVER combine or double the width of left and right symmetric panels into a single row width (Never output 25+ inches for a single panel width).
-                
-                🚨 SECTION 1: EXTRACT BOUNDING BOX (ANTI-ZERO RULE)
-                Extract/estimate exact 'bounding_box_length' and 'bounding_box_width' in INCHES. NEVER output 0.0.
-                
-                🚨 SECTION 2: CAD GEOMETRIC SHAPE & METADATA
-                Map each valid component to:
-                - 'piece_shape': RECTANGLE, TRAPEZOID, TAPERED_PANEL, CURVED_PANEL, POCKET, WAISTBAND, COLLAR, SLEEVE, GUSSET.
-                - 'piece_function': PRIMARY, SECONDARY, REINFORCEMENT, DECORATIVE, LINING.
-                - 'fold_type': NONE, CENTER_FOLD, EDGE_FOLD, ON_FOLD.
-                - 'material_zone': SELF, LINING, FUSING, RIB, CONTRAST.
-                - 'packing_priority': 1 (Main Panels) to 5 (Small Filler Loops).
-                - 'convex_fill_ratio': RECTANGLE=0.98; Waistband=0.94; Curved/Tapered Panel=0.68-0.76; Pocket=0.82; Collar=0.60.
-                - 'mirror_piece': [true, false].
-                
-                🚨 SECTION 3: 5 CRITICAL SOLVER FIELDS
-                - 'cut_quantity': Total physical pieces to be cut.
-                - 'grain_direction': VERTICAL, HORIZONTAL, BIAS.
-                - 'rotation_allowed': 0_DEG, 180_DEG, ANY.
-                - 'edge_curvature': LOW, MEDIUM, HIGH.
-                - 'shape_complexity': LOW, MEDIUM, HIGH.
-                
-                🚨 SECTION 4: RECONSTRUCTION & VALIDATION
-                Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
-                """
-
-                # 3. GỌI HÀM QUÉT AI VÀ BỔ SUNG ĐẦY ĐỦ THAM SỐ PROMPT_AGENT_2 
-                bom_data = execute_final_gerber_pure_scan(
-                    pdf_bytes=active_pdf, 
-                    current_query=current_query,
-                    active_width=dynamic_width, 
-                    target_size_cmd=target_size,
-                    raw_json_schema=raw_json_schema,
-                    prompt_agent_2=prompt_agent_2  # ✅ ĐÃ SỬA: Thêm tham số chỉ thị AI bị thiếu để phá vỡ lỗi đỏ positional argument
-                )
-                
-                # =====================================================================
-                # 🔥 BỘ KHÓA CHẶT THÔNG SỐ CHAT ĐẦU RA (ANTI-OVERRIDE LAYER)
-                # =====================================================================
-                if bom_data and isinstance(bom_data, dict):
-                    # Cưỡng bức đè giá trị từ chat vào cấu hình AI trả về, triệt tiêu số 58 cũ của file
-                    bom_data["fabric_width_inch"] = float(dynamic_width)
-                    bom_data["usable_width_inch"] = float(dynamic_width)
-                    bom_data["calculated_on_size"] = str(target_size)
+                        "required": ["detected_product_type", "detected_base_size", "bom_rows"],
+                    }
                     
-                    if "ai_expert_decision" in bom_data and isinstance(bom_data["ai_expert_decision"], dict):
-                        bom_data["ai_expert_decision"]["detected_base_size"] = str(target_size)
-                        bom_data["ai_expert_decision"]["fabric_width"] = float(dynamic_width)
+                    # 2. PROMPT CHỈ THỊ CHẶN LỖI PHÌNH TO BỀ RỘNG RẬP ĐƠN VÀ LỌC PHỤ LIỆU
+                    prompt_agent_2 = f"""
+                    You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence. Reconstruct the multi-layered CAD metadata for EVERY valid fabric/fusing piece in the Techpack for Size {target_size}.
+                    
+                    🚨 CRITICAL ACCESSORY OMISSION MANDATE (LỆNH KHỬ TRỪ PHỤ LIỆU):
+                    - NEVER extract buttons, sewing threads, zippers, sliders, rivets, main labels, care labels, size tabs, hangtags, polybags, or any metal/plastic accessories.
+                    - IGNORE them completely. They do NOT have marker dimensions or 2D polygon packing footprints.
+                    - ONLY extract components belonging to: SELF (Vải chính), LINING (Vải lót), FUSING (Mếch/Keo/Fusing), RIB (Bo), or CONTRAST (Vải phối).
+                    
+                    🚨 CRITICAL SINGLE PIECE BLOCK RULE (LUẬT RẬP ĐƠN CAD):
+                    - 'bounding_box_width' MUST represent the width of ONE SINGLE physical piece (e.g., around 11-14 inches for a single front/back panel of long pants).
+                    - NEVER combine or double the width of left and right symmetric panels into a single row width (Never output 25+ inches for a single panel width).
+                    
+                    🚨 SECTION 1: EXTRACT BOUNDING BOX (ANTI-ZERO RULE)
+                    Extract/estimate exact 'bounding_box_length' and 'bounding_box_width' in INCHES. NEVER output 0.0.
+                    
+                    🚨 SECTION 2: CAD GEOMETRIC SHAPE & METADATA
+                    Map each valid component to:
+                    - 'piece_shape': RECTANGLE, TRAPEZOID, TAPERED_PANEL, CURVED_PANEL, POCKET, WAISTBAND, COLLAR, SLEEVE, GUSSET.
+                    - 'piece_function': PRIMARY, SECONDARY, REINFORCEMENT, DECORATIVE, LINING.
+                    - 'fold_type': NONE, CENTER_FOLD, EDGE_FOLD, ON_FOLD.
+                    - 'material_zone': SELF, LINING, FUSING, RIB, CONTRAST.
+                    - 'packing_priority': 1 (Main Panels) to 5 (Small Filler Loops).
+                    - 'convex_fill_ratio': RECTANGLE=0.98; Waistband=0.94; Curved/Tapered Panel=0.68-0.76; Pocket=0.82; Collar=0.60.
+                    - 'mirror_piece': [true, false].
+                    
+                    🚨 SECTION 3: 5 CRITICAL SOLVER FIELDS
+                    - 'cut_quantity': Total physical pieces to be cut.
+                    - 'grain_direction': VERTICAL, HORIZONTAL, BIAS.
+                    - 'rotation_allowed': 0_DEG, 180_DEG, ANY.
+                    - 'edge_curvature': LOW, MEDIUM, HIGH.
+                    - 'shape_complexity': LOW, MEDIUM, HIGH.
+                    
+                    🚨 SECTION 4: RECONSTRUCTION & VALIDATION
+                    Output inference_source, cad_reconstruction_score, field confidence, and shape_parameters. Perform strict validation: a component cannot be processed if it has no 2D area. Skip all non-pattern rows.
+                    """
 
-                # Đồng bộ tối thượng vào bộ nhớ RAM hệ thống liên tầng cho Đoạn 4, 5, 7 thừa kế
-                st.session_state["bom_data"] = bom_data
-                st.session_state["current_active_width"] = float(dynamic_width)
-                st.session_state["current_active_size"] = str(target_size)
-                
-                # Tắt cờ xử lý khi hoàn thành chu kỳ thành công và làm mới giao diện
-                st.session_state.ai_processing = False
-                st.rerun()
-
-          
-
-
-            except Exception as e:
-                # Vạch trần lỗi ẩn lên màn hình nếu có xung đột cấu trúc dữ liệu
-                st.error(f"❌ Lỗi xử lý luồng AI Execute (Đoạn 2): {str(e)}")
-                st.session_state.ai_processing = False
-
-                st.rerun()
+                    # 3. GỌI HÀM QUÉT AI VÀ BỔ SUNG ĐẦY ĐỦ THAM SỐ ĐỒNG BỘ KHỔ VẢI CHUẨN ĐOẠN CHAT
+                    bom_data = execute_final_gerber_pure_scan(
+                        pdf_bytes=active_pdf, 
+                        current_query=current_query,
+                        active_width=dynamic_width, 
+                        target_size_cmd=target_size,
+                        raw_json_schema=raw_json_schema,
+                        prompt_agent_2=prompt_agent_2
+                    )
+                    
+                    # Tiến hành lưu kết quả phân tích sạch vào bộ nhớ hệ thống
+                    st.session_state["bom_data"] = bom_data
+                    st.session_state.ai_processing = False
+                    st.rerun()
+                except Exception as ai_err:
+                    st.error(f"❌ Lỗi xử lý AI: {str(ai_err)}")
+                    st.session_state.ai_processing = False
 
 
 
