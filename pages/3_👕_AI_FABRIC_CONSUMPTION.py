@@ -741,84 +741,70 @@ def execute_final_gerber_pure_scan(
 
 
 
+   # =====================================================================
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH)
+# =====================================================================
+
+# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "ai_processing" not in st.session_state:
+    st.session_state.ai_processing = False
+if "last_submitted_query" not in st.session_state:
+    st.session_state.last_submitted_query = ""
+
+# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
+chat_history_container = st.container()
+with chat_history_container:
+    st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
+    if st.session_state.get("chat_history"):
+        for msg in st.session_state.chat_history:
+            st.chat_message("user").write(msg["user"])
+            st.chat_message("assistant").write(msg["ai"])
+
+# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
+safe_user_prompt = st.chat_input(
+    "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
+)
+
+# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
+if safe_user_prompt:
+    query_text = str(safe_user_prompt).strip()
+    st.session_state["last_submitted_query"] = query_text
+    st.session_state.ai_processing = True
+    
+    # =====================================================================
+    # ⚙️ BỘ TRÍ TUỆ NHÂN DIỆN LỆNH CHAT ĐỘNG (ROUTING PARSER LAYER)
+    # =====================================================================
     import re
-    import streamlit as st
-
-    # =====================================================================
-    # 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & PHÁT LỆNH - V26)
-    # =====================================================================
-
-    # 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-    if "ai_processing" not in st.session_state:
-        st.session_state.ai_processing = False
-    if "last_submitted_query" not in st.session_state:
-        st.session_state.last_submitted_query = ""
-    if "fabric_width_inch" not in st.session_state:
-        st.session_state["fabric_width_inch"] = 55.0 # Mặc định an toàn ban đầu là 55
-
-    # 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
-    chat_history_container = st.container()
-    with chat_history_container:
-        st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-        if st.session_state.get("chat_history"):
-            for msg in st.session_state.chat_history:
-                st.chat_message("user").write(msg["user"])
-                st.chat_message("assistant").write(msg["ai"])
-
-    # 🚨 ĐÃ SỬA CHÍ MẠNG: Đặt độc lập ngoài cùng để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
-    # Ép buộc widget hiển thị tại main layout, không bọc trong columns hay container động
-    safe_user_prompt = st.chat_input(
-        "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 55 co rút dọc 3 ngang 14)...",
-        key="ie_workspace_fixed_dynamic_chat_final_patch_v9"
-    )
-
-    # 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
-    if safe_user_prompt:
-        query_text = str(safe_user_prompt).strip()
-        st.session_state["last_submitted_query"] = query_text
-        st.session_state.ai_processing = True
+    query_lower = query_text.lower()
+    
+    # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT (Ví dụ: "khổ 56", "khổ vải 54.5", "khổ sản xuất 58")
+    width_match = re.search(r'(?:khổ|kho|width|khổ vải|khổ sản xuất)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if width_match:
+        detected_width = float(width_match.group(1))
+        # Khóa chặt giá trị vào vùng nhớ liên tầng
+        st.session_state["current_active_width"] = detected_width
         
-        # =====================================================================
-        # ⚙️ BỘ TRÍ TUỆ NHÂN DIỆN LỆNH CHAT ĐỘNG (ROUTING PARSER LAYER)
-        # =====================================================================
-        query_lower = query_text.lower()
-        
-        # A. BÓC TÁCH KHỔ VẢI SẢN XUẤT (Giải quyết triệt để lỗi kẹt 58.0)
-        width_match = re.search(r'(?:khổ|kho|width|khổ vải|khổ sản xuất)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
-        if width_match:
-            detected_width = float(width_match.group(1))
-            # Khóa chặt giá trị vào CẢ HAI vùng nhớ liên tầng để các đoạn dưới bốc xài
-            st.session_state["fabric_width_inch"] = detected_width
-            st.session_state["current_active_width"] = detected_width
-            
-        # B. BÓC TÁCH CỠ/SIZE SẢN XUẤT
-        size_match = re.search(r'(?:cỡ|size|coer)\s*([a-z0-9]+)', query_lower)
-        if size_match:
-            detected_size = str(size_match.group(1)).upper().strip()
-            st.session_state["current_active_size"] = detected_size
+    # B. BÓC TÁCH CỠ/SIZE SẢN XUẤT (Mở rộng thêm - Ví dụ: "cỡ 32", "size 34", "cỡ l")
+    size_match = re.search(r'(?:cỡ|size|coer)\s*([a-z0-9]+)', query_lower)
+    if size_match:
+        detected_size = str(size_match.group(1)).upper().strip()
+        st.session_state["current_active_size"] = detected_size
 
-        # C. BÓC TÁCH TỶ LỆ CO RÚT
-        shrink_v_match = re.search(r'(?:dọc|doc)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
-        if shrink_v_match:
-            st.session_state["warp_shrinkage"] = float(shrink_v_match.group(1))
-            st.session_state["current_warp_shrinkage"] = float(shrink_v_match.group(1))
-            
-        shrink_h_match = re.search(r'(?:ngang)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
-        if shrink_h_match:
-            st.session_state["weft_shrinkage"] = float(shrink_h_match.group(1))
-            st.session_state["current_weft_shrinkage"] = float(shrink_h_match.group(1))
+    # C. BÓC TÁCH TỶ LỆ CO RÚT (Mở rộng thêm nếu bạn cần dùng cho cấu hình sơ đồ)
+    # Tìm "co rút dọc 3" -> 3%
+    shrink_v_match = re.search(r'(?:dọc|doc)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if shrink_v_match:
+        st.session_state["shrinkage_vertical"] = float(shrink_v_match.group(1))
+    # Tìm "ngang 14" -> 14%    
+    shrink_h_match = re.search(r'(?:ngang)\s*([0-9]+(?:\.[0-9]+)?)', query_lower)
+    if shrink_h_match:
+        st.session_state["shrinkage_horizontal"] = float(shrink_h_match.group(1))
 
-        # Lưu lịch sử chat
-        st.session_state.chat_history.append({"user": query_text, "ai": f"Đã ghi nhận lệnh điều chỉnh thông số hệ thống."})
-        
-        # Thực hiện làm sạch luồng và rerun để cập nhật toàn bộ hệ thống ngay lập tức
-        st.rerun()
-
-    # Ghìm thông báo câu lệnh chat đang có hiệu lực điều khiển lên màn hình UI báo cáo
-    if st.session_state["last_submitted_query"]:
-        st.sidebar.info(f"🎯 **Lệnh chat hiện tại:** {st.session_state['last_submitted_query']}")
+    # Thực hiện làm sạch luồng và rerun để cập nhật toàn bộ hệ thống
+    st.rerun()
 
 
     # =====================================================================
