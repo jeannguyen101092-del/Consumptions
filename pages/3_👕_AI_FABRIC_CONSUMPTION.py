@@ -807,14 +807,17 @@ if safe_user_prompt:
     st.rerun()
 
 
+        # =====================================================================
+    # 🟩 ĐOẠN 2 (PHIÊN BẢN V30 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI - FIXED)
     # =====================================================================
-    # 🟩 ĐOẠN 2 (PHIÊN BẢN V28 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI - FIXED)
-    # =====================================================================
-    if st.session_state.ai_processing:
-        current_query = st.session_state["last_submitted_query"]
-        active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+    # 🚨 ĐÃ SỬA: Mở rộng điều kiện kiểm tra thông minh. Nếu cờ ai_processing bật HOẶC trong bộ nhớ RAM đang có file PDF mới tải lên nhưng chưa được AI phân tích -> Bắt buộc đánh thức hệ thống chạy quét ngay, không được đứng im!
+    active_pdf = st.session_state.get("pdf_bytes") or st.session_state.get("uploaded_file") or st.session_state.get("current_pdf") or st.session_state.get("pdf_data")
+    has_unprocessed_bom = "bom_data" not in st.session_state or not st.session_state["bom_data"] or "bom_rows" not in st.session_state["bom_data"]
 
-        # 🚨 ĐIỂM SỬA CHÍ MẠNG: Đọc trực tiếp từ trục Master an toàn của Đoạn 1, hạ fallback xuống 55.0 để chặn đứng bẫy reset 58.0
+    if st.session_state.get("ai_processing", False) or (active_pdf is not None and has_unprocessed_bom):
+        current_query = st.session_state.get("last_submitted_query", "")
+
+        # Đọc trực tiếp từ trục Master an toàn của Đoạn 1, hạ fallback xuống 55.0 để chặn đứng bẫy reset 58.0
         dynamic_width = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 55.0)))
         target_size = str(st.session_state.get("current_active_size", "32"))
         
@@ -823,7 +826,7 @@ if safe_user_prompt:
             w_m = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
             if w_m: 
                 dynamic_width = float(w_m.group(2))
-                st.session_state["fabric_width_inch"] = dynamic_width # Khóa ngay vào State
+                st.session_state["fabric_width_inch"] = dynamic_width 
                 st.session_state["current_active_width"] = dynamic_width
                 
             s_m = re.search(r"(cỡ|size)\s*(\d+)", str(current_query), re.IGNORECASE)
@@ -935,6 +938,9 @@ if safe_user_prompt:
                         raw_json_schema=raw_json_schema,
                         prompt_agent_2=prompt_agent_2
                     )
+                    
+                    
+
                     
                     # Tiến hành lưu kết quả phân tích sạch vào bộ nhớ hệ thống
                     st.session_state["bom_data"] = bom_data
