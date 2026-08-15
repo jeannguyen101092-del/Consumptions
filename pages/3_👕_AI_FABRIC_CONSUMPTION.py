@@ -2681,7 +2681,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
 
-        import pandas as pd
+    import pandas as pd
     import streamlit as st
 
     # =====================================================================
