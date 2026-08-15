@@ -741,7 +741,7 @@ def execute_final_gerber_pure_scan(
 
 
 
-    import re
+        import re
     import streamlit as st
 
     # =====================================================================
@@ -793,7 +793,7 @@ def execute_final_gerber_pure_scan(
     ctx["calculated_on_size"] = detected_size_code
     ctx["detected_base_size"] = detected_size_code
 
-    # 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (BẺ GÃY HOÀN TOÀN BẪY KẸT KHỔ 58)
+    # 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (BÈ GÃY HOÀN TOÀN BẪY KẸT KHỔ 58)
     # Hàm extract_param mới sẽ bảo vệ số khổ vải (Ví dụ: 55.0) không bị reset về 58.0 ở các lượt rerun sau
     fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fabric_width_inch", 55.0) 
     if fabric_width <= 0: 
@@ -818,7 +818,6 @@ def execute_final_gerber_pure_scan(
     st.session_state["current_warp_shrinkage"] = warp_shrink
     st.session_state["current_weft_shrinkage"] = weft_shrink
     st.session_state["bom_data"] = ctx
-
 
 # =====================================================================
 # 🟩 ĐOẠN 2 (PHIÊN BẢN V27 - CHUẨN ĐỒNG BỘ ĐA TẦNG TUYỆT ĐỐI)
@@ -1588,124 +1587,6 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
     return processed_rows
 
 
-
-import io
-import re
-import numpy as np
-import pandas as pd
-import streamlit as st
-import hashlib # Bổ sung thư viện băm mã hóa để tránh lỗi NameError hệ thống cache
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-
-# =====================================================================
-# 🟩 ĐOẠN 1 (PHIÊN BẢN V22 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
-# =====================================================================
-chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
-
-def extract_param(pattern, text, session_key, default_val):
-    match = re.search(pattern, text)
-    if match:
-        val = float(match.group(2) if len(match.groups()) >= 2 else match.group(1))
-        st.session_state[session_key] = val
-        return val
-    # Nếu không tìm thấy trong câu lệnh chat hiện tại, ưu tiên lấy lại giá trị đã lưu trong session_state
-    if session_key in st.session_state:
-        return float(st.session_state[session_key])
-    return float(default_val)
-
-# 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
-warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
-weft_shrink = extract_param(r'(co rút ngang|ngang)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
-
-ctx = st.session_state.get("bom_data", {})
-if not isinstance(ctx, dict): 
-    ctx = {}
-
-# 🛠️ 2. SỬA TẬN GỐC LUỒNG BỐC SIZE: Bóc tách đơn nguyên để gỡ bẫy kẹt size 32
-detected_size_code = ""
-if ctx.get("detected_base_size") and str(ctx.get("detected_base_size")).strip() != "":
-    detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
-elif ctx.get("base_size") and str(ctx.get("base_size")).strip() != "":
-    detected_size_code = str(ctx.get("base_size")).upper().strip()
-elif ctx.get("calculated_on_size") and str(ctx.get("calculated_on_size")).strip() != "":
-    detected_size_code = str(ctx.get("calculated_on_size")).upper().strip()
-else:
-    # Quét nhanh lệnh đổi size từ chat (Ví dụ: "size 29" hoặc "cỡ 30")
-    size_match = re.search(r'\b(size|cỡ)\s*([a-zA-Z0-9]+)\b', chat_input_text)
-    if size_match:
-         detected_size_code = size_match.group(2).upper().strip()
-    else:
-         detected_size_code = "32" # Sàn dự phòng cuối cùng
-
-# Giải phóng chuỗi kích thước nhảy size phức tạp (Ví dụ: "32X33" -> lấy eo "32")
-if "X" in detected_size_code:
-    detected_size_code = detected_size_code.split("X")[0].strip()
-
-# ĐỒNG BỘ LÊN TRỤC BIẾN MASTER NGOÀI VÀ TRONG ĐỂ KHÓA CHẶT BẢNG SIZE ĐOẠN 5.2
-st.session_state["current_active_size"] = detected_size_code
-st.session_state["target_size"] = detected_size_code
-st.session_state["detected_base_size"] = detected_size_code
-ctx["calculated_on_size"] = detected_size_code
-ctx["detected_base_size"] = detected_size_code
-
-# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Giải phóng lệnh chặn ép khổ vải 55)
-fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fabric_width_inch", 58.0) 
-if fabric_width <= 0: 
-    fabric_width = 58.0
-
-# Ghi đè bắt buộc: Đảm bảo trục Master đồng bộ tức thì giá trị vừa trích xuất
-st.session_state["current_active_width"] = fabric_width
-st.session_state["fabric_width_inch"] = fabric_width
-ctx["fabric_width_inch"] = fabric_width
-
-# 4. Trích xuất khổ vải Keo và khổ Vải lót độc lập
-fusing_width = extract_param(r'\b(khổ\s*keo|keo\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fusing_width_inch", 59.0)
-if fusing_width <= 0: fusing_width = 59.0
-st.session_state["fusing_width_inch"] = fusing_width
-ctx["fusing_width_inch"] = fusing_width
-
-lining_width = extract_param(r'\b(khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "lining_width_inch", 57.0)
-if lining_width <= 0: lining_width = 57.0
-st.session_state["lining_width_inch"] = lining_width
-ctx["lining_width_inch"] = lining_width
-
-# Đồng bộ hệ số co rút lên trục Master để bảo vệ Khối 3
-st.session_state["current_warp_shrinkage"] = warp_shrink
-st.session_state["current_weft_shrinkage"] = weft_shrink
-
-# 🚨 ĐỒNG BỘ NGƯỢC VÀO LƯỚI CHI TIẾT (BOM DETAILS DATAFRAME) NẾU ĐÃ CÓ DỮ LIỆU
-# Đoạn này đảm bảo dữ liệu hiển thị trên bảng lưới luôn đi theo trục Master của Đoạn 1
-if "bom_rows" in ctx and isinstance(ctx["bom_rows"], list):
-    for row in ctx["bom_rows"]:
-        mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
-        if mat_class == "FABRIC":
-            row["fabric_width_inch"] = fabric_width
-        elif mat_class == "FUSING":
-            row["fabric_width_inch"] = fusing_width
-        elif mat_class == "LINING":
-            row["fabric_width_inch"] = lining_width
-    # =====================================================================
-    # 🟩 KHỐI PHÒNG THỦ: ÉP Ô CHAT LUÔN HIỂN THỊ KHÔNG BỊ BIẾN MẤT (GUARD V3)
-    # =====================================================================
-    # 1. Khởi tạo các giá trị bộ đệm nếu hệ thống vừa bị xóa bộ nhớ
-    if "last_submitted_query" not in st.session_state:
-        st.session_state["last_submitted_query"] = ""
-        
-    if "chat_history_list" not in st.session_state:
-        st.session_state["chat_history_list"] = []
-
-    # 2. Đưa ô nhập chat ra ngoài rìa độc lập (Không bọc nó vào bất kỳ điều kiện if df_bom is None nào hết)
-    user_chat_command = st.chat_input("💬 Nhập câu lệnh điều chỉnh (Ví dụ: tính định mức khổ 55, co rút dọc 3)...")
-
-    if user_chat_command:
-        # Ghi nhận ngay câu lệnh của người dùng vào trục Master
-        st.session_state["last_submitted_query"] = str(user_chat_command).strip()
-        st.session_state["chat_history_list"].append(str(user_chat_command).strip())
-        
-        # Ép hệ thống chạy lại lập tức để Đoạn 1 trích xuất khổ vải mới ngay
-        st.rerun()
 
 
 
