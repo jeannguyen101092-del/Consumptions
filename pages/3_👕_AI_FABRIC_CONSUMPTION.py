@@ -1686,6 +1686,26 @@ if "bom_rows" in ctx and isinstance(ctx["bom_rows"], list):
             row["fabric_width_inch"] = fusing_width
         elif mat_class == "LINING":
             row["fabric_width_inch"] = lining_width
+    # =====================================================================
+    # 🟩 KHỐI PHÒNG THỦ: ÉP Ô CHAT LUÔN HIỂN THỊ KHÔNG BỊ BIẾN MẤT (GUARD V3)
+    # =====================================================================
+    # 1. Khởi tạo các giá trị bộ đệm nếu hệ thống vừa bị xóa bộ nhớ
+    if "last_submitted_query" not in st.session_state:
+        st.session_state["last_submitted_query"] = ""
+        
+    if "chat_history_list" not in st.session_state:
+        st.session_state["chat_history_list"] = []
+
+    # 2. Đưa ô nhập chat ra ngoài rìa độc lập (Không bọc nó vào bất kỳ điều kiện if df_bom is None nào hết)
+    user_chat_command = st.chat_input("💬 Nhập câu lệnh điều chỉnh (Ví dụ: tính định mức khổ 55, co rút dọc 3)...")
+
+    if user_chat_command:
+        # Ghi nhận ngay câu lệnh của người dùng vào trục Master
+        st.session_state["last_submitted_query"] = str(user_chat_command).strip()
+        st.session_state["chat_history_list"].append(str(user_chat_command).strip())
+        
+        # Ép hệ thống chạy lại lập tức để Đoạn 1 trích xuất khổ vải mới ngay
+        st.rerun()
 
 
 
