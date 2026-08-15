@@ -583,7 +583,7 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V23) - ĐÃ PHÁ VỠ BẪY CACHE CŨ HOÀN TOÀN
+# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V24) - ĐỒNG BỘ KHỔ VẢI TOÁN HỌC KHÔNG BỊ LỆCH ĐỊNH MỨC
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
@@ -611,6 +611,14 @@ def execute_final_gerber_pure_scan(
     if not isinstance(pdf_bytes, bytes):
         raise TypeError("Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!")
 
+    # 1. TRÍCH XUẤT KHỔ VẢI ÉP BUỘC TỪ ĐOẠN CHAT NGAY TỪ ĐẦU ĐỂ ĐỒNG BỘ
+    final_working_width = float(active_width)
+    if current_query:
+        # Tìm các pattern như "khổ 55", "khổ vải 55.0", "khổ vải: 55"
+        width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
+        if width_match:
+            final_working_width = float(width_match.group(2))
+
     full_pdf_raw_text = ""
     image_payloads = []
 
@@ -621,7 +629,6 @@ def execute_final_gerber_pure_scan(
             page_text = doc_recovery[idx].get_text("text")
             full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
 
-            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
             if len(image_payloads) < 2:
                 try:
                     pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
@@ -630,7 +637,8 @@ def execute_final_gerber_pure_scan(
                     continue
 
     gemini_inputs = list(image_payloads)
-    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+    # Bổ sung thông tin khổ vải đã quét được vào prompt để AI nhận biết (nếu cần)
+    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n(Detected Fabric Width: {final_working_width} inch)\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
 
     extended_prompt = prompt_agent_2 + """
     CRITICAL MULTI-MATERIAL EXTRACTION RULES:
@@ -673,7 +681,6 @@ def execute_final_gerber_pure_scan(
             if "component_name" in row:
                 row["component_name"] = " ".join(str(row["component_name"]).upper().split())
             
-            # Ép kiểu dữ liệu an toàn ban đầu
             try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
             except: row["bounding_box_length"] = 0.0
             try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
@@ -686,37 +693,43 @@ def execute_final_gerber_pure_scan(
             comp_name = str(row.get("component_name", "")).upper()
             mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
             
-            # Sửa lỗi phân loại vật tư nghiêm ngặt cho Keo/Lót/Rib
             if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
                 mat_class = "FUSING"
             elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
                 mat_class = "LINING"
             row["material_class"] = mat_class
 
-            # CHUẨN HÓA HÌNH HỌC PHẲNG: Gỡ hoàn toàn bẫy nhân đôi bề rộng của rập vải chính
             if mat_class == "FABRIC" and row["bounding_box_width"] > 16.0:
                 row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
                 row["polygon_net_area"] = row["polygon_net_area"] / 2.0
                 row["piece_count"] = int(row["piece_count"] * 2)
 
-            # GEOMETRY GUARD: Khống chế diện tích tinh không cho lấn át diện tích hộp bao phẳng
             bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
             if row["polygon_net_area"] > bbox_area and bbox_area > 0:
                 row["polygon_net_area"] = bbox_area * (0.76 if mat_class == "FABRIC" else 0.85)
 
-            try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
-            except: row["gross_consumption"] = 0.0415
+            # Gán khổ vải đã được đồng bộ chuẩn xác vào hàng dữ liệu
+            row["fabric_width_inch"] = final_working_width
+
+            # 2. ĐỒNG BỘ TOÁN HỌC: TÍNH LẠI ĐỊNH MỨC THEO KHỔ VẢI THỰC TẾ
+            # Giả định nền tảng định mức gốc của dữ liệu Techpack / AI ban đầu dựa trên khổ active_width (ví dụ: 58.0)
+            base_width = float(active_width) if float(active_width) > 0 else 58.0
+            
+            try: 
+                ai_gross = float(row.get("gross_consumption", 0.0415))
+            except: 
+                ai_gross = 0.0415
+
+            # Thuật toán bù trừ: Khổ vải hẹp đi -> Định mức tăng lên. Khổ rộng ra -> Định mức giảm đi.
+            # Chỉ áp dụng bù trừ định mức biến thiên cho VẢI CHÍNH (FABRIC)
+            if mat_class == "FABRIC" and final_working_width != base_width and final_working_width > 0:
+                adjusted_gross = ai_gross * (base_width / final_working_width)
+                row["gross_consumption"] = round(adjusted_gross, 4)
+            else:
+                row["gross_consumption"] = round(ai_gross, 4)
+
             try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
             except: row["marker_efficiency"] = "82.5%"
-            
-            try:
-                forced_width = float(active_width)
-                if current_query:
-                    width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-                    if width_match: forced_width = float(width_match.group(2))
-                row["fabric_width_inch"] = forced_width
-            except:
-                row["fabric_width_inch"] = float(active_width)
 
     if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
     if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
@@ -725,8 +738,6 @@ def execute_final_gerber_pure_scan(
     st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
 
     return blueprint_worker
-
-
 
 
 
