@@ -1589,7 +1589,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 # =====================================================================
-# 🟩 ĐOẠN 1 (PHIÊN BẢN V21 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
+# 🟩 ĐOẠN 1 (PHIÊN BẢN V22 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
 # =====================================================================
 chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
 
@@ -1599,7 +1599,10 @@ def extract_param(pattern, text, session_key, default_val):
         val = float(match.group(2) if len(match.groups()) >= 2 else match.group(1))
         st.session_state[session_key] = val
         return val
-    return float(st.session_state.get(session_key, default_val))
+    # Nếu không tìm thấy trong câu lệnh chat hiện tại, ưu tiên lấy lại giá trị đã lưu trong session_state
+    if session_key in st.session_state:
+        return float(st.session_state[session_key])
+    return float(default_val)
 
 # 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
 warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
@@ -1641,7 +1644,7 @@ fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?
 if fabric_width <= 0: 
     fabric_width = 58.0
 
-# Lưu trữ trọn vẹn lên trục điều khiển Master ngoài để Đoạn 5.1 bóc tách khổ vải động linh hoạt
+# Ghi đè bắt buộc: Đảm bảo trục Master đồng bộ tức thì giá trị vừa trích xuất
 st.session_state["current_active_width"] = fabric_width
 st.session_state["fabric_width_inch"] = fabric_width
 ctx["fabric_width_inch"] = fabric_width
@@ -1661,12 +1664,26 @@ ctx["lining_width_inch"] = lining_width
 st.session_state["current_warp_shrinkage"] = warp_shrink
 st.session_state["current_weft_shrinkage"] = weft_shrink
 
+# 🚨 ĐỒNG BỘ NGƯỢC VÀO LƯỚI CHI TIẾT (BOM DETAILS DATAFRAME) NẾU ĐÃ CÓ DỮ LIỆU
+# Đoạn này đảm bảo dữ liệu hiển thị trên bảng lưới luôn đi theo trục Master của Đoạn 1
+if "bom_rows" in ctx and isinstance(ctx["bom_rows"], list):
+    for row in ctx["bom_rows"]:
+        mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
+        if mat_class == "FABRIC":
+            row["fabric_width_inch"] = fabric_width
+        elif mat_class == "FUSING":
+            row["fabric_width_inch"] = fusing_width
+        elif mat_class == "LINING":
+            row["fabric_width_inch"] = lining_width
+
+
 
 # =====================================================================
-# 🟩 ĐOẠN 2 (PHIÊN BẢN V26 - CHUẨN CAD - NO INDENT): DATA CLEANING & PARAMETER SYNC
+# 🟩 ĐOẠN 2 (PHIÊN BẢN V27 - CHUẨN CAD - NO INDENT): DATA CLEANING & PARAMETER SYNC
 # =====================================================================
 import re
 import pandas as pd
+import streamlit as st
 
 rows = ctx.get("bom_rows", [])
 if not rows:
@@ -1746,21 +1763,44 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom[pcs_col] = df_bom["pcs_numeric"]
 
     # =====================================================================
-    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (FIXED TRÙM CACHE 58.0)
+    # 🚨 ĐỒNG BỘ TUYỆT ĐỐI THEO TRỤC BIẾN MASTER CỦA ĐOẠN 1 (SỬA LỖI TRÙM CACHE 58.0)
     # =====================================================================
-    # Ép đọc real-time trực tiếp từ ô UI giao diện, mặc định sàn là 56.0 nếu trống
-    fabric_width = float(st.session_state.get("current_active_width", 56.0))
+    # Kiểm tra và bốc chuẩn xác trục biến Master real-time đã xử lý tại Đoạn 1
+    fabric_width = float(st.session_state.get("fabric_width_inch", st.session_state.get("current_active_width", 58.0)))
+    fusing_width = float(st.session_state.get("fusing_width_inch", 59.0))
+    lining_width = float(st.session_state.get("lining_width_inch", 57.0))
+    
     warp_shrink = float(st.session_state.get("current_warp_shrinkage", 0.0))
     weft_shrink = float(st.session_state.get("current_weft_shrinkage", 0.0))
 
     # Khóa chặt lưu trữ đồng nhất trên toàn bộ hệ thống
     st.session_state["fabric_width_inch"] = fabric_width
+    st.session_state["current_active_width"] = fabric_width
     st.session_state["warp_shrinkage"] = warp_shrink
     st.session_state["weft_shrinkage"] = weft_shrink
     
     ctx["fabric_width_inch"] = fabric_width
     ctx["warp_shrinkage_percent"] = warp_shrink
     ctx["weft_shrinkage_percent"] = weft_shrink
+
+    # 🛠️ HÀNH ĐỘNG SỬA LỖI CHÍ CHÓNG: Ép giá trị khổ vải thực tế vào từng dòng DataFrame hiển thị
+    width_col = next((c for c in ["fabric_width_inch", "Khổ vải sản xuất (inch)", "fabric_width"] if c in df_bom.columns), "fabric_width_inch")
+    
+    def assign_correct_width_by_class(material_class_val):
+        m_class = str(material_class_val).upper().strip()
+        if "FUSING" in m_class or "MEX" in m_class:
+            return fusing_width
+        elif "LINING" in m_class or "LÓT" in m_class:
+            return lining_width
+        return fabric_width # Mặc định trả về khổ vải chính cho FABRIC
+
+    # Tiến hành ghi đè thời gian thực lên cột khổ vải hiển thị của bảng dữ liệu
+    df_bom[width_col] = df_bom[m_col].apply(assign_correct_width_by_class)
+
+    # Đảm bảo lưu DataFrame đã đồng bộ ngược lại vào cache hiển thị
+    if isinstance(ctx.get("bom_rows"), list):
+        ctx["bom_rows"] = df_bom.to_dict(orient="records")
+    st.session_state["processed_display_rows"] = df_bom.copy()
 
 
        # =====================================================================
