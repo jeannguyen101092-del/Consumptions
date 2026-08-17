@@ -2219,7 +2219,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V76 - BOOST FUSING & LINING)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V77 - FIXED NAMEERROR)
     # =====================================================================
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2238,7 +2239,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   # Co dọc (VD: 3% -> 0.03)
     shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 # Co ngang (VD: 14% -> 0.14)
 
-    # Hệ số hao hụt vận hành bàn cắt thực tế xưởng may (Giữ ở mức 6% để bù đầu cây, vải lỗi)
+    # Hệ số hao hụt vận hành bàn cắt thực tế xưởng may (Bù đầu cây, vải lỗi)
     wastage_allowance = 1.06
 
     # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY
@@ -2249,12 +2250,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
 
-        # =====================================================================
-        # 🚨 ĐÃ SỬA: PHÂN LOẠI VẬT TƯ THÔNG MINH (CHỐNG NHẬN DIỆN SÓT LÓT/KEO)
-        # =====================================================================
+        # PHÂN LOẠI NHÓM VẬT TƯ THÔNG MINH
         p_cls = None
-        
-        # Ưu tiên kiểm tra từ khóa trực tiếp trên tên chi tiết rập trước để tránh AI gắn nhầm FABRIC
         if any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung", "mếch"]): 
             p_cls = "FUSING"
         elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui", "inner waistband", "lot cap", "pocket bag"]): 
@@ -2266,14 +2263,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]): 
             p_cls = "PADDING"
             
-        # Nếu chưa bắt được từ khóa thì kế thừa từ các cột dữ liệu sẵn có
         if not p_cls:
             for field in ["Material Class", "material_class", "inferred_class"]:
                 if field in r and pd.notna(r[field]): p_cls = str(r[field]).upper().strip()
                 elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
                 if p_cls in summary_grouped_gross: break
 
-        # Phòng hộ cuối cùng mặc định là vải chính
         if not p_cls or p_cls not in summary_grouped_gross:
             p_cls = "FABRIC"
 
@@ -2282,13 +2277,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        # =====================================================================
-        # 🚨 ĐÃ SỬA: ĐẾM MẢNH KEO LÓT CẶP ĐỐI XỨNG (ANTI-MISCOUNT FOR ACC)
-        # =====================================================================
+        # ĐẾM MẢNH RẬP PHÂN CẶP ĐỐI XỨNG
         if any(x in c_name_lower for x in ["back body", "collar top", "collar band", "belt loop", "diat"]):
             pcs_default = 1
         elif any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay", "pocket", "tui", "facing", "waistband", "cap", "fusing", "keo", "inner"]):
-            pcs_default = 2  # Ép buộc nhân 2 mảnh đối xứng cho cả chi tiết Vải chính, Keo (Waistband Fusing) và Lót (Inner Waistband)
+            pcs_default = 2  
         else:
             pcs_default = 1  
 
@@ -2308,12 +2301,14 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
 
-        # Thẩm định diện tích rập
-        min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
+        # 🚨 ĐÃ SỬA CHỐNG CRASH: Đọc trực tiếp từ chuỗi p_type_friendly an toàn lưu trong session_state
+        current_p_type = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN")).upper()
+        min_coverage = 0.76 if ("DRESS" in current_p_type or "SKIRT" in current_p_type) else 0.72
+        
         if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
             pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.78)
         
-        # Bù thêm 6% diện tích an toàn cho chu vi đường viền may quanh rập
+        # Bù thêm diện tích cho đường viền may
         seam_modifier = 1.06 if p_cls in ["FABRIC", "CONTRAST"] else 1.0
         total_piece_area = pure_unit_area * pcs * seam_modifier
         
@@ -2326,13 +2321,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        # =====================================================================
-        # 🚨 ĐÃ SỬA: ÉP HIỆU SUẤT SƠ ĐỒ KEO/LÓT ĐƠN CHIẾC XUỐNG THẤP ĐỂ TĂNG YARDS
-        # =====================================================================
+        # Áp hiệu suất sơ đồ đơn chi tiết
         row_efficiency = dynamic_marker_efficiency
-        
         if p_cls in ["FUSING", "LINING"]:
-            row_efficiency = 0.60  # Hạ hiệu suất sơ đồ keo/lót đơn chiếc xuống 60% vì rập nhỏ cực kỳ hao vải rời
+            row_efficiency = 0.60  
         elif row_efficiency > 0.66 and p_cls in ["FABRIC", "CONTRAST"]:
             row_efficiency = 0.64
             
@@ -2364,7 +2356,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # =====================================================================
         df_bom.at[idx, "Gross Consumption"] = float(gross_yds)
         df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)
-        df_bom.at[idx, "Material Class"] = p_cls  # Ghi đè lại nhóm vật tư sạch đã phân loại lại cho lưới đồng bộ
+        df_bom.at[idx, "Material Class"] = p_cls  
         
         calculated_gross_list.append(gross_yds)
         summary_grouped_gross[p_cls] += gross_yds
@@ -2376,6 +2368,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["summary_contrast_gross"] = round(summary_grouped_gross["CONTRAST"], 4)
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
+
 
 
         # =====================================================================
