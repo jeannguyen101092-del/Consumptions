@@ -867,8 +867,9 @@ if safe_user_prompt:
     # Chỉ gọi rerun khi cần đồng bộ lại toàn bộ giao diện bảng biểu/thanh điều khiển theo dữ liệu mới
     st.rerun()
 
-import st
+import streamlit as st  #  Sửa thành "import streamlit as st"
 import re
+
 
 # =====================================================================
 # 🟩 ĐOẠN 2 (PHIÊN BẢN V23 - CHUẨN ĐỒNG BỘ): SCHEMAS, PROMPTS & AI EXECUTE
