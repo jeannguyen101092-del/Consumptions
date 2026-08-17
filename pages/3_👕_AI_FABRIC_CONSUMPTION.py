@@ -1028,6 +1028,9 @@ if active_pdf is not None and current_query != "":
 
 def initialize_and_sync_parameters():
     """Khối 1 (PHIÊN BẢN V21 - MASTER CONTROLLER): Đồng bộ thông số, chống bẫy ghi đè Cache AI"""
+    import re
+    import streamlit as st
+
     if not (st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows")):
         return None, None
         
@@ -1049,23 +1052,29 @@ def initialize_and_sync_parameters():
     if not target_size: 
         target_size = "32"
 
-    # 3. Quét thông số ép buộc từ chat bằng Regex nghiêm ngặt
+    # 3. Quét thông số ép buộc từ chat bằng Regex cải tiến (Chống bắt hụt khi viết tắt)
     if user_query_text:
-        w_match = re.search(r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        # Bóc tách Khổ vải (Chấp nhận: khổ vải, khổ, kho, khổ rộng)
+        w_match = re.search(r"\b(khổ\s*vải|khổ|kho|khổ\s*rộng)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
         if w_match: 
             fabric_width = float(w_match.group(2))
         
-        warp_match = re.search(r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        # Bóc tách Co rút dọc (Chấp nhận: co rút dọc, độ co dọc, co dọc, dọc)
+        warp_match = re.search(r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc|co\s*dọc|dọc)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
         if warp_match: 
             val = float(warp_match.group(2))
-            if val < 15.0: warp_shrinkage = val 
+            if val <= 25.0: # Mở rộng biên an toàn lên tối đa 25% cho chất liệu co rút mạnh
+                warp_shrinkage = val 
         
-        weft_match = re.search(r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
+        # Bóc tách Co rút ngang (Chấp nhận: co rút ngang, độ co ngang, co ngang, ngang)
+        weft_match = re.search(r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang|co\s*ngang|ngang)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
         if weft_match: 
             val = float(weft_match.group(2))
-            if val < 15.0: weft_shrinkage = val
+            if val <= 25.0: 
+                weft_shrinkage = val
 
-        size_match = re.search(r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b", user_query_text, re.IGNORECASE)
+        # Bóc tách Cỡ/Size (Chấp nhận: cỡ, size, sz)
+        size_match = re.search(r"\b(cỡ|size|sz)\s*[:=]?\s*([a-zA-Z0-9]+)\b", user_query_text, re.IGNORECASE)
         if size_match: 
             target_size = str(size_match.group(2)).upper().strip()
 
@@ -1084,6 +1093,7 @@ def initialize_and_sync_parameters():
     
     st.session_state["bom_data"] = bom_source
     return bom_source, user_query_text
+
 
 import re
 import streamlit as st
