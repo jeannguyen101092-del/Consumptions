@@ -1339,6 +1339,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     
     # Ép biến số lượng gốc về dạng số nguyên để kiểm tra an toàn hình học
     base_pcs = int(float(current_inferred_pcs or 1.0))
+    if base_pcs < 1:
+        base_pcs = 1
     
     # Tìm vị trí xuất hiện của tên chi tiết rập trong file văn bản PDF Techpack
     match_index = text_clean.find(comp_clean)
@@ -1348,18 +1350,27 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         window_end = min(len(text_clean), match_index + 120)
         scan_window = text_clean[window_start:window_end]
         
-        # Regex bắt trọn cấu trúc ghi (CUT 2, CUT=2, SELF X2, PANEL X2, QTY: 2)
-        cut_match = re.search(r'(?:cut|cắt|self|shell|\bx\b|\bqty\b)\s*(?:x\s*|\s*|=\s*|[:\s]*|\(-\s*)(\d+)|(?:\s+|\()(\d+)(?:\s*pcs|\s*chi tiết|\))', scan_window)
+        # Regex cải tiến bắt trọn cấu trúc ghi (CUT 2, CUT=2, SELF X2, PANEL X2, QTY: 2, 2 PCS)
+        cut_match = re.search(r'(?:cut|cắt|self|shell|\bqty\b)\s*(?:x\s*|\s*|=\s*|[:\s]*|\(-\s*)(\d+)|(?:\s+|\()(\d+)(?:\s*pcs|\s*chi tiết|\))', scan_window)
+        
+        # Quét bổ sung định dạng chữ X đứng sát số (Ví dụ: "front panel x2", "back panel x2") mà không bị dính rác từ chữ lẻ
+        if not cut_match:
+            cut_match = re.search(r'\bx\s*(\d+)\b', scan_window)
         
         if cut_match:
-            detected_qty_str = cut_match.group(1) or cut_match.group(2)
+            # Nhận diện vị trí group dữ liệu trả về từ Regex rẽ nhánh
+            try:
+                detected_qty_str = cut_match.group(1) or cut_match.group(2)
+            except IndexError:
+                detected_qty_str = cut_match.group(1)
+                
             if detected_qty_str:
                 detected_qty = int(detected_qty_str)
                 
                 # CHỐNG LỖI NHÂN CHỒNG CHÉO: Chỉ nhân thêm hệ số nếu số lượng phát hiện được lớn hơn số lượng nền
                 if detected_qty > base_pcs:
                     layer_multiplier = max(1, detected_qty // base_pcs)
-                    calc_log = f"Trích xuất Callout PDF: Tìm thấy lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa hệ số)."
+                    calc_log = f"Trích xuất Callout PDF: Tìm thấy lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa hệ số x{layer_multiplier})."
                 else:
                     layer_multiplier = 1
                     calc_log = f"Trích xuất Callout PDF: Lệnh cắt {detected_qty} chi tiết trùng khớp dữ liệu nền. Khóa chống nhân đôi."
@@ -1371,6 +1382,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
             if base_pcs == 1 and layer_multiplier == 1:
                 layer_multiplier = 2
                 calc_log = "Trích xuất Callout PDF: Phát hiện kết cấu cặp (PAIR) trên rập đơn. Kích hoạt đối xứng phôi phẳng."
+            elif base_pcs >= 2:
+                calc_log += " | Ghi nhận kết cấu cặp (PAIR) đã nằm trong số lượng gốc."
                 
         # ➔ C. Quét lệnh gập đôi vải bàn cắt (FOLD, GẬP ĐÔI)
         if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
@@ -1384,6 +1397,22 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     }
 
 
+
+import streamlit as st
+
+def safe_float(value, default=0.0):
+    """Hàm trợ lý ép kiểu số thực an toàn tránh crash luồng dữ liệu thô"""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+def safe_int(value, default=1):
+    """Hàm trợ lý ép kiểu số nguyên an toàn tránh crash luồng dữ liệu thô"""
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
 
 def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrinkage, weft_shrinkage):
     """
@@ -1432,7 +1461,7 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
         mirror_piece = r.get("mirror_piece", False)
 
         if raw_l > 0:
-            # 1. Áp thông số co rút dọc và ngang của cây vải nhà máy
+            # 1. Áp thông số co rút dọc và ngang của cây vải nhà máy vào kích thước sơ đồ gốc
             adj_l = raw_l * (1 + safe_float(warp_shrinkage) / 100.0)
             adj_w = raw_w * (1 + safe_float(weft_shrinkage) / 100.0) if raw_w > 0 else raw_w
             
@@ -1461,20 +1490,20 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
             elif piece_shape == "RECTANGLE":
                 shape_factor = 0.98
 
-            # 4. CHUẨN HÓA ĐƯỜNG MAY BIÊN RẬP (Bỏ hẳn mốc cộng khống 1.76" lãng phí cho các chi tiết đã ra rập thành phẩm)
-            # Chỉ bù hao hụt biên cắt cực nhỏ 0.15 inch chu vi nếu cần thiết
+            # 4. CHUẨN HÓA HÌNH HỌC PHẲNG: Tính diện tích tinh dựa trên kích thước sản xuất trước khi cộng hao biên bàn cắt
+            bbox_area = adj_l * adj_w
+            calculated_net_area = bbox_area * shape_factor
+            if calculated_net_area > bbox_area:
+                calculated_net_area = bbox_area * 0.76
+
+            # Hao hụt chu vi biên cắt cực nhỏ 0.15 inch cho chiều dài và chiều rộng tổng thể của chi tiết thành phẩm
             seamed_l = adj_l + 0.15
             seamed_w = adj_w + 0.15 if raw_w > 0 else adj_w
             
             total_pcs_final = pcs * layer_multiplier
             
-            # GEOMETRY GUARD: Chặn đứng hiện tượng diện tích tinh lấn át hộp bao phẳng
-            bbox_area = seamed_l * seamed_w
-            calculated_net_area = bbox_area * shape_factor
-            if calculated_net_area > bbox_area:
-                calculated_net_area = bbox_area * 0.76
-                
-            item_area = calculated_net_area * total_pcs_final
+            # Diện tích tổng của chi tiết bao gồm cả biên cắt vật lý
+            item_area = (seamed_l * seamed_w * shape_factor) * total_pcs_final
             
             # Đồng bộ dữ liệu sạch hoàn toàn vào DataFrame của hệ thống
             r["material_class"] = r_material_class
@@ -1501,11 +1530,19 @@ def process_pieces_layer_and_areas(bom_rows_list, product_segmented, warp_shrink
 
 
 
+import streamlit as st
+
+def safe_int(value, default=1):
+    """Hàm trợ lý ép kiểu số nguyên an toàn tránh crash luồng dữ liệu thô"""
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
 
 def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_area, skyline_results):
     """
     Khối 4 hoàn chỉnh (PHIÊN BẢN V26 - GERBER ALLOCATION ENGINE): Phân bổ định mức thương mại.
-    ĐÃ SỬA: Chuẩn hóa ma trận trọng số (Re-normalization) chống lọt ĐM và đồng bộ hóa độc lập Keo/Lót/Rib.
+    ĐÃ SỬA: Chuẩn hóa ma trận trọng số (Re-normalization) chống lọt ĐM, đồng bộ hóa độc lập Keo/Lót/Rib và sửa lỗi định nghĩa số lượng rập tổng.
     """
     base_gross_fabric = skyline_results.get("global_gross_fabric_yds", 0.0)
     if base_gross_fabric == 0.0:
@@ -1515,11 +1552,13 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         
     product_segmented = skyline_results.get("product_segmented", "JEAN_LONG")
     actual_packing_density = skyline_results.get("actual_packing_density", 0.85)
-    if actual_packing_density <= 0: actual_packing_density = 0.85
+    if actual_packing_density <= 0: 
+        actual_packing_density = 0.85
     
     bom_source = st.session_state.get("bom_data", {})
     usable_width = bom_source.get("fabric_width_inch", 58.0)
-    if not isinstance(usable_width, (int, float)) or usable_width <= 0: usable_width = 58.0
+    if not isinstance(usable_width, (int, float)) or usable_width <= 0: 
+        usable_width = 58.0
     
     # Đồng bộ khổ vải phụ thời gian thực từ bộ nhớ hệ thống
     lining_width = float(st.session_state.get("lining_width_inch", 57.0))
@@ -1551,6 +1590,9 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         
         raw_l = r.get("production_length", item.get("raw_l", 0.0))
         pcs = item["pcs_val"]
+        
+        # Xác định số lượng rập tổng thể thực tế một cách minh bạch
+        total_pcs_final = pcs * layer_multiplier
 
         # Ép điều kiện so sánh chữ nghiêm ngặt (==) chống lỗi nhận diện nhầm dòng
         if mat_class_raw == "FABRIC":
@@ -1583,10 +1625,15 @@ def allocate_gerber_share_consumption(piece_calculated_data, total_fabric_piece_
         else:
             gross_consumption, calc_chain = 0.0, f"Vật tư phụ mẫu hàng {product_segmented}."
 
-        # Cập nhật kết quả đồng bộ lên DataFrame để đẩy ra bảng UI chi tiết
+        # Cập nhật kết quả đồng bộ lên các thuộc tính của dòng dữ liệu rập
         r["Gross Consumption"] = gross_consumption
+        r["Số lượng rập"] = total_pcs_final
+        r["UOM"] = "YDS"
+        r["allocation_algorithm"] = calc_chain
+        
+        # Cập nhật đồng bộ ngược lại đối chiếu trong cấu trúc tham chiếu gốc của phần tử
         item["row_ref"]["Gross Consumption"] = gross_consumption
-        r["Số lượng rập"] = f"{total_pcs_final if 'total_pcs_final' in locals() else (pcs * layer_multiplier)} Pcs"
+        item["row_ref"]["Số lượng rập"] = total_pcs_final
         
         processed_rows.append(r)
 
