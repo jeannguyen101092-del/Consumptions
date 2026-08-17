@@ -2558,11 +2558,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
 
         # =====================================================================
-    #    # =====================================================================
-      # =====================================================================
-    # 🟩 ĐOẠN 7.1: XỬ LÝ DỮ LIỆU & RENDER BẢNG TỔNG HỢP (BOM SUMMARY) - V60 CHUẨN ĐỒNG BỘ TUYỆT ĐỐI
-    # =====================================================================
-    import re
+       import re
     import pandas as pd
 
     # 🔬 KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
@@ -2610,7 +2606,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Đồng bộ tuyệt đối dữ liệu định mức, số lượng rập và KHỔ VẢI ĐỘNG từ Single Source Đoạn 5.2
+    # Đồng bộ tuyệt đối dữ liệu định mức và số lượng rập từ DataFrame Master
     if "Gross Consumption" in df_bom.columns:
         df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
     else:
@@ -2621,13 +2617,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom_display["Số lượng rập"] = 1
 
-    # Sửa lỗi kẹt khổ vải 58.0: Ép lấy dữ liệu khổ vải từ cột Master đã được Đoạn 5.2 dọn sạch
-    if "Khổ vải sản xuất (inch)" in df_bom.columns:
-        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"]
-    else:
-        # Phòng hộ nếu cột lõi chưa khởi tạo kịp
-        df_bom_display["Khổ vải sản xuất (inch)"] = float(chat_width_override)
-
     # Đồng bộ chất liệu sạch lên bảng hiển thị
     clean_mats = []
     for idx, row in df_bom_display.iterrows():
@@ -2637,7 +2626,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Material Class"] = clean_mats
 
     # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ 100% THEO LÕI STATE
-    # Đọc trực tiếp giá trị Master để triệt tiêu lỗi lệch số giữa bảng hiển thị và hệ thống tính toán
     total_fabric = st.session_state.get("summary_fabric_gross", 0.0)
     total_fusing = st.session_state.get("summary_fusing_gross", 0.0)
     total_lining = st.session_state.get("summary_lining_gross", 0.0)
@@ -2681,32 +2669,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_summary = pd.DataFrame(summary_data)
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
-
-       # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V60 ĐỒNG BỘ KHỔ VẢI REAL-TIME
+    # =====================================================================
+    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V62 ĐỒNG BỘ HOÀN TOÀN TRỰC TIẾP
     # =====================================================================
 
     # 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
     if 'df_bom_display' in locals() and df_bom_display is not None:
 
-        # 🔄 THUẬT TOÁN ÉP ĐỒNG BỘ KHỔ VẢI THỰC TẾ: Chọn khổ nào tính khổ đó hiển thị lên màn hình
-        def apply_dynamic_width_to_ui(row):
-            material_class = str(row.get("Material Class", "FABRIC")).upper().strip()
-            if material_class == "FUSING":
-                return float(st.session_state.get("fusing_width", 59.0))
-            elif material_class == "LINING":
-                return float(st.session_state.get("lining_width", 57.0))
-            elif material_class == "RIB":
-                return float(st.session_state.get("rib_width", 40.0))
-            elif material_class == "PADDING":
-                return float(st.session_state.get("padding_width", 60.0))
-            else:
-                # Vải chính (FABRIC/CONTRAST): Ép lấy đúng khổ vải bạn vừa gõ/chọn thực tế trên UI (Ví dụ: 56.0)
-                return float(st.session_state.get("current_active_width", 56.0))
-
-        # Ghi đè trực tiếp thông số khổ vải động vào bảng hiển thị
-        if "Khổ vải sản xuất (inch)" in df_bom_display.columns:
-            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom_display.apply(apply_dynamic_width_to_ui, axis=1)
+        # 🔄 ĐÃ SỬA: Đọc trực tiếp khổ vải thực tế dùng để tính toán từ Đoạn 5.2 bàn giao sang
+        if "Khổ vải sản xuất (inch)" in df_bom.columns:
+            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"]
+        else:
+            # Phòng hộ nếu cột chưa kịp khởi tạo
+            df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("current_active_width", 56.0))
 
         # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
@@ -2741,7 +2716,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
         if "user_edited_mats" not in st.session_state: st.session_state["user_edited_mats"] = {}
 
-        # DUY NHẤT 1 BẢNG CHỈNH SỬA DỮ LIỆU ĐỘNG FIXED V9
+        # DUY NHẤT 1 BẢNG CHỈNH SỬA DỮ LIỆU ĐỘNG FIXED V11
         edited_df = st.data_editor(
             df_bom_display, 
             key="bom_data_editor_matrix_fixed_v9",
@@ -2766,7 +2741,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             }
         )
 
-        # BỘ LẮNG NGHE SỰ KIỆN: Chỉ kích hoạt rerun khi có tương tác thủ công thật từ người dùng trên ô lưới
+        # BỘ LẮNG NGHE SỰ KIỆN: Chỉ kích hoạt rerun khi có tương tác thủ công từ người dùng
         if edited_df is not None and "bom_data_editor_matrix_fixed_v9" in st.session_state:
             editor_state = st.session_state["bom_data_editor_matrix_fixed_v9"]
             
