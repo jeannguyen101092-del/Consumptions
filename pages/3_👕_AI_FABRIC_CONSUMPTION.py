@@ -2291,8 +2291,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Đẩy thông số hiệu suất sơ đồ tính toán được vào bộ não tổng để Đoạn 7 lấy dùng hiển thị
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V73 - UPGRADE VALUE)
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V75 - RE-ARCH PIECES)
     # =====================================================================
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2302,7 +2302,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     calculated_gross_list = []
     summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
-    # Khởi tạo sẵn các cột Master cần thiết trên DataFrame gốc
+    # Khởi tạo sẵn các cột Master trên DataFrame gốc
     if "Số lượng rập" not in df_bom.columns: df_bom["Số lượng rập"] = None
     if "Gross Consumption" not in df_bom.columns: df_bom["Gross Consumption"] = 0.0
     if "Khổ vải sản xuất (inch)" not in df_bom.columns: df_bom["Khổ vải sản xuất (inch)"] = 56.0
@@ -2311,8 +2311,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   # Co dọc (VD: 3% -> 0.03)
     shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 # Co ngang (VD: 14% -> 0.14)
 
-    # 🚨 ĐÃ SỬA: Tăng hệ số hao hụt thương mại bàn cắt thực tế lên 7% (1.07) để bù đường may và vải lỗi đầu cây
-    wastage_allowance = 1.07
+    # Hệ số hao hụt vận hành bàn cắt thực tế xưởng may (Giữ ở mức 6% để bù đầu cây, vải lỗi)
+    wastage_allowance = 1.06
 
     # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY
     for idx, r in df_bom.iterrows():
@@ -2342,21 +2342,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
         bbox_area = piece_length * piece_width
 
-        # 🧠 THUẬT TOÁN DIỆN TÍCH SÀN CHUẨN IE
-        if any(x in c_name_lower for x in ["back body", "collar top", "collar band"]):
+        # =====================================================================
+        # 🚨 ĐÃ SỬA: THUẬT TOÁN ĐẾM MẢNH RẬP PHÂN CẶP ĐỐI XỨNG (ANTI-MISCOUNT)
+        # Bỏ hoàn toàn điều kiện giới hạn diện tích < 450.0 vô lý gây hụt ống quần
+        # =====================================================================
+        if any(x in c_name_lower for x in ["back body", "collar top", "collar band", "belt loop", "diat"]):
             pcs_default = 1
-        elif any(x in c_name_lower for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
-            if bbox_area > 0 and bbox_area < 450.0:
-                pcs_default = 2
-            else:
-                pcs_default = 1
+        elif any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing", "dap tui", "fly", "shield", "facing"]):
+            pcs_default = 2  # Ép buộc nhân 2 mảnh đối xứng (Trái + Phải) cho các chi tiết cấu thành ống quần/túi quần
         else:
             pcs_default = 1  
 
         if "user_edited_pieces" in st.session_state and idx in st.session_state["user_edited_pieces"]:
             pcs = int(st.session_state["user_edited_pieces"][idx])
-        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
-            pcs = max(int(r["Số lượng rập"]), pcs_default)
+        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 2:
+            pcs = int(r["Số lượng rập"])
         elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
             pcs = int(v["active_user_pieces"])
         else:
@@ -2369,14 +2369,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
 
+        # Thẩm định và khôi phục diện tích rập nếu file rập CAD bị lỗi trả về diện tích tịnh rỗng
         min_coverage = 0.76 if (detected_type_label and ("DRESS" in detected_type_label or "SKIRT" in detected_type_label)) else 0.72
-
         if pure_unit_area <= 0.0 or (any(x in c_name_lower for x in ["panel", "front", "back", "than", "sleeve", "tay"]) and pure_unit_area < bbox_area * min_coverage):
+            # Điền khuyết diện tích sơ đồ bao hình thực tế
             pure_unit_area = bbox_area * (0.83 if p_cls == "FUSING" else 0.78)
         
-        total_piece_area = pure_unit_area * pcs
+        # Bù thêm 6% diện tích an toàn cho chu vi đường viền may (Seam Allowance) quanh rập đơn chiếc
+        seam_modifier = 1.06 if p_cls in ["FABRIC", "CONTRAST"] else 1.0
+        total_piece_area = pure_unit_area * pcs * seam_modifier
         
-        # 🚨 ĐÃ SỬA: Ép lấy đúng khổ vải hoạt động từ biến chat hoặc UI, xóa bỏ hoàn toàn kẹt khổ 58
+        # Xác định khổ vải thực tế đầu vào
         if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
@@ -2385,10 +2388,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        # 🚨 ĐÃ SỬA: Phạt hiệu suất sơ đồ đơn chi tiết xuống mức thực tế xưởng (63%) để kéo Yards lên cao hơn
+        # Hiệu suất sơ đồ đơn thực tế ngoài bàn cắt (64%)
         row_efficiency = dynamic_marker_efficiency
-        if row_efficiency > 0.65 and p_cls in ["FABRIC", "CONTRAST"]:
-            row_efficiency = 0.63  # Hạ mật độ sơ đồ lý thuyết xuống thực tế bàn cắt đơn chiếc
+        if row_efficiency > 0.66 and p_cls in ["FABRIC", "CONTRAST"]:
+            row_efficiency = 0.64
             
         if p_cls == "RIB": row_efficiency = 0.82
         elif p_cls == "PADDING": row_efficiency = 0.85
@@ -2417,7 +2420,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # 🔗 KHÓA CHẶT ĐỒNG BỘ: GHI NGƯỢC GIÁ TRỊ MỚI VÀO DATAFRAME MASTER
         # =====================================================================
         df_bom.at[idx, "Gross Consumption"] = float(gross_yds)
-        df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)  # Ép đồng bộ lại lưới hiển thị
+        df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)
         
         calculated_gross_list.append(gross_yds)
         summary_grouped_gross[p_cls] += gross_yds
@@ -2429,7 +2432,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["summary_contrast_gross"] = round(summary_grouped_gross["CONTRAST"], 4)
     st.session_state["summary_rib_gross"] = round(summary_grouped_gross["RIB"], 4)
     st.session_state["summary_padding_gross"] = round(summary_grouped_gross["PADDING"], 4)
-
 
 
         # =====================================================================
