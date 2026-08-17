@@ -813,30 +813,58 @@ import streamlit as st
 # 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "ai_processing" not in st.session_state:
-    st.session_state.ai_processing = False
-if "last_submitted_query" not in st.session_state:
-    st.session_state.last_submitted_query = ""
+if "current_consumption_data" not in st.session_state:
+    st.session_state.current_consumption_data = None  # Lưu kết quả định mức để dùng cho bảng biểu
 
-# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
+# 2. Tạo khung Container riêng độc lập hiển thị lịch sử hội thoại
 chat_history_container = st.container()
 with chat_history_container:
     st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-    if st.session_state.get("chat_history"):
-        for msg in st.session_state.chat_history:
-            st.chat_message("user").write(msg["user"])
-            st.chat_message("assistant").write(msg["ai"])
+    for msg in st.session_state.chat_history:
+        with st.chat_message("user"):
+            st.write(msg["user"])
+        with st.chat_message("assistant"):
+            st.write(msg["ai"])
 
-# 🚨 ĐÃ SỬA: Đặt sát lề trái ngoài cùng, đổi key sang _v8 mới tinh để giải phóng hoàn toàn bộ nhớ đệm kẹt cũ
+# 3. Ô nhập lệnh tính toán an toàn sát lề dưới
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
     key="ie_workspace_fixed_dynamic_chat_final_patch_v8"
 )
 
-# 3. Kích hoạt cờ hiệu xử lý và ép tải lại luồng chính khi người dùng gửi thành công
+# 4. XỬ LÝ LUỒNG DỮ LIỆU NGAY KHI PHÁT LỆNH (Không dùng st.rerun ép buộc gây mất đồng bộ)
 if safe_user_prompt:
-    st.session_state["last_submitted_query"] = str(safe_user_prompt).strip()
-    st.session_state.ai_processing = True
+    query = str(safe_user_prompt).strip()
+    
+    # Hiển thị phản hồi tạm thời của User lên UI lập tức
+    with chat_history_container:
+        with st.chat_message("user"):
+            st.write(query)
+            
+    # TẦNG XỬ LÝ TRÍ TUỆ NHÂN TẠO & PHÂN TÍCH LỆNH (AI CORE / REGEX LAYER)
+    with chat_history_container:
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 AI đang phân tích thông số rải sơ đồ và tính toán định mức..."):
+                
+                # --- [Đoạn giả lập xử lý bóc tách thông số từ Chat - Thay bằng logic AI của bạn] ---
+                # Ví dụ: Nếu người dùng gõ "khổ 56", hệ thống phải ép cấu hình sang 56 thay vì dùng mặc định 58
+                ai_response = f"✅ Đã ghi nhận lệnh tính toán: **{query}**.\n\nHệ thống tiến hành cập nhật Khổ vải sản xuất và tối ưu sơ đồ CAD tương ứng."
+                st.write(ai_response)
+                
+                # Cập nhật dữ liệu chia sẻ cho cấu phần hiển thị (BOM & Chi tiết sơ đồ) ở các Đoạn sau
+                st.session_state.current_consumption_data = {
+                    "raw_query": query,
+                    "status": "success"
+                }
+                # -----------------------------------------------------------------------------
+
+    # 5. Ghi lại vào lịch sử sau khi AI đã phản hồi xong để bảo toàn dữ liệu khi Render lại
+    st.session_state.chat_history.append({
+        "user": query,
+        "ai": ai_response
+    })
+    
+    # Chỉ gọi rerun khi cần đồng bộ lại toàn bộ giao diện bảng biểu/thanh điều khiển theo dữ liệu mới
     st.rerun()
 
 # =====================================================================
