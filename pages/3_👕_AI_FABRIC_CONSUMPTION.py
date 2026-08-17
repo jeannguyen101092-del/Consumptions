@@ -2218,9 +2218,82 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Cập nhật ngược lại bộ não State phục vụ liên tầng độc lập cho Đoạn 5.2 và Đoạn 7
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
-      # =====================================================================
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V77 - FIXED NAMEERROR)
+       import pandas as pd
+    import streamlit as st
+
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: CONFIGURATION & MARKER EFFICIENCY ROUTER (V78 - FIXED STATE)
+    # =====================================================================
+    _is_short = locals().get("is_short", False)
+    _is_trouser = locals().get("is_trouser", False)
+    _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
+    _is_jacket = locals().get("is_jacket", False)
+
+    style_code_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("style_code", "")).upper().strip()
+    material_spec_upper = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("material_spec", "")).upper().strip()
+    p_type_friendly = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN_LONG")).upper().strip()
+
+    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {p_type_friendly}"
+
+    # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CƠ SỞ CHUẨN CÔNG NGHIỆP IE
+    MARKER_EFFICIENCY_MAP = {
+        "DRESS": 0.66, "SKIRT": 0.66, "SHORT": 0.68,
+        "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
+        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
+        "SHIRT": 0.78, "BLOUSE": 0.78,
+        "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
+    }
+
+    dynamic_marker_efficiency = None
+    detected_type_label = None
+
+    for key, efficiency in MARKER_EFFICIENCY_MAP.items():
+        if key in combined_search_text:
+            dynamic_marker_efficiency = efficiency
+            detected_type_label = key
+            break
+
+    if dynamic_marker_efficiency is None:
+        if _is_skirt_or_dress:
+            dynamic_marker_efficiency = 0.66
+            detected_type_label = "DRESS/SKIRT"
+        elif _is_short or "SHORT" in combined_search_text:
+            dynamic_marker_efficiency = 0.68
+            detected_type_label = "SHORT"
+        elif _is_jacket:
+            dynamic_marker_efficiency = 0.65
+            detected_type_label = "JACKET"
+        else:
+            dynamic_marker_efficiency = 0.74
+            detected_type_label = "JEAN_LONG"
+
+    # 🔥 DYNAMIC CAD PENALTY: ĐỌC TRẠNG THÁI CHECKBOX TỪ GIAO DIỆN (UI CONTROLS)
+    is_nap_mode = st.session_state.get("is_nap_fabric", False)          # Checkbox: Cắt mỗi bộ 1 chiều (Nap)
+    is_one_way_mode = st.session_state.get("is_one_way_fabric", False)  # Checkbox: Tất cả size 1 chiều (One-Way)
+
+    if is_one_way_mode:
+        dynamic_marker_efficiency -= 0.05  # Trừ 5% hiệu suất cho vải tuyết/nhung
+    elif is_nap_mode:
+        dynamic_marker_efficiency -= 0.03  # Trừ 3% hiệu suất cho sơ đồ Nap
+
+    dynamic_marker_efficiency = max(0.52, dynamic_marker_efficiency)
+
+    # Đồng bộ dữ liệu chủng loại hàng vào hệ thống
+    if "bom_data" not in st.session_state: st.session_state["bom_data"] = {}
+    if "ai_expert_decision" not in st.session_state["bom_data"]: st.session_state["bom_data"]["ai_expert_decision"] = {}
+
+    if detected_type_label and "DRESS" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "DRESS (Đầm xòe/suông)"
+    elif detected_type_label and "SKIRT" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SKIRT (Chân váy)"
+    elif detected_type_label and "SHORT" in detected_type_label:
+        st.session_state["bom_data"]["ai_expert_decision"]["product_type_friendly"] = "SHORT (Quần short)"
+
+    # 🔗 KHÓA CHẶT LIÊN TẦNG: Lưu thẳng vào vùng nhớ RAM hệ thống để Phần B gọi ra an toàn
+    st.session_state["active_marker_efficiency_value"] = float(dynamic_marker_efficiency)
+    st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V78 - FIXED NAMEERROR)
     # =====================================================================
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2301,7 +2374,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
 
-        # 🚨 ĐÃ SỬA CHỐNG CRASH: Đọc trực tiếp từ chuỗi p_type_friendly an toàn lưu trong session_state
+        # Trích xuất loại sản phẩm an toàn từ session_state
         current_p_type = str(st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("product_type_friendly", "JEAN")).upper()
         min_coverage = 0.76 if ("DRESS" in current_p_type or "SKIRT" in current_p_type) else 0.72
         
@@ -2321,8 +2394,10 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        # Áp hiệu suất sơ đồ đơn chi tiết
-        row_efficiency = dynamic_marker_efficiency
+        # 🚨 ĐÃ SỬA: Đọc giá trị hiệu suất sơ đồ an toàn từ bộ nhớ State đã ghi nhận ở Phần A
+        base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
+        row_efficiency = base_efficiency
+        
         if p_cls in ["FUSING", "LINING"]:
             row_efficiency = 0.60  
         elif row_efficiency > 0.66 and p_cls in ["FABRIC", "CONTRAST"]:
