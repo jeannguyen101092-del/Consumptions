@@ -1117,6 +1117,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     
     # Đưa biến số lượng gốc về kiểu số nguyên để kiểm tra an toàn
     base_pcs = int(float(current_inferred_pcs or 1.0))
+    if base_pcs < 1: 
+        base_pcs = 1
     
     # 1. Thuật toán quét vùng lân cận mở rộng (Mở rộng phạm vi lùi về trước 120 ký tự để bắt trọn Callout cột trước)
     match_index = text_clean.find(comp_clean)
@@ -1125,29 +1127,40 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         window_end = min(len(text_clean), match_index + 120)
         scan_window = text_clean[window_start:window_end]
         
-        # ➔ A. Quét lệnh số lượng cắt vật lý trực tiếp (Ví dụ: CUT 2, CẮT 2, SELF X2, SHELL=2)
-        cut_match = re.search(r'\b(cut|cắt|self|shell|qty)\s*(x\s*|\s*|\s*[:=]\s*)(\d+)\b', scan_window)
-        if cut_match:
+        # ➔ A. Quét lệnh số lượng cắt vật lý trực tiếp (Chấp nhận nâng cao: cut 2, cắt 2, x2, (2), 2 pcs, qty: 2...)
+        cut_match = re.search(r'\b(cut|cắt|self|shell|qty|pcs|pc)\s*(x\s*|\s*|\s*[:=]\s*|\(\s*)(\d+)\b', scan_window)
+        if not cut_match:
+            # Quét định dạng đảo ngược phổ biến: số lượng đứng trước chữ (Ví dụ: "2 cut", "2 pcs", "2x")
+            cut_match = re.search(r'\b(\d+)\s*(x\s*|\s*)(cut|cắt|pcs|pc|vế)\b', scan_window)
+            if cut_match:
+                detected_qty = int(cut_match.group(1))
+            else:
+                detected_qty = 0
+        else:
             detected_qty = int(cut_match.group(3))
-            # CHỐNG GỘP KÉP: Chỉ cập nhật nếu số lượng nhận diện được lớn hơn dữ liệu nền hiện tại
+            
+        # Xử lý gán hệ số dựa trên số lượng nhận diện được
+        if detected_qty > 0:
             if detected_qty > base_pcs:
                 layer_multiplier = max(1, detected_qty // base_pcs)
-                calc_log = f"Trích xuất Callout PDF: Phát hiện lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa)."
+                calc_log = f"Trích xuất Callout PDF: Phát hiện lệnh cắt tổng {detected_qty} chi tiết (Đã chuẩn hóa hệ số x{layer_multiplier})."
             else:
                 layer_multiplier = 1
-                calc_log = f"Trích xuất Callout PDF: Khớp lệnh cắt gốc {detected_qty} chi tiết. Khóa hệ số chống nhân đôi định mức ảo."
+                calc_log = f"Trích xuất Callout PDF: Số lượng phát hiện ({detected_qty}) trùng hoặc nhỏ hơn số lượng gốc hệ thống ({base_pcs}). Khóa hệ số chống nhân đôi ảo."
             
-        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2, TRÁI PHẢI)
-        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "left/right", "trái/phải", "1l+1r"]):
+        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2, TRÁI PHẢI, 1L+1R)
+        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "left/right", "trái/phải", "1l+1r", "1l + 1r"]):
             is_paired = True
-            # CHỈ NHÂN ĐÔI NẾU SỐ LƯỢNG GỐC TRONG TECHPACK BỊ THIẾU (BẰNG 1)
+            # CHỈ NHÂN ĐÔI NẾU SỐ LƯỢNG GỐC TRONG TECHPACK CHƯA TÍNH CẶP (BẰNG 1) VÀ CHƯA BỊ LAYER MULTIPLIER ĐÈ
             if base_pcs == 1 and layer_multiplier == 1:
                 layer_multiplier = 2
                 calc_log = "Trích xuất Callout PDF: Phát hiện kết cấu cặp (PAIR). Kích hoạt bù phôi đối xứng đối với rập đơn."
+            elif base_pcs >= 2:
+                calc_log += " | Ghi nhận kết cấu cặp (PAIR) đã được đồng bộ sẵn trong số lượng rập gốc."
                 
-        # ➔ C. Quét lệnh gập đôi vải rải sơ đồ (FOLD, GẬP ĐÔI)
+        # ➔ C. Quét lệnh gập đôi vải rải sơ đồ (FOLD, GẬP ĐÔI, ON FOLD)
         if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi", "on fold"]):
-            # Bản chất gập đôi biên đối với sơ đồ phẳng là gộp chung đường cắt, giữ nguyên multiplier
+            # Bản chất gập đôi biên đối với sơ đồ phẳng là gộp chung đường cắt, giữ nguyên multiplier của rập
             calc_log += " | Ghi nhận chi tiết đi biên gập đôi (FOLD)."
             
     return {
@@ -1165,7 +1178,7 @@ import streamlit as st
 def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
     """
     Khối 2b Siêu Cấp (PHIÊN BẢN V23 - CHUẨN GERBER ENGINE): Mô phỏng toán học phi tuyến tính.
-    ĐÃ SỬA: Đảo ngược đồ thị hàm phạt Logistic và trung hòa hệ số hao hụt kép để ép định mức về đúng thực tế.
+    ĐÃ SỬA: Đảo ngược đồ thị hàm phạt Logistic, trung hòa hệ số hao hụt kép và sửa bug crash biến bbox_area.
     """
     ctx = classify_pieces_and_products(bom_rows_list, user_query_text)
     if not ctx or not ctx.get("stable_bom_list"):
@@ -1202,9 +1215,9 @@ def calculate_skyline_2d_metrics(bom_rows_list, user_query_text):
         bbox_a = l_inch * w_inch
         net_a = float(r.get("polygon_net_area", 0.0))
         
-        # Geometry Guard chống lỗi diện tích tinh lấn át hộp bao hình chữ nhật
+        # 🚨 FIX BUG: Sửa biến 'bbox_area' chưa được định nghĩa thành 'bbox_a' tránh gây dừng luồng biên dịch ứng dụng
         if net_a > bbox_a and bbox_a > 0:
-            net_a = bbox_area * 0.76
+            net_a = bbox_a * 0.76
         if net_a <= 0:
             net_a = bbox_a * 0.74 
             
