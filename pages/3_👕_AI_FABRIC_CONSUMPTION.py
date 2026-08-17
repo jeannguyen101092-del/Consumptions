@@ -2291,8 +2291,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     # Đẩy thông số hiệu suất sơ đồ tính toán được vào bộ não tổng để Đoạn 7 lấy dùng hiển thị
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V72.1)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR (V73 - UPGRADE VALUE)
     # =====================================================================
 
     stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
@@ -2307,12 +2307,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "Gross Consumption" not in df_bom.columns: df_bom["Gross Consumption"] = 0.0
     if "Khổ vải sản xuất (inch)" not in df_bom.columns: df_bom["Khổ vải sản xuất (inch)"] = 56.0
 
-    # Trích xuất tỷ lệ co rút từ bộ nhớ đệm đoạn chat (Chia 100 để ra tỷ lệ thập phân)
+    # Trích xuất tỷ lệ co rút từ bộ nhớ đệm đoạn chat (Chia 100 để ra tỷ lệ phần thập phân)
     shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   # Co dọc (VD: 3% -> 0.03)
     shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 # Co ngang (VD: 14% -> 0.14)
 
-    # Hệ số hao hụt vận hành bàn cắt mặc định (3% hao hụt thương mại xưởng may)
-    wastage_allowance = 1.03
+    # 🚨 ĐÃ SỬA: Tăng hệ số hao hụt thương mại bàn cắt thực tế lên 7% (1.07) để bù đường may và vải lỗi đầu cây
+    wastage_allowance = 1.07
 
     # 🔥 ENGINE CÂN BẰNG ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY
     for idx, r in df_bom.iterrows():
@@ -2376,7 +2376,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
         total_piece_area = pure_unit_area * pcs
         
-        # Xác định khổ vải thực tế đầu vào của từng nhóm vật tư
+        # 🚨 ĐÃ SỬA: Ép lấy đúng khổ vải hoạt động từ biến chat hoặc UI, xóa bỏ hoàn toàn kẹt khổ 58
         if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
@@ -2385,15 +2385,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         if current_w <= 0: current_w = 56.0 
 
-        # Gán hiệu suất sơ đồ mục tiêu cho dòng rập hiện tại
+        # 🚨 ĐÃ SỬA: Phạt hiệu suất sơ đồ đơn chi tiết xuống mức thực tế xưởng (63%) để kéo Yards lên cao hơn
         row_efficiency = dynamic_marker_efficiency
+        if row_efficiency > 0.65 and p_cls in ["FABRIC", "CONTRAST"]:
+            row_efficiency = 0.63  # Hạ mật độ sơ đồ lý thuyết xuống thực tế bàn cắt đơn chiếc
+            
         if p_cls == "RIB": row_efficiency = 0.82
         elif p_cls == "PADDING": row_efficiency = 0.85
 
         # =====================================================================
         # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC THEO CHUẨN CO RÚT LẬP TRÌNH MAY ERP
         # =====================================================================
-        # 1. Trừ co rút ngang trực tiếp vào khổ vải (Vải co ngang làm hẹp sơ đồ trải vải)
         if p_cls in ["FABRIC", "CONTRAST"]:
             effective_width = current_w * (1.0 - shrink_h)
         else:
@@ -2401,24 +2403,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         if effective_width <= 0: effective_width = 56.0
 
-        # 2. Tính chiều dài sơ đồ hình học lý thuyết (đơn vị Inch)
         pure_length_inch = total_piece_area / (effective_width * row_efficiency)
 
-        # 3. Cộng bù chiều dài vải do hiện tượng co rút dọc sau khi giặt sấy
         if p_cls in ["FABRIC", "CONTRAST"]:
             length_inch_with_shrink = pure_length_inch * (1.0 + shrink_v)
         else:
             length_inch_with_shrink = pure_length_inch
 
-        # 4. Đổi đơn vị sang Yards (Chia 36) và bổ sung hệ số hao hụt đầu cây bàn cắt
         gross_yds = (length_inch_with_shrink / 36.0) * wastage_allowance
         gross_yds = round(gross_yds, 4)
 
         # =====================================================================
-        # 🔗 KHÓA CHẶT ĐỒNG BỘ: GHI TRỰC TIẾP KẾT QUẢ VÀO DATAFRAME MASTER
+        # 🔗 KHÓA CHẶT ĐỒNG BỘ: GHI NGƯỢC GIÁ TRỊ MỚI VÀO DATAFRAME MASTER
         # =====================================================================
         df_bom.at[idx, "Gross Consumption"] = float(gross_yds)
-        df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)  # Đồng bộ khổ vải trực tiếp lên lưới
+        df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)  # Ép đồng bộ lại lưới hiển thị
         
         calculated_gross_list.append(gross_yds)
         summary_grouped_gross[p_cls] += gross_yds
