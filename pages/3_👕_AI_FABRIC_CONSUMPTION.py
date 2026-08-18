@@ -2238,7 +2238,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CƠ SỞ CHUẨN CÔNG NGHIỆP IE
     MARKER_EFFICIENCY_MAP = {
         "DRESS": 0.75, "SKIRT": 0.66, "SHORT": 0.68,
-        "JEAN": 0.60, "KHAKI": 0.60, "TROUSER": 0.71, "PANT": 0.72,
+        "JEAN": 0.75, "KHAKI": 0.60, "TROUSER": 0.71, "PANT": 0.72,
         "JACKET": 0.60, "COAT": 0.60, "BLAZER": 0.65, "SUIT": 0.65,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
