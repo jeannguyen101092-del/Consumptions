@@ -2238,8 +2238,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # 🤖 1. MA TRẬN HIỆU SUẤT SƠ ĐỒ CƠ SỞ CHUẨN CÔNG NGHIỆP IE
     MARKER_EFFICIENCY_MAP = {
         "DRESS": 0.66, "SKIRT": 0.66, "SHORT": 0.68,
-        "JEAN": 0.74, "KHAKI": 0.74, "TROUSER": 0.74, "PANT": 0.74,
-        "JACKET": 0.65, "COAT": 0.65, "BLAZER": 0.65, "SUIT": 0.65,
+        "JEAN": 0.60, "KHAKI": 0.60, "TROUSER": 0.71, "PANT": 0.72,
+        "JACKET": 0.60, "COAT": 0.60, "BLAZER": 0.65, "SUIT": 0.65,
         "SHIRT": 0.78, "BLOUSE": 0.78,
         "POLO": 0.76, "TEE": 0.76, "TSHIRT": 0.76, "TANK": 0.74
     }
@@ -2255,16 +2255,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     if dynamic_marker_efficiency is None:
         if _is_skirt_or_dress:
-            dynamic_marker_efficiency = 0.66
+            dynamic_marker_efficiency = 0.60
             detected_type_label = "DRESS/SKIRT"
         elif _is_short or "SHORT" in combined_search_text:
-            dynamic_marker_efficiency = 0.68
+            dynamic_marker_efficiency = 0.60
             detected_type_label = "SHORT"
         elif _is_jacket:
-            dynamic_marker_efficiency = 0.65
+            dynamic_marker_efficiency = 0.60
             detected_type_label = "JACKET"
         else:
-            dynamic_marker_efficiency = 0.74
+            dynamic_marker_efficiency = 0.60
+            
             detected_type_label = "JEAN_LONG"
 
     # 🔥 DYNAMIC CAD PENALTY: ĐỌC TRẠNG THÁI CHECKBOX TỪ GIAO DIỆN (UI CONTROLS)
