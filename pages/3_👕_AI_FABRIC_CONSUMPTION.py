@@ -2322,13 +2322,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Khóa chặt giá trị hiệu suất cơ sở vào RAM hệ thống để Phần B kế thừa real-time
     st.session_state["active_marker_efficiency_value"] = float(dynamic_marker_efficiency)
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR ENGINE (V78.9)
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR ENGINE (V78.8)
-    # =====================================================================
-    import pandas as pd
+    import pandas as pd  # Khóa chặt an toàn tránh lỗi NameError: 'pd' is not defined
 
-    # ĐỒNG BỘ VÀ KẾ THỪA LỚP RẬP ẢO TỪ BỘ NHỚ RAM HỆ THỐNG
-    stored_virtual_pieces = st.session_state.get("bom_data", {}).get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    # 1. ĐỒNG BỘ VÀ KẾ THỪA LỚP RẬP ẢO TỪ BỘ NHỚ RAM HỆ THỐNG
+    if "bom_data" not in st.session_state: 
+        st.session_state["bom_data"] = {}
+    if "ai_expert_decision" not in st.session_state["bom_data"]: 
+        st.session_state["bom_data"]["ai_expert_decision"] = {}
+    
+    stored_virtual_pieces = st.session_state["bom_data"]["ai_expert_decision"].get("virtual_pieces_layer", {})
     if not isinstance(stored_virtual_pieces, dict): 
         stored_virtual_pieces = {}
 
@@ -2341,13 +2346,15 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             df_bom[col] = default_val
 
     # Trích xuất tỷ lệ co rút thời gian thực từ bộ nhớ đệm đoạn chat (Chia 100 ra tỷ lệ phần thập phân)
-    shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   
-    shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 
+    shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   # Co dọc (VD: 3% -> 0.03)
+    shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 # Co ngang (VD: 14% -> 0.14)
 
+    # Hệ số hao hụt vận hành bàn cắt thực tế xưởng may (Bù đầu cây, vải lỗi, đầu tấm)
     wastage_allowance = 1.06
 
     # 🔥 ENGINE THỰC THI TOÁN TỬ TÍNH ĐỊNH MỨC THƯƠNG MẠI CHUẨN ĐƠN CHIẾC ERP
     for idx, r in df_bom.iterrows():
+        # Đọc thông tin rập ảo bằng cả 2 cấu trúc key (int và str) tránh lỗi lọt dữ liệu index (KeyError)
         v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
         if not isinstance(v, dict): 
             v = {}
@@ -2379,11 +2386,12 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # [BƯỚC 2]: TÔN TRỌNG TUYỆT ĐỐI CAD/AI NET AREA - TRIỆT TIÊU HOÀN TOÀN RULE ÉP GIẢM DIỆN TÍCH
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         if pure_unit_area <= 0.0:
+            # Fallback duy nhất sang diện tích hình chữ nhật nếu CAD/AI hoàn toàn trống dữ liệu hình học phẳng
             piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
             piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
             pure_unit_area = piece_length * piece_width
 
-        # Khởi tạo bộ đếm mảnh rập dự phòng theo từ khóa cấu trúc quần yếm & quần dài
+        # Khởi tạo bộ đếm mảnh rập dự phòng mặc định theo từ khóa cấu trúc
         if any(x in c_name_lower for x in ["back body", "collar top", "collar band", "belt loop", "diat", "yem truoc", "yem sau"]):
             pcs_default = 1
         elif any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay", "pocket", "tui", "facing", "waistband", "cap", "fusing", "keo", "inner", "day đeo", "strap"]):
@@ -2391,7 +2399,11 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         else:
             pcs_default = 1  
 
-        # [BƯỚC 3]: THỨ TỰ ƯU TIÊN SỐ LƯỢNG CHI TIẾT (ARCHITECTURE ALIGNED)
+        # [BƯỚC 3]: TRÌNH TỰ ƯU TIÊN SỐ LƯỢNG CHI TIẾT (ARCHITECTURE ALIGNED & FIXED SYMMETRY)
+        # 1. User chỉnh sửa trực tiếp trên giao diện lưới UI
+        # 2. Dữ liệu Lõi xử lý từ Đoạn 5.1 (active_user_pieces)
+        # 3. Dữ liệu gốc trong DataFrame Master
+        # 4. Fallback tự động theo từ khóa hình học phân cặp đối xứng
         user_pieces_dict = st.session_state.get("user_edited_pieces", {})
         
         if idx in user_pieces_dict:
@@ -2402,15 +2414,24 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             pcs = int(v["active_user_pieces"])
         elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
             pcs = int(r["Số lượng rập"])
+            # 🚨 SỬA LỖI AI QUÉT THIẾU MẢNH: Nếu dữ liệu lưu vết cũ/DataFrame chỉ có 1 mảnh cho chi tiết thân lớn, tự động ép cặp lên 2
+            if pcs == 1 and any(x in c_name_lower for x in ["leg", "panel", "front leg", "back leg", "than truoc", "than sau", "ong quan"]):
+                pcs = 2
         else:
             pcs = pcs_default
+
+        # Khóa cứng an toàn cho các từ khóa chi tiết bắt buộc phải đi đối xứng Trái + Phải
+        if pcs == 1 and any(x in c_name_lower for x in ["leg", "panel", "front leg", "back leg", "than truoc", "than sau", "ong quan"]):
+            pcs = 2
 
         pcs = max(pcs, 1)
         df_bom.at[idx, "Số lượng rập"] = int(pcs)
         
+        # Đồng bộ ngược trạng thái số lượng chuẩn hóa vào lớp rập ảo
         if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
+        # Hệ số bù đường viền may (Chỉ áp dụng bổ sung cho vải dệt thoi chính/phối)
         seam_modifier = 1.06 if p_cls in ["FABRIC", "CONTRAST"] else 1.0
         total_piece_area = pure_unit_area * pcs * seam_modifier
         
@@ -2426,7 +2447,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # [BƯỚC 5]: HIỆU SUẤT SƠ ĐỒ (EFFICIENCY) - TÔN TRỌNG TUYỆT ĐỐI QUYẾT ĐỊNH PHẦN A / CHỈ ĐỊNH UI
         base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
         
-        # Nếu trên giao diện UI hiển thị Mật độ sơ đồ chỉ định (như 75.00% trên ảnh), ưu tiên ép đọc trực tiếp chỉ số này
+        # Nếu trên giao diện UI hiển thị Mật độ sơ đồ chỉ định (như 71.00% hoặc 75.00%), ưu tiên ép đọc trực tiếp chỉ số này
         if "total_marker_efficiency" in st.session_state:
             ui_eff = float(st.session_state.get("total_marker_efficiency", 0.0))
             if ui_eff > 0:
@@ -2434,6 +2455,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         row_efficiency = base_efficiency
         
+        # Chỉ áp dụng hiệu suất tách biệt cho phụ liệu đi sơ đồ độc lập tại xưởng may
         if p_cls in ["FUSING", "LINING"]:
             row_efficiency = 0.60  
         elif p_cls == "RIB": 
@@ -2442,7 +2464,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             row_efficiency = 0.85
 
         # =====================================================================
-        # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC MAY ERP THƯƠNG MẠI
+        # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC THEO CHUẨN CO RÚT LẬP TRÌNH MAY ERP THƯƠNG MẠI
         # =====================================================================
         if p_cls in ["FABRIC", "CONTRAST"]:
             effective_width = current_w * (1.0 - shrink_h)
@@ -2451,16 +2473,22 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
         if effective_width <= 0: effective_width = 56.0
 
+        # Giải toán quy đổi diện tích chi tiết sang chiều dài sơ đồ thô (inch)
         pure_length_inch = total_piece_area / (effective_width * row_efficiency)
 
+        # Tính toán bù hao hụt co rút sợi theo chiều dọc (Chỉ áp dụng cho Vải chính / Vải phối)
         if p_cls in ["FABRIC", "CONTRAST"]:
             length_inch_with_shrink = pure_length_inch * (1.0 + shrink_v)
         else:
             length_inch_with_shrink = pure_length_inch
 
+        # Quy đổi đơn vị Inch -> Yards và nhân hệ số hao hụt vận hành bàn cắt thực tế xưởng may (1.06)
         gross_yds = (length_inch_with_shrink / 36.0) * wastage_allowance
         gross_yds = round(gross_yds, 4)
 
+        # =====================================================================
+        # 🔗 KHÓA CHẶT ĐỒNG BỘ: GHI NGƯỢC GIÁ TRỊ MỚI VÀO DATAFRAME MASTER
+        # =====================================================================
         df_bom.at[idx, "Gross Consumption"] = float(gross_yds)
         df_bom.at[idx, "Khổ vải sản xuất (inch)"] = float(current_w)
         df_bom.at[idx, "Material Class"] = p_cls  
@@ -2468,10 +2496,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         calculated_gross_list.append(gross_yds)
         summary_grouped_gross[p_cls] += gross_yds
 
+    # Bảo toàn tầng dữ liệu rập ảo ngược trở lại bộ nhớ RAM tổng của State
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
 
-    for cls_name, total_val in summary_grouped_gross.items():
-        st.session_state[f"summary_{cls_name.lower()}_gross"] = round(total_val, 4)
 
 
 
