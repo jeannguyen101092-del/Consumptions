@@ -2613,7 +2613,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 7.1 (PHIÊN BẢN V7.2 - ĐỒNG BỘ TUYỆT ĐỐI THEO CORE ENGINE V79.2)
+    # 🟩 ĐOẠN 7.1 (PHIÊN BẢN V79.4 - DISPLAY & AUDIT LAYER THUẦN TÚY - ACCURATE)
     # =====================================================================
 
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
@@ -2625,7 +2625,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         ai_decision_final = {}
 
     # 🔬 ĐỒNG BỘ KHỐI MÃ KIỂM TRA DỮ LIỆU RAM (DEBUG MONITOR)
-    # Trích xuất trực tiếp từ Dictionary tổng summary_grouped_gross của Đoạn 5.2B
+    # Trích xuất trực tiếp dữ liệu thô từ Single Source of Truth của phân hệ IE 5.2B
     grouped_gross = st.session_state.get("summary_grouped_gross", {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0})
     
     st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM")
@@ -2645,17 +2645,32 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
     
-    # 🔒 KHÓA ĐỒNG BỘ CHỦNG LOẠI: Ưu tiên nhãn chuẩn kỹ thuật IE đã bóc tách từ V79.2, nếu trống mới hiển thị AI gốc
+    # Đọc chủng loại đã qua bộ lọc ưu tiên cứng (Priority Rule) của phân hệ IE 5.2A
     real_sync_product_type = str(ctx.get("ie_product_type_friendly", ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)"))).strip()
 
-    # Rút đúng hiệu suất động thời gian thực từ bộ nhớ RAM Đoạn 5.2A truyền xuống
+    # Nhận hiệu suất thực tế từ Phân hệ cấu hình 5.2A
     marker_efficiency = float(st.session_state.get("active_marker_efficiency_value", ai_decision_final.get("marker_efficiency", 0.7400)))
 
-    # Đọc khổ vải sản xuất động từ Session State (Mặc định bảo vệ chống số 0 là 58.0)
+    # 🛠️ FIXED CRITICAL: Đọc khổ vải thực tế của VẢI CHÍNH từ chat (Bảo vệ an toàn chống số 0)
     chat_width_override = float(st.session_state.get("current_active_width", 58.0))
     if chat_width_override <= 0.0:
         chat_width_override = 58.0
-    st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
+        
+    # Khảo sát nhanh ma trận khổ vải thực tế của các nhóm phụ liệu để hiển thị cảnh báo minh bạch trên UI
+    fusing_w_audit = float(st.session_state.get("fusing_width", 59.0))
+    lining_w_audit = float(st.session_state.get("lining_width", 57.0))
+    rib_w_audit = float(st.session_state.get("rib_width", 40.0))
+    padding_w_audit = float(st.session_state.get("padding_width", 60.0))
+
+    # Cảnh báo đa khổ vật tư trực quan trên Giao diện Audit Trail, tránh gây hiểu nhầm cho kỹ sư xưởng may
+    st.caption(
+        f"🔗 **Bảng tra cứu khổ vải kỹ thuật đang áp dụng:** "
+        f"Chính (Chat): `{chat_width_override:.1f}\"` | "
+        f"Keo (Fusing): `{fusing_w_audit:.1f}\"` | "
+        f"Lót (Lining): `{lining_w_audit:.1f}\"` | "
+        f"Bo (Rib): `{rib_w_audit:.1f}\"` | "
+        f"Gòn (Padding): `{padding_w_audit:.1f}\"`"
+    )
 
     # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ TRÊN GIAO DIỆN
     m1, m2, m3, m4 = st.columns(4)
@@ -2664,7 +2679,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH THỪA HƯỞNG TỪ LÕI MASTER ĐOẠN 5.2B
+    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH THỪA HƯỞNG TỪ MASTER DATAFRAME CỦA ĐOẠN 5.2B
     df_bom_display = df_bom.copy()
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
 
@@ -2673,18 +2688,23 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Đồng bộ định mức thương mại và số lượng mảnh rập từ DataFrame gốc
+    # Nhận trực tiếp kết quả tính toán định mức và khổ vải thực tế từ DataFrame gốc (5.2B cấp phát)
     if "Gross Consumption" in df_bom.columns:
         df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
     else:
         df_bom_display["Gross Consumption"] = 0.0
+
+    if "Khổ vải sản xuất (inch)" in df_bom.columns:
+        df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"]
+    else:
+        df_bom_display["Khổ vải sản xuất (inch)"] = chat_width_override
 
     if "Số lượng rập" in df_bom.columns:
         df_bom_display["Số lượng rập"] = df_bom["Số lượng rập"].fillna(1).astype(int)
     else:
         df_bom_display["Số lượng rập"] = 1
 
-    # Khóa chặt loại chất liệu sửa đổi của người dùng từ lưới UI
+    # 🛠️ FIXED: Đồng nhất kiến trúc tra cứu phân lớp vật tư theo cấu trúc song song Key `int` / `str`
     clean_mats = []
     user_edited_materials = st.session_state.get("user_edited_materials", {})
     
@@ -2693,12 +2713,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if not isinstance(solver_piece_data, dict): 
             solver_piece_data = {}
             
-        p_cls = user_edited_materials.get(idx, solver_piece_data.get("material_class", row.get("Material Class", "FABRIC")))
+        # Kiểm tra thứ tự ưu tiên của bộ lắng nghe sự kiện UI (Hỗ trợ cả khóa int và chuỗi)
+        if idx in user_edited_materials:
+            p_cls = user_edited_materials[idx]
+        elif str(idx) in user_edited_materials:
+            p_cls = user_edited_materials[str(idx)]
+        else:
+            p_cls = solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))
+            
         clean_mats.append(str(p_cls).upper().strip())
         
     df_bom_display["Material Class"] = clean_mats
 
-    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ LÕI DIỆN TÍCH THƯƠNG MẠI
+    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ 100% THEO ĐỊNH MỨC THƯƠNG MẠI
     total_fabric = grouped_gross.get("FABRIC", 0.0)
     total_fusing = grouped_gross.get("FUSING", 0.0)
     total_lining = grouped_gross.get("LINING", 0.0)
@@ -2708,7 +2735,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
 
-    # Đảm bảo bảng luôn hiển thị dòng Vải chính ngay cả khi kết quả tính đang tạm thời bằng 0
+    # Đảm bảo bảng luôn hiển thị dòng Vải chính
     if total_fabric >= 0:
         summary_data["Phân loại vật tư"].append("VẢI CHÍNH")
         summary_data["Material Class"].append("FABRIC")
@@ -2743,6 +2770,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_summary = pd.DataFrame(summary_data)
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
     # =====================================================================
     # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V79.3 ĐỒNG BỘ HOÀN TOÀN
     # =====================================================================
