@@ -1591,124 +1591,166 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["active_marker_efficiency_value"] = float(dynamic_marker_efficiency)
     ctx["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
     st.session_state["bom_data"] = ctx
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B1 (VERSION V25.5): DATA SYNC PIPELINE (NO RERUN)
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B1 (VERSION V26.9): INITIALIZATION & DATA RECOVERY
     # =====================================================================
     import pandas as pd
     import streamlit as st
 
-    if "bom_data" not in st.session_state: st.session_state["bom_data"] = {}
+    # 1. ĐỒNG BỘ VÀ KẾ THỪA LỚP RẬP ẢO TỪ BỘ NHỚ RAM HỆ THỐNG
+    if "bom_data" not in st.session_state: 
+        st.session_state["bom_data"] = {}
     ctx = st.session_state["bom_data"]
-    stored_virtual_pieces = ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
+    
+    if "ai_expert_decision" not in ctx: 
+        ctx["ai_expert_decision"] = {}
+    
+    stored_virtual_pieces = ctx["ai_expert_decision"].get("virtual_pieces_layer", {})
+    if not isinstance(stored_virtual_pieces, dict): 
+        stored_virtual_pieces = {}
 
-    # Khởi tạo ma trận tổng tích lũy sạch sẽ
+    # Khởi tạo ma trận tổng tích lũy định mức thương mại sạch sẽ
     summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
-    # Kế thừa trực tiếp thông số từ Đoạn 1
+    # Kế thừa trực tiếp khổ vải chính an toàn đã qua kiểm toán tại Đoạn 1
     raw_chat_width = st.session_state.get("current_active_width", 58.0)
-    parsed_width = float(raw_chat_width) if raw_chat_width not in [None, ""] else 58.0
-    if parsed_width <= 0.0: parsed_width = 58.0
+    try:
+        parsed_width = float(raw_chat_width) if raw_chat_width not in [None, ""] else 58.0
+    except:
+        parsed_width = 58.0
 
+    if parsed_width <= 0.0:
+        parsed_width = 58.0
+
+    # 🔒 MỒI MẠCH RECOVERY: Nếu df_bom bị biến mất do refresh trang, tự động dựng lại từ mảng dữ liệu gốc
+    if 'df_bom' not in locals() or df_bom is None or (isinstance(df_bom, pd.DataFrame) and df_bom.empty):
+        rows_backup = ctx.get("bom_rows", st.session_state.get("processed_display_rows", []))
+        if rows_backup:
+            df_bom = pd.DataFrame(rows_backup)
+        else:
+            df_bom = pd.DataFrame()
+
+    # Cấu hình sẵn các cột cấu trúc Master trên DataFrame
     if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
         for col, default_val in [("Số lượng rập", None), ("Gross Consumption", 0.0), ("Khổ vải sản xuất (inch)", parsed_width)]:
-            if col not in df_bom.columns: df_bom[col] = default_val
+            if col not in df_bom.columns: 
+                df_bom[col] = default_val
 
+    # Kế thừa tỷ lệ co rút từ RAM Đoạn 1 (Phần thập phân)
     shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   
     shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 
     wastage_allowance = 1.05
 
-    try: base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
-    except: base_efficiency = 0.74
-    
-    # 🔒 Khống chế biên độ hiệu suất an toàn kỹ thuật (52% - 95%)
+    # Nhận và khống chế hiệu suất chặt chẽ trong khoảng kỹ thuật (52% - 95%)
+    try:
+        base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
+    except (TypeError, ValueError):
+        base_efficiency = 0.74
     base_efficiency = max(0.52, min(base_efficiency, 0.95))
+
+
     # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.3): COMMERCIAL CONSUMPTION ENGINE & COMMIT
+    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.9): COMMERCIAL CONSUMPTION ENGINE
     # =====================================================================
-    import pandas as pd
-    import streamlit as st
-
-    for idx, r in df_bom.iterrows():
-        v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
-        if not isinstance(v, dict): v = {}
-        c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
-
-        p_cls = str(v.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-        if p_cls not in summary_grouped_gross: p_cls = "FABRIC"
-
-        p_length_fallback = float(v.get("production_l", r.get("Chiều dài rập (inch)", r.get("bounding_box_length", 0.0))))
-        p_width_fallback = float(v.get("production_w", r.get("Chiều rộng rập (inch)", r.get("bounding_box_width", 0.0))))
-
-        # GEOMETRY GUARD - CHỐNG DIỆN TÍCH BẰNG 0
-        pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        if pure_unit_area <= 0.0: pure_unit_area = p_length_fallback * p_width_fallback
-        if pure_unit_area <= 0.0: pure_unit_area = 10.0 
-
-        user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-        user_override_exists = (idx in user_pieces_dict or str(idx) in user_pieces_dict)
-        
-        if idx in user_pieces_dict: pcs = int(user_pieces_dict[idx])
-        elif str(idx) in user_pieces_dict: pcs = int(user_pieces_dict[str(idx)])
-        elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1: pcs = int(v["active_user_pieces"])
-        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1: pcs = int(r["Số lượng rập"])
-        else: pcs = 2 if any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay"]) else 1
-
-        if not user_override_exists:
-            if pcs == 1 and any(x in c_name_lower for x in ["leg", "panel", "front leg", "back leg", "than truoc", "than sau", "ong quan"]): pcs = 2
-
-        pcs = max(pcs, 1)
-        df_bom.at[idx, "Số lượng rập"] = int(pcs)
-        if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
-        stored_virtual_pieces[idx]["active_user_pieces"] = pcs
-
-        area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
-        seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
-        total_piece_area = pure_unit_area * pcs * seam_modifier
-        
-        # Phân phối khổ vải thực tế
-        if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
-        elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
-        elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
-        elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
-        else: current_w = parsed_width  
+    if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
+        for idx, r in df_bom.iterrows():
+            v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
+            if not isinstance(v, dict): 
+                v = {}
             
-        if current_w <= 0.0: current_w = 58.0
-        df_bom.at[idx, "Khổ vải sản xuất (inch)"] = current_w
+            c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
 
-        row_efficiency = base_efficiency
-        if p_cls in ["FUSING", "LINING"]: row_efficiency = 0.60  
-        elif p_cls == "RIB": row_efficiency = 0.82  
-        elif p_cls == "PADDING": row_efficiency = 0.85  
+            # [BƯỚC 1]: THỪA HƯỞNG PHÂN LOẠI NHÓM VẬT TƯ ĐỒNG BỘ LIÊN TẦNG
+            p_cls = str(v.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+            if p_cls not in summary_grouped_gross:
+                p_cls = "FABRIC"
 
-        # TOÁN TỬ ĐỊNH MỨC THƯƠNG MẠI CHUẨN ĐƠN CHIẾC IE
-        gross_area_sq_inches = total_piece_area / row_efficiency
-        shrinkage_multiplier = (1.0 + shrink_v) * (1.0 + shrink_h)
-        gross_area_post_shrink = gross_area_sq_inches * shrinkage_multiplier
+            p_length_fallback = float(v.get("production_l", r.get("Chiều dài rập (inch)", r.get("bounding_box_length", 0.0))))
+            p_width_fallback = float(v.get("production_w", r.get("Chiều rộng rập (inch)", r.get("bounding_box_width", 0.0))))
+
+            # [BƯỚC 2]: GEOMETRY GUARD - CHỐNG DIỆN TÍCH BẰNG 0
+            pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
+            if pure_unit_area <= 0.0:
+                pure_unit_area = p_length_fallback * p_width_fallback
+            if pure_unit_area <= 0.0:
+                pure_unit_area = 10.0 
+
+            # [BƯỚC 3]: SỐ LƯỢNG CHI TIẾT VÀ USER OVERRIDE
+            user_pieces_dict = st.session_state.get("user_edited_pieces", {})
+            user_override_exists = (idx in user_pieces_dict or str(idx) in user_pieces_dict)
+            
+            if idx in user_pieces_dict: pcs = int(user_pieces_dict[idx])
+            elif str(idx) in user_pieces_dict: pcs = int(user_pieces_dict[str(idx)])
+            elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1: pcs = int(v["active_user_pieces"])
+            elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1: pcs = int(r["Số lượng rập"])
+            else: pcs = 2 if any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay"]) else 1
+
+            if not user_override_exists:
+                if pcs == 1 and any(x in c_name_lower for x in ["leg", "panel", "front leg", "back leg", "than truoc", "than sau", "ong quan"]):
+                    pcs = 2
+
+            pcs = max(pcs, 1)
+            df_bom.at[idx, "Số lượng rập"] = int(pcs)
+            
+            if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
+            stored_virtual_pieces[idx]["active_user_pieces"] = pcs
+
+            # [BƯỚC 4]: BIÊN MAY
+            area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
+            seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
+            total_piece_area = pure_unit_area * pcs * seam_modifier
+            
+            # [BƯỚC 5]: XÁC ĐỊNH KHỔ VẢI THỰC TẾ TRÊN TỪNG NHÓM PHÂN LỚP VẬT TƯ
+            if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
+            elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
+            elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
+            elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
+            else: current_w = parsed_width  
+                
+            if current_w <= 0.0: 
+                current_w = 58.0
+            df_bom.at[idx, "Khổ vải sản xuất (inch)"] = current_w
+
+            # [BƯỚC 6]: PHÂN PHỐI HIỆU SUẤT SƠ ĐỒ
+            row_efficiency = base_efficiency
+            if p_cls in ["FUSING", "LINING"]: row_efficiency = 0.60  
+            elif p_cls == "RIB": row_efficiency = 0.82  
+            elif p_cls == "PADDING": row_efficiency = 0.85  
+
+            # =====================================================================
+            # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY ERP
+            # =====================================================================
+            gross_area_sq_inches = total_piece_area / row_efficiency
+            shrinkage_multiplier = (1.0 + shrink_v) * (1.0 + shrink_h)
+            gross_area_post_shrink = gross_area_sq_inches * shrinkage_multiplier
+            
+            linear_inches_needed = gross_area_post_shrink / current_w
+            actual_wastage = 1.03 if area_includes_seam else wastage_allowance
+            total_inches_with_wastage = linear_inches_needed * actual_wastage
+            
+            gross_consumption_yards = total_inches_with_wastage / 36.0
+            gross_consumption_yards = round(max(0.0, gross_consumption_yards), 4)
+            
+            df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
+            summary_grouped_gross[p_cls] += gross_consumption_yards
+
+            print(f"[DM ENGINE] idx={idx} | comp={c_name_lower} | gross={gross_consumption_yards:.4f} Yds")
+
+        # Đóng gói dữ liệu tổng định biên sau vòng lặp
+        for k in summary_grouped_gross:
+            summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
+            
+        st.session_state["summary_grouped_gross"] = summary_grouped_gross
+        ctx["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
+
+        # =====================================================================
+        # 🔒 FINAL MASTER COMMIT - ÉP LƯU DỮ LIỆU ĐỔ THẲNG XUỐNG ĐOẠN 7 (NO RERUN)
+        # =====================================================================
+        df_bom["Gross Consumption"] = pd.to_numeric(df_bom["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
+        st.session_state["active_calculated_df_bom"] = df_bom.copy()
         
-        linear_inches_needed = gross_area_post_shrink / current_w
-        actual_wastage = 1.03 if area_includes_seam else wastage_allowance
-        total_inches_with_wastage = linear_inches_needed * actual_wastage
-        
-        gross_consumption_yards = total_inches_with_wastage / 36.0
-        gross_consumption_yards = round(max(0.0, gross_consumption_yards), 4)
-        
-        df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
-        summary_grouped_gross[p_cls] += gross_consumption_yards
+        print(f"[DM ENGINE FINAL COMMIT] Rows={len(df_bom)} | Total DM={df_bom['Gross Consumption'].sum():.4f} Yds")
 
-        # 🔒 SYSTEM AUDIT TRAIL TERMINAL
-        print(f"[DM ENGINE] idx={idx} | comp={c_name_lower} | class={p_cls} | gross={gross_consumption_yards:.4f} Yds")
-
-    for k in summary_grouped_gross: summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
-    st.session_state["summary_grouped_gross"] = summary_grouped_gross
-    ctx["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
-
-    # =====================================================================
-    # 🔒 FINAL COMMIT - KHÓA DATAFRAME SAU KHI ENGINE TÍNH XONG (TUYỆT ĐỐI KHÔNG RERUN)
-    # =====================================================================
-    df_bom["Gross Consumption"] = pd.to_numeric(df_bom["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
-    st.session_state["active_calculated_df_bom"] = df_bom.copy()
-
-    print(f"[DM ENGINE FINAL] Rows={len(df_bom)} | Total DM={df_bom['Gross Consumption'].sum():.4f} Yds")
             # =====================================================================
     # 🟩 ĐOẠN 5.2C (VERSION V26.7): AUTOMATED CORES IGNITION (INDENTED)
     # =====================================================================
