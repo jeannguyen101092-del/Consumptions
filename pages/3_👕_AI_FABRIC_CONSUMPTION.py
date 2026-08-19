@@ -734,7 +734,7 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (VERSION V29.6 - KHƠI THÔNG MẠCH CHAT)
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (VERSION V29.7 - CHỐNG SẬP TYPEERROR)
 # =====================================================================
 
 # 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
@@ -759,7 +759,7 @@ with chat_history_container:
 # 🚨 KHÓA BIÊN TRÁI: Ô nhập lệnh Chat chính của hệ thống
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_final_patch_v29_6"
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v29_7"
 )
 
 # 3. KÍCH HOẠT CHU TRÌNH BÓC TÁCH THAM SỐ ĐỘNG KHI CÓ CÂU THOẠI
@@ -770,7 +770,14 @@ if safe_user_prompt:
     
     query_lower = query_text.lower()
     
-    # A. 🛠️ FIXED: VÁ REGEX CÔ LẬP BIÊN TỪ BẮT TRÚNG KHỔ VẢI ĐỘNG (ANTI-STALE)
+    # 🛠️ FIXED CRITICAL: Khởi tạo phòng vệ bộ nhớ bom_data dứt điểm lỗi TypeError 'NoneType'
+    if "bom_data" not in st.session_state or st.session_state["bom_data"] is None:
+        st.session_state["bom_data"] = {}
+        
+    if not isinstance(st.session_state["bom_data"], dict):
+        st.session_state["bom_data"] = {}
+
+    # A. VÁ REGEX CÔ LẬP BIÊN TỪ BẮT TRÚNG KHỔ VẢI ĐỘNG (ANTI-STALE)
     width_match = re.search(r'\b(khổ\s*vải|khổ\s*chính|khổ|kho|width)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', query_lower)
     if width_match:
         detected_width = float(width_match.group(2))
@@ -778,8 +785,7 @@ if safe_user_prompt:
             # Khóa chặt đồng bộ lên toàn bộ trục RAM hệ thống để các đoạn 4, 5 bên dưới không thể ghi đè
             st.session_state["current_active_width"] = detected_width
             st.session_state["fabric_width_inch"] = detected_width
-            if "bom_data" in st.session_state:
-                st.session_state["bom_data"]["fabric_width_inch"] = detected_width
+            st.session_state["bom_data"]["fabric_width_inch"] = detected_width
         
     # B. BÓC TÁCH KÍCH CỠ ĐƠN CHIẾC (SIZE CODE)
     size_match = re.search(r'\b(cỡ|size|kích\s*cỡ)\s*[:=-]?\s*([a-zA-Z0-9]+)\b', query_lower)
@@ -807,6 +813,7 @@ if safe_user_prompt:
     
     # Gọi lệnh làm mới để nạp tham số mới liên tầng
     st.rerun()
+
 
 
 
