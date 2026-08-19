@@ -1709,6 +1709,37 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["active_calculated_df_bom"] = df_bom.copy()
 
     print(f"[DM ENGINE FINAL] Rows={len(df_bom)} | Total DM={df_bom['Gross Consumption'].sum():.4f} Yds")
+            # =====================================================================
+    # 🟩 ĐOẠN 5.2C (VERSION V26.7): AUTOMATED CORES IGNITION (INDENTED)
+    # =====================================================================
+    if "bom_data" not in st.session_state:
+        st.session_state["bom_data"] = {}
+    ctx = st.session_state["bom_data"]
+
+    # 🔒 BỘ PHÁ BĂNG TỰ ĐỘNG THỤT LỀ (ANTI-FREEZE TRIGGER)
+    # Nếu phát hiện AI Scan đã có dữ liệu thô nhưng mạch kết quả Yards chưa được commit lên RAM
+    if ("bom_rows" in ctx and len(ctx["bom_rows"]) > 0) or ("ai_expert_decision" in ctx and ctx["ai_expert_decision"].get("virtual_pieces_layer")):
+        
+        # Kiểm tra nếu cờ chạy tự động đang bị khóa (bị lì), chủ động bẻ khóa để kích luồng chạy ngay
+        if not st.session_state.get("pipeline_auto_run_executed", False) or "active_calculated_df_bom" not in st.session_state:
+            
+            with st.spinner("⚙️ Hệ thống IE Engine đang tự động tính toán định mức kỹ thuật thương mại..."):
+                try:
+                    # Ép trạng thái ghi nhận mạch chạy tự động bắt đầu kích hoạt
+                    st.session_state["pipeline_auto_run_executed"] = True
+                    
+                    # 🔄 THỰC THI CHUỖI LIÊN HOÀN (Mồi mạch cho DataFrame chạy xuyên suốt)
+                    if 'df_bom' not in locals() or df_bom is None or (isinstance(df_bom, pd.DataFrame) and df_bom.empty):
+                        rows_raw = ctx.get("bom_rows", st.session_state.get("processed_display_rows", []))
+                        if rows_raw:
+                            df_bom = pd.DataFrame(rows_raw)
+                    
+                    # Sau khi nạp mạch mồi, ép Streamlit rerun 1 lần duy nhất để giải phóng bộ nhớ đệm
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.session_state["pipeline_auto_run_executed"] = False
+
 
 
 
