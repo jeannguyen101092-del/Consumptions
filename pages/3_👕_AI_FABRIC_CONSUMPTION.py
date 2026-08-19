@@ -734,37 +734,35 @@ import streamlit as st
 import re
 
 # =====================================================================
-# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (CHỐNG KẸT LUỒNG & DYNAMIC PARSER - V28.9)
+# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (VERSION V29.6 - KHƠI THÔNG MẠCH CHAT)
 # =====================================================================
 
-# 1. Khởi tạo an toàn không gian lưu trữ trạng thái RAM hệ thống (Session State)
+# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_processing" not in st.session_state:
     st.session_state.ai_processing = False
 if "last_submitted_query" not in st.session_state:
     st.session_state.last_submitted_query = ""
-if "current_active_width" not in st.session_state:
-    st.session_state["current_active_width"] = 58.0
 
 # 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
 chat_history_container = st.container()
 with chat_history_container:
     st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-    if st.session_state.chat_history:
+    if st.session_state.get("chat_history"):
         for msg in st.session_state.chat_history:
             with st.chat_message("user"):
                 st.write(msg["user"])
             with st.chat_message("assistant"):
                 st.write(msg["ai"])
 
-# 🚨 LOCK KIẾN TRÚC BIÊN TRÁI: Sử dụng widget input động thế hệ mới giải phóng kẹt đệm
+# 🚨 KHÓA BIÊN TRÁI: Ô nhập lệnh Chat chính của hệ thống
 safe_user_prompt = st.chat_input(
     "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_final_patch_v28_9"
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v29_6"
 )
 
-# 3. KÍCH HOẠT ENGINE BÓC TÁCH THAM SỐ ĐỘNG REAL-TIME KHI NGƯỜI DÙNG PHÁT LỆNH
+# 3. KÍCH HOẠT CHU TRÌNH BÓC TÁCH THAM SỐ ĐỘNG KHI CÓ CÂU THOẠI
 if safe_user_prompt:
     query_text = str(safe_user_prompt).strip()
     st.session_state["last_submitted_query"] = query_text
@@ -772,48 +770,45 @@ if safe_user_prompt:
     
     query_lower = query_text.lower()
     
-    # A. 🛠️ FIXED CRITICAL: VÁ BIỂU THỨC CHÍNH QUY QUY QUÉT KHỔ VẢI CHÍNH XÁC CAO (WORD BOUNDARY PROOF)
-    # Bắt trọn vẹn và cô lập số khổ vải động từ câu lệnh chat phức tạp của người dùng
-    width_pattern = r'\b(khổ\s*vải|khổ\s*chính|khổ\s*sản\s*xuất|khổ|kho|width)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b'
-    width_match = re.search(width_pattern, query_lower)
-    
+    # A. 🛠️ FIXED: VÁ REGEX CÔ LẬP BIÊN TỪ BẮT TRÚNG KHỔ VẢI ĐỘNG (ANTI-STALE)
+    width_match = re.search(r'\b(khổ\s*vải|khổ\s*chính|khổ|kho|width)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', query_lower)
     if width_match:
         detected_width = float(width_match.group(2))
         if detected_width > 0.0:
-            # Ghi nhận và khóa chặt trực tiếp vào trục điều khiển RAM Master ngoài
+            # Khóa chặt đồng bộ lên toàn bộ trục RAM hệ thống để các đoạn 4, 5 bên dưới không thể ghi đè
             st.session_state["current_active_width"] = detected_width
             st.session_state["fabric_width_inch"] = detected_width
-
-    # B. BÓC TÁCH CỠ / SIZE SẢN XUẤT ĐƠN CHIẾC TRÊN TOÀN PIPELINE
-    size_pattern = r'\b(cỡ|size|kích\s*cỡ|size\s*code)\s*[:=-]?\s*([a-zA-Z0-9]+)\b'
-    size_match = re.search(size_pattern, query_lower)
+            if "bom_data" in st.session_state:
+                st.session_state["bom_data"]["fabric_width_inch"] = detected_width
+        
+    # B. BÓC TÁCH KÍCH CỠ ĐƠN CHIẾC (SIZE CODE)
+    size_match = re.search(r'\b(cỡ|size|kích\s*cỡ)\s*[:=-]?\s*([a-zA-Z0-9]+)\b', query_lower)
     if size_match:
         detected_size = str(size_match.group(2)).upper().strip()
         st.session_state["current_active_size"] = detected_size
-        st.session_state["target_size"] = detected_size
 
-    # C. BÓC TÁCH TỶ LỆ CO RÚT HAI CHIỀU (DỌC & NGANG CHUẨN KỸ THUẬT IE)
-    shrink_v_pattern = r'\b(dọc|co\s*rút\s*dọc|co\s*dọc|shrink_v|vertical)\s*[:=-]?\s*(-?\d+\.?\d*)\b'
-    shrink_v_match = re.search(shrink_v_pattern, query_lower)
+    # C. BÓC TÁCH TỶ LỆ CO RÚT HAI CHIỀU DỌC & NGANG CHUẨN XƯỞNG MAY
+    shrink_v_match = re.search(r'\b(dọc|co\s*dọc|shrink_v|vertical)\s*[:=-]?\s*(-?\d+\.?\d*)\b', query_lower)
     if shrink_v_match:
         st.session_state["shrinkage_vertical"] = float(shrink_v_match.group(2))
         
-    shrink_h_pattern = r'\b(ngang|co\s*rút\s*ngang|co\s*ngang|shrink_h|horizontal)\s*[:=-]?\s*(-?\d+\.?\d*)\b'
-    shrink_h_match = re.search(shrink_h_pattern, query_lower)
+    shrink_h_match = re.search(r'\b(ngang|co\s*ngang|shrink_h|horizontal)\s*[:=-]?\s*(-?\d+\.?\d*)\b', query_lower)
     if shrink_h_match:
         st.session_state["shrinkage_horizontal"] = float(shrink_h_match.group(2))
 
-    # 🔒 STATE PRESERVATION: Lưu vết lịch sử hội thoại vào RAM hệ thống trước khi làm mới luồng
+    # Ghi vết lịch sử để giữ luồng Streamlit ổn định
     st.session_state.chat_history.append({
         "user": query_text,
         "ai": f"⚙️ Hệ thống IE Engine đã tiếp nhận lệnh và đang thực thi tái tính toán định mức theo các tham số sửa đổi mới."
     })
     
-    # Lật cờ kích hoạt để ép toán tử 5.2B2 hạ nguồn tự động mở khóa tính toán lại toàn bộ
+    # Giải phóng cờ tự động để kích hoạt chu trình tính toán Yards mới
     st.session_state["pipeline_auto_run_executed"] = False
     
-    # Thực hiện làm mới luồng và vẽ lại giao diện tức thời
+    # Gọi lệnh làm mới để nạp tham số mới liên tầng
     st.rerun()
+
+
 
 
 # =====================================================================
