@@ -2159,41 +2159,37 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
 
 
 
+     # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V25.4): RENDER LƯỚI CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ
     # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V79.3 ĐỒNG BỘ HOÀN TOÀN
-    # =====================================================================
+    import pandas as pd
+    import streamlit as st
 
-    # 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
-    if 'df_bom_display' in locals() and df_bom_display is not None:
+    # 🔑 KẾ THỪA ĐỒNG BỘ TUYỆT ĐỐI LIÊN TẦNG: Chỉ render khi lõi Engine 5.2B2 đã xuất dữ liệu tính Yards vào RAM
+    if "active_calculated_df_bom" in st.session_state:
+        # Bốc trực tiếp DataFrame Master sạch đã hoàn tất chu trình tính toán định mức thương mại
+        df_bom_display_final = st.session_state["active_calculated_df_bom"].copy()
 
-        # 🔄 ĐỒNG BỘ: Đọc trực tiếp khổ vải thực tế dùng để tính toán từ Đoạn 5.2B bàn giao sang
-        if "Khổ vải sản xuất (inch)" in df_bom.columns:
-            df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"]
-        else:
-            # 🔒 ĐỒNG BỘ VẢI CHÍNH: Ép mức phòng hộ chống số 0 đồng bộ chuẩn 58.0 inch của V79.3
-            chat_w_val = float(st.session_state.get("current_active_width", 58.0))
-            df_bom_display["Khổ vải sản xuất (inch)"] = chat_w_val if chat_w_val > 0.0 else 58.0
-
-        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại tránh lỗi chuỗi hỗn hợp
+        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại tránh lỗi chuỗi hỗn hợp gây sập giao diện
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
-            if col in df_bom_display.columns:
-                df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
+            if col in df_bom_display_final.columns:
+                df_bom_display_final[col] = pd.to_numeric(df_bom_display_final[col], errors='coerce').fillna(0.0)
 
-        # Sắp xếp thứ tự các cột hiển thị đẹp mắt theo chuẩn kiểm toán xưởng may IE
+        # Sắp xếp thứ tự các cột hiển thị đẹp mắt theo chuẩn kiểm toán xưởng may IE PPJ
         ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
-        display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
-        df_bom_display = df_bom_display[display_final_cols]
+        display_final_cols = [c for c in ordered_cols if c in df_bom_display_final.columns]
+        df_bom_display_final = df_bom_display_final[display_final_cols]
 
         col_t1, col_t2 = st.columns(2)
         col_t1.subheader("🔍 LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS)")
 
-        # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC GỐC THƯƠNG MẠI
+        # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC THƯƠNG MẠI
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals():
                     excel_file = local_export_excel_ppj_format(
                         df_summary if 'df_summary' in locals() else None, 
-                        df_bom_display.drop(columns=["_original_row_index"], errors="ignore"), 
+                        df_bom_display_final.drop(columns=["_original_row_index"], errors="ignore"), 
                         prod if 'prod' in locals() else "JEAN", 
                         ctx if 'ctx' in locals() else {}, 
                         marker_efficiency if 'marker_efficiency' in locals() else 0.74
@@ -2207,14 +2203,13 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
         if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-        # KEY BẢNG KHÓA ĐỊNH DANH (DÙNG ĐÚNG INDEX CỦA DATAFRAME LÀM CHÌA KHÓA CHÍNH)
-        # Ổn định cấu trúc key giúp Streamlit không bị tải lại giao diện vô cớ
+        # KEY BẢNG KHÓA ĐỊNH DANH ỔN ĐỊNH CHỐNG LAG MÀN HÌNH (SORTING / FILTERING PROOF)
         edited_df = st.data_editor(
-            df_bom_display, 
-            key="bom_data_editor_matrix_fixed_v79_3",
+            df_bom_display_final, 
+            key="bom_data_editor_matrix_fixed_v25_4",
             use_container_width=True,
             column_config={
-                "_original_row_index": None, # Ẩn cột chỉ số gốc khỏi mắt người dùng
+                "_original_row_index": None, # Ẩn chỉ số dòng thô khỏi mắt người dùng để tối ưu giao diện
                 "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
                 "Material Class": st.column_config.SelectboxColumn(
                     "🧵 Material Class", 
@@ -2233,21 +2228,20 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
             }
         )
 
-        # 🎯 BỘ LẮNG NGHE SỰ KIỆN: Kiến trúc an toàn tuyệt đối chống lỗi xáo trộn dòng (Sorting/Filtering Proof)
-        if edited_df is not None and "bom_data_editor_matrix_fixed_v79_3" in st.session_state:
-            editor_state = st.session_state["bom_data_editor_matrix_fixed_v79_3"]
+        # 🎯 BỘ LẮNG NGHE SỰ KIỆN USER BIÊN TẬP: Kiến trúc an toàn tuyệt đối, tìm đúng Index Master dòng rập
+        if edited_df is not None and "bom_data_editor_matrix_fixed_v25_4" in st.session_state:
+            editor_state = st.session_state["bom_data_editor_matrix_fixed_v25_4"]
             
             if "edited_rows" in editor_state and len(editor_state["edited_rows"]) > 0:
                 changes = editor_state["edited_rows"]
                 has_updates = False
                 
                 for row_key_str, updated_cols in changes.items():
-                    # Streamlit Data Editor trả về row_key tương ứng trực tiếp với Index của DataFrame được truyền vào
                     df_row_index = int(row_key_str)
                     
-                    # 🛠️ FIXED CRITICAL: Truy vết chỉ số dòng Master bằng cách bốc trực tiếp từ thuộc tính dòng của DataFrame
-                    orig_idx = df_bom_display.index[df_row_index]
-                    master_target_idx = df_bom_display.at[orig_idx, "_original_row_index"]
+                    # Truy vết nhãn Index thực tế từ DataFrame hiển thị để lấy giá trị khóa gốc bất chấp người dùng nhấn Sort cột
+                    orig_idx = df_bom_display_final.index[df_row_index]
+                    master_target_idx = df_bom_display_final.at[orig_idx, "_original_row_index"]
                     
                     if "Số lượng rập" in updated_cols:
                         st.session_state["user_edited_pieces"][master_target_idx] = int(updated_cols["Số lượng rập"])
@@ -2258,6 +2252,10 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
                         has_updates = True
                         
                 if has_updates:
+                    # 🔄 AUTOMATIC RESET FOR RE-CALCULATION: Mở khóa cờ chạy tự động
+                    # Ép luồng pipeline chạy lại 5.1 -> 5.2B2 ngay lập tức để cập nhật Yards thương mại theo cấu hình mới của User
+                    st.session_state["pipeline_auto_run_executed"] = False
                     st.rerun()
     else:
-        st.info("💡 Vui lòng chờ hệ thống xử lý hoặc tải lên tệp phôi rập để hiển thị bảng định mức chi tiết.")
+        # Hiển thị thông báo chờ nhẹ nhàng đồng bộ với Đoạn 7.1 trong tích tắc Engine xử lý dữ liệu thô
+        st.info("💡 Hệ thống đang trích xuất hình học phẳng phẳng và tính toán định mức chi tiết, vui lòng chờ trong giây lát...")
