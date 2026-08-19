@@ -1496,76 +1496,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
-
-
     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (VERSION V28.0): PIECE NORMALIZE PIPELINE (STRICT STRING INDEX)
-    # =====================================================================
-    current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
-    fusing_width = float(st.session_state.get("fusing_width", 59.0))    
-    lining_width = float(st.session_state.get("lining_width", 57.0))    
-
-    raw_unpaired_pieces = []
-    list_lengths, list_widths = [], []
-
-    l_col = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), None)
-    w_col = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), None)
-    pcs_col = next((c for c in ["pcs_numeric", "Số lượng rập"] if c in df_bom.columns), "Số lượng rập")
-
-    for idx, r in df_bom.iterrows():
-        idx_str = str(idx).strip()
-        
-        v_piece = virtual_pieces_layer.get(idx_str, {})
-        if not v_piece:
-            virtual_pieces_layer[idx_str] = {}
-            v_piece = virtual_pieces_layer[idx_str]
-        
-        p_len = float(v_piece.get("production_l", r.get(l_col, 0.0) if l_col else 0.0))
-        p_wid = float(v_piece.get("production_w", r.get(w_col, 0.0) if w_col else 0.0))
-        net_area = float(v_piece.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        
-        p_class_check = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-        v_piece["material_class"] = p_class_check  
-
-        if net_area <= 0.0 and p_len > 0.0 and p_wid > 0.0:
-            net_area = p_len * p_wid
-
-        raw_pcs = float(v_piece.get("active_user_pieces", r.get(pcs_col, 1.0) if pcs_col else 1.0))
-        raw_pcs = max(raw_pcs, 1.0)
-
-        user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-        if idx in user_pieces_dict: pcs = float(user_pieces_dict[idx])
-        elif idx_str in user_pieces_dict: pcs = float(user_pieces_dict[idx_str])
-        else: pcs = raw_pcs
-
-        pcs = max(pcs, 1.0)
-        df_bom.at[idx, pcs_col] = int(pcs)
-        v_piece["active_user_pieces"] = int(pcs)
-
-        list_lengths.append(round(p_len, 2) if p_len > 0 else 0.0)
-        list_widths.append(round(p_wid, 2) if p_wid > 0 else 0.0)
-        
-        df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
-        v_piece["polygon_net_area"] = round(net_area, 2)
-
-        if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
-            loop_pcs = int(-(-pcs // 1))
-            for _ in range(loop_pcs):
-                raw_unpaired_pieces.append({
-                    "idx": idx_str, "l": p_len, "w": p_wid, "area": net_area,
-                    "material_class": p_class_check, "priority": 3
-                })
-
-    raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
-    df_bom["Chiều dài rập (inch)"] = list_lengths
-    df_bom["Chiều rộng rập (inch)"] = list_widths
-
-    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    st.session_state["bom_data"] = ctx
-
-
-
-         # =====================================================================
     # 🟩 ĐOẠN 5.1 (VERSION V28.5): PIECE NORMALIZE PIPELINE (STRICT USER SYNC)
     # =====================================================================
     import pandas as pd
@@ -1596,7 +1527,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         p_wid = float(v_piece.get("production_w", r.get(w_col, 0.0) if w_col else 0.0))
         net_area = float(v_piece.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         
-        # 🛠️ FIXED 1: Ưu tiên tuyệt đối quyết định chỉnh sửa chất liệu của User từ UI truyền xuống
+        # 🛠️ FIXED: Ưu tiên tuyệt đối quyết định chỉnh sửa chất liệu của User từ UI truyền xuống
         if idx in user_edited_materials:
             p_class_check = user_edited_materials[idx]
         elif idx_str in user_edited_materials:
@@ -1628,7 +1559,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         v_piece["polygon_net_area"] = round(net_area, 2)
 
         if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
-            # 🛠️ FIXED 2: Thay thế hoàn toàn math.ceil bằng phép chia sàn số âm thuần túy an toàn dứt điểm lỗi NameError
+            # 🛠️ FIXED CRITICAL: Thay thế hoàn toàn math.ceil bằng phép chia sàn số âm thuần túy an toàn dứt điểm lỗi NameError
             loop_pcs = int(-(-pcs // 1))
             for _ in range(loop_pcs):
                 raw_unpaired_pieces.append({
@@ -1644,103 +1575,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"] = ctx
 
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B1 (VERSION V28.5): DATA SYNC PIPELINE (NO RERUN)
-    # =====================================================================
-    stored_virtual_pieces = ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer", {})
-    summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
-
-    raw_chat_width = st.session_state.get("current_active_width", 58.0)
-    try: parsed_width = float(raw_chat_width) if raw_chat_width not in [None, ""] else 58.0
-    except: parsed_width = 58.0
-    if parsed_width <= 0.0: parsed_width = 58.0
-
-    if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
-        for col, default_val in [("Số lượng rập", None), ("Gross Consumption", 0.0), ("Khổ vải sản xuất (inch)", parsed_width)]:
-            if col not in df_bom.columns: df_bom[col] = default_val
-
-    shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   
-    shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 
-    wastage_allowance = 1.05
-
-    try: base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
-    except: base_efficiency = 0.74
-    base_efficiency = max(0.52, min(base_efficiency, 0.95))
-
-
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V28.5): COMMERCIAL CONSUMPTION ENGINE
-    # =====================================================================
-    if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
-        for idx, r in df_bom.iterrows():
-            idx_str = str(idx).strip()
-            v = stored_virtual_pieces.get(idx_str, {})
-            c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
-
-            # 🛠️ FIXED 3: Thừa hưởng trực tiếp và duy nhất phân lớp chất liệu đã qua bộ lọc Master RAM từ 5.1
-            p_cls = str(v.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-            if p_cls not in summary_grouped_gross:
-                p_cls = "FABRIC"
-
-            p_length_fallback = float(v.get("production_l", r.get("Chiều dài rập (inch)", r.get("bounding_box_length", 0.0))))
-            p_width_fallback = float(v.get("production_w", r.get("Chiều rộng rập (inch)", r.get("bounding_box_width", 0.0))))
-
-            # GEOMETRY GUARD - CHỐNG DIỆN TÍCH BẰNG 0
-            pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-            if pure_unit_area <= 0.0: pure_unit_area = p_length_fallback * p_width_fallback
-            if pure_unit_area <= 0.0: pure_unit_area = 10.0 
-
-            user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-            user_override_exists = (idx in user_pieces_dict or idx_str in user_pieces_dict)
-            
-            if idx in user_pieces_dict: pcs = int(user_pieces_dict[idx])
-            elif idx_str in user_pieces_dict: pcs = int(user_pieces_dict[idx_str])
-            else: pcs = int(v.get("active_user_pieces", 1))
-
-            pcs = max(pcs, 1)
-            df_bom.at[idx, "Số lượng rập"] = int(pcs)
-
-            area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
-            seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
-            total_piece_area = pure_unit_area * pcs * seam_modifier
-            
-            # Phân phối khổ vải thực tế
-            if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
-            elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
-            elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
-            elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
-            else: current_w = parsed_width  
-                
-            if current_w <= 0.0: current_w = 58.0
-            df_bom.at[idx, "Khổ vải sản xuất (inch)"] = current_w
-
-            row_efficiency = base_efficiency
-            if p_cls in ["FUSING", "LINING"]: row_efficiency = 0.60  
-            elif p_cls == "RIB": row_efficiency = 0.82  
-            elif p_cls == "PADDING": row_efficiency = 0.85  
-
-            # TOÁN TỬ TÍNH ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG MAY ERP
-            gross_area_sq_inches = total_piece_area / row_efficiency
-            shrinkage_multiplier = (1.0 + shrink_v) * (1.0 + shrink_h)
-            gross_area_post_shrink = gross_area_sq_inches * shrinkage_multiplier
-            
-            linear_inches_needed = gross_area_post_shrink / current_w
-            actual_wastage = 1.03 if area_includes_seam else wastage_allowance
-            total_inches_with_wastage = linear_inches_needed * actual_wastage
-            
-            gross_consumption_yards = total_inches_with_wastage / 36.0
-            gross_consumption_yards = round(max(0.0, gross_consumption_yards), 4)
-            
-            df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
-            summary_grouped_gross[p_cls] += gross_consumption_yards
-
-        for k in summary_grouped_gross: summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
-        st.session_state["summary_grouped_gross"] = summary_grouped_gross
-
-        # FINAL MASTER COMMIT - ÉP LƯU DỮ LIỆU ĐỔ THẲNG XUỐNG ĐOẠN 7
-        df_bom["Gross Consumption"] = pd.to_numeric(df_bom["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
-        st.session_state["active_calculated_df_bom"] = df_bom.copy()
-
+   
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN A (VERSION V25): MARKER EFFICIENCY ROUTER PIPELINE
     # =====================================================================
