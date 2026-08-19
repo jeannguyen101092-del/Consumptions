@@ -1379,124 +1379,189 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     # Đẩy lên trục biến tầng ngoài bảo vệ tham số nền cho Đoạn 5.1 gỡ nghẽn
     st.session_state["current_estimated_density_prior"] = COMPANY_DENSITY_PRIOR[product_category]
     st.session_state["bom_data"] = ctx
+       # =====================================================================
+    # 🟩 ĐOẠN 4 (VERSION V28.0): MASTER GEOMETRY & STRICT MATERIAL CLASSIFIER
     # =====================================================================
-# 🟩 ĐOẠN 4 (VERSION V28.0): MASTER GEOMETRY & STRICT MATERIAL CLASSIFIER
-# =====================================================================
-import pandas as pd
-import numpy as np
-import streamlit as st
+    import pandas as pd
+    import numpy as np
+    import streamlit as st
 
-comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
-m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
+    comp_col_check = next((c for c in ["Component Name", "component_name", "Component_Name"] if c in df_bom.columns), "component_name")
+    m_col_check = next((c for c in ["Material Class", "material_class"] if c in df_bom.columns), "material_class")
 
-if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-    st.session_state["bom_data"] = {}
-ctx = st.session_state["bom_data"]
+    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
+        st.session_state["bom_data"] = {}
+    ctx = st.session_state["bom_data"]
 
-if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
-    ctx["ai_expert_decision"] = {}
+    if "ai_expert_decision" not in ctx or not isinstance(ctx["ai_expert_decision"], dict):
+        ctx["ai_expert_decision"] = {}
 
-virtual_pieces_layer = {}
-user_edited_materials = st.session_state.get("user_edited_materials", {})
+    virtual_pieces_layer = {}
+    user_edited_materials = st.session_state.get("user_edited_materials", {})
 
-for idx, row in df_bom.iterrows():
-    # 🔒 LOCK KIẾN TRÚC INDEX: Ép khóa định danh dòng về dạng Chuỗi (str) đồng bộ toàn bộ pipeline
-    idx_str = str(idx).strip()
-    
-    comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
-    comp_name_upper = comp_name_raw.upper().strip()
-    mat_str = str(row.get(m_col_check, "")).upper().strip()
-    
-    # 🧵 CHẶNG 4.1: MULTI-LAYER MATERIAL CLASSIFIER (QUÉT SÂU KHÔNG LỌT LƯỚI)
-    # Ưu tiên tuyệt đối quyết định chỉnh sửa chất liệu thủ công của User từ lưới UI
-    if idx in user_edited_materials:
-        p_class = user_edited_materials[idx]
-    elif idx_str in user_edited_materials:
-        p_class = user_edited_materials[idx_str]
+    for idx, row in df_bom.iterrows():
+        # 🔒 LOCK KIẾN TRÚC INDEX: Ép khóa định danh dòng về dạng Chuỗi (str) đồng bộ toàn bộ pipeline
+        idx_str = str(idx).strip()
         
-    # Nếu User chưa sửa, tiến hành quét biểu thức chính quy chính xác cao
-    elif any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "ACCESSORY"]):
-        p_class = "ACCESSORY"
-    elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "DỰNG", "WAISTBAND FUSING"]):
-        p_class = "FUSING"
-    elif any(k in comp_name_upper or k in mat_str for k in ["RIB", "BO GÂN", "BO CO", "BO TAY", "BO LAI", "BO LUNG", "BO TĂM"]):
-        p_class = "RIB"
-    elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "VẢI LÓT", "POCKET FACING", "POCKETING FABRIC"]):
-        p_class = "LINING"
-    elif any(k in comp_name_upper or k in mat_str for k in ["CONTRAST", "PHỐI", "VẢI PHỐI", "MATCHING"]):
-        p_class = "CONTRAST"
-    elif any(k in comp_name_upper or k in mat_str for k in ["PADDING", "GÒN", "WADDING", "BÔNG LOT"]):
-        p_class = "PADDING"
-    else:
-        p_class = "FABRIC"
-
-    # COLUMN RESOLVER ĐA TẦNG ĐỌC ĐÚNG CHIỀU DÀI/RỘNG RẬP GỐC CAD/AI
-    l_orig = float(pd.to_numeric(row.get("bounding_box_length", row.get("Dài (L-inch)", row.get("Chiều dài rập (inch)", 0.0))), errors="coerce") or 0.0)
-    w_orig = float(pd.to_numeric(row.get("bounding_box_width", row.get("Rộng (W-inch)", row.get("Chiều rộng rập (inch)", 0.0))), errors="coerce") or 0.0)
-    net_area_real = float(pd.to_numeric(row.get("polygon_net_area", 0.0), errors="coerce") or 0.0)
-
-    if l_orig <= 0.0 or w_orig <= 0.0: 
-        continue
-
-    # Aspect Ratio Correction (Dài luôn >= Rộng)
-    if w_orig > l_orig:
-        l_orig, w_orig = w_orig, l_orig
-
-    # Adaptive OBB Efficiency Inference (Tối ưu hình học phẳng)
-    if net_area_real > 0:
-        current_factor = net_area_real / (l_orig * w_orig)
-        aspect_ratio = l_orig / w_orig
-        log_aspect = np.log1p(aspect_ratio)
+        comp_name_raw = str(row.get(comp_col_check, row.get("component_name", "")))
+        comp_name_upper = comp_name_raw.upper().strip()
+        mat_str = str(row.get(m_col_check, "")).upper().strip()
         
-        target_obb_eff = max(0.6400, min(0.9200, 0.88 - (0.05 * log_aspect) + (0.15 * current_factor)))
-        if current_factor < target_obb_eff:
-            optimized_area = net_area_real / target_obb_eff
-            w_orig = (optimized_area / aspect_ratio) ** 0.5
-            l_orig = w_orig * aspect_ratio
+        # 🧵 CHẶNG 4.1: MULTI-LAYER MATERIAL CLASSIFIER (QUÉT SÂU KHÔNG LỌT LƯỚI)
+        # Ưu tiên tuyệt đối quyết định chỉnh sửa chất liệu thủ công của User từ lưới UI
+        if idx in user_edited_materials:
+            p_class = user_edited_materials[idx]
+        elif idx_str in user_edited_materials:
+            p_class = user_edited_materials[idx_str]
+            
+        # Nếu User chưa sửa, tiến hành quét biểu thức chính quy chính xác cao
+        elif any(k in comp_name_upper or k in mat_str for k in ["THREAD", "CHỈ", "BUTTON", "NÚT", "ZIP", "ACCESSORY"]):
+            p_class = "ACCESSORY"
+        elif any(k in comp_name_upper or k in mat_str for k in ["FUSING", "MEC", "MẾCH", "KEO", "INTERLINING", "DỰNG", "WAISTBAND FUSING"]):
+            p_class = "FUSING"
+        elif any(k in comp_name_upper or k in mat_str for k in ["RIB", "BO GÂN", "BO CO", "BO TAY", "BO LAI", "BO LUNG", "BO TĂM"]):
+            p_class = "RIB"
+        elif any(k in comp_name_upper or k in mat_str for k in ["LINING", "LÓT", "POCKET BAG", "POCKETING", "VẢI LÓT", "POCKET FACING", "POCKETING FABRIC", "POCKET"]):
+            p_class = "LINING"
+        elif any(k in comp_name_upper or k in mat_str for k in ["CONTRAST", "PHỐI", "VẢI PHỐI", "MATCHING"]):
+            p_class = "CONTRAST"
+        elif any(k in comp_name_upper or k in mat_str for k in ["PADDING", "GÒN", "WADDING", "BÔNG LOT"]):
+            p_class = "PADDING"
+        else:
+            p_class = "FABRIC"
 
-    # Tiếp nhận số lượng mảnh cơ sở từ Đoạn 2 (User Override > AI Piece Count)
-    raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
-    raw_pcs = max(raw_pcs, 1.0)
+        # COLUMN RESOLVER ĐA TẦNG ĐỌC ĐÚNG CHIỀU DÀI/RỘNG RẬP GỐC CAD/AI
+        l_orig = float(pd.to_numeric(row.get("bounding_box_length", row.get("Dài (L-inch)", row.get("Chiều dài rập (inch)", 0.0))), errors="coerce") or 0.0)
+        w_orig = float(pd.to_numeric(row.get("bounding_box_width", row.get("Rộng (W-inch)", row.get("Chiều rộng rập (inch)", 0.0))), errors="coerce") or 0.0)
+        net_area_real = float(pd.to_numeric(row.get("polygon_net_area", 0.0), errors="coerce") or 0.0)
 
-    user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-    if idx in user_pieces_dict:
-        final_pcs = float(user_pieces_dict[idx])
-    elif idx_str in user_pieces_dict:
-        final_pcs = float(user_pieces_dict[idx_str])
-    else:
-        final_pcs = raw_pcs
-    final_pcs = max(final_pcs, 1.0)
+        if l_orig <= 0.0 or w_orig <= 0.0: 
+            continue
 
-    # GEOMETRY CONTROL: Khống chế diện tích tinh hình học
-    bbox_area_control = l_orig * w_orig
-    if net_area_real <= 0.0:
-        net_area_real = bbox_area_control * 0.74
-    elif net_area_real > bbox_area_control:
-        net_area_real = bbox_area_control * 0.85
+        # Aspect Ratio Correction (Dài luôn >= Rộng)
+        if w_orig > l_orig:
+            l_orig, w_orig = w_orig, l_orig
 
-    # Đóng gói dữ liệu gốc sạch vào lớp rập ảo bằng Khóa Chuỗi bảo vệ liên tầng
-    virtual_pieces_layer[idx_str] = {
-        "material_class": p_class,                      
-        "production_l": round(l_orig, 2), 
-        "production_w": round(w_orig, 2), 
-        "production_net_area": round(net_area_real, 2),
-        "polygon_net_area": round(net_area_real, 2),    
-        "active_user_pieces": int(final_pcs),                
-        "component_name": comp_name_raw
-    }
+        # Adaptive OBB Efficiency Inference (Tối ưu hình học phẳng)
+        if net_area_real > 0:
+            current_factor = net_area_real / (l_orig * w_orig)
+            aspect_ratio = l_orig / w_orig
+            log_aspect = np.log1p(aspect_ratio)
+            
+            target_obb_eff = max(0.6400, min(0.9200, 0.88 - (0.05 * log_aspect) + (0.15 * current_factor)))
+            if current_factor < target_obb_eff:
+                optimized_area = net_area_real / target_obb_eff
+                w_orig = (optimized_area / aspect_ratio) ** 0.5
+                l_orig = w_orig * aspect_ratio
 
-# Phản hồi dữ liệu hình học phẳng ngược về DataFrame Master phục vụ hiển thị hiển thị
-for idx, vp in virtual_pieces_layer.items():
-    # Tìm kiếm nhãn tương thích hỗ trợ cả kiểu chỉ mục int và str trên DataFrame
-    target_loc = int(idx) if idx.isdigit() and int(idx) in df_bom.index else (idx if idx in df_bom.index else None)
-    if target_loc is not None:
-        df_bom.at[target_loc, "Chiều dài rập (inch)"] = vp["production_l"]
-        df_bom.at[idx, "Chiều rộng rập (inch)"] = vp["production_w"]
-        df_bom.at[target_loc, "polygon_net_area"] = vp["production_net_area"]
-        df_bom.at[target_loc, "Material Class"] = vp["material_class"]
+        # Tiếp nhận số lượng mảnh cơ sở từ Đoạn 2
+        raw_pcs = float(row.get("pcs_numeric", row.get("Số lượng rập", 1.0)))
+        raw_pcs = max(raw_pcs, 1.0)
 
-ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-st.session_state["bom_data"] = ctx
+        user_pieces_dict = st.session_state.get("user_edited_pieces", {})
+        if idx in user_pieces_dict:
+            final_pcs = float(user_pieces_dict[idx])
+        elif idx_str in user_pieces_dict:
+            final_pcs = float(user_pieces_dict[idx_str])
+        else:
+            final_pcs = raw_pcs
+        final_pcs = max(final_pcs, 1.0)
+
+        # GEOMETRY CONTROL: Khống chế diện tích tinh hình học
+        bbox_area_control = l_orig * w_orig
+        if net_area_real <= 0.0:
+            net_area_real = bbox_area_control * 0.74
+        elif net_area_real > bbox_area_control:
+            net_area_real = bbox_area_control * 0.85
+
+        # Đóng gói dữ liệu gốc sạch vào lớp rập ảo bằng Khóa Chuỗi bảo vệ liên tầng
+        virtual_pieces_layer[idx_str] = {
+            "material_class": p_class,                      
+            "production_l": round(l_orig, 2), 
+            "production_w": round(w_orig, 2), 
+            "production_net_area": round(net_area_real, 2),
+            "polygon_net_area": round(net_area_real, 2),    
+            "active_user_pieces": int(final_pcs),                
+            "component_name": comp_name_raw
+        }
+
+    # Phản hồi dữ liệu hình học phẳng ngược về DataFrame Master phục vụ pipeline
+    for idx, vp in virtual_pieces_layer.items():
+        target_loc = int(idx) if idx.isdigit() and int(idx) in df_bom.index else (idx if idx in df_bom.index else None)
+        if target_loc is not None:
+            df_bom.at[target_loc, "Chiều dài rập (inch)"] = vp["production_l"]
+            df_bom.at[target_loc, "Chiều rộng rập (inch)"] = vp["production_w"]
+            df_bom.at[target_loc, "polygon_net_area"] = vp["production_net_area"]
+            df_bom.at[target_loc, "Material Class"] = vp["material_class"]
+
+    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+    st.session_state["bom_data"] = ctx
+
+
+    # =====================================================================
+    # 🟩 ĐOẠN 5.1 (VERSION V28.0): PIECE NORMALIZE PIPELINE (STRICT STRING INDEX)
+    # =====================================================================
+    current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
+    fusing_width = float(st.session_state.get("fusing_width", 59.0))    
+    lining_width = float(st.session_state.get("lining_width", 57.0))    
+
+    raw_unpaired_pieces = []
+    list_lengths, list_widths = [], []
+
+    l_col = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), None)
+    w_col = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), None)
+    pcs_col = next((c for c in ["pcs_numeric", "Số lượng rập"] if c in df_bom.columns), "Số lượng rập")
+
+    for idx, r in df_bom.iterrows():
+        idx_str = str(idx).strip()
+        
+        v_piece = virtual_pieces_layer.get(idx_str, {})
+        if not v_piece:
+            virtual_pieces_layer[idx_str] = {}
+            v_piece = virtual_pieces_layer[idx_str]
+        
+        p_len = float(v_piece.get("production_l", r.get(l_col, 0.0) if l_col else 0.0))
+        p_wid = float(v_piece.get("production_w", r.get(w_col, 0.0) if w_col else 0.0))
+        net_area = float(v_piece.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
+        
+        p_class_check = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
+        v_piece["material_class"] = p_class_check  
+
+        if net_area <= 0.0 and p_len > 0.0 and p_wid > 0.0:
+            net_area = p_len * p_wid
+
+        raw_pcs = float(v_piece.get("active_user_pieces", r.get(pcs_col, 1.0) if pcs_col else 1.0))
+        raw_pcs = max(raw_pcs, 1.0)
+
+        user_pieces_dict = st.session_state.get("user_edited_pieces", {})
+        if idx in user_pieces_dict: pcs = float(user_pieces_dict[idx])
+        elif idx_str in user_pieces_dict: pcs = float(user_pieces_dict[idx_str])
+        else: pcs = raw_pcs
+
+        pcs = max(pcs, 1.0)
+        df_bom.at[idx, pcs_col] = int(pcs)
+        v_piece["active_user_pieces"] = int(pcs)
+
+        list_lengths.append(round(p_len, 2) if p_len > 0 else 0.0)
+        list_widths.append(round(p_wid, 2) if p_wid > 0 else 0.0)
+        
+        df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
+        v_piece["polygon_net_area"] = round(net_area, 2)
+
+        if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
+            loop_pcs = int(math.ceil(pcs))
+            for _ in range(loop_pcs):
+                raw_unpaired_pieces.append({
+                    "idx": idx_str, "l": p_len, "w": p_wid, "area": net_area,
+                    "material_class": p_class_check, "priority": 3
+                })
+
+    raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
+    df_bom["Chiều dài rập (inch)"] = list_lengths
+    df_bom["Chiều rộng rập (inch)"] = list_widths
+
+    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
+    st.session_state["bom_data"] = ctx
 
 
 
