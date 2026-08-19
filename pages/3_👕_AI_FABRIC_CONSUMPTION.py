@@ -1573,7 +1573,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     st.session_state["bom_data"] = ctx
 
 
-    # =====================================================================
+        # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN A (VERSION V25): MARKER EFFICIENCY ROUTER PIPELINE
     # =====================================================================
     import pandas as pd
@@ -1594,7 +1594,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         ai_decision = {}
 
     # 🤖 MA TRẬN ĐỒNG NHẤT CẤU HÌNH HIỆU SUẤT & NHÃN HIỂN THỊ CHUẨN XƯỞNG MAY (IE)
-    # Cấu trúc đồng bộ liên tầng: "MÃ_LOẠI": [Hiệu_Suất_Cơ_Sở, "Nhãn_Hiển_Thị_Hệ_Thống_IE"]
+    # Cấu trúc: "MÃ_LOẠI": [Hiệu_Suất_Cơ_Sở, "Nhãn_Hiển_Thị_Hệ_Thống_IE"]
     CONFIG_MATRIX = {
         "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
         "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
@@ -1632,14 +1632,14 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     dynamic_marker_efficiency = None
     ie_detected_type = None
 
-    # 🔒 PIPELINE ALIGNED: Ưu tiên thừa hưởng nhãn chủng loại thô đã qua bộ lọc ưu tiên cứng của Đoạn 3.1
+    # 🔒 PIPELINE ALIGNED: Ưu tiên thừa hưởng nhãn chủng loại thô vững chắc từ Đoạn 3.1 đổ xuống
     inherited_raw_type = ai_decision.get("ai_product_type_raw", "").upper().strip()
     
     if inherited_raw_type in CONFIG_MATRIX:
         ie_detected_type = inherited_raw_type
         dynamic_marker_efficiency = CONFIG_MATRIX[ie_detected_type][0]
     
-    # --- FALLBACK 1: Nếu Đoạn 3.1 trống, tiến hành quét từ khóa bổ sung an toàn từ Tech Pack ---
+    # --- FALLBACK 1: Quét từ khóa bổ sung an toàn từ văn bản Tech Pack ---
     if dynamic_marker_efficiency is None:
         style_code_upper = str(ai_decision.get("style_code", "")).upper().strip()
         material_spec_upper = str(ai_decision.get("material_spec", "")).upper().strip()
@@ -1653,7 +1653,6 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
             if c_col:
                 component_names_combined = " ".join(df_bom[c_col].astype(str).tolist()).upper()
 
-        # Quét cưỡng bức nhóm đồ yếm
         overall_strict_keywords = ["OVERALL", "COVERALL", "BIB", "JUMPSUIT", "YẾM", "YEM"]
         if any(kw in combined_search_text or kw in component_names_combined for kw in overall_strict_keywords):
             ie_detected_type = "OVERALL"
@@ -1680,7 +1679,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
             
         dynamic_marker_efficiency = CONFIG_MATRIX[ie_detected_type][0]
 
-    # 📐 CHẶNG 5.2A.4: DYNAMIC CAD PENALTY (Áp các điểm phạt hao hụt sơ đồ từ UI)
+    # 📐 DYNAMIC CAD PENALTY (Áp các điểm phạt hao hụt sơ đồ từ UI Controls)
     is_nap_mode = st.session_state.get("is_nap_fabric", False)          
     is_one_way_mode = st.session_state.get("is_one_way_fabric", False)  
 
@@ -1689,25 +1688,23 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     elif is_nap_mode:
         dynamic_marker_efficiency -= 0.03  
 
-    # Khóa sàn mật độ sơ đồ tối thiểu an toàn kỹ thuật của nhà máy (52%)
+    # Khóa sàn mật độ sơ đồ tối thiểu an toàn kỹ thuật (52%)
     dynamic_marker_efficiency = max(0.52, round(dynamic_marker_efficiency, 4))
 
-    # Đóng gói và phân phối nhãn hiển thị chuẩn kỹ thuật IE
     ie_friendly_name = CONFIG_MATRIX[ie_detected_type][1] if ie_detected_type in CONFIG_MATRIX else f"{ie_detected_type} (Chủng loại tự động)"
 
     ctx["ie_detected_type"] = ie_detected_type
     ctx["ie_product_type_friendly"] = ie_friendly_name
     
-    # Xuất Single Source of Truth cho hiệu suất sang RAM hệ thống để 5.2B2 kế thừa trực tiếp
+    # Xuất Single Source của hiệu suất sang RAM hệ thống để 5.2B1 kế thừa trực tiếp
     st.session_state["active_marker_efficiency_value"] = float(dynamic_marker_efficiency)
     ctx["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
     st.session_state["bom_data"] = ctx
 
-
-         # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B1 (VERSION V25): INITIALIZATION & DATA SYNC PIPELINE
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B1 (VERSION V25.1): INITIALIZATION & DATA SYNC PIPELINE
     # =====================================================================
-    import pandas as pd  # Khóa chặt an toàn tránh lỗi NameError: 'pd' is not defined
+    import pandas as pd
     import streamlit as st
 
     # 1. ĐỒNG BỘ VÀ KẾ THỪA LỚP RẬP ẢO TỪ BỘ NHỚ RAM HỆ THỐNG
@@ -1722,7 +1719,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     if not isinstance(stored_virtual_pieces, dict): 
         stored_virtual_pieces = {}
 
-    # Reset danh sách gom nhóm định mức tổng để tích lũy real-time
+    # 🛠️ FIXED CRITICAL: Khởi tạo sẵn cấu trúc Dictionary tổng tích lũy
     summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
     # 🔒 PIPELINE ALIGNED: Kế thừa trực tiếp khổ vải chính an toàn đã qua kiểm toán tại Đoạn 1
@@ -1732,7 +1729,6 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     except:
         parsed_width = 58.0
 
-    # Chặn lỗi cấu hình: Nếu khổ vải truyền sang bị bằng 0.0 hoặc âm, ép về khổ chuẩn 58.0 inch của vải Jean
     if parsed_width <= 0.0:
         parsed_width = 58.0
 
@@ -1750,6 +1746,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
 
     # 🔒 SINGLE SOURCE OF TRUTH: Nhận hiệu suất cốt lõi duy nhất từ Phân hệ cấu hình 5.2A
     base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
+
 
         # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.2): FINAL ENGINE & AUTOMATED UI TRIGGER
