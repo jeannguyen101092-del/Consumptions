@@ -1599,7 +1599,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "SHIRT":    [0.78, "SHIRT (Áo sơ mi vải dệt)"],      "BLOUSE":   [0.78, "BLOUSE (Áo kiểu/Blouse)"],
         "POLO":     [0.76, "POLO (Áo thun cổ bẻ)"],          "TEE":      [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
         "TSHIRT":   [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],  "TANK":     [0.74, "TANK (Áo ba lỗ/Sát nách)"],
-        "JEAN_LONG":[0.74, "JEAN_LONG (Quần Jeans dài chuẩn)"]
+        "JEAN_LONG":[0.82, "JEAN_LONG (Quần Jeans dài chuẩn)"]
     }
 
     # 🔒 Kế thừa trực tiếp nhãn chủng loại thô vững chắc từ Đoạn 3.1
