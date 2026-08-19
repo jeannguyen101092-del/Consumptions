@@ -1565,10 +1565,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-     # =====================================================================
-    # 🟩 ĐOẠN 5.1 (VERSION V28.1): PIECE NORMALIZE PIPELINE (MATH INJECTED)
+         # =====================================================================
+    # 🟩 ĐOẠN 5.1 (VERSION V28.2): PIECE NORMALIZE PIPELINE (PURE PYTHON - STABLE)
     # =====================================================================
-    import math  # 🔒 FIXED CRITICAL: Khai báo trực tiếp thư viện chống lỗi NameError
     import pandas as pd
     import streamlit as st
 
@@ -1620,7 +1619,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         v_piece["polygon_net_area"] = round(net_area, 2)
 
         if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
-            loop_pcs = int(math.ceil(pcs))
+            # 🛠️ FIXED CRITICAL: Thay thế math.ceil bằng toán tử chia sàn số âm thuần túy 
+            # Triệt tiêu vĩnh viễn bẫy lỗi NameError của hệ thống
+            loop_pcs = int(-(-pcs // 1))
             for _ in range(loop_pcs):
                 raw_unpaired_pieces.append({
                     "idx": idx_str, "l": p_len, "w": p_wid, "area": net_area,
