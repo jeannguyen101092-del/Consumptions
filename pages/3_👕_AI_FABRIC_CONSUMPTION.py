@@ -2229,35 +2229,33 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
 
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN A: CONFIGURATION & MARKER EFFICIENCY ROUTER (V79.0)
+         # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN A: CONFIGURATION & MARKER EFFICIENCY ROUTER (V79.3)
     # =====================================================================
     import pandas as pd
     import streamlit as st
 
-    # Thu thập trạng thái nhận diện cục bộ
     _is_short = locals().get("is_short", False)
     _is_trouser = locals().get("is_trouser", False)
     _is_skirt_or_dress = locals().get("is_skirt_or_dress", False)
     _is_jacket = locals().get("is_jacket", False)
 
-    # Đọc dữ liệu từ AI Expert - Giữ nguyên không ghi đè để phục vụ Audit Trail
     ai_decision = st.session_state.get("bom_data", {}).get("ai_expert_decision", {})
     style_code_upper = str(ai_decision.get("style_code", "")).upper().strip()
     material_spec_upper = str(ai_decision.get("material_spec", "")).upper().strip()
-    ai_p_type_friendly = str(ai_decision.get("product_type_friendly", "JEAN_LONG")).upper().strip()
-
-    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {ai_p_type_friendly}"
+    ai_p_type_friendly = str(ai_decision.get("product_type_friendly", "")).upper().strip()
     
-    # Quét tên chi tiết rập từ DataFrame BOM
+    # 💡 CẢI TIẾN: Quét thêm toàn bộ thông tin hiển thị trên Header của UI bao gồm SubCategory từ Techpack
+    techpack_desc = str(st.session_state.get("techpack_description_raw", "")).upper().strip()
+
+    combined_search_text = f"{style_code_upper} | {material_spec_upper} | {ai_p_type_friendly} | {techpack_desc}"
+    
     component_names_combined = ""
     if 'df_bom' in locals() and df_bom is not None and not df_bom.empty:
         c_col = next((c for c in ["component_name", "Component Name"] if c in df_bom.columns), None)
         if c_col:
             component_names_combined = " ".join(df_bom[c_col].astype(str).tolist()).upper()
 
-    # 🤖 MA TRẬN ĐỒNG NHẤT CẤU HÌNH HIỆU SUẤT & NHÃN HIỂN THỊ CHUẨN XƯỞNG MAY (IE)
-    # Cấu trúc: "MÃ_LOẠI": [Hiệu_Suất_Cơ_Sở, "Nhãn_Hiển_Thị_Hệ_Thống_IE"]
     CONFIG_MATRIX = {
         "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
         "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
@@ -2284,9 +2282,6 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         "JEAN_LONG":[0.74, "JEAN_LONG (Quần Jeans dài chuẩn)"]
     }
 
-    # 🎯 BUSINESS RULE: ĐỊNH NGHĨA THỨ TỰ ƯU TIÊN QUÉT TỪ KHÓA (BẬC CAO -> BẬC THẤP)
-    # Loại bỏ "STRAP" để tránh lỗi nhận diện sai áo hai dây, váy dây thành quần yếm bảo hộ.
-    # Đưa các chủng loại đặc thù (SHORT, TROUSER, DRESS) lên trước chất liệu nền (JEAN, KHAKI).
     GARMENT_PRIORITY_ORDER = [
         "OVERALL", "COVERALL", "JUMPSUIT", "DUNGAREE", "BIB",
         "DRESS", "SKIRT", "SHORT", "TROUSER", "PANT", 
@@ -2298,13 +2293,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     dynamic_marker_efficiency = None
     ie_detected_type = None
 
-    # --- BƯỚC 1: ƯU TIÊN TUYỆT ĐỐI NHÓM ĐỒ YẾM CƯỜNG BỨC (Đã loại bỏ STRAP) ---
+    # --- BƯỚC 1: ƯU TIÊN TUYỆT ĐỐI NHÓM ĐỒ YẾM CƯỜNG BỨC ---
     overall_strict_keywords = ["OVERALL", "COVERALL", "BIB", "JUMPSUIT", "YẾM", "YEM"]
     if any(kw in combined_search_text or kw in component_names_combined for kw in overall_strict_keywords):
         ie_detected_type = "OVERALL"
         dynamic_marker_efficiency = CONFIG_MATRIX["OVERALL"][0]
     
-    # --- BƯỚC 2: QUÉT TỪ KHÓA THEO THỨ TỰ ƯU TIÊN (PRIORITY RULE) ---
+    # --- BƯỚC 2: QUÉT TỪ KHÓA THEO THỨ TỰ ƯU TIÊN ---
     if dynamic_marker_efficiency is None:
         for keyword in GARMENT_PRIORITY_ORDER:
             if keyword in combined_search_text:
@@ -2312,7 +2307,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 ie_detected_type = keyword
                 break
 
-    # --- BƯỚC 3: TRÌNH TỰ FALLBACK AN TOÀN (Đồng bộ trực tiếp từ CONFIG_MATRIX) ---
+    # --- BƯỚC 3: TRÌNH TỰ FALLBACK AN TOÀN ---
     if dynamic_marker_efficiency is None:
         if _is_skirt_or_dress:
             ie_detected_type = "DRESS" if "DRESS" in combined_search_text else "SKIRT"
@@ -2325,7 +2320,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             
         dynamic_marker_efficiency = CONFIG_MATRIX[ie_detected_type][0]
 
-    # --- BƯỚC 4: DYNAMIC CAD PENALTY (Áp dụng phạt hao hụt sơ đồ) ---
+    # --- BƯỚC 4: DYNAMIC CAD PENALTY ---
     is_nap_mode = st.session_state.get("is_nap_fabric", False)          
     is_one_way_mode = st.session_state.get("is_one_way_fabric", False)  
 
@@ -2334,82 +2329,69 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     elif is_nap_mode:
         dynamic_marker_efficiency -= 0.03  
 
-    # Khóa sàn hiệu suất tối thiểu an toàn kỹ thuật (52%)
     dynamic_marker_efficiency = max(0.52, round(dynamic_marker_efficiency, 4))
 
-    # --- BƯỚC 5: KHỞI TẠO & LƯU TRỮ ĐỘC LẬP (BẢO TOÀN DỮ LIỆU AUDIT TRAIL) ---
-    if "bom_data" not in st.session_state: 
-        st.session_state["bom_data"] = {}
-    if "ai_expert_decision" not in st.session_state["bom_data"]: 
-        st.session_state["bom_data"]["ai_expert_decision"] = {}
+    # --- BƯỚC 5: LƯU TRỮ ĐỘC LẬP ---
+    if "bom_data" not in st.session_state: st.session_state["bom_data"] = {}
+    if "ai_expert_decision" not in st.session_state["bom_data"]: st.session_state["bom_data"]["ai_expert_decision"] = {}
 
-    # Lấy thông tin nhãn hiển thị IE từ ma trận cấu hình
     ie_friendly_name = CONFIG_MATRIX[ie_detected_type][1] if ie_detected_type in CONFIG_MATRIX else f"{ie_detected_type} (Chủng loại tự động)"
 
-    # Tuyệt đối KHÔNG ghi đè vào ["ai_expert_decision"]["product_type_friendly"]
-    # Lưu riêng biệt phân hệ IE để kiểm toán (Audit Log) chéo giữa AI và IE Engine
     st.session_state["bom_data"]["ie_detected_type"] = ie_detected_type
     st.session_state["bom_data"]["ie_product_type_friendly"] = ie_friendly_name
     
-    # Xuất Single Source của hiệu suất sang RAM hệ thống để 5.2B kế thừa trực tiếp
     st.session_state["active_marker_efficiency_value"] = float(dynamic_marker_efficiency)
     st.session_state["bom_data"]["ai_expert_decision"]["marker_efficiency"] = dynamic_marker_efficiency
 
-         # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR ENGINE (V79.2)
     # =====================================================================
-    import pandas as pd  # Khóa chặt an toàn tránh lỗi NameError: 'pd' is not defined
+    # 🟩 ĐOẠN 5.2 - PHẦN B: IE COMMERCIAL CONSUMPTION CALCULATOR ENGINE (V79.3)
+    # =====================================================================
+    import pandas as pd
     import streamlit as st
 
-    # 1. ĐỒNG BỘ VÀ KẾ THỪA LỚP RẬP ẢO TỪ BỘ NHỚ RAM HỆ THỐNG
-    if "bom_data" not in st.session_state: 
-        st.session_state["bom_data"] = {}
-    if "ai_expert_decision" not in st.session_state["bom_data"]: 
-        st.session_state["bom_data"]["ai_expert_decision"] = {}
+    if "bom_data" not in st.session_state: st.session_state["bom_data"] = {}
+    if "ai_expert_decision" not in st.session_state["bom_data"]: st.session_state["bom_data"]["ai_expert_decision"] = {}
     
     stored_virtual_pieces = st.session_state["bom_data"]["ai_expert_decision"].get("virtual_pieces_layer", {})
-    if not isinstance(stored_virtual_pieces, dict): 
-        stored_virtual_pieces = {}
+    if not isinstance(stored_virtual_pieces, dict): stored_virtual_pieces = {}
 
-    # Reset danh sách gom nhóm định mức tổng để tích lũy real-time
     summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
-    # Khởi tạo sẵn các cột cấu trúc Master trên DataFrame gốc nếu chưa có
-    for col, default_val in [("Số lượng rập", None), ("Gross Consumption", 0.0), ("Khổ vải sản xuất (inch)", 58.0)]:
+    # Đọc dữ liệu khổ vải từ chat
+    raw_chat_width = st.session_state.get("current_active_width", 58.0)
+    try:
+        # Ép kiểu an toàn, nếu trống hoặc lỗi thì đưa về 58.0
+        parsed_width = float(raw_chat_width) if raw_chat_width not in [None, ""] else 58.0
+    except:
+        parsed_width = 58.0
+
+    # 🔒 CHẶN LỖI CHÍ MẠNG: Nếu số truyền từ chat nhỏ hơn hoặc bằng 0, ép cứng về 58.0 inch để kích hoạt lại bộ tính
+    if parsed_width <= 0.0:
+        parsed_width = 58.0
+
+    for col, default_val in [("Số lượng rập", None), ("Gross Consumption", 0.0), ("Khổ vải sản xuất (inch)", parsed_width)]:
         if col not in df_bom.columns: 
             df_bom[col] = default_val
 
-    # Trích xuất tỷ lệ co rút thời gian thực từ bộ nhớ đệm đoạn chat (Chia 100 ra tỷ lệ phần thập phân)
-    shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   # Co dọc (VD: 3% -> 0.03)
-    shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 # Co ngang (VD: 14% -> 0.14)
-
-    # Hệ số hao hụt vận hành bàn cắt thực tế xưởng may (Bù đầu cây, vải lỗi, đầu tấm)
+    shrink_v = float(st.session_state.get("shrinkage_vertical", 0.0)) / 100.0   
+    shrink_h = float(st.session_state.get("shrinkage_horizontal", 0.0)) / 100.0 
     wastage_allowance = 1.06
 
-    # 🔒 SINGLE SOURCE OF TRUTH: Nhận hiệu suất cốt lõi duy nhất từ Phần A (V79.0)
     base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
 
-    # 🔥 ENGINE THỰC THI TOÁN TỬ TÍNH ĐỊNH MỨC THƯƠNG MẠI CHUẨN ĐƠN CHIẾC ERP
     for idx, r in df_bom.iterrows():
-        # Đọc thông tin rập ảo bằng cả 2 cấu trúc key (int và str) tránh lỗi lọt dữ liệu index (KeyError)
         v = stored_virtual_pieces.get(idx, stored_virtual_pieces.get(str(idx), {}))
-        if not isinstance(v, dict): 
-            v = {}
+        if not isinstance(v, dict): v = {}
         
         c_name_lower = str(r.get("component_name", v.get("component_name", ""))).lower().strip()
 
-        # [BƯỚC 1]: PHÂN LOẠI NHÓM VẬT TƯ THÔNG MINH ĐỒNG BỘ LIÊN TẦNG
+        # [BƯỚC 1]: PHÂN LOẠI NHÓM VẬT TƯ
         p_cls = None
-        if any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung", "mếch", "fusing waistband"]): 
-            p_cls = "FUSING"
-        elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui", "inner waistband", "lot cap", "pocket bag", "pocketing"]): 
-            p_cls = "LINING"
-        elif any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung", "bo tam"]): 
-            p_cls = "RIB"
-        elif any(x in c_name_lower for x in ["contrast", "phoi", "vai phoi", "combo", "matching"]): 
-            p_cls = "CONTRAST"
-        elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]): 
-            p_cls = "PADDING"
+        if any(x in c_name_lower for x in ["fusing", "keo", "interlining", "mex", "mec", "dung", "mếch", "fusing waistband"]): p_cls = "FUSING"
+        elif any(x in c_name_lower for x in ["lining", "vai lot", "lot than", "lot tui", "inner waistband", "lot cap", "pocket bag", "pocketing"]): p_cls = "LINING"
+        elif any(x in c_name_lower for x in ["rib", "bo co", "bo tay", "bo lai", "bo lung", "bo tam"]): p_cls = "RIB"
+        elif any(x in c_name_lower for x in ["contrast", "phoi", "vai phoi", "combo", "matching"]): p_cls = "CONTRAST"
+        elif any(x in c_name_lower for x in ["padding", "gon", "wadding", "bong lot", "quilting"]): p_cls = "PADDING"
             
         if not p_cls:
             for field in ["Material Class", "material_class", "inferred_class"]:
@@ -2417,43 +2399,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 elif field in v and pd.notna(v[field]): p_cls = str(v[field]).upper().strip()
                 if p_cls in summary_grouped_gross: break
 
-        if not p_cls or p_cls not in summary_grouped_gross:
-            p_cls = "FABRIC"
+        if not p_cls or p_cls not in summary_grouped_gross: p_cls = "FABRIC"
 
-        # [BƯỚC 2]: TÔN TRỌNG TUYỆT ĐỐI CAD/AI NET AREA - TRIỆT TIÊU HOÀN TOÀN RULE ÉP GIẢM DIỆN TÍCH
+        # [BƯỚC 2]: DIỆN TÍCH RẬP
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         if pure_unit_area <= 0.0:
-            # Fallback duy nhất sang diện tích hình chữ nhật nếu CAD/AI hoàn toàn trống dữ liệu hình học phẳng
             piece_length = float(v.get("length", r.get("length", r.get("Chiều dài rập (inch)", 0.0))))
             piece_width = float(v.get("width", r.get("width", r.get("Chiều rộng rập (inch)", 0.0))))
             pure_unit_area = piece_length * piece_width
 
-        # Khởi tạo bộ đếm mảnh rập dự phòng mặc định theo từ khóa cấu trúc
-        if any(x in c_name_lower for x in ["back body", "collar top", "collar band", "belt loop", "diat", "yem truoc", "yem sau"]):
-            pcs_default = 1
-        elif any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay", "pocket", "tui", "facing", "waistband", "cap", "fusing", "keo", "inner", "day đeo", "strap"]):
+        # [BƯỚC 3]: SỐ LƯỢNG MẢNH & USER OVERRIDE
+        pcs_default = 1
+        if any(x in c_name_lower for x in ["leg", "panel", "front", "back", "than", "sleeve", "tay", "pocket", "tui", "facing", "waistband", "cap", "fusing", "keo", "inner", "day đeo", "strap"]):
             pcs_default = 2  
-        else:
-            pcs_default = 1  
 
-        # [BƯỚC 3]: TRÌNH TỰ ƯU TIÊN SỐ LƯỢNG CHI TIẾT & BẢO VỆ USER OVERRIDE TUYỆT ĐỐI
         user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-        
-        # Kiểm tra xem có sự can thiệp thủ công từ phía người dùng (UI) hay không
         user_override_exists = (idx in user_pieces_dict or str(idx) in user_pieces_dict)
         
-        if idx in user_pieces_dict:
-            pcs = int(user_pieces_dict[idx])
-        elif str(idx) in user_pieces_dict:
-            pcs = int(user_pieces_dict[str(idx)])
-        elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1:
-            pcs = int(v["active_user_pieces"])
-        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1:
-            pcs = int(r["Số lượng rập"])
-        else:
-            pcs = pcs_default
+        if idx in user_pieces_dict: pcs = int(user_pieces_dict[idx])
+        elif str(idx) in user_pieces_dict: pcs = int(user_pieces_dict[str(idx)])
+        elif "active_user_pieces" in v and int(v["active_user_pieces"]) >= 1: pcs = int(v["active_user_pieces"])
+        elif pd.notna(r.get("Số lượng rập")) and int(r["Số lượng rập"]) >= 1: pcs = int(r["Số lượng rập"])
+        else: pcs = pcs_default
 
-        # 🛠️ FIXED: Chỉ áp dụng luật đối xứng (Symmetry Rule) tự động khi USER KHÔNG CAN THIỆP
         if not user_override_exists:
             if pcs == 1 and any(x in c_name_lower for x in ["leg", "panel", "front leg", "back leg", "than truoc", "than sau", "ong quan"]):
                 pcs = 2
@@ -2464,62 +2432,52 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # [BƯỚC 4]: KIỂM SOÁT ĐƯỜNG MAY (AUDIT TRAIL ALIGNED)
-        # Đọc cờ trạng thái chứa biên may từ lớp rập CAD/AI nhằm triệt tiêu bẫy nhân đôi đường may (Double Seaming)
         area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
-        
-        # Chỉ nhân hệ số bù đường may 1.06 nếu vật tư là Vải và diện tích CAD là diện tích hình học thuần chưa chừa may
         seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
         total_piece_area = pure_unit_area * pcs * seam_modifier
         
-        # [BƯỚC 5]: XÁC ĐỊNH KHỔ VẢI THỰC TẾ (Độc lập phân lớp vật tư theo đúng thiết kế)
+        # [BƯỚC 4]: XÁC ĐỊNH KHỔ VẢI THỰC TẾ ĐÃ ĐƯỢC BẢO VỆ CHỐNG SỐ 0
         if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
         elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
-        else: current_w = float(st.session_state.get("current_active_width", 58.0))
+        else: current_w = parsed_width  # Sử dụng biến an toàn đã kiểm toán ở trên
             
-        if current_w <= 0: current_w = 58.0 
+        if current_w <= 0.0: current_w = 58.0 
         df_bom.at[idx, "Khổ vải sản xuất (inch)"] = current_w
 
-        # [BƯỚC 6]: PHÂN PHỐI HIỆU SUẤT SƠ ĐỒ THEO CHỦNG LOẠI VẬT TƯ CHUYÊN BIỆT
+        # [BƯỚC 5]: HIỆU SUẤT SƠ ĐỒ
         row_efficiency = base_efficiency
-        if p_cls in ["FUSING", "LINING"]:
-            row_efficiency = 0.60  
-        elif p_cls == "RIB": 
-            row_efficiency = 0.82  
-        elif p_cls == "PADDING": 
-            row_efficiency = 0.85  
+        if p_cls in ["FUSING", "LINING"]: row_efficiency = 0.60  
+        elif p_cls == "RIB": row_efficiency = 0.82  
+        elif p_cls == "PADDING": row_efficiency = 0.85  
 
         # =====================================================================
-        # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC THEO CHUẨN CO RÚT VÀ ĐỔI ĐƠN VỊ YARDS (ERP INDUSTRIAL)
+        # ⚙️ TOÁN TỬ TÍNH ĐỊNH MỨC THƯƠNG MẠI CHUẨN XƯỞNG
         # =====================================================================
         gross_area_sq_inches = total_piece_area / row_efficiency
         
-        # Xử lý độc lập co dọc và co ngang trực tiếp trên diện tích phẳng trước khi chia khổ vải
         shrinkage_denominator = (1.0 - shrink_v) * (1.0 - shrink_h)
         if shrinkage_denominator < 0.5: shrinkage_denominator = 1.0  
         
         gross_area_post_shrink = gross_area_sq_inches / shrinkage_denominator
         
-        # Chuyển đổi diện tích phẳng sang chiều dài sơ đồ (Linear Inches) và áp hao hụt bàn cắt
+        # Thực hiện phép chia an toàn tuyệt đối không lo dính lỗi 0.0 inch nữa
         linear_inches_needed = gross_area_post_shrink / current_w
         total_inches_with_wastage = linear_inches_needed * wastage_allowance
         
-        # Quy đổi đơn vị chiều dài tuyến tính sang Yards thương mại (Inch / 36)
         gross_consumption_yards = total_inches_with_wastage / 36.0
         gross_consumption_yards = round(max(0.0, gross_consumption_yards), 4)
         
-        # Ghi nhận kết quả vào DataFrame Master và tích lũy tổng theo nhóm vật tư
         df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
         summary_grouped_gross[p_cls] += gross_consumption_yards
 
-    # Đóng gói dữ liệu tổng, làm tròn 3 chữ số thập phân xuất báo cáo UI
     for k in summary_grouped_gross:
         summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
         
     st.session_state["summary_grouped_gross"] = summary_grouped_gross
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
+
 
 
 
@@ -2650,23 +2608,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         return output_stream.getvalue() # Trả về mảng dữ liệu byte sạch để st.download_button đọc trực tiếp
 
         # =====================================================================
-    import re
+       import re
     import pandas as pd
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 7.1 (PHIÊN BẢN V7.1 - HOÀN CHỈNH ĐỒNG BỘ LIÊN TẦNG ERP - STABLE)
+    # 🟩 ĐOẠN 7.1 (PHIÊN BẢN V7.2 - ĐỒNG BỘ TUYỆT ĐỐI THEO CORE ENGINE V79.2)
     # =====================================================================
-
-    # 🔬 KHỐI MÃ KIỂM TRA ĐỒNG BỘ BIẾN LIÊN ĐOẠN (DEBUG MONITOR)
-    st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM")
-    d_c1, d_c2, d_c3 = st.columns(3)
-    d_c1.write(f"**DEBUG FABRIC:** `{st.session_state.get('summary_fabric_gross', 0.0)}`")
-    d_c2.write(f"**DEBUG LINING:** `{st.session_state.get('summary_lining_gross', 0.0)}`")
-    d_c3.write(f"**DEBUG FUSING:** `{st.session_state.get('summary_fusing_gross', 0.0)}`")
-    st.divider()
-
-    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
 
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
         st.session_state["bom_data"] = {}
@@ -2675,6 +2623,19 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     ai_decision_final = ctx.get("ai_expert_decision", {})
     if not isinstance(ai_decision_final, dict): 
         ai_decision_final = {}
+
+    # 🔬 ĐỒNG BỘ KHỐI MÃ KIỂM TRA DỮ LIỆU RAM (DEBUG MONITOR)
+    # Trích xuất trực tiếp từ Dictionary tổng summary_grouped_gross của Đoạn 5.2B
+    grouped_gross = st.session_state.get("summary_grouped_gross", {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0})
+    
+    st.markdown("### 🔬 Hệ Thống Kiểm Toán Dữ Liệu RAM")
+    d_c1, d_c2, d_c3 = st.columns(3)
+    d_c1.write(f"**DEBUG FABRIC:** `{grouped_gross.get('FABRIC', 0.0)}`")
+    d_c2.write(f"**DEBUG LINING:** `{grouped_gross.get('LINING', 0.0)}`")
+    d_c3.write(f"**DEBUG FUSING:** `{grouped_gross.get('FUSING', 0.0)}`")
+    st.divider()
+
+    st.header("📋 AI AUDIT REPORT (BÁO CÁO KIỂM TOÁN ĐỊNH MỨC TỰ ĐỘNG)")
         
     virtual_pieces = ai_decision_final.get("virtual_pieces_layer", {})
     if not isinstance(virtual_pieces, dict): 
@@ -2683,23 +2644,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     comp_score_val = float(ai_decision_final.get("complexity_score", 45.0))
     ui_complexity_tier = "COMPLEX" if comp_score_val >= 50 else "NORMAL"
     ui_complexity_icon = "🔴" if comp_score_val >= 75 else ("🟡" if comp_score_val >= 45 else "🟢")
-    real_sync_product_type = str(ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)")).strip()
+    
+    # 🔒 KHÓA ĐỒNG BỘ CHỦNG LOẠI: Ưu tiên nhãn chuẩn kỹ thuật IE đã bóc tách từ V79.2, nếu trống mới hiển thị AI gốc
+    real_sync_product_type = str(ctx.get("ie_product_type_friendly", ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)"))).strip()
 
-    # Rút đúng hiệu suất động thời gian thực từ bộ nhớ RAM Đoạn 5.2 truyền xuống
+    # Rút đúng hiệu suất động thời gian thực từ bộ nhớ RAM Đoạn 5.2A truyền xuống
     marker_efficiency = float(st.session_state.get("active_marker_efficiency_value", ai_decision_final.get("marker_efficiency", 0.7400)))
 
-    # Đọc khổ vải sản xuất động từ Session State
-    chat_width_override = st.session_state.get("current_active_width", 56.0)
+    # Đọc khổ vải sản xuất động từ Session State (Mặc định bảo vệ chống số 0 là 58.0)
+    chat_width_override = float(st.session_state.get("current_active_width", 58.0))
+    if chat_width_override <= 0.0:
+        chat_width_override = 58.0
     st.caption(f"🔗 **Khổ vải sản xuất đang ép sử dụng từ đoạn Chat:** `{chat_width_override:.1f}\" inch`")
 
-    # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ
+    # 1. HIỂN THỊ MA TRẬN METRICS ĐỒNG BỘ TRÊN GIAO DIỆN
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("🤖 Loại Hàng Nhận Diện", real_sync_product_type)
+    m1.metric("🤖 Chủng Loại Nhận Diện (IE)", real_sync_product_type)
     m2.metric(f"{ui_complexity_icon} Mức Độ Phức Tạp", f"{ui_complexity_tier} ({comp_score_val:.0f}/100)")
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH THỪA HƯỞNG TỪ LÕI MASTER ĐOẠN 5.2
+    # 2. PHỤC HỒI NỀN LƯỚI CHI TIẾT SẠCH THỪA HƯỞNG TỪ LÕI MASTER ĐOẠN 5.2B
     df_bom_display = df_bom.copy()
     c_name_col_raw = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom.columns), "component_name")
 
@@ -2708,7 +2673,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom.index
 
-    # Đồng bộ tuyệt đối dữ liệu định mức thương mại và số lượng mảnh rập từ DataFrame gốc
+    # Đồng bộ định mức thương mại và số lượng mảnh rập từ DataFrame gốc
     if "Gross Consumption" in df_bom.columns:
         df_bom_display["Gross Consumption"] = df_bom["Gross Consumption"]
     else:
@@ -2719,9 +2684,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     else:
         df_bom_display["Số lượng rập"] = 1
 
-    # Khóa chặt sửa lỗi không nhận đồng bộ loại chất liệu sửa đổi của người dùng từ lưới UI
+    # Khóa chặt loại chất liệu sửa đổi của người dùng từ lưới UI
     clean_mats = []
-    user_edited_materials = st.session_state.get("user_edited_materials", {}) # Đồng bộ đúng tên biến map từ Đoạn 2
+    user_edited_materials = st.session_state.get("user_edited_materials", {})
     
     for idx, row in df_bom_display.iterrows():
         solver_piece_data = virtual_pieces.get(idx, virtual_pieces.get(str(idx), {}))
@@ -2733,17 +2698,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         
     df_bom_display["Material Class"] = clean_mats
 
-    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ 100% THEO LÕI ENGINE STATE
-    total_fabric = st.session_state.get("summary_fabric_gross", 0.0)
-    total_fusing = st.session_state.get("summary_fusing_gross", 0.0)
-    total_lining = st.session_state.get("summary_lining_gross", 0.0)
-    total_contrast = st.session_state.get("summary_contrast_gross", 0.0)
-    total_rib = st.session_state.get("summary_rib_gross", 0.0)
-    total_padding = st.session_state.get("summary_padding_gross", 0.0)
+    # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY ĐỒNG BỘ LÕI DIỆN TÍCH THƯƠNG MẠI
+    total_fabric = grouped_gross.get("FABRIC", 0.0)
+    total_fusing = grouped_gross.get("FUSING", 0.0)
+    total_lining = grouped_gross.get("LINING", 0.0)
+    total_contrast = grouped_gross.get("CONTRAST", 0.0)
+    total_rib = grouped_gross.get("RIB", 0.0)
+    total_padding = grouped_gross.get("PADDING", 0.0)
 
     summary_data = {"Phân loại vật tư": [], "Material Class": [], "Gross Consumption": [], "UOM": []}
 
-    if total_fabric > 0 or (total_fabric == 0.0 and total_fusing == 0.0):
+    # Đảm bảo bảng luôn hiển thị dòng Vải chính ngay cả khi kết quả tính đang tạm thời bằng 0
+    if total_fabric >= 0:
         summary_data["Phân loại vật tư"].append("VẢI CHÍNH")
         summary_data["Material Class"].append("FABRIC")
         summary_data["Gross Consumption"].append(round(total_fabric, 4))
@@ -2777,27 +2743,27 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     df_summary = pd.DataFrame(summary_data)
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
-
-        # =====================================================================
-    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V62.1 ĐỒNG BỘ HOÀN TOÀN
+    # =====================================================================
+    # 🟩 ĐOẠN 7.2: RENDER BẢNG CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ - V79.3 ĐỒNG BỘ HOÀN TOÀN
     # =====================================================================
 
     # 🔥 BẢO VỆ CHỐNG CRASH HỆ THỐNG KHI CHƯA CÓ FILE ĐẦU VÀO
     if 'df_bom_display' in locals() and df_bom_display is not None:
 
-        # 🔄 ĐỒNG BỘ: Đọc trực tiếp khổ vải thực tế dùng để tính toán từ Đoạn 5.2 bàn giao sang
+        # 🔄 ĐỒNG BỘ: Đọc trực tiếp khổ vải thực tế dùng để tính toán từ Đoạn 5.2B bàn giao sang
         if "Khổ vải sản xuất (inch)" in df_bom.columns:
             df_bom_display["Khổ vải sản xuất (inch)"] = df_bom["Khổ vải sản xuất (inch)"]
         else:
-            # Phòng hộ nếu cột chưa kịp khởi tạo
-            df_bom_display["Khổ vải sản xuất (inch)"] = float(st.session_state.get("current_active_width", 56.0))
+            # 🔒 ĐỒNG BỘ VẢI CHÍNH: Ép mức phòng hộ chống số 0 đồng bộ chuẩn 58.0 inch của V79.3
+            chat_w_val = float(st.session_state.get("current_active_width", 58.0))
+            df_bom_display["Khổ vải sản xuất (inch)"] = chat_w_val if chat_w_val > 0.0 else 58.0
 
-        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại
+        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại tránh lỗi chuỗi hỗn hợp
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
             if col in df_bom_display.columns:
                 df_bom_display[col] = pd.to_numeric(df_bom_display[col], errors='coerce').fillna(0.0)
 
-        # Sắp xếp thứ tự các cột hiển thị đẹp mắt và loại bỏ bảng thô thừa
+        # Sắp xếp thứ tự các cột hiển thị đẹp mắt theo chuẩn kiểm toán xưởng may IE
         ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
         display_final_cols = [c for c in ordered_cols if c in df_bom_display.columns]
         df_bom_display = df_bom_display[display_final_cols]
@@ -2805,7 +2771,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         col_t1, col_t2 = st.columns(2)
         col_t1.subheader("🔍 LƯỚI CHI TIẾT ĐỊNH MỨC TOÀN BỘ CHI TIẾT (BOM DETAILS)")
 
-        # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC GỐC
+        # XUẤT FILE EXCEL ĐỒNG BỘ THEO ĐỊNH MỨC GỐC THƯƠNG MẠI
         with col_t2:
             try:
                 if 'local_export_excel_ppj_format' in locals():
@@ -2825,17 +2791,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         if "user_edited_pieces" not in st.session_state: st.session_state["user_edited_pieces"] = {}
         if "user_edited_materials" not in st.session_state: st.session_state["user_edited_materials"] = {}
 
-        # DUY NHẤT 1 BẢNG CHỈNH SỬA DỮ LIỆU ĐỘNG FIXED V11 (BỔ SUNG OPTIONS PADDING)
+        # KEY BẢNG KHÓA ĐỊNH DANH (DÙNG ĐÚNG INDEX CỦA DATAFRAME LÀM CHÌA KHÓA CHÍNH)
+        # Ổn định cấu trúc key giúp Streamlit không bị tải lại giao diện vô cớ
         edited_df = st.data_editor(
             df_bom_display, 
-            key="bom_data_editor_matrix_fixed_v9",
+            key="bom_data_editor_matrix_fixed_v79_3",
             use_container_width=True,
             column_config={
-                "_original_row_index": None, 
+                "_original_row_index": None, # Ẩn cột chỉ số gốc khỏi mắt người dùng
                 "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
                 "Material Class": st.column_config.SelectboxColumn(
                     "🧵 Material Class", 
-                    options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB", "PADDING"], # Bổ sung PADDING bảo vệ lưới không bị sập đồ họa
+                    options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB", "PADDING"],
                     required=True,
                     disabled=False
                 ),
@@ -2850,25 +2817,28 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             }
         )
 
-        # BỘ LẮNG NGHE SỰ KIỆN: Chỉ kích hoạt rerun khi có tương tác thủ công thực tế từ phía người dùng
-        if edited_df is not None and "bom_data_editor_matrix_fixed_v9" in st.session_state:
-            editor_state = st.session_state["bom_data_editor_matrix_fixed_v9"]
+        # 🎯 BỘ LẮNG NGHE SỰ KIỆN: Kiến trúc an toàn tuyệt đối chống lỗi xáo trộn dòng (Sorting/Filtering Proof)
+        if edited_df is not None and "bom_data_editor_matrix_fixed_v79_3" in st.session_state:
+            editor_state = st.session_state["bom_data_editor_matrix_fixed_v79_3"]
             
             if "edited_rows" in editor_state and len(editor_state["edited_rows"]) > 0:
                 changes = editor_state["edited_rows"]
                 has_updates = False
                 
-                for row_idx_str, updated_cols in changes.items():
-                    row_idx = int(row_idx_str)
-                    orig_idx = df_bom_display.iloc[row_idx]["_original_row_index"]
+                for row_key_str, updated_cols in changes.items():
+                    # Streamlit Data Editor trả về row_key tương ứng trực tiếp với Index của DataFrame được truyền vào
+                    df_row_index = int(row_key_str)
+                    
+                    # 🛠️ FIXED CRITICAL: Truy vết chỉ số dòng Master bằng cách bốc trực tiếp từ thuộc tính dòng của DataFrame
+                    orig_idx = df_bom_display.index[df_row_index]
+                    master_target_idx = df_bom_display.at[orig_idx, "_original_row_index"]
                     
                     if "Số lượng rập" in updated_cols:
-                        st.session_state["user_edited_pieces"][orig_idx] = int(updated_cols["Số lượng rập"])
+                        st.session_state["user_edited_pieces"][master_target_idx] = int(updated_cols["Số lượng rập"])
                         has_updates = True
                         
                     if "Material Class" in updated_cols:
-                        # GHI ĐỒNG BỘ: Chuyển hoàn toàn sang ghi đè vào trục biến Master user_edited_materials
-                        st.session_state["user_edited_materials"][orig_idx] = str(updated_cols["Material Class"]).upper().strip()
+                        st.session_state["user_edited_materials"][master_target_idx] = str(updated_cols["Material Class"]).upper().strip()
                         has_updates = True
                         
                 if has_updates:
