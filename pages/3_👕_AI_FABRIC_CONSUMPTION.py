@@ -2257,8 +2257,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             component_names_combined = " ".join(df_bom[c_col].astype(str).tolist()).upper()
 
     CONFIG_MATRIX = {
-        "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-        "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+        "OVERALL":  [0.60, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+        "COVERALL": [0.59, "OVERALLS (Quần yếm/Quần bảo hộ)"],
         "BIB":      [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
         "JUMPSUIT": [0.70, "OVERALLS (Quần yếm/Quần bảo hộ)"],
         "DUNGAREE": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
