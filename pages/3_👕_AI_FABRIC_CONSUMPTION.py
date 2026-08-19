@@ -1941,40 +1941,58 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f")
         }
     )
+       # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V26.5): RENDER LƯỚI CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ
     # =====================================================================
-    # 🟩 ĐOẠN 7.2 (VERSION V25.4): RENDER LƯỚI CHI TIẾT & BỘ LẮNG NGHE SỰ KIỆN BIÊN TẬP VẬT TƯ
-    # =====================================================================
+    import pandas as pd
+    import streamlit as st
+
+    # KẾ THỪA ĐỒNG BỘ TUYỆT ĐỐI LIÊN TẦNG: Chỉ render khi lõi Engine 5.2B2 đã xuất dữ liệu tính Yards vào RAM
     if "active_calculated_df_bom" in st.session_state:
         df_bom_display_final = st.session_state["active_calculated_df_bom"].copy()
 
-        ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Role/Piece Type", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
+        # Chuẩn hóa kiểu dữ liệu số hiển thị ERP thương mại tránh lỗi chuỗi hỗn hợp gây sập giao diện
+        for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
+            if col in df_bom_display_final.columns:
+                df_bom_display_final[col] = pd.to_numeric(df_bom_display_final[col], errors='coerce').fillna(0.0)
+
+        # 🛠️ FIXED 1: Khôi phục trật tự cột hiển thị, đảm bảo "Component Name" đứng đầu để kỹ sư dễ nhìn đối chiếu
+        ordered_cols = ["_original_row_index", "Component Name", "Material Class", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
         display_final_cols = [c for c in ordered_cols if c in df_bom_display_final.columns]
         df_bom_display_final = df_bom_display_final[display_final_cols]
 
         st.subheader("📝 BẢNG CHỈNH SỬA THỦ CÔNG & ĐIỀU CHỈNH VẬT TƯ (BOM EDITOR)")
 
-        # Lưới tương tác thông minh chống lag đồ họa và प्रूफ lỗi Sorting
+        # KEY BẢNG KHÓA ĐỊNH DANH ỔN ĐỊNH CHỐNG LAG MÀN HÌNH (SORTING / FILTERING PROOF)
         edited_df = st.data_editor(
             df_bom_display_final, 
-            key="bom_data_editor_matrix_fixed_v25_4",
+            key="bom_data_editor_matrix_fixed_v26_5",
             use_container_width=True,
+            hide_index=True,  # Ẩn cột số thứ tự vật lý 0, 1, 2 không có ý nghĩa kỹ thuật
             column_config={
-                "_original_row_index": None, 
-                "Component Name": st.column_config.TextColumn("📋 Component Name", disabled=True),
-                "Material Class": st.column_config.SelectboxColumn("🧵 Material Class", options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB", "PADDING"], required=True, disabled=False),
-                "Role/Piece Type": st.column_config.TextColumn("Role/Piece Type", disabled=True),
+                "_original_row_index": None, # Ẩn chỉ số dòng thô phục vụ audit ngầm
+                # 🛠️ FIXED 2: Khóa hiển thị cột Tên chi tiết rập làm nhãn gác cổng vô hiệu hóa chỉnh sửa
+                "Component Name": st.column_config.TextColumn("📋 Component Name (Tên Chi Tiết Rập)", disabled=True, width="medium"),
+                "Material Class": st.column_config.SelectboxColumn(
+                    "🧵 Material Class (Loại Vật Tư)", 
+                    options=["FABRIC", "LINING", "FUSING", "CONTRAST", "RIB", "PADDING"],
+                    required=True,
+                    disabled=False,
+                    width="medium"
+                ),
                 "Chiều dài rập (inch)": st.column_config.NumberColumn("📏 Chiều dài rập (inch)", format="%.2f", disabled=True),
                 "Chiều rộng rập (inch)": st.column_config.NumberColumn("📐 Chiều rộng rập (inch)", format="%.2f", disabled=True),
                 "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f", disabled=True),
                 "Size tính toán": st.column_config.TextColumn("Size tính toán", disabled=True),
                 "Số lượng rập": st.column_config.NumberColumn("🔢 Số lượng rập", format="%d", min_value=1, disabled=False),
                 "polygon_net_area": st.column_config.NumberColumn("polygon_net_area", format="%.2f", disabled=True),
-                "Gross Consumption": st.column_config.NumberColumn("Gross Consumption", format="%.4f", disabled=True)
+                "Gross Consumption": st.column_config.NumberColumn("Gross Consumption (Yds)", format="%.4f", disabled=True)
             }
         )
 
-        if edited_df is not None and "bom_data_editor_matrix_fixed_v25_4" in st.session_state:
-            editor_state = st.session_state["bom_data_editor_matrix_fixed_v25_4"]
+        # 🎯 BỘ LẮNG NGHE SỰ KIỆN USER BIÊN TẬP: Tìm đúng dòng rập Master bất chấp hành động Sort lưới của User
+        if edited_df is not None and "bom_data_editor_matrix_fixed_v26_5" in st.session_state:
+            editor_state = st.session_state["bom_data_editor_matrix_fixed_v26_5"]
             
             if "edited_rows" in editor_state and len(editor_state["edited_rows"]) > 0:
                 changes = editor_state["edited_rows"]
@@ -1982,17 +2000,25 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 
                 for row_key_str, updated_cols in changes.items():
                     df_row_index = int(row_key_str)
+                    
+                    # Truy vết nhãn Index thực tế từ DataFrame hiển thị
                     orig_idx = df_bom_display_final.index[df_row_index]
                     master_target_idx = df_bom_display_final.at[orig_idx, "_original_row_index"]
                     
                     if "Số lượng rập" in updated_cols:
                         st.session_state["user_edited_pieces"][master_target_idx] = int(updated_cols["Số lượng rập"])
                         has_updates = True
+                        
                     if "Material Class" in updated_cols:
+                        # GHI ĐỒNG BỘ: Ghi nhận loại vật tư mới (Ví dụ: Chuyển BACK POCKET từ LINING về FABRIC)
                         st.session_state["user_edited_materials"][master_target_idx] = str(updated_cols["Material Class"]).upper().strip()
                         has_updates = True
                         
                 if has_updates:
-                    # Lật cờ để cho luồng 5.2B2 tự chạy lại tuyến tính, không dùng st.rerun cưỡng bức
+                    # 🔄 AUTOMATIC RE-CALCULATION TRIGGER: Mở khóa cờ chạy tự động
+                    # Ép luồng pipeline chạy lại toàn bộ từ 5.1 -> 5.2B2 ngay lập tức
+                    # Lúc này Engine 5.2B2 sẽ tự động áp Hiệu suất của FABRIC (72%) và khổ 58" cho chi tiết này, tự động trừ tổng LINING và cộng dồn vào FABRIC
                     st.session_state["pipeline_auto_run_executed"] = False
                     st.rerun()
+    else:
+        st.info("💡 Hệ thống đang hoàn tất chu trình tính toán định mức chi tiết, vui lòng chờ trong giây lát...")
