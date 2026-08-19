@@ -1992,8 +1992,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     st.subheader("📊 BẢNG TỔNG HỢP BOM SUMMARY (YARDS)")
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
-      # =====================================================================
-    # 🟩 ĐOẠN 7.2 (VERSION V27.1): BOM EDITOR ONE-STOP CALCULATOR PIPELINE
+       # =====================================================================
+    # 🟩 ĐOẠN 7.2 (VERSION V27.2): BOM EDITOR PIPELINE (STRICT INDEX RESILIENT)
     # =====================================================================
     import pandas as pd
     import streamlit as st
@@ -2001,17 +2001,17 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     if "active_calculated_df_bom" in st.session_state:
         df_bom_display_final = st.session_state["active_calculated_df_bom"].copy()
 
-        # Ép kiểu dữ liệu số thực an toàn toàn diện
+        # Ép kiểu dữ liệu số thực an toàn toàn diện bảo vệ lưới đồ họa
         for col in ["Chiều dài rập (inch)", "Chiều rộng rập (inch)", "polygon_net_area", "Gross Consumption", "Khổ vải sản xuất (inch)"]:
             if col in df_bom_display_final.columns:
                 df_bom_display_final[col] = pd.to_numeric(df_bom_display_final[col], errors='coerce').fillna(0.0)
 
-        # Chuẩn hóa tên cột Component Name
+        # Chuẩn hóa tên cột Component Name hiển thị trên giao diện
         c_name_master = next((c for c in ["component_name", "Component Name", "Component_Name"] if c in df_bom_display_final.columns), None)
         if c_name_master:
             df_bom_display_final["Component Name"] = df_bom_display_final[c_name_master].astype(str).str.upper().str.strip()
         else:
-            df_bom_display_final["Component Name"] = "CHI TIẾT RẬP"
+            df_bom_display_final["Component Name"] = "CHI TIẾT RẬP THÔ"
 
         df_bom_display_final["Size tính toán"] = str(st.session_state.get("current_active_size", "32")).upper().strip()
 
@@ -2025,8 +2025,8 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             clean_mats.append(str(p_cls).upper().strip())
         df_bom_display_final["Material Class"] = clean_mats
 
-        # Tạo cột bản sao an toàn làm chìa khóa định danh dứt điểm cho Streamlit Data Editor
-        df_bom_display_final["Mã Chi Tiết"] = df_bom_display_final["_original_row_index"].astype(str)
+        # 🛠️ FIXED: Tạo khóa định danh bằng chuỗi Index vật lý hiện tại của DataFrame
+        df_bom_display_final["Mã Chi Tiết"] = df_bom_display_final.index.astype(str)
 
         # Trật tự cột hoàn chỉnh, hiện Component Name ở vị trí đầu tiên
         ordered_cols = ["Mã Chi Tiết", "Component Name", "Material Class", "Chiều dài rập (inch)", "Chiều rộng rập (inch)", "Khổ vải sản xuất (inch)", "Size tính toán", "Số lượng rập", "polygon_net_area", "Gross Consumption"]
@@ -2059,7 +2059,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         # LƯỚI DATA EDITOR DUY NHẤT CHO PHÉP CLICK CHỌN ĐỔI CHẤT LIỆU
         edited_df = st.data_editor(
             df_bom_display_final, 
-            key="bom_data_editor_matrix_fixed_v27_1",
+            key="bom_data_editor_matrix_fixed_v27_2",
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -2080,9 +2080,9 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
             }
         )
 
-        # 🎯 BỘ LẮNG NGHE SỰ KIỆN: Vá lỗi KeyError bằng truy vết định danh nhãn Index thực tế của DataFrame
-        if edited_df is not None and "bom_data_editor_matrix_fixed_v27_1" in st.session_state:
-            editor_state = st.session_state["bom_data_editor_matrix_fixed_v27_1"]
+        # 🎯 BỘ LẮNG NGHE SỰ KIỆN: Vá dứt điểm lỗi bẫy Index vật lý khi người dùng tương tác Sort lưới
+        if edited_df is not None and "bom_data_editor_matrix_fixed_v27_2" in st.session_state:
+            editor_state = st.session_state["bom_data_editor_matrix_fixed_v27_2"]
             if "edited_rows" in editor_state and len(editor_state["edited_rows"]) > 0:
                 changes = editor_state["edited_rows"]
                 has_updates = False
@@ -2090,17 +2090,18 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
                 for row_key_str, updated_cols in changes.items():
                     df_row_index = int(row_key_str)
                     
-                    # 🛠️ FIXED: Giải pháp định vị dòng vững chắc độc lập hành động Sort lưới của User
+                    # 🛠️ FIXED CRITICAL: Truy vết nhãn Index gốc vững chắc từ mảng đích DataFrame hiển thị
                     orig_idx = df_bom_display_final.index[df_row_index]
                     master_target_idx = df_bom_display_final.at[orig_idx, "Mã Chi Tiết"]
                     
-                    # Hỗ trợ an toàn biểu diễn cả 2 dạng khóa int và str cho bộ nhớ RAM
-                    target_key = int(master_target_idx) if master_target_idx.isdigit() else master_target_idx
+                    # Hỗ trợ đồng bộ đa kiểu dữ liệu Index (chuỗi/số nguyên) của pandas
+                    target_key = int(master_target_idx) if str(master_target_idx).isdigit() else master_target_idx
                     
                     if "Số lượng rập" in updated_cols:
                         st.session_state["user_edited_pieces"][target_key] = int(updated_cols["Số lượng rập"])
                         has_updates = True
                     if "Material Class" in updated_cols:
+                        # GHI NHẬN RAM MASTER LUỒNG ĐỘNG ĐỂ ENGINE 5.2B2 THỰC THI KHẤU TRỪ VẬT TƯ
                         st.session_state["user_edited_materials"][target_key] = str(updated_cols["Material Class"]).upper().strip()
                         has_updates = True
                         
