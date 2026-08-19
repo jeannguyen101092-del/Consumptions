@@ -1549,7 +1549,7 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         v_piece["polygon_net_area"] = round(net_area, 2)
 
         if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
-            loop_pcs = int(math.ceil(pcs))
+            loop_pcs = int(-(-pcs // 1))
             for _ in range(loop_pcs):
                 raw_unpaired_pieces.append({
                     "idx": idx_str, "l": p_len, "w": p_wid, "area": net_area,
