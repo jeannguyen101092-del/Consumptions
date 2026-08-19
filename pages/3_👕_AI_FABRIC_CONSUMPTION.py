@@ -1565,26 +1565,13 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
 
 
 
-       # =====================================================================
-    # 🟩 ĐOẠN 5.1 (VERSION V25): PIECE NORMALIZE PIPELINE (CORE STRUCTURE)
+     # =====================================================================
+    # 🟩 ĐOẠN 5.1 (VERSION V28.1): PIECE NORMALIZE PIPELINE (MATH INJECTED)
     # =====================================================================
-    import math  
+    import math  # 🔒 FIXED CRITICAL: Khai báo trực tiếp thư viện chống lỗi NameError
     import pandas as pd
     import streamlit as st
 
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    
-    ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): 
-        ai_decision_d5 = {}
-        
-    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
-    if not virtual_pieces_layer: 
-        virtual_pieces_layer = {}
-
-    # Kế thừa trục khổ vải Master an toàn từ Đoạn 1
     current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
     fusing_width = float(st.session_state.get("fusing_width", 59.0))    
     lining_width = float(st.session_state.get("lining_width", 57.0))    
@@ -1597,29 +1584,29 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
     pcs_col = next((c for c in ["pcs_numeric", "Số lượng rập"] if c in df_bom.columns), "Số lượng rập")
 
     for idx, r in df_bom.iterrows():
-        v_piece = virtual_pieces_layer.get(idx, virtual_pieces_layer.get(str(idx), {}))
+        idx_str = str(idx).strip()
+        
+        v_piece = virtual_pieces_layer.get(idx_str, {})
         if not v_piece:
-            virtual_pieces_layer[idx] = {}
-            v_piece = virtual_pieces_layer[idx]
+            virtual_pieces_layer[idx_str] = {}
+            v_piece = virtual_pieces_layer[idx_str]
         
         p_len = float(v_piece.get("production_l", r.get(l_col, 0.0) if l_col else 0.0))
         p_wid = float(v_piece.get("production_w", r.get(w_col, 0.0) if w_col else 0.0))
         net_area = float(v_piece.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         
-        # Thừa hưởng chất liệu sạch từ Đoạn 4 (Không tự ý phân loại lại từ đầu)
         p_class_check = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
         v_piece["material_class"] = p_class_check  
 
         if net_area <= 0.0 and p_len > 0.0 and p_wid > 0.0:
             net_area = p_len * p_wid
 
-        # Khóa chặt số lượng mảnh đối xứng liên tầng
         raw_pcs = float(v_piece.get("active_user_pieces", r.get(pcs_col, 1.0) if pcs_col else 1.0))
         raw_pcs = max(raw_pcs, 1.0)
 
         user_pieces_dict = st.session_state.get("user_edited_pieces", {})
         if idx in user_pieces_dict: pcs = float(user_pieces_dict[idx])
-        elif str(idx) in user_pieces_dict: pcs = float(user_pieces_dict[str(idx)])
+        elif idx_str in user_pieces_dict: pcs = float(user_pieces_dict[idx_str])
         else: pcs = raw_pcs
 
         pcs = max(pcs, 1.0)
@@ -1632,104 +1619,21 @@ if rows is not None and (isinstance(rows, list) and len(rows) > 0 or isinstance(
         df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
         v_piece["polygon_net_area"] = round(net_area, 2)
 
-        # Tạo mảng sơ đồ chi tiết ảo phục vụ cấu trúc hình học hạ nguồn
         if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
             loop_pcs = int(math.ceil(pcs))
             for _ in range(loop_pcs):
                 raw_unpaired_pieces.append({
-                    "idx": idx, "l": p_len, "w": p_wid, "area": net_area,
+                    "idx": idx_str, "l": p_len, "w": p_wid, "area": net_area,
                     "material_class": p_class_check, "priority": 3
                 })
 
     raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
     df_bom["Chiều dài rập (inch)"] = list_lengths
     df_bom["Chiều rộng rập (inch)"] = list_widths
-    
+
     ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
     st.session_state["bom_data"] = ctx
 
-    # =====================================================================
-    # 🟩 ĐOẠN 5.1 (VERSION V25): PIECE NORMALIZE PIPELINE (CORE STRUCTURE)
-    # =====================================================================
-    import math  
-    import pandas as pd
-    import streamlit as st
-
-    if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
-    ctx = st.session_state["bom_data"]
-    
-    ai_decision_d5 = ctx.get("ai_expert_decision", {})
-    if not isinstance(ai_decision_d5, dict): 
-        ai_decision_d5 = {}
-        
-    virtual_pieces_layer = ai_decision_d5.get("virtual_pieces_layer", {})
-    if not virtual_pieces_layer: 
-        virtual_pieces_layer = {}
-
-    # Kế thừa trục khổ vải Master an toàn từ Đoạn 1
-    current_fabric_width = float(st.session_state.get("current_active_width", 58.0))
-    fusing_width = float(st.session_state.get("fusing_width", 59.0))    
-    lining_width = float(st.session_state.get("lining_width", 57.0))    
-
-    raw_unpaired_pieces = []
-    list_lengths, list_widths = [], []
-
-    l_col = next((c for c in ["Chiều dài rập (inch)", "bounding_box_length"] if c in df_bom.columns), None)
-    w_col = next((c for c in ["Chiều rộng rập (inch)", "bounding_box_width"] if c in df_bom.columns), None)
-    pcs_col = next((c for c in ["pcs_numeric", "Số lượng rập"] if c in df_bom.columns), "Số lượng rập")
-
-    for idx, r in df_bom.iterrows():
-        v_piece = virtual_pieces_layer.get(idx, virtual_pieces_layer.get(str(idx), {}))
-        if not v_piece:
-            virtual_pieces_layer[idx] = {}
-            v_piece = virtual_pieces_layer[idx]
-        
-        p_len = float(v_piece.get("production_l", r.get(l_col, 0.0) if l_col else 0.0))
-        p_wid = float(v_piece.get("production_w", r.get(w_col, 0.0) if w_col else 0.0))
-        net_area = float(v_piece.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        
-        # Thừa hưởng chất liệu sạch từ Đoạn 4 (Không tự ý phân loại lại từ đầu)
-        p_class_check = str(v_piece.get("material_class", r.get("Material Class", "FABRIC"))).upper().strip()
-        v_piece["material_class"] = p_class_check  
-
-        if net_area <= 0.0 and p_len > 0.0 and p_wid > 0.0:
-            net_area = p_len * p_wid
-
-        # Khóa chặt số lượng mảnh đối xứng liên tầng
-        raw_pcs = float(v_piece.get("active_user_pieces", r.get(pcs_col, 1.0) if pcs_col else 1.0))
-        raw_pcs = max(raw_pcs, 1.0)
-
-        user_pieces_dict = st.session_state.get("user_edited_pieces", {})
-        if idx in user_pieces_dict: pcs = float(user_pieces_dict[idx])
-        elif str(idx) in user_pieces_dict: pcs = float(user_pieces_dict[str(idx)])
-        else: pcs = raw_pcs
-
-        pcs = max(pcs, 1.0)
-        df_bom.at[idx, pcs_col] = int(pcs)
-        v_piece["active_user_pieces"] = int(pcs)
-
-        list_lengths.append(round(p_len, 2) if p_len > 0 else 0.0)
-        list_widths.append(round(p_wid, 2) if p_wid > 0 else 0.0)
-        
-        df_bom.at[idx, "polygon_net_area"] = round(net_area, 2)
-        v_piece["polygon_net_area"] = round(net_area, 2)
-
-        # Tạo mảng sơ đồ chi tiết ảo phục vụ cấu trúc hình học hạ nguồn
-        if p_class_check in ["FABRIC", "FUSING", "LINING", "RIB", "CONTRAST", "PADDING"] and p_len > 0.0:
-            loop_pcs = int(math.ceil(pcs))
-            for _ in range(loop_pcs):
-                raw_unpaired_pieces.append({
-                    "idx": idx, "l": p_len, "w": p_wid, "area": net_area,
-                    "material_class": p_class_check, "priority": 3
-                })
-
-    raw_unpaired_pieces.sort(key=lambda x: (x.get('priority', 3), -x['area']))
-    df_bom["Chiều dài rập (inch)"] = list_lengths
-    df_bom["Chiều rộng rập (inch)"] = list_widths
-    
-    ctx["ai_expert_decision"]["virtual_pieces_layer"] = virtual_pieces_layer
-    st.session_state["bom_data"] = ctx
     # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN A (VERSION V25): MARKER EFFICIENCY ROUTER PIPELINE
     # =====================================================================
