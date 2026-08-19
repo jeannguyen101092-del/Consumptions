@@ -1747,8 +1747,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
 
 
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.2): FINAL ENGINE & AUTOMATED UI TRIGGER
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.3): COMMERCIAL CONSUMPTION ENGINE & COMMIT
     # =====================================================================
     import pandas as pd
     import streamlit as st
@@ -1779,12 +1779,8 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
 
         # [BƯỚC 2]: 🔒 GEOMETRY GUARD - CHỐNG DIỆN TÍCH BẰNG 0
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
-        
-        # Nếu diện tích thô từ CAD/AI hoặc lớp ảo bằng 0, lấy Chiều dài x Chiều rộng cứu luồng tính
         if pure_unit_area <= 0.0:
             pure_unit_area = p_length_fallback * p_width_fallback
-            
-        # Gán định mức phòng hộ tối thiểu nếu diện tích vẫn bằng 0 để bảo vệ lưới chi tiết
         if pure_unit_area <= 0.0:
             pure_unit_area = 10.0 
 
@@ -1808,12 +1804,12 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # [BƯỚC 4]: KIỂM SOÁT ĐƯỜNG MAY CHỐNG LỖI NHÂN ĐÔI
+        # [BƯỚC 4]: BIÊN MAY
         area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
         seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
         total_piece_area = pure_unit_area * pcs * seam_modifier
         
-        # [BƯỚC 5]: XÁC ĐỊNH KHỔ VẢI THỰC TẾ TRÊN TỪNG NHÓM PHÂN LỚP VẬT TƯ
+        # [BƯỚC 5]: KHỔ VẢI THỰC TẾ TRÊN TỪNG NHÓM PHÂN LỚP VẬT TƯ
         if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
@@ -1840,7 +1836,6 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         # =====================================================================
         gross_area_sq_inches = total_piece_area / row_efficiency
         
-        # Thuật toán co rút phóng rập mẫu phẳng kỹ thuật (Scale-Up)
         shrinkage_multiplier = (1.0 + shrink_v) * (1.0 + shrink_h)
         gross_area_post_shrink = gross_area_sq_inches * shrinkage_multiplier
         
@@ -1854,25 +1849,35 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
         summary_grouped_gross[p_cls] += gross_consumption_yards
 
-    # Đóng gói dữ liệu tổng định biên, làm tròn 3 chữ số thập phân
+        # 🔒 AUDIT TRAIL: xác nhận từng dòng đã thực sự nhận DM (Đã thêm chính xác)
+        print(
+            f"[DM ENGINE] idx={idx} | "
+            f"component={c_name_lower} | "
+            f"class={p_cls} | "
+            f"pcs={pcs} | "
+            f"width={current_w:.2f} | "
+            f"gross={gross_consumption_yards:.4f} Yds"
+        )
+
+    # Đóng gói dữ liệu tổng, làm tròn 3 chữ số thập phân
     for k in summary_grouped_gross:
         summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
         
     st.session_state["summary_grouped_gross"] = summary_grouped_gross
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
 
-    # 🔒 KHÓA TRỤC KIẾN TRÚC TUYẾN TÍNH: Lưu chặt DataFrame đã tính Yards vào RAM để 7.1 nhặt lên
+    # =====================================================================
+    # 🔒 FINAL COMMIT - KHÓA DATAFRAME SAU KHI ENGINE TÍNH XONG (Đã thêm chính xác)
+    # =====================================================================
+    df_bom["Gross Consumption"] = pd.to_numeric(df_bom["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
+
     st.session_state["active_calculated_df_bom"] = df_bom.copy()
 
-    # 🔗 🔥 BỘ PHÁT SỰ KIỆN KÍCH HOẠT TỰ ĐỘNG KHÉP KÍN LUỒNG DỮ LIỆU UI (INTEGRATED TRIGGER)
-    # Ngay khi tính định mức Yards hoàn tất sau khi upload file PDF, bộ gác cổng kiểm tra cờ trạng thái
-    if not st.session_state.get("pipeline_auto_run_executed", False):
-        # Đóng khóa trigger để tránh lặp vô hạn chu trình vẽ màn hình (Infinite Loop Control)
-        st.session_state["pipeline_auto_run_executed"] = True
-        
-        # 🔄 AUTOMATIC RERUN: Ép Streamlit vẽ lại màn hình ngay lập tức, đưa dữ liệu Yards ra Đoạn 7.1 hiển thị
-        st.rerun()
-
+    print(
+        "[DM ENGINE FINAL] "
+        f"Rows={len(df_bom)} | "
+        f"Total DM={df_bom['Gross Consumption'].sum():.4f} Yds"
+    )
 
 
 
@@ -2009,7 +2014,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     import streamlit as st
 
     # =====================================================================
-    # 🟩 ĐOẠN 7.1 (VERSION V79.5): DISPLAY & AUDIT LAYER (FULLY SYNCED)
+    # 🟩 ĐOẠN 7.1 (VERSION V79.6): DISPLAY LAYER WITH CORE IN-LINE RENDERING
     # =====================================================================
 
     if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
@@ -2043,7 +2048,6 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     real_sync_product_type = str(ctx.get("ie_product_type_friendly", ai_decision_final.get("product_type_friendly", "JEAN_LONG (Quần dài Jeans/Pants)"))).strip()
     marker_efficiency = float(st.session_state.get("active_marker_efficiency_value", ai_decision_final.get("marker_efficiency", 0.7400)))
 
-    # Đọc khổ vải thực tế từ chat
     chat_width_override = float(st.session_state.get("current_active_width", 58.0))
     if chat_width_override <= 0.0:
         chat_width_override = 58.0
@@ -2069,7 +2073,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     m3.metric("📐 Mật Độ Sơ Đồ Chỉ Định", f"{marker_efficiency * 100:.2f}%") 
     m4.metric("🎯 Độ Tin Cậy AI (Confidence)", f"{float(ctx.get('confidence', 0.95))*100:.1f}%")
 
-    # 2. CHỌN NGUỒN DATAFRAME KẾ THỪA
+    # Kế thừa dữ liệu đã commit từ phân hệ B2 chuyển giao
     if "active_calculated_df_bom" in st.session_state:
         df_bom_display = st.session_state["active_calculated_df_bom"].copy()
     else:
@@ -2081,23 +2085,42 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     df_bom_display["Role/Piece Type"] = "PRIMARY"
     df_bom_display["_original_row_index"] = df_bom_display.index
 
-    # Khóa loại chất liệu sửa đổi của người dùng từ lưới UI
+    # 🛠️ FIXED: THAY THẾ TOÀN BỘ PHẦN CHỌN NGUỒN DATAFRAME KẾ THỪA THEO CHỈ ĐỊNH CỨNG
     clean_mats = []
     user_edited_materials = st.session_state.get("user_edited_materials", {})
-    
+
     for idx, row in df_bom_display.iterrows():
         solver_piece_data = virtual_pieces.get(idx, virtual_pieces.get(str(idx), {}))
-        if not isinstance(solver_piece_data, dict): 
+        if not isinstance(solver_piece_data, dict):
             solver_piece_data = {}
+            
         if idx in user_edited_materials:
             p_cls = user_edited_materials[idx]
         elif str(idx) in user_edited_materials:
             p_cls = user_edited_materials[str(idx)]
         else:
             p_cls = solver_piece_data.get("material_class", row.get("Material Class", "FABRIC"))
+            
         clean_mats.append(str(p_cls).upper().strip())
-        
+
     df_bom_display["Material Class"] = clean_mats
+
+    # ---------------------------------------------------------------------
+    # 🔒 KHÓA KIỂU DỮ LIỆU GROSS CONSUMPTION (Đã thêm chính xác)
+    # ---------------------------------------------------------------------
+    df_bom_display["Gross Consumption"] = pd.to_numeric(df_bom_display["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
+    df_bom_display["Số lượng rập"] = pd.to_numeric(df_bom_display["Số lượng rập"], errors="coerce").fillna(0).astype(int)
+    df_bom_display["Khổ vải sản xuất (inch)"] = pd.to_numeric(df_bom_display["Khổ vải sản xuất (inch)"], errors="coerce").fillna(0.0)
+
+    # =====================================================================
+    # 🔬 DEBUG MASTER - KIỂM TRA TRỰC TIẾP DATAFRAME SAU ENGINE (Đã thêm chính xác)
+    # =====================================================================
+    _debug_total_dm = float(df_bom_display["Gross Consumption"].sum())
+    st.caption(
+        f"🔒 MASTER ENGINE DATA: "
+        f"{len(df_bom_display)} pieces | "
+        f"Total Gross DM = **{_debug_total_dm:.4f} Yds**"
+    )
 
     # 3. 📊 RENDER BẢNG TỔNG HỢP BOM SUMMARY (YARDS)
     total_fabric = grouped_gross.get("FABRIC", 0.0)
@@ -2145,7 +2168,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
     # =====================================================================
-    # 📐 HIỂN THỊ ĐỊNH MỨC CHI TIẾT TỪ ENGINE 5.2B2 (FIXED THEO ĐÚNG CHỈ ĐỊNH)
+    # 📐 HIỂN THỊ ĐỊNH MỨC CHI TIẾT TỪNG RẬP (Đã thêm và giữ cấu hình cứng của anh)
     # =====================================================================
     st.subheader("📐 ĐỊNH MỨC CHI TIẾT TỪNG RẬP (PIECE DETAILS)")
 
@@ -2159,14 +2182,23 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         "Gross Consumption"
     ]
 
-    # Kiểm định an toàn cột tồn tại chống crash lưới đồ họa
+    # Chỉ lấy các cột thực sự tồn tại
     display_cols = [c for c in display_cols if c in df_bom_display.columns]
     df_dm_detail = df_bom_display[display_cols].copy()
 
+    # Khóa lại Gross Consumption lần cuối trước khi render
     if "Gross Consumption" in df_dm_detail.columns:
         df_dm_detail["Gross Consumption"] = pd.to_numeric(df_dm_detail["Gross Consumption"], errors="coerce").fillna(0.0).round(4)
 
-    st.dataframe(df_dm_detail, use_container_width=True, hide_index=True)
+    st.dataframe(
+        df_dm_detail,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Gross Consumption": st.column_config.NumberColumn("Gross Consumption (Yds)", format="%.4f"),
+            "Khổ vải sản xuất (inch)": st.column_config.NumberColumn("Khổ vải sản xuất (inch)", format="%.1f")
+        }
+    )
 
 
 
