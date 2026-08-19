@@ -1752,7 +1752,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
     base_efficiency = float(st.session_state.get("active_marker_efficiency_value", 0.74))
 
         # =====================================================================
-    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V25.2): FINAL COMMERCIAL CONSUMPTION ENGINE
+    # 🟩 ĐOẠN 5.2 - PHẦN B2 (VERSION V26.2): FINAL ENGINE & AUTOMATED UI TRIGGER
     # =====================================================================
     import pandas as pd
     import streamlit as st
@@ -1784,11 +1784,11 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         # [BƯỚC 2]: 🔒 GEOMETRY GUARD - CHỐNG DIỆN TÍCH BẰNG 0
         pure_unit_area = float(v.get("polygon_net_area", r.get("polygon_net_area", 0.0)))
         
-        # Nếu diện tích thô từ CAD/AI hoặc lớp ảo bằng 0, lập tức lấy Chiều dài x Chiều rộng để cứu luồng tính
+        # Nếu diện tích thô từ CAD/AI hoặc lớp ảo bằng 0, lấy Chiều dài x Chiều rộng cứu luồng tính
         if pure_unit_area <= 0.0:
             pure_unit_area = p_length_fallback * p_width_fallback
             
-        # Nếu sau khi tính hộp bao vẫn bằng 0, gán định mức phòng hộ tối thiểu để không bị trống lưới
+        # Gán định mức phòng hộ tối thiểu nếu diện tích vẫn bằng 0 để bảo vệ lưới chi tiết
         if pure_unit_area <= 0.0:
             pure_unit_area = 10.0 
 
@@ -1812,19 +1812,18 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         if idx not in stored_virtual_pieces: stored_virtual_pieces[idx] = {}
         stored_virtual_pieces[idx]["active_user_pieces"] = pcs
 
-        # [BƯỚC 4]: BIÊN MAY
+        # [BƯỚC 4]: KIỂM SOÁT ĐƯỜNG MAY CHỐNG LỖI NHÂN ĐÔI
         area_includes_seam = bool(v.get("area_includes_seam", False) or r.get("area_includes_seam", False))
         seam_modifier = 1.06 if (p_cls in ["FABRIC", "CONTRAST"] and not area_includes_seam) else 1.0
         total_piece_area = pure_unit_area * pcs * seam_modifier
         
-        # [BƯỚC 5]: 🔒 WIDTH GUARD - CHỐNG KHỔ VẢI BẰNG 0
+        # [BƯỚC 5]: XÁC ĐỊNH KHỔ VẢI THỰC TẾ TRÊN TỪNG NHÓM PHÂN LỚP VẬT TƯ
         if p_cls == "FUSING": current_w = float(st.session_state.get("fusing_width", 59.0))
         elif p_cls == "LINING": current_w = float(st.session_state.get("lining_width", 57.0))
         elif p_cls == "RIB": current_w = float(st.session_state.get("rib_width", 40.0))
         elif p_cls == "PADDING": current_w = float(st.session_state.get("padding_width", 60.0))
         else: current_w = parsed_width  
             
-        # Chặn đứng lỗi ZeroDivisionError nếu các khổ vải phụ liệu bị gán bằng 0 trên UI
         if current_w <= 0.0: 
             if p_cls == "FUSING": current_w = 59.0
             elif p_cls == "LINING": current_w = 57.0
@@ -1834,7 +1833,7 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
             
         df_bom.at[idx, "Khổ vải sản xuất (inch)"] = current_w
 
-        # [BƯỚC 6]: HIỆU SUẤT SƠ ĐỒ
+        # [BƯỚC 6]: PHÂN PHỐI HIỆU SUẤT SƠ ĐỒ
         row_efficiency = base_efficiency
         if p_cls in ["FUSING", "LINING"]: row_efficiency = 0.60  
         elif p_cls == "RIB": row_efficiency = 0.82  
@@ -1845,12 +1844,11 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         # =====================================================================
         gross_area_sq_inches = total_piece_area / row_efficiency
         
+        # Thuật toán co rút phóng rập mẫu phẳng kỹ thuật (Scale-Up)
         shrinkage_multiplier = (1.0 + shrink_v) * (1.0 + shrink_h)
         gross_area_post_shrink = gross_area_sq_inches * shrinkage_multiplier
         
-        # Thực hiện phép toán chia an toàn hoàn toàn không sợ dính số 0
         linear_inches_needed = gross_area_post_shrink / current_w
-        
         actual_wastage = 1.03 if area_includes_seam else wastage_allowance
         total_inches_with_wastage = linear_inches_needed * actual_wastage
         
@@ -1860,15 +1858,25 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
         df_bom.at[idx, "Gross Consumption"] = gross_consumption_yards
         summary_grouped_gross[p_cls] += gross_consumption_yards
 
-    # Đóng gói dữ liệu tổng, làm tròn 3 chữ số thập phân xuất báo cáo UI
+    # Đóng gói dữ liệu tổng định biên, làm tròn 3 chữ số thập phân
     for k in summary_grouped_gross:
         summary_grouped_gross[k] = round(summary_grouped_gross[k], 3)
         
     st.session_state["summary_grouped_gross"] = summary_grouped_gross
     st.session_state["bom_data"]["ai_expert_decision"]["virtual_pieces_layer"] = stored_virtual_pieces
 
-    # 🔒 KHÓA TRỤC KIẾN TRÚC TUYẾN TÍNH: Ép DataFrame đã tính định mức lưu chặt vào RAM hệ thống
+    # 🔒 KHÓA TRỤC KIẾN TRÚC TUYẾN TÍNH: Lưu chặt DataFrame đã tính Yards vào RAM để 7.1 nhặt lên
     st.session_state["active_calculated_df_bom"] = df_bom.copy()
+
+    # 🔗 🔥 BỘ PHÁT SỰ KIỆN KÍCH HOẠT TỰ ĐỘNG KHÉP KÍN LUỒNG DỮ LIỆU UI (INTEGRATED TRIGGER)
+    # Ngay khi tính định mức Yards hoàn tất sau khi upload file PDF, bộ gác cổng kiểm tra cờ trạng thái
+    if not st.session_state.get("pipeline_auto_run_executed", False):
+        # Đóng khóa trigger để tránh lặp vô hạn chu trình vẽ màn hình (Infinite Loop Control)
+        st.session_state["pipeline_auto_run_executed"] = True
+        
+        # 🔄 AUTOMATIC RERUN: Ép Streamlit vẽ lại màn hình ngay lập tức, đưa dữ liệu Yards ra Đoạn 7.1 hiển thị
+        st.rerun()
+
 
 
 
