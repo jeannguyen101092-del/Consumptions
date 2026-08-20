@@ -583,11 +583,11 @@ with col_right:
 
 
 # =====================================================================
-# 🧠 ĐOẠN A: KHỐI HÀM CACHE AI (PHIÊN BẢN V23) - ĐÃ PHÁ VỠ BẪY CACHE CŨ HOÀN TOÀN
+# 🧠 ĐOẠN A (VERSION V24.0): AI PURE SCAN - STRICT PIECE COUNT SYNC
 # =====================================================================
 @st.cache_data(
     show_spinner=False,
-    ttl=3600,  # Khóa chặt bộ nhớ Cache trong 1 tiếng để sửa UI thoải mái không bị tính tiền lần 2
+    ttl=3600,
     hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
 )
 def execute_final_gerber_pure_scan(
@@ -602,9 +602,12 @@ def execute_final_gerber_pure_scan(
     import hashlib
     import json
     import re
-    import fitz  # PyMuPDF xử lý văn bản và hình ảnh PDF
+    import fitz
     import google.generativeai as genai
 
+    # =================================================================
+    # 1. CHUẨN HÓA PDF INPUT
+    # =================================================================
     if hasattr(pdf_bytes, "getvalue"):
         pdf_bytes = pdf_bytes.getvalue()
 
@@ -615,32 +618,132 @@ def execute_final_gerber_pure_scan(
     image_payloads = []
 
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
+
         total_pages = len(doc_recovery)
 
-        for idx in range(total_pages):
-            page_text = doc_recovery[idx].get_text("text")
-            full_pdf_raw_text += f"\n--- PAGE {idx + 1} ---\n{page_text}"
+        for page_idx in range(total_pages):
 
-            # Giới hạn phòng vệ gửi 2 trang ảnh đầu để bảo vệ số dư tài khoản 300k
+            page_text = doc_recovery[page_idx].get_text("text")
+
+            full_pdf_raw_text += (
+                f"\n--- PAGE {page_idx + 1} ---\n"
+                f"{page_text}"
+            )
+
+            # Chỉ gửi tối đa 2 trang hình ảnh để kiểm soát token
             if len(image_payloads) < 2:
                 try:
-                    pix = doc_recovery[idx].get_pixmap(dpi=72, colorspace=fitz.csRGB)
-                    image_payloads.append({"mime_type": "image/jpeg", "data": pix.tobytes("jpeg")})
+                    pix = doc_recovery[page_idx].get_pixmap(
+                        dpi=72,
+                        colorspace=fitz.csRGB
+                    )
+
+                    image_payloads.append({
+                        "mime_type": "image/jpeg",
+                        "data": pix.tobytes("jpeg")
+                    })
+
                 except Exception:
                     continue
 
+    # =================================================================
+    # 2. GHÉP INPUT CHO GEMINI
+    # =================================================================
     gemini_inputs = list(image_payloads)
-    gemini_inputs.insert(0, f"=== USER CHAT COMMAND ===\n{current_query}\n\n=== TECHPACK TEXT ===\n{full_pdf_raw_text}\n")
+
+    gemini_inputs.insert(
+        0,
+        f"""
+=== USER CHAT COMMAND ===
+{current_query}
+
+=== TARGET SIZE ===
+{target_size_cmd}
+
+=== TECHPACK TEXT ===
+{full_pdf_raw_text}
+"""
+    )
 
     extended_prompt = prompt_agent_2 + """
-    CRITICAL MULTI-MATERIAL EXTRACTION RULES:
-    - You MUST extract EVERY SINGLE component listed in the document, not just FABRIC.
-    - If a component name contains "FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT", classify its material_class strictly as "FUSING".
-    - If a component name contains "LINING", "POCKET BAG", "LOT TUI", "RIB", "BO GÂN", classify its material_class strictly as "LINING".
-    """
+
+=====================================================================
+🚨 MASTER PIECE COUNT RULE - ABSOLUTE
+=====================================================================
+
+For EVERY valid pattern component:
+
+1. "cut_quantity" MUST represent the TOTAL PHYSICAL NUMBER OF PIECES
+   required for ONE finished garment.
+
+2. "piece_count" MUST be IDENTICAL to "cut_quantity".
+
+3. NEVER default piece_count to 1 when cut_quantity is available.
+
+4. Examples:
+   - Front Left + Front Right = cut_quantity 2
+   - Back Left + Back Right = cut_quantity 2
+   - Sleeve pair = cut_quantity 2
+   - Collar pair if two physical pieces = cut_quantity 2
+   - Waistband cut as one continuous piece = cut_quantity 1
+   - Pocket pair = cut_quantity 2
+   - Single pocket = cut_quantity 1
+
+5. If a component is explicitly marked:
+   mirror_piece = true
+   OR
+   is_left_right_pair = true
+
+   then normally cut_quantity should be at least 2,
+   UNLESS the Tech Pack clearly states that the pattern is cut on fold
+   or one physical piece produces both sides.
+
+6. "mirror_piece" describes geometry relationship.
+   It does NOT mean that the row itself should be duplicated.
+
+7. DO NOT combine left/right physical pieces into one geometry width.
+
+8. DO NOT reduce cut_quantity to 1 merely because only one CAD
+   geometry description is shown.
+
+=====================================================================
+🚨 GEOMETRY RULE
+=====================================================================
+
+"bounding_box_width" = width of ONE physical pattern piece.
+
+Never combine left + right pieces into one width.
+
+Example:
+If left front = 12"
+and right front = 12"
+
+Then:
+bounding_box_width = 12"
+cut_quantity = 2
+
+NOT:
+bounding_box_width = 24"
+cut_quantity = 1
+
+=====================================================================
+🚨 IMPORTANT
+=====================================================================
+
+Always return cut_quantity whenever a physical pattern component
+can be identified.
+
+Do not omit cut_quantity.
+Do not use 1 as a generic fallback if the Tech Pack indicates a pair.
+"""
+
     gemini_inputs.append(extended_prompt)
 
+    # =================================================================
+    # 3. GỌI GEMINI
+    # =================================================================
     model = genai.GenerativeModel("gemini-2.5-flash")
+
     response = model.generate_content(
         gemini_inputs,
         generation_config={
@@ -655,80 +758,251 @@ def execute_final_gerber_pure_scan(
         raise RuntimeError("Mô hình Gemini trả về kết quả rỗng!")
 
     txt = response.text.strip()
+
     if txt.startswith("```"):
         txt = re.sub(r"^```json\s*", "", txt)
         txt = re.sub(r"^```\s*", "", txt)
         txt = re.sub(r"\s*```$", "", txt)
+
     txt = txt.strip()
 
     try:
         blueprint_worker = json.loads(txt)
-    except json.JSONDecodeError as json_err:
-        raise RuntimeError(f"Mô hình Gemini trả về cấu trúc chuỗi JSON không hợp lệ:\n\n{txt}") from json_err
 
+    except json.JSONDecodeError as json_err:
+        raise RuntimeError(
+            "Mô hình Gemini trả về JSON không hợp lệ:\n\n"
+            + txt
+        ) from json_err
+
+    # =================================================================
+    # 4. NORMALIZE BOM
+    # =================================================================
     if blueprint_worker and "bom_rows" in blueprint_worker:
+
         blueprint_worker["calculated_on_size"] = target_size_cmd
-        
+
         for row in blueprint_worker.get("bom_rows", []):
+
+            # ---------------------------------------------------------
+            # COMPONENT NAME
+            # ---------------------------------------------------------
             if "component_name" in row:
-                row["component_name"] = " ".join(str(row["component_name"]).upper().split())
-            
-            # Ép kiểu dữ liệu an toàn ban đầu
-            try: row["bounding_box_length"] = round(float(row.get("bounding_box_length", 0.0)), 2)
-            except: row["bounding_box_length"] = 0.0
-            try: row["bounding_box_width"] = round(float(row.get("bounding_box_width", 0.0)), 2)
-            except: row["bounding_box_width"] = 0.0
-            try: row["polygon_net_area"] = float(row.get("polygon_net_area", 0.0))
-            except: row["polygon_net_area"] = 0.0
-            try: row["piece_count"] = int(float(row.get("piece_count", 1)))
-            except: row["piece_count"] = 1
-            
-            comp_name = str(row.get("component_name", "")).upper()
-            mat_class = str(row.get("material_class", "FABRIC")).upper().strip()
-            
-            # Sửa lỗi phân loại vật tư nghiêm ngặt cho Keo/Lót/Rib
-            if any(k in comp_name for k in ["FUSING", "INTERLINING", "MEX", "DỰNG", "KEO LOT"]):
+                row["component_name"] = " ".join(
+                    str(row["component_name"]).upper().split()
+                )
+
+            # ---------------------------------------------------------
+            # GEOMETRY
+            # ---------------------------------------------------------
+            try:
+                row["bounding_box_length"] = round(
+                    float(row.get("bounding_box_length", 0.0)),
+                    2
+                )
+            except Exception:
+                row["bounding_box_length"] = 0.0
+
+            try:
+                row["bounding_box_width"] = round(
+                    float(row.get("bounding_box_width", 0.0)),
+                    2
+                )
+            except Exception:
+                row["bounding_box_width"] = 0.0
+
+            try:
+                row["polygon_net_area"] = float(
+                    row.get("polygon_net_area", 0.0)
+                )
+            except Exception:
+                row["polygon_net_area"] = 0.0
+
+            # ---------------------------------------------------------
+            # MATERIAL CLASS
+            # ---------------------------------------------------------
+            comp_name = str(
+                row.get("component_name", "")
+            ).upper().strip()
+
+            mat_class = str(
+                row.get("material_class", "FABRIC")
+            ).upper().strip()
+
+            if any(k in comp_name for k in [
+                "FUSING",
+                "INTERLINING",
+                "MEX",
+                "MẾCH",
+                "DỰNG",
+                "KEO",
+                "KEO LOT"
+            ]):
                 mat_class = "FUSING"
-            elif any(k in comp_name for k in ["LINING", "POCKET", "LÓT", "RIB", "BO GÂN"]):
+
+            elif any(k in comp_name for k in [
+                "LINING",
+                "POCKET BAG",
+                "LOT TUI",
+                "LÓT",
+                "RIB",
+                "BO GÂN"
+            ]):
                 mat_class = "LINING"
+
+            elif any(k in comp_name for k in [
+                "CONTRAST",
+                "PHỐI"
+            ]):
+                mat_class = "CONTRAST"
+
+            else:
+                mat_class = "FABRIC"
+
             row["material_class"] = mat_class
 
-            # CHUẨN HÓA HÌNH HỌC PHẲNG: Gỡ hoàn toàn bẫy nhân đôi bề rộng của rập vải chính
-            if mat_class == "FABRIC" and row["bounding_box_width"] > 16.0:
-                row["bounding_box_width"] = round(row["bounding_box_width"] / 2.0, 2)
-                row["polygon_net_area"] = row["polygon_net_area"] / 2.0
-                row["piece_count"] = int(row["piece_count"] * 2)
+            # ---------------------------------------------------------
+            # 🔥 MASTER PIECE COUNT
+            # ---------------------------------------------------------
+            # cut_quantity là nguồn dữ liệu chính
+            raw_cut_qty = row.get("cut_quantity", None)
 
-            # GEOMETRY GUARD: Khống chế diện tích tinh không cho lấn át diện tích hộp bao phẳng
-            bbox_area = row["bounding_box_length"] * row["bounding_box_width"]
-            if row["polygon_net_area"] > bbox_area and bbox_area > 0:
-                row["polygon_net_area"] = bbox_area * (0.76 if mat_class == "FABRIC" else 0.85)
+            # Nếu AI có piece_count nhưng thiếu cut_quantity
+            if raw_cut_qty is None:
+                raw_cut_qty = row.get("piece_count", None)
 
-            try: row["gross_consumption"] = round(float(row.get("gross_consumption", 0.0415)), 4)
-            except: row["gross_consumption"] = 0.0415
-            try: row["marker_efficiency"] = str(row.get("marker_efficiency", "82.5%")).strip()
-            except: row["marker_efficiency"] = "82.5%"
-            
             try:
+                cut_qty = int(float(raw_cut_qty))
+            except Exception:
+                cut_qty = 0
+
+            # ---------------------------------------------------------
+            # Nếu AI không trả quantity, kiểm tra pair/mirror
+            # ---------------------------------------------------------
+            if cut_qty <= 0:
+
+                is_pair = bool(
+                    row.get("is_left_right_pair", False)
+                )
+
+                is_mirror = bool(
+                    row.get("mirror_piece", False)
+                )
+
+                fold_type = str(
+                    row.get("fold_type", "")
+                ).upper().strip()
+
+                # Có pair/mirror → 2
+                if (is_pair or is_mirror) and fold_type not in [
+                    "ON_FOLD",
+                    "CENTER_FOLD"
+                ]:
+                    cut_qty = 2
+
+                else:
+                    cut_qty = 1
+
+            # Không cho quantity < 1
+            cut_qty = max(1, cut_qty)
+
+            # 🔒 KHÓA ĐỒNG BỘ TUYỆT ĐỐI
+            row["cut_quantity"] = cut_qty
+            row["piece_count"] = cut_qty
+
+            # ---------------------------------------------------------
+            # 🔥 SINGLE PIECE WIDTH
+            # ---------------------------------------------------------
+            # KHÔNG nhân/chia piece_count dựa trên width.
+            # Width và quantity là 2 khái niệm độc lập.
+            #
+            # Ví dụ:
+            # Front L/R = width 12", quantity 2
+            #
+            # Không được biến:
+            # width 24", quantity 1
+            # ---------------------------------------------------------
+
+            bbox_area = (
+                row["bounding_box_length"]
+                * row["bounding_box_width"]
+            )
+
+            if (
+                row["polygon_net_area"] > bbox_area
+                and bbox_area > 0
+            ):
+                row["polygon_net_area"] = (
+                    bbox_area *
+                    (0.76 if mat_class == "FABRIC" else 0.85)
+                )
+
+            # ---------------------------------------------------------
+            # GROSS CONSUMPTION
+            # ---------------------------------------------------------
+            try:
+                row["gross_consumption"] = round(
+                    float(row.get("gross_consumption", 0.0)),
+                    4
+                )
+            except Exception:
+                row["gross_consumption"] = 0.0
+
+            # ---------------------------------------------------------
+            # MARKER EFFICIENCY
+            # ---------------------------------------------------------
+            try:
+                row["marker_efficiency"] = str(
+                    row.get(
+                        "marker_efficiency",
+                        "82.5%"
+                    )
+                ).strip()
+
+            except Exception:
+                row["marker_efficiency"] = "82.5%"
+
+            # ---------------------------------------------------------
+            # FABRIC WIDTH
+            # ---------------------------------------------------------
+            try:
+
                 forced_width = float(active_width)
+
                 if current_query:
-                    width_match = re.search(r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)", str(current_query), re.IGNORECASE)
-                    if width_match: forced_width = float(width_match.group(2))
+
+                    width_match = re.search(
+                        r"(khổ\s*vải|khổ)\s*(\d+(\.\d+)?)",
+                        str(current_query),
+                        re.IGNORECASE
+                    )
+
+                    if width_match:
+                        forced_width = float(
+                            width_match.group(2)
+                        )
+
                 row["fabric_width_inch"] = forced_width
-            except:
+
+            except Exception:
                 row["fabric_width_inch"] = float(active_width)
 
-    if "api_calls_count" not in st.session_state: st.session_state["api_calls_count"] = 0
-    if "tokens_consumed" not in st.session_state: st.session_state["tokens_consumed"] = 0
-        
+    # =================================================================
+    # 5. API COUNTER
+    # =================================================================
+    if "api_calls_count" not in st.session_state:
+        st.session_state["api_calls_count"] = 0
+
+    if "tokens_consumed" not in st.session_state:
+        st.session_state["tokens_consumed"] = 0
+
     st.session_state["api_calls_count"] += 1
-    st.session_state["tokens_consumed"] += len(str(full_pdf_raw_text)) // 4
+
+    st.session_state["tokens_consumed"] += (
+        len(str(full_pdf_raw_text)) // 4
+    )
 
     return blueprint_worker
-
-
-
-
 
 import io
 import re
