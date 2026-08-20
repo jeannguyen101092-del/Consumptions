@@ -5665,235 +5665,182 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
         f"TOTAL FUSING   = {summary_grouped_gross['FUSING']:.4f} Yds\n"
         "=============================================================\n"
     )
-        # =====================================================================
-    # 🟩 ĐOẠN 5.2C
-    # VERSION V28.8 - AUTOMATED CORE IGNITION
-    # STRICT ONE-TIME TRIGGER / NO DATA OVERWRITE
+      # =====================================================================
+    # 🟩 ĐOẠN 5.2C (VERSION V27.0): AUTOMATED CORES IGNITION
     # =====================================================================
 
-    import pandas as pd
-    import streamlit as st
-
-
-    # =====================================================================
-    # 1. MASTER CONTEXT RECOVERY
-    # =====================================================================
-
-    if not isinstance(
-        st.session_state.get("bom_data"),
-        dict
-    ):
+    if "bom_data" not in st.session_state:
         st.session_state["bom_data"] = {}
 
     ctx = st.session_state["bom_data"]
 
-
-    # =====================================================================
-    # 2. KIỂM TRA DỮ LIỆU ĐẦU VÀO
-    # =====================================================================
-
-    bom_rows = ctx.get(
-        "bom_rows",
-        []
+    # ================================================================
+    # 🔥 KIỂM TRA DỮ LIỆU ĐÃ CÓ NHƯNG CHƯA ĐƯỢC TÍNH DM
+    # ================================================================
+    has_raw_bom = (
+        isinstance(ctx.get("bom_rows"), list)
+        and len(ctx.get("bom_rows", [])) > 0
     )
 
-    ai_decision = ctx.get(
-        "ai_expert_decision",
-        {}
-    )
-
-    if not isinstance(
-        ai_decision,
-        dict
-    ):
-        ai_decision = {}
-
-
-    virtual_pieces_layer = ai_decision.get(
-        "virtual_pieces_layer",
-        {}
-    )
-
-    if not isinstance(
-        virtual_pieces_layer,
-        dict
-    ):
-        virtual_pieces_layer = {}
-
-
-    has_bom_data = (
-        isinstance(
-            bom_rows,
-            list
+    has_virtual_pieces = (
+        isinstance(ctx.get("ai_expert_decision"), dict)
+        and isinstance(
+            ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer"),
+            dict
         )
-        and len(bom_rows) > 0
-    )
-
-
-    has_virtual_geometry = (
-        len(
-            virtual_pieces_layer
+        and len(
+            ctx.get("ai_expert_decision", {})
+               .get("virtual_pieces_layer", {})
         ) > 0
     )
 
-
-    # =====================================================================
-    # 3. KIỂM TRA KẾT QUẢ ĐÃ TÍNH
-    # =====================================================================
-
-    active_calculated_df = (
-        st.session_state.get(
-            "active_calculated_df_bom"
-        )
-    )
-
-
-    has_calculated_result = (
-        isinstance(
-            active_calculated_df,
+    has_calculated_bom = (
+        "active_calculated_df_bom" in st.session_state
+        and isinstance(
+            st.session_state.get("active_calculated_df_bom"),
             pd.DataFrame
         )
-        and not active_calculated_df.empty
-        and "Gross Consumption"
-        in active_calculated_df.columns
+        and not st.session_state["active_calculated_df_bom"].empty
     )
 
+    # ================================================================
+    # 🔥 CHỈ KÍCH HOẠT KHI CÓ BOM THÔ NHƯNG CHƯA CÓ MASTER DM
+    # ================================================================
+    if (has_raw_bom or has_virtual_pieces) and not has_calculated_bom:
 
-    # =====================================================================
-    # 4. AUTO IGNITION
-    # =====================================================================
+        if not st.session_state.get(
+            "pipeline_auto_run_executed",
+            False
+        ):
 
-    if (
-        (has_bom_data or has_virtual_geometry)
-        and not has_calculated_result
-    ):
-
-        pipeline_started = bool(
-            st.session_state.get(
-                "pipeline_auto_run_executed",
-                False
-            )
-        )
-
-
-        # ---------------------------------------------------------------
-        # CHỈ KÍCH HOẠT 1 LẦN
-        # ---------------------------------------------------------------
-
-        if not pipeline_started:
-
-            st.session_state[
-                "pipeline_auto_run_executed"
-            ] = True
-
-
-            # -----------------------------------------------------------
-            # RECOVERY DATAFRAME
-            # -----------------------------------------------------------
-
-            if (
-                "df_bom" not in locals()
-                or df_bom is None
-                or (
-                    isinstance(
-                        df_bom,
-                        pd.DataFrame
-                    )
-                    and df_bom.empty
-                )
+            with st.spinner(
+                "⚙️ IE Engine đang tự động tính định mức thương mại..."
             ):
 
-                rows_raw = ctx.get(
-                    "bom_rows",
-                    st.session_state.get(
-                        "processed_display_rows",
-                        []
+                try:
+
+                    # ------------------------------------------------
+                    # 🔒 KHÓA TRẠNG THÁI TRƯỚC KHI RERUN
+                    # ------------------------------------------------
+                    st.session_state[
+                        "pipeline_auto_run_executed"
+                    ] = True
+
+                    # ------------------------------------------------
+                    # 🔄 KHÔI PHỤC df_bom NẾU BỊ MẤT SAU RERUN
+                    # ------------------------------------------------
+                    if (
+                        "df_bom" not in locals()
+                        or df_bom is None
+                        or (
+                            isinstance(df_bom, pd.DataFrame)
+                            and df_bom.empty
+                        )
+                    ):
+
+                        rows_raw = ctx.get(
+                            "bom_rows",
+                            st.session_state.get(
+                                "processed_display_rows",
+                                []
+                            )
+                        )
+
+                        if rows_raw:
+                            df_bom = pd.DataFrame(rows_raw)
+
+                    # ------------------------------------------------
+                    # 🔥 KIỂM TRA LẠI THÔNG SỐ CHAT TRƯỚC KHI CHẠY
+                    # ------------------------------------------------
+                    current_width = float(
+                        st.session_state.get(
+                            "current_active_width",
+                            ctx.get(
+                                "fabric_width_inch",
+                                58.0
+                            )
+                        )
                     )
-                )
 
+                    current_size = str(
+                        st.session_state.get(
+                            "current_active_size",
+                            ctx.get(
+                                "calculated_on_size",
+                                "32"
+                            )
+                        )
+                    ).strip()
 
-                if isinstance(
-                    rows_raw,
-                    pd.DataFrame
-                ):
-
-                    df_bom = rows_raw.copy()
-
-
-                elif (
-                    isinstance(
-                        rows_raw,
-                        list
-                    )
-                    and len(rows_raw) > 0
-                ):
-
-                    df_bom = pd.DataFrame(
-                        rows_raw
+                    current_warp = float(
+                        st.session_state.get(
+                            "current_warp_shrinkage",
+                            ctx.get(
+                                "warp_shrinkage_percent",
+                                0.0
+                            )
+                        )
                     )
 
+                    current_weft = float(
+                        st.session_state.get(
+                            "current_weft_shrinkage",
+                            ctx.get(
+                                "weft_shrinkage_percent",
+                                0.0
+                            )
+                        )
+                    )
 
-                else:
+                    # ------------------------------------------------
+                    # 🔒 COMMIT LẠI THÔNG SỐ MASTER
+                    # ------------------------------------------------
+                    st.session_state[
+                        "current_active_width"
+                    ] = current_width
 
-                    df_bom = pd.DataFrame()
+                    st.session_state[
+                        "current_active_size"
+                    ] = current_size
 
+                    st.session_state[
+                        "current_warp_shrinkage"
+                    ] = current_warp
 
-            # -----------------------------------------------------------
-            # NẾU ĐÃ CÓ DATA → CHO PHÉP PIPELINE TIẾP TỤC
-            # -----------------------------------------------------------
+                    st.session_state[
+                        "current_weft_shrinkage"
+                    ] = current_weft
 
-            if (
-                isinstance(
-                    df_bom,
-                    pd.DataFrame
-                )
-                and not df_bom.empty
-            ):
+                    ctx["fabric_width_inch"] = current_width
+                    ctx["usable_width_inch"] = current_width
+                    ctx["calculated_on_size"] = current_size
+                    ctx["warp_shrinkage_percent"] = current_warp
+                    ctx["weft_shrinkage_percent"] = current_weft
 
-                st.session_state[
-                    "pipeline_data_ready"
-                ] = True
+                    st.session_state["bom_data"] = ctx
 
+                    print(
+                        f"[5.2C MASTER SYNC] "
+                        f"Size={current_size} | "
+                        f"Width={current_width}\" | "
+                        f"Warp={current_warp}% | "
+                        f"Weft={current_weft}%"
+                    )
 
-                print(
-                    "[AUTO IGNITION] "
-                    f"Pipeline READY | "
-                    f"Rows={len(df_bom)}"
-                )
+                    # ------------------------------------------------
+                    # 🔄 RERUN 1 LẦN ĐỂ 5.2B1 → 5.2B2 TÍNH DM
+                    # ------------------------------------------------
+                    st.rerun()
 
+                except Exception as e:
 
-            else:
+                    st.session_state[
+                        "pipeline_auto_run_executed"
+                    ] = False
 
-                # Không có dữ liệu thực tế thì mở khóa
-                # để lần sau có thể thử lại.
-                st.session_state[
-                    "pipeline_auto_run_executed"
-                ] = False
-
-
-                st.session_state[
-                    "pipeline_data_ready"
-                ] = False
-
-
-                print(
-                    "[AUTO IGNITION] "
-                    "No BOM data available."
-                )
-
-
-    # =====================================================================
-    # 5. FINAL MASTER STATE
-    # =====================================================================
-
-    ctx[
-        "ai_expert_decision"
-    ] = ai_decision
-
-
-    st.session_state[
-        "bom_data"
-    ] = ctx
+                    st.error(
+                        f"❌ Lỗi AUTOMATED CORES IGNITION: {e}"
+                    )
 
 
         # =====================================================================
