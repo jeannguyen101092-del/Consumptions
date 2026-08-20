@@ -4846,206 +4846,172 @@ if _has_rows:
 
 
    
-       # =====================================================================
-    # 🟩 ĐOẠN 5.2 - MARKER EFFICIENCY ROUTER PIPELINE
-    # VERSION V28.6 - MASTER PRODUCT SYNC
     # =====================================================================
+# 🟩 ĐOẠN 5.2 - PHẦN A (VERSION V25.1): MARKER EFFICIENCY ROUTER
+# 🔧 CALIBRATION V1 - HIỆU CHỈNH THEO THỰC TẾ XƯỞNG
+# =====================================================================
 
-    import pandas as pd
+import pandas as pd
+import streamlit as st
 
-    # ---------------------------------------------------------------------
-    # 1. MASTER CONTEXT
-    # ---------------------------------------------------------------------
+if "bom_data" not in st.session_state or not isinstance(st.session_state["bom_data"], dict):
+    st.session_state["bom_data"] = {}
 
-    if not isinstance(
-        st.session_state.get("bom_data"),
-        dict
-    ):
-        st.session_state["bom_data"] = {}
+ctx = st.session_state["bom_data"]
+ai_decision = ctx.get("ai_expert_decision", {})
 
-    ctx = st.session_state["bom_data"]
+# =====================================================================
+# 🎯 MASTER MARKER EFFICIENCY
+#
+# Nguyên tắc:
+#   Efficiency ↓  => Gross DM ↑
+#   Efficiency ↑  => Gross DM ↓
+#
+# Đã hiệu chỉnh theo sai lệch thực tế:
+#   JEAN      : DM thấp ~8%  -> giảm efficiency
+#   JEAN_LONG : DM thấp ~8%  -> giảm efficiency
+#   JACKET    : DM cao ~40%  -> tăng efficiency
+# =====================================================================
 
-    ai_decision = ctx.get(
-        "ai_expert_decision",
-        {}
-    )
+CONFIG_MATRIX = {
 
-    if not isinstance(ai_decision, dict):
-        ai_decision = {}
-        ctx["ai_expert_decision"] = ai_decision
+    # ---------------------------------------------------------------
+    # OVERALL / DRESS / SKIRT / SHORT
+    # ---------------------------------------------------------------
+    "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+    "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+    "BIB":      [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+    "JUMPSUIT": [0.70, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+    "DUNGAREE": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
 
+    "DRESS":    [0.75, "DRESS (Đầm xòe/suông)"],
+    "SKIRT":    [0.66, "SKIRT (Chân váy)"],
+    "SHORT":    [0.68, "SHORT (Quần short)"],
 
-    # ---------------------------------------------------------------------
-    # 2. MARKER EFFICIENCY MATRIX
-    # ---------------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # 👖 JEAN
+    #
+    # Trước:
+    #   JEAN      = 0.75
+    #   JEAN_LONG = 0.82
+    #
+    # Nếu JEAN_LONG đang cho DM thấp khoảng 8%,
+    # giảm 0.82 -> khoảng 0.76 sẽ làm DM tăng khoảng 7.9%.
+    # ---------------------------------------------------------------
+    "JEAN":      [0.75, "JEAN (Vải Denim/Jean)"],
+    "JEAN_LONG": [0.76, "JEAN_LONG (Quần Jeans dài chuẩn)"],
 
-    CONFIG_MATRIX = {
+    "KHAKI":     [0.60, "KHAKI (Quần Khaki)"],
+    "TROUSER":   [0.71, "TROUSER (Quần tây công sở)"],
+    "PANT":      [0.72, "PANT (Quần dài dáng suông)"],
 
-        "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-        "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-        "BIB":      [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-        "JUMPSUIT": [0.70, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-        "DUNGAREE": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
+    # ---------------------------------------------------------------
+    # 🧥 JACKET
+    #
+    # Trước:
+    #   0.60
+    #
+    # Nếu DM hiện tại cao khoảng 40% so với thực tế:
+    #
+    # DM_new / DM_old = 0.60 / 0.84 = 0.7143
+    #
+    # => DM mới giảm khoảng 28.6%
+    #
+    # Đây là mức cần thiết nếu "cao 40%" nghĩa là:
+    # DM hiện tại = 1.40 × DM thực tế.
+    # ---------------------------------------------------------------
+    "JACKET":    [0.84, "JACKET (Áo khoác gió/Jeans)"],
 
-        "DRESS":    [0.75, "DRESS (Đầm xòe/suông)"],
-        "DRESS_FLARE": [0.75, "DRESS (Đầm xòe/suông)"],
+    "COAT":      [0.75, "COAT (Áo măng tô/Áo choàng)"],
+    "BLAZER":    [0.78, "BLAZER (Áo Vest mỏng/Blazer)"],
+    "SUIT":      [0.78, "SUIT (Bộ Comple/Suit)"],
 
-        "SKIRT":    [0.66, "SKIRT (Chân váy)"],
-        "SHORT":    [0.68, "SHORT (Quần short)"],
-
-        "JEAN":     [0.75, "JEAN (Vải Denim/Jean)"],
-        "JEAN_LONG":[0.82, "JEAN_LONG (Quần Jeans dài chuẩn)"],
-
-        "KHAKI":    [0.60, "KHAKI (Quần Khaki)"],
-        "TROUSER":  [0.71, "TROUSER (Quần tây công sở)"],
-        "PANT":     [0.72, "PANT (Quần dài dáng suông)"],
-
-        "JACKET":   [0.60, "JACKET (Áo khoác gió/Jeans)"],
-        "COAT":     [0.60, "COAT (Áo măng tô/Áo choàng)"],
-        "BLAZER":   [0.65, "BLAZER (Áo Vest mỏng/Blazer)"],
-        "VEST":     [0.65, "VEST (Áo Vest/Blazer)"],
-        "SUIT":     [0.65, "SUIT (Bộ Comple/Suit)"],
-
-        "SHIRT":    [0.78, "SHIRT (Áo sơ mi vải dệt)"],
-        "BLOUSE":   [0.78, "BLOUSE (Áo kiểu/Blouse)"],
-
-        "POLO":     [0.76, "POLO (Áo thun cổ bẻ)"],
-        "TEE":      [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
-        "TSHIRT":   [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
-        "TOPS_KNIT":[0.76, "TOPS_KNIT (Áo thun/Polo)"],
-        "TANK":     [0.74, "TANK (Áo ba lỗ/Sát nách)"],
-    }
-
-
-    # ---------------------------------------------------------------------
-    # 3. LẤY PRODUCT TYPE TRỰC TIẾP TỪ ĐOẠN 3.1
-    # ---------------------------------------------------------------------
-
-    ie_detected_type = str(
-        ai_decision.get(
-            "product_category",
-            ctx.get(
-                "detected_product_type",
-                "JEAN_LONG"
-            )
-        )
-    ).upper().strip()
-
-
-    # ---------------------------------------------------------------------
-    # 4. NORMALIZE PRODUCT ALIAS
-    # ---------------------------------------------------------------------
-
-    PRODUCT_ALIAS = {
-        "DRESS_FLARE": "DRESS",
-        "TOPS_KNIT": "TOPS_KNIT",
-        "JEANS": "JEAN",
-        "PANTS": "PANT",
-        "TROUSERS": "TROUSER",
-        "BOMBER": "JACKET",
-        "BLAZER": "BLAZER",
-        "VEST": "VEST",
-    }
-
-    ie_detected_type = PRODUCT_ALIAS.get(
-        ie_detected_type,
-        ie_detected_type
-    )
+    # ---------------------------------------------------------------
+    # 👔 SHIRT / TOP
+    # ---------------------------------------------------------------
+    "SHIRT":     [0.78, "SHIRT (Áo sơ mi vải dệt)"],
+    "BLOUSE":    [0.78, "BLOUSE (Áo kiểu/Blouse)"],
+    "POLO":      [0.76, "POLO (Áo thun cổ bẻ)"],
+    "TEE":       [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
+    "TSHIRT":    [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
+    "TANK":      [0.74, "TANK (Áo ba lỗ/Sát nách)"],
+}
 
 
-    # ---------------------------------------------------------------------
-    # 5. FALLBACK AN TOÀN
-    # ---------------------------------------------------------------------
+# =====================================================================
+# 🔒 KẾ THỪA CHỦNG LOẠI THÔ TỪ AI
+# =====================================================================
 
-    if ie_detected_type not in CONFIG_MATRIX:
+inherited_raw_type = str(
+    ai_decision.get("ai_product_type_raw", "JEAN_LONG")
+).upper().strip()
 
-        ie_detected_type = "JEAN_LONG"
+ie_detected_type = (
+    inherited_raw_type
+    if inherited_raw_type in CONFIG_MATRIX
+    else "JEAN_LONG"
+)
 
-
-    dynamic_marker_efficiency = float(
-        CONFIG_MATRIX[
-            ie_detected_type
-        ][0]
-    )
-
-    ie_product_type_friendly = (
-        CONFIG_MATRIX[
-            ie_detected_type
-        ][1]
-    )
+dynamic_marker_efficiency = CONFIG_MATRIX[ie_detected_type][0]
 
 
-    # ---------------------------------------------------------------------
-    # 6. FABRIC DIRECTION PENALTY
-    # ---------------------------------------------------------------------
+# =====================================================================
+# 🌿 NAP / ONE-WAY FABRIC PENALTY
+# =====================================================================
 
-    is_nap_mode = bool(
-        st.session_state.get(
-            "is_nap_fabric",
-            False
-        )
-    )
+is_nap_mode = st.session_state.get("is_nap_fabric", False)
+is_one_way_mode = st.session_state.get("is_one_way_fabric", False)
 
-    is_one_way_mode = bool(
-        st.session_state.get(
-            "is_one_way_fabric",
-            False
-        )
-    )
+if is_one_way_mode:
+    dynamic_marker_efficiency -= 0.05
 
-    if is_one_way_mode:
-
-        dynamic_marker_efficiency -= 0.05
-
-    elif is_nap_mode:
-
-        dynamic_marker_efficiency -= 0.03
+elif is_nap_mode:
+    dynamic_marker_efficiency -= 0.03
 
 
-    # ---------------------------------------------------------------------
-    # 7. SAFETY LIMIT
-    # ---------------------------------------------------------------------
+# =====================================================================
+# 🔒 SAFETY LIMIT
+# =====================================================================
 
-    dynamic_marker_efficiency = max(
-        0.52,
-        round(
-            dynamic_marker_efficiency,
-            4
-        )
-    )
+dynamic_marker_efficiency = max(
+    0.52,
+    min(dynamic_marker_efficiency, 0.95)
+)
+
+dynamic_marker_efficiency = round(
+    dynamic_marker_efficiency,
+    4
+)
 
 
-    # ---------------------------------------------------------------------
-    # 8. MASTER SYNC
-    # ---------------------------------------------------------------------
+# =====================================================================
+# 💾 MASTER COMMIT
+# =====================================================================
 
-    ctx["ie_detected_type"] = ie_detected_type
+ctx["ie_detected_type"] = ie_detected_type
+ctx["ie_product_type_friendly"] = CONFIG_MATRIX[ie_detected_type][1]
 
-    ctx[
-        "ie_product_type_friendly"
-    ] = ie_product_type_friendly
+st.session_state["active_marker_efficiency_value"] = float(
+    dynamic_marker_efficiency
+)
 
-    ctx[
-        "ai_expert_decision"
-    ][
-        "marker_efficiency"
-    ] = dynamic_marker_efficiency
+ctx["ai_expert_decision"]["marker_efficiency"] = (
+    dynamic_marker_efficiency
+)
 
-    ctx[
-        "ai_expert_decision"
-    ][
-        "marker_product_type"
-    ] = ie_detected_type
+st.session_state["bom_data"] = ctx
 
-    st.session_state[
-        "active_marker_efficiency_value"
-    ] = dynamic_marker_efficiency
 
-    st.session_state[
-        "active_marker_product_type"
-    ] = ie_detected_type
+# =====================================================================
+# 🔬 DEBUG CALIBRATION
+# =====================================================================
 
-    st.session_state["bom_data"] = ctx
+print(
+    f"[MARKER CALIBRATION] "
+    f"TYPE={ie_detected_type} | "
+    f"EFF={dynamic_marker_efficiency:.4f} | "
+    f"EFF%={dynamic_marker_efficiency * 100:.2f}%"
+)
        # =====================================================================
         # =====================================================================
     # 🟩 ĐOẠN 5.2 - PHẦN B1 + B2
