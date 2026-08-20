@@ -2467,26 +2467,21 @@ These two values must remain synchronized.
 
 
 
-# =====================================================================
-# 🧠 KHỐI 1 (VERSION V23.0): MASTER CONTROLLER
-# 🔒 STRICT PARAMETER SYNC + PIECE QUANTITY RECOVERY
-# =====================================================================
 def initialize_and_sync_parameters():
     """
-    MASTER CONTROLLER:
-    - Đồng bộ khổ vải / size / co rút từ Chat.
-    - Bảo vệ virtual_pieces_layer.
-    - Khôi phục piece_count / cut_quantity thành Số lượng rập.
-    - Tuyệt đối không tự biến số lượng rập hợp lệ thành 1.
+    🟩 MASTER CONTROLLER V23
+    - Chat là nguồn ưu tiên tuyệt đối cho Khổ / Size / Co rút
+    - Không cho BOM cũ 58" ghi đè lệnh Chat 56"
+    - Đồng bộ thống nhất cho AI -> IE -> BOM
     """
 
     import re
-    import pandas as pd
     import streamlit as st
 
     # =================================================================
-    # 1. KIỂM TRA NGUỒN DỮ LIỆU
+    # 0. KIỂM TRA DỮ LIỆU GỐC
     # =================================================================
+
     if not (
         st.session_state.get("bom_data")
         or st.session_state.get("accumulated_bom_rows")
@@ -2494,20 +2489,22 @@ def initialize_and_sync_parameters():
         return None, None
 
     bom_source = st.session_state.get("bom_data", {})
+
     if not isinstance(bom_source, dict):
         bom_source = {}
 
     # =================================================================
-    # 2. KHÔI PHỤC AI EXPERT DECISION
+    # 1. GIỮ LẠI AI BRAIN + VIRTUAL PIECES
     # =================================================================
-    ai_expert_decision = bom_source.get("ai_expert_decision", {})
+
+    ai_expert_decision = bom_source.get(
+        "ai_expert_decision",
+        {}
+    )
 
     if not isinstance(ai_expert_decision, dict):
         ai_expert_decision = {}
 
-    # =================================================================
-    # 3. KHÔI PHỤC VIRTUAL PIECES LAYER
-    # =================================================================
     virtual_pieces_layer = ai_expert_decision.get(
         "virtual_pieces_layer",
         {}
@@ -2517,252 +2514,254 @@ def initialize_and_sync_parameters():
         virtual_pieces_layer = {}
 
     # =================================================================
-    # 4. LẤY USER QUERY
+    # 2. LẤY NGUYÊN VĂN LỆNH CHAT MỚI NHẤT
     # =================================================================
-    user_query_text = ""
 
-    if st.session_state.get("last_submitted_query"):
-        user_query_text = str(
-            st.session_state.get("last_submitted_query")
-        ).strip()
-
-    # =================================================================
-    # 5. ĐỌC THÔNG SỐ GỐC
-    # =================================================================
-    try:
-        fabric_width = float(
-            bom_source.get("fabric_width_inch", 58.0)
+    user_query_text = str(
+        st.session_state.get(
+            "last_submitted_query",
+            ""
         )
-    except (TypeError, ValueError):
+        or ""
+    ).strip()
+
+    query_lower = user_query_text.lower()
+
+    # =================================================================
+    # 3. DEFAULT
+    # =================================================================
+
+    fabric_width = 58.0
+    warp_shrinkage = 0.0
+    weft_shrinkage = 0.0
+    target_size = "32"
+
+    # =================================================================
+    # 4. CHỈ DÙNG BOM CŨ KHI CHAT KHÔNG CÓ LỆNH TƯƠNG ỨNG
+    # =================================================================
+
+    try:
+        if (
+            not user_query_text
+            and bom_source.get("fabric_width_inch") not in [None, ""]
+        ):
+            fabric_width = float(
+                bom_source.get(
+                    "fabric_width_inch",
+                    58.0
+                )
+            )
+    except Exception:
         fabric_width = 58.0
 
     try:
-        warp_shrinkage = float(
-            bom_source.get("warp_shrinkage_percent", 0.0)
-        )
-    except (TypeError, ValueError):
+        if (
+            not user_query_text
+            and bom_source.get("warp_shrinkage_percent") not in [None, ""]
+        ):
+            warp_shrinkage = float(
+                bom_source.get(
+                    "warp_shrinkage_percent",
+                    0.0
+                )
+            )
+    except Exception:
         warp_shrinkage = 0.0
 
     try:
-        weft_shrinkage = float(
-            bom_source.get("weft_shrinkage_percent", 0.0)
-        )
-    except (TypeError, ValueError):
+        if (
+            not user_query_text
+            and bom_source.get("weft_shrinkage_percent") not in [None, ""]
+        ):
+            weft_shrinkage = float(
+                bom_source.get(
+                    "weft_shrinkage_percent",
+                    0.0
+                )
+            )
+    except Exception:
         weft_shrinkage = 0.0
 
     # =================================================================
-    # 6. ĐỒNG BỘ SIZE
+    # 5. SIZE TỪ SESSION / BOM CHỈ LÀ FALLBACK
     # =================================================================
-    detected_size = st.session_state.get(
-        "current_active_size",
-        bom_source.get(
-            "detected_base_size",
-            bom_source.get("calculated_on_size", "32")
+
+    detected_size = (
+        st.session_state.get(
+            "current_active_size",
+            bom_source.get(
+                "detected_base_size",
+                bom_source.get(
+                    "calculated_on_size",
+                    "32"
+                )
+            )
         )
     )
 
-    target_size = str(detected_size).upper().strip()
-
-    if not target_size:
-        target_size = "32"
+    if detected_size not in [None, ""]:
+        target_size = str(
+            detected_size
+        ).strip().upper()
 
     # =================================================================
-    # 7. PARSE THÔNG SỐ TỪ CHAT
+    # 6. 🔥 CHAT OVERRIDE - KHỔ VẢI
+    #
+    # Hỗ trợ:
+    #   khổ 56
+    #   khổ = 56
+    #   khổ: 56
+    #   khổ vải 56
+    #   khổ vải = 56
+    #   width 56
+    #
+    # QUAN TRỌNG:
+    # Không dùng \b ở cuối số để tránh lỗi với chuỗi chat phức tạp.
     # =================================================================
+
     if user_query_text:
 
-        # -------------------------------------------------------------
-        # KHỔ VẢI
-        # -------------------------------------------------------------
-        w_match = re.search(
-            r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
-            user_query_text,
-            re.IGNORECASE
-        )
-
-        if w_match:
-            try:
-                fabric_width = float(w_match.group(2))
-            except (TypeError, ValueError):
-                pass
-
-        # -------------------------------------------------------------
-        # CO RÚT DỌC
-        # -------------------------------------------------------------
-        warp_match = re.search(
-            r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
-            user_query_text,
-            re.IGNORECASE
-        )
-
-        if warp_match:
-            try:
-                val = float(warp_match.group(2))
-                if 0.0 <= val < 15.0:
-                    warp_shrinkage = val
-            except (TypeError, ValueError):
-                pass
-
-        # -------------------------------------------------------------
-        # CO RÚT NGANG
-        # -------------------------------------------------------------
-        weft_match = re.search(
-            r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
-            user_query_text,
-            re.IGNORECASE
-        )
-
-        if weft_match:
-            try:
-                val = float(weft_match.group(2))
-                if 0.0 <= val < 15.0:
-                    weft_shrinkage = val
-            except (TypeError, ValueError):
-                pass
-
-        # -------------------------------------------------------------
-        # SIZE
-        # -------------------------------------------------------------
-        size_match = re.search(
-            r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b",
-            user_query_text,
-            re.IGNORECASE
-        )
-
-        if size_match:
-            target_size = str(
-                size_match.group(2)
-            ).upper().strip()
-
-    # =================================================================
-    # 8. 🔥 PIECE QUANTITY RECOVERY ENGINE
-    # =================================================================
-    # Mục tiêu:
-    # AI trả:
-    #   piece_count = 2
-    #   cut_quantity = 2
-    #
-    # thì không được để các tầng sau biến thành:
-    #   Số lượng rập = 1
-    #
-    # Đồng thời nếu User đã sửa thì tuyệt đối giữ User.
-    # =================================================================
-
-    user_edited_pieces = st.session_state.get(
-        "user_edited_pieces",
-        {}
-    )
-
-    if not isinstance(user_edited_pieces, dict):
-        user_edited_pieces = {}
-
-    bom_rows = bom_source.get("bom_rows", [])
-
-    if not isinstance(bom_rows, list):
-        bom_rows = []
-
-    for row_index, row in enumerate(bom_rows):
-
-        if not isinstance(row, dict):
-            continue
-
-        # -------------------------------------------------------------
-        # Xác định khóa vật lý
-        # -------------------------------------------------------------
-        row_key = str(row_index).strip()
-
-        # -------------------------------------------------------------
-        # Tìm quantity từ AI
-        # Ưu tiên:
-        # cut_quantity
-        # piece_count
-        # active_user_pieces
-        # Số lượng rập
-        # pcs_numeric
-        # -------------------------------------------------------------
-        quantity_candidates = [
-            row.get("cut_quantity"),
-            row.get("piece_count"),
-            row.get("active_user_pieces"),
-            row.get("Số lượng rập"),
-            row.get("pcs_numeric"),
+        width_patterns = [
+            r"(?:khổ\s*vải|khổ)\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)",
+            r"(?:fabric\s*width|width)\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)"
         ]
 
-        ai_piece_qty = None
+        width_found = None
 
-        for candidate in quantity_candidates:
-            try:
-                if candidate is not None and pd.notna(candidate):
-                    q = int(float(candidate))
+        for pattern in width_patterns:
+            match = re.search(
+                pattern,
+                query_lower,
+                re.IGNORECASE
+            )
 
-                    if q >= 1:
-                        ai_piece_qty = q
-                        break
+            if match:
+                try:
+                    width_found = float(match.group(1))
+                    break
+                except Exception:
+                    pass
 
-            except (TypeError, ValueError):
-                continue
-
-        # Nếu AI thực sự không trả quantity
-        # thì mới dùng 1 làm fallback
-        if ai_piece_qty is None:
-            ai_piece_qty = 1
-
-        # -------------------------------------------------------------
-        # USER OVERRIDE có quyền cao nhất
-        # -------------------------------------------------------------
-        user_qty = None
-
-        if row_index in user_edited_pieces:
-            user_qty = user_edited_pieces[row_index]
-
-        elif row_key in user_edited_pieces:
-            user_qty = user_edited_pieces[row_key]
-
-        if user_qty is not None:
-            try:
-                user_qty = max(1, int(float(user_qty)))
-                final_piece_qty = user_qty
-            except (TypeError, ValueError):
-                final_piece_qty = ai_piece_qty
-        else:
-            final_piece_qty = ai_piece_qty
-
-        # -------------------------------------------------------------
-        # GHI NGƯỢC quantity vào BOM ROW
-        # -------------------------------------------------------------
-        row["piece_count"] = int(final_piece_qty)
-        row["cut_quantity"] = int(final_piece_qty)
-        row["pcs_numeric"] = int(final_piece_qty)
-        row["Số lượng rập"] = int(final_piece_qty)
-
-        # -------------------------------------------------------------
-        # GHI VÀO VIRTUAL PIECES LAYER
-        # -------------------------------------------------------------
-        vp = virtual_pieces_layer.get(row_key, {})
-
-        if not isinstance(vp, dict):
-            vp = {}
-
-        vp["active_user_pieces"] = int(final_piece_qty)
-        vp["piece_count"] = int(final_piece_qty)
-        vp["cut_quantity"] = int(final_piece_qty)
-
-        # Giữ tên chi tiết nếu có
-        if row.get("component_name"):
-            vp["component_name"] = str(
-                row.get("component_name")
-            ).strip()
-
-        virtual_pieces_layer[row_key] = vp
+        if width_found is not None and width_found > 0:
+            fabric_width = width_found
 
     # =================================================================
-    # 9. ĐỒNG BỘ NGƯỢC BOM ROWS VÀO MASTER
+    # 7. 🔥 CHAT OVERRIDE - CO DỌC
     # =================================================================
-    bom_source["bom_rows"] = bom_rows
+
+    if user_query_text:
+
+        warp_patterns = [
+            r"(?:co\s*rút\s*dọc|co\s*dọc|độ\s*co\s*dọc)"
+            r"\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)",
+            
+            r"(?:warp\s*shrinkage|warp)"
+            r"\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)"
+        ]
+
+        for pattern in warp_patterns:
+            match = re.search(
+                pattern,
+                query_lower,
+                re.IGNORECASE
+            )
+
+            if match:
+                try:
+                    val = float(match.group(1))
+
+                    if 0 <= val < 15:
+                        warp_shrinkage = val
+
+                    break
+                except Exception:
+                    pass
 
     # =================================================================
-    # 10. GHI THÔNG SỐ MASTER RA SESSION STATE
+    # 8. 🔥 CHAT OVERRIDE - CO NGANG
     # =================================================================
+
+    if user_query_text:
+
+        weft_patterns = [
+            r"(?:co\s*rút\s*ngang|co\s*ngang|độ\s*co\s*ngang)"
+            r"\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)",
+
+            r"(?:weft\s*shrinkage|weft)"
+            r"\s*(?:=|:|-)?\s*(\d+(?:\.\d+)?)"
+        ]
+
+        for pattern in weft_patterns:
+            match = re.search(
+                pattern,
+                query_lower,
+                re.IGNORECASE
+            )
+
+            if match:
+                try:
+                    val = float(match.group(1))
+
+                    if 0 <= val < 15:
+                        weft_shrinkage = val
+
+                    break
+                except Exception:
+                    pass
+
+    # =================================================================
+    # 9. 🔥 CHAT OVERRIDE - SIZE
+    #
+    # Hỗ trợ:
+    #   size 32
+    #   size = 32
+    #   size: 32
+    #   cỡ 32
+    #
+    # Và quan trọng:
+    # không bắt nhầm số của "khổ 56".
+    # =================================================================
+
+    if user_query_text:
+
+        size_patterns = [
+            r"(?:size|cỡ)\s*(?:=|:|-)?\s*([a-zA-Z0-9]+)"
+        ]
+
+        for pattern in size_patterns:
+            match = re.search(
+                pattern,
+                query_lower,
+                re.IGNORECASE
+            )
+
+            if match:
+                candidate_size = str(
+                    match.group(1)
+                ).strip().upper()
+
+                if candidate_size:
+                    target_size = candidate_size
+
+                break
+
+    # =================================================================
+    # 10. 🔒 MASTER VALIDATION
+    # =================================================================
+
+    if fabric_width <= 0:
+        fabric_width = 58.0
+
+    if warp_shrinkage < 0:
+        warp_shrinkage = 0.0
+
+    if weft_shrinkage < 0:
+        weft_shrinkage = 0.0
+
+    # =================================================================
+    # 11. 💾 MASTER SESSION COMMIT
+    # =================================================================
+
     st.session_state["current_active_width"] = float(
         fabric_width
     )
@@ -2780,8 +2779,9 @@ def initialize_and_sync_parameters():
     )
 
     # =================================================================
-    # 11. GHI THÔNG SỐ VÀO BOM_DATA
+    # 12. 💾 GHI NGƯỢC VÀO BOM MASTER
     # =================================================================
+
     bom_source["fabric_width_inch"] = float(
         fabric_width
     )
@@ -2803,8 +2803,9 @@ def initialize_and_sync_parameters():
     )
 
     # =================================================================
-    # 12. 🔒 KHÓA VIRTUAL PIECES LAYER
+    # 13. 🔒 KHÓA VIRTUAL PIECES
     # =================================================================
+
     ai_expert_decision["virtual_pieces_layer"] = (
         virtual_pieces_layer
     )
@@ -2814,13 +2815,28 @@ def initialize_and_sync_parameters():
     )
 
     # =================================================================
-    # 13. MASTER COMMIT
+    # 14. MASTER SAVE
     # =================================================================
+
     st.session_state["bom_data"] = bom_source
 
+    # =================================================================
+    # 15. 🔬 DEBUG - PHẢI HIỆN ĐÚNG 56 / 3 / 14
+    # =================================================================
+
+    print(
+        "\n"
+        "============================================================\n"
+        "[MASTER PARAMETER SYNC]\n"
+        f"QUERY          = {user_query_text}\n"
+        f"SIZE           = {target_size}\n"
+        f"FABRIC WIDTH   = {fabric_width:.2f}\"\n"
+        f"WARP SHRINK    = {warp_shrinkage:.2f}%\n"
+        f"WEFT SHRINK    = {weft_shrinkage:.2f}%\n"
+        "============================================================"
+    )
+
     return bom_source, user_query_text
-
-
 
 
 # =====================================================================
