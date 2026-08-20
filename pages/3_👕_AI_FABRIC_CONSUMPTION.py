@@ -1518,21 +1518,18 @@ if safe_user_prompt:
 
 
 
+# =====================================================================
+# 🟩 ĐOẠN 2 - VERSION V28.5
+# MASTER AI SCAN + PRODUCT TYPE VALIDATION + WIDTH/SHRINK SYNC
+# =====================================================================
 
-# =====================================================================
-# 🟩 ĐOẠN 2 (VERSION V28.0): AI SCAN INPUT & MASTER PIECE COUNT SYNC
-# =====================================================================
+import re
+import streamlit as st
+
 
 if st.session_state.ai_processing:
 
-    import re
-    import pandas as pd
-    import streamlit as st
-
-    current_query = st.session_state.get(
-        "last_submitted_query",
-        ""
-    )
+    current_query = st.session_state["last_submitted_query"]
 
     active_pdf = (
         st.session_state.get("pdf_bytes")
@@ -1541,36 +1538,80 @@ if st.session_state.ai_processing:
         or st.session_state.get("pdf_data")
     )
 
-    # =================================================================
-    # 1. ĐỌC KHỔ VẢI + SIZE TỪ CHAT
-    # =================================================================
+    # ================================================================
+    # 1. ĐỌC THÔNG SỐ TỪ CHAT
+    # ================================================================
 
     dynamic_width = 58.0
     target_size = "32"
 
+    warp_shrinkage = 0.0
+    weft_shrinkage = 0.0
+
     if current_query:
 
+        query_text = str(current_query)
+
+        # ------------------------------------------------------------
+        # KHỔ VẢI
+        # ------------------------------------------------------------
         w_m = re.search(
-            r"(khổ\s*vải|khổ)\s*(\d+(?:\.\d+)?)",
-            str(current_query),
+            r"(?:khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            query_text,
             re.IGNORECASE
         )
 
         if w_m:
-            dynamic_width = float(w_m.group(2))
+            dynamic_width = float(w_m.group(1))
 
+        # ------------------------------------------------------------
+        # SIZE
+        # ------------------------------------------------------------
         s_m = re.search(
-            r"(cỡ|size)\s*(\d+)",
-            str(current_query),
+            r"(?:cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)",
+            query_text,
             re.IGNORECASE
         )
 
         if s_m:
-            target_size = str(s_m.group(2))
+            target_size = str(
+                s_m.group(1)
+            ).upper().strip()
 
-    # =================================================================
-    # 2. CHỈ CHẠY KHI CÓ PDF
-    # =================================================================
+        # ------------------------------------------------------------
+        # CO DỌC
+        # ------------------------------------------------------------
+        warp_m = re.search(
+            r"(?:co\s*rút\s*dọc|co\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+            query_text,
+            re.IGNORECASE
+        )
+
+        if warp_m:
+            val = float(warp_m.group(1))
+
+            if 0 <= val <= 15:
+                warp_shrinkage = val
+
+        # ------------------------------------------------------------
+        # CO NGANG
+        # ------------------------------------------------------------
+        weft_m = re.search(
+            r"(?:co\s*rút\s*ngang|co\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+            query_text,
+            re.IGNORECASE
+        )
+
+        if weft_m:
+            val = float(weft_m.group(1))
+
+            if 0 <= val <= 15:
+                weft_shrinkage = val
+
+
+    # ================================================================
+    # 2. AI SCAN
+    # ================================================================
 
     if active_pdf is not None:
 
@@ -1580,9 +1621,9 @@ if st.session_state.ai_processing:
 
             try:
 
-                # =====================================================
-                # 3. JSON SCHEMA MASTER
-                # =====================================================
+                # ====================================================
+                # 3. JSON SCHEMA
+                # ====================================================
 
                 raw_json_schema = {
 
@@ -1608,27 +1649,15 @@ if st.session_state.ai_processing:
 
                                 "properties": {
 
-                                    # -------------------------------------------------
-                                    # COMPONENT
-                                    # -------------------------------------------------
-
                                     "component_name": {
                                         "type": "STRING"
                                     },
-
-                                    # -------------------------------------------------
-                                    # GEOMETRY
-                                    # -------------------------------------------------
 
                                     "bounding_box_length": {
                                         "type": "NUMBER"
                                     },
 
                                     "bounding_box_width": {
-                                        "type": "NUMBER"
-                                    },
-
-                                    "polygon_net_area": {
                                         "type": "NUMBER"
                                     },
 
@@ -1640,9 +1669,9 @@ if st.session_state.ai_processing:
                                         "type": "STRING"
                                     },
 
-                                    # -------------------------------------------------
-                                    # MATERIAL
-                                    # -------------------------------------------------
+                                    "fold_type": {
+                                        "type": "STRING"
+                                    },
 
                                     "material_zone": {
                                         "type": "STRING",
@@ -1655,23 +1684,19 @@ if st.session_state.ai_processing:
                                         ]
                                     },
 
-                                    "material_class": {
+                                    "grain_constraint": {
                                         "type": "STRING"
                                     },
 
-                                    # -------------------------------------------------
-                                    # CUT / PIECE
-                                    # -------------------------------------------------
-
-                                    "cut_quantity": {
+                                    "packing_priority": {
                                         "type": "INTEGER"
                                     },
 
-                                    "piece_count": {
-                                        "type": "INTEGER"
+                                    "convex_fill_ratio": {
+                                        "type": "NUMBER"
                                     },
 
-                                    "fold_type": {
+                                    "seam_allowance": {
                                         "type": "STRING"
                                     },
 
@@ -1683,24 +1708,16 @@ if st.session_state.ai_processing:
                                         "type": "BOOLEAN"
                                     },
 
-                                    # -------------------------------------------------
-                                    # NESTING
-                                    # -------------------------------------------------
-
-                                    "packing_priority": {
-                                        "type": "INTEGER"
+                                    "requires_matching": {
+                                        "type": "BOOLEAN"
                                     },
 
-                                    "convex_fill_ratio": {
-                                        "type": "NUMBER"
-                                    },
-
-                                    # -------------------------------------------------
-                                    # GRAIN
-                                    # -------------------------------------------------
-
-                                    "grain_constraint": {
+                                    "critical_alignment": {
                                         "type": "STRING"
+                                    },
+
+                                    "cut_quantity": {
+                                        "type": "INTEGER"
                                     },
 
                                     "grain_direction": {
@@ -1711,39 +1728,11 @@ if st.session_state.ai_processing:
                                         "type": "STRING"
                                     },
 
-                                    # -------------------------------------------------
-                                    # MATCHING
-                                    # -------------------------------------------------
-
-                                    "requires_matching": {
-                                        "type": "BOOLEAN"
-                                    },
-
-                                    "critical_alignment": {
-                                        "type": "STRING"
-                                    },
-
-                                    # -------------------------------------------------
-                                    # SHAPE
-                                    # -------------------------------------------------
-
                                     "edge_curvature": {
                                         "type": "STRING"
                                     },
 
                                     "shape_complexity": {
-                                        "type": "STRING"
-                                    },
-
-                                    # -------------------------------------------------
-                                    # TECHNICAL
-                                    # -------------------------------------------------
-
-                                    "seam_allowance": {
-                                        "type": "STRING"
-                                    },
-
-                                    "fold_direction": {
                                         "type": "STRING"
                                     },
 
@@ -1754,10 +1743,6 @@ if st.session_state.ai_processing:
                                     "cad_reconstruction_score": {
                                         "type": "INTEGER"
                                     },
-
-                                    # -------------------------------------------------
-                                    # CONFIDENCE
-                                    # -------------------------------------------------
 
                                     "field_confidence": {
 
@@ -1776,7 +1761,6 @@ if st.session_state.ai_processing:
                                             "grain_alignment": {
                                                 "type": "STRING"
                                             }
-
                                         },
 
                                         "required": [
@@ -1785,10 +1769,6 @@ if st.session_state.ai_processing:
                                             "grain_alignment"
                                         ]
                                     },
-
-                                    # -------------------------------------------------
-                                    # SHAPE PARAMETERS
-                                    # -------------------------------------------------
 
                                     "shape_parameters": {
 
@@ -1831,37 +1811,21 @@ if st.session_state.ai_processing:
                                             "crotch_projection_ratio": {
                                                 "type": "NUMBER"
                                             }
-
                                         }
                                     }
                                 },
 
-                                # =====================================================
-                                # REQUIRED MASTER FIELDS
-                                # =====================================================
-
                                 "required": [
-
                                     "component_name",
-
                                     "bounding_box_length",
-
                                     "bounding_box_width",
-
                                     "piece_shape",
-
                                     "piece_function",
-
+                                    "fold_type",
                                     "material_zone",
-
                                     "packing_priority",
-
                                     "convex_fill_ratio",
-
-                                    "mirror_piece",
-
-                                    "cut_quantity"
-
+                                    "mirror_piece"
                                 ]
                             }
                         }
@@ -1874,290 +1838,185 @@ if st.session_state.ai_processing:
                     ]
                 }
 
-                # =====================================================
-                # 4. MASTER PROMPT
-                # =====================================================
+
+                # ====================================================
+                # 4. MASTER PRODUCT TYPE PROMPT
+                # ====================================================
 
                 prompt_agent_2 = f"""
 
-You are a Senior Industrial Garment IE,
-CAD Pattern Engineering and Marker Planning Intelligence.
+You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence.
 
-Reconstruct EVERY valid physical pattern component
-from the Tech Pack for Size {target_size}.
+============================================================
+PRODUCT TYPE IDENTIFICATION - ABSOLUTE PRIORITY
+============================================================
 
-=====================================================================
-🚨 SECTION 1 — ACCESSORY EXCLUSION
-=====================================================================
+You MUST identify the ACTUAL GARMENT TYPE from the Tech Pack,
+garment sketch, style description and construction.
 
-DO NOT extract:
+DO NOT infer product type from the word "JEAN" alone.
 
-- BUTTON
-- SEWING THREAD
-- ZIPPER
-- SLIDER
-- RIVET
-- LABEL
-- CARE LABEL
-- SIZE LABEL
-- HANGTAG
-- POLYBAG
-- METAL ACCESSORY
-- PLASTIC ACCESSORY
+The following distinctions are mandatory:
 
-These items have NO 2D marker footprint.
+------------------------------------------------------------
+SHORT
+------------------------------------------------------------
 
-ONLY extract:
+If the garment is a SHORT / SHORTS / BERMUDA:
 
-SELF
-LINING
-FUSING
-RIB
-CONTRAST
+Output:
 
-=====================================================================
-🚨 SECTION 2 — SINGLE PHYSICAL PATTERN GEOMETRY
-=====================================================================
-
-"bounding_box_length" and "bounding_box_width"
-MUST describe ONE physical pattern piece.
-
-NEVER combine left/right pieces into one geometry.
-
-Example:
-
-LEFT FRONT = 12 inch wide
-RIGHT FRONT = 12 inch wide
-
-Correct:
-
-bounding_box_width = 12
-cut_quantity = 2
-
-Incorrect:
-
-bounding_box_width = 24
-cut_quantity = 1
-
-=====================================================================
-🚨 SECTION 3 — MASTER CUT QUANTITY
-=====================================================================
-
-"cut_quantity" means:
-
-TOTAL NUMBER OF PHYSICAL PIECES CUT
-FOR ONE FINISHED GARMENT.
-
-You MUST determine this from:
-
-- left/right pair
-- front/back pair
-- sleeve pair
-- pocket pair
-- mirrored pattern
-- cut quantity notation
-- fold construction
-- Tech Pack construction information
+SHORT
 
 Examples:
 
-Front Left + Front Right:
-cut_quantity = 2
+JEAN SHORT
+DENIM SHORT
+DENIM SHORTS
+JEAN SHORTS
+WALK SHORT
+BERMUDA SHORT
 
-Back Left + Back Right:
-cut_quantity = 2
+ALL OF THESE MUST BE:
 
-Sleeve pair:
-cut_quantity = 2
+SHORT
 
-Pocket pair:
-cut_quantity = 2
+NOT:
 
-Single pocket:
-cut_quantity = 1
+JEAN
+JEAN_LONG
+PANT
+TROUSER
 
-One continuous waistband:
-cut_quantity = 1
+------------------------------------------------------------
+JEAN_LONG
+------------------------------------------------------------
 
-Single belt loop pattern:
-use the actual required cut quantity
-when clearly specified.
+Use JEAN_LONG ONLY when the garment is clearly a
+FULL-LENGTH / LONG-LEG JEAN.
 
-=====================================================================
-🚨 SECTION 4 — PIECE COUNT SYNCHRONIZATION
-=====================================================================
+Examples:
 
-"piece_count" MUST ALWAYS EQUAL "cut_quantity".
+LONG JEANS
+FULL LENGTH JEANS
+LONG DENIM PANTS
+JEAN LONG PANTS
 
-If:
+These may be:
 
-cut_quantity = 2
+JEAN_LONG
 
-then:
+------------------------------------------------------------
+JEAN
+------------------------------------------------------------
 
-piece_count = 2
+Use JEAN only when the product is identified as
+JEAN/DENIM but the document does not clearly establish
+that it is SHORT or FULL-LENGTH.
 
-If:
+------------------------------------------------------------
+PANT
+------------------------------------------------------------
 
-cut_quantity = 4
+Use PANT for ordinary long pants when it is not specifically
+identified as JEAN/DENIM.
 
-then:
+------------------------------------------------------------
+CRITICAL RULE
+------------------------------------------------------------
 
-piece_count = 4
+The word "JEAN" by itself does NOT mean JEAN_LONG.
 
-NEVER default piece_count to 1
-when cut_quantity is known.
+If the product name contains both:
 
-=====================================================================
-🚨 SECTION 5 — MIRROR RULE
-=====================================================================
+JEAN + SHORT
 
-"mirror_piece" describes geometry symmetry.
+or:
 
-"is_left_right_pair" describes whether
-the component represents a physical pair.
+DENIM + SHORT
 
-These fields MUST NOT be confused with quantity.
+the final product type MUST be:
 
-If a pattern is a left/right pair:
+SHORT
 
-is_left_right_pair = true
-cut_quantity = 2
+============================================================
 
-UNLESS the Tech Pack clearly indicates:
+Reconstruct the multi-layered CAD metadata for EVERY valid
+fabric/fusing piece in the Tech Pack for Size {target_size}.
 
-- ON FOLD
-- CENTER FOLD
-- CUT ON FOLD
+============================================================
+ACCESSORY OMISSION
+============================================================
 
-In those cases use the actual physical cutting quantity.
+NEVER extract:
 
-=====================================================================
-🚨 SECTION 6 — FOLD RULE
-=====================================================================
+buttons,
+sewing threads,
+zippers,
+sliders,
+rivets,
+labels,
+care labels,
+size tabs,
+hangtags,
+polybags,
+metal accessories,
+plastic accessories.
 
-If the pattern is:
+ONLY extract:
 
-CENTER_FOLD
-ON_FOLD
+SELF,
+LINING,
+FUSING,
+RIB,
+CONTRAST.
 
-DO NOT automatically multiply quantity by 2.
+============================================================
+SINGLE PIECE RULE
+============================================================
 
-The physical cut quantity must follow
-the actual construction.
+'bounding_box_width' MUST represent ONE SINGLE physical piece.
 
-=====================================================================
-🚨 SECTION 7 — GEOMETRY
-=====================================================================
+NEVER combine left and right pieces.
+
+============================================================
+GEOMETRY
+============================================================
 
 Extract:
 
 bounding_box_length
 bounding_box_width
-polygon_net_area
+piece_shape
+piece_function
+fold_type
+material_zone
+packing_priority
+convex_fill_ratio
+mirror_piece
+cut_quantity
+grain_direction
+rotation_allowed
+edge_curvature
+shape_complexity
 
 All dimensions must be in inches.
 
-NEVER output zero dimensions
-when a valid pattern can be identified.
+NEVER output zero dimensions for a valid pattern piece.
 
-=====================================================================
-🚨 SECTION 8 — CAD METADATA
-=====================================================================
+============================================================
+VALIDATION
+============================================================
 
-piece_shape:
+Skip rows that are not actual pattern pieces.
 
-RECTANGLE
-TRAPEZOID
-TAPERED_PANEL
-CURVED_PANEL
-POCKET
-WAISTBAND
-COLLAR
-SLEEVE
-GUSSET
-
-piece_function:
-
-PRIMARY
-SECONDARY
-REINFORCEMENT
-DECORATIVE
-LINING
-
-packing_priority:
-
-1 = Main Panels
-2 = Secondary Panels
-3 = Medium Components
-4 = Small Components
-5 = Filler Components
-
-convex_fill_ratio:
-
-RECTANGLE = 0.98
-WAISTBAND = 0.94
-CURVED/TAPERED PANEL = 0.68-0.76
-POCKET = 0.82
-COLLAR = 0.60
-
-=====================================================================
-🚨 SECTION 9 — GRAIN
-=====================================================================
-
-Determine:
-
-grain_direction:
-
-VERTICAL
-HORIZONTAL
-BIAS
-
-rotation_allowed:
-
-0_DEG
-180_DEG
-ANY
-
-=====================================================================
-🚨 SECTION 10 — VALIDATION
-=====================================================================
-
-Every valid BOM row MUST contain:
-
-component_name
-bounding_box_length
-bounding_box_width
-cut_quantity
-piece_count
-
-Rows without physical 2D pattern area must be skipped.
-
-Do NOT invent accessory rows.
-
-Do NOT merge left/right pieces into one oversized pattern.
-
-Do NOT change quantity to 1 merely because
-only one geometry row is visible.
-
-=====================================================================
-🚨 FINAL MASTER RULE
-=====================================================================
-
-For every BOM row:
-
-piece_count == cut_quantity
-
-Geometry represents ONE physical piece.
-
-Quantity represents TOTAL physical pieces.
-
-These two values must remain synchronized.
+The output must contain the actual product type.
 """
 
-                # =====================================================
-                # 5. GỌI AI
-                # =====================================================
+
+                # ====================================================
+                # 5. CALL AI
+                # ====================================================
 
                 bom_data = execute_final_gerber_pure_scan(
 
@@ -2174,286 +2033,302 @@ These two values must remain synchronized.
                     prompt_agent_2=prompt_agent_2
                 )
 
-                # =====================================================
-                # 6. MASTER RECOVERY SAU KHI AI TRẢ JSON
-                # =====================================================
 
-                if isinstance(bom_data, dict):
+                # ====================================================
+                # 6. MASTER PRODUCT TYPE VALIDATION
+                # ====================================================
 
-                    bom_rows_result = bom_data.get(
-                        "bom_rows",
-                        []
+                if not isinstance(bom_data, dict):
+                    raise RuntimeError(
+                        "AI không trả về bom_data dạng dictionary."
                     )
 
-                    for row in bom_rows_result:
 
-                        # -------------------------------------------------
-                        # COMPONENT NORMALIZE
-                        # -------------------------------------------------
+                ai_product_raw = str(
+                    bom_data.get(
+                        "detected_product_type",
+                        ""
+                    )
+                ).upper().strip()
 
-                        row["component_name"] = (
-                            " ".join(
-                                str(
-                                    row.get(
-                                        "component_name",
-                                        ""
-                                    )
-                                ).upper().split()
-                            )
-                        )
 
-                        # -------------------------------------------------
-                        # 🔥 MASTER QUANTITY
-                        # -------------------------------------------------
+                # ----------------------------------------------------
+                # Lấy thêm tên style / query để kiểm tra SHORT
+                # ----------------------------------------------------
 
-                        raw_qty = row.get(
-                            "cut_quantity",
-                            None
-                        )
-
-                        if raw_qty is None:
-
-                            raw_qty = row.get(
-                                "piece_count",
-                                None
-                            )
-
-                        try:
-
-                            qty = int(
-                                float(raw_qty)
-                            )
-
-                        except Exception:
-
-                            qty = 0
-
-                        # -------------------------------------------------
-                        # PAIR RECOVERY
-                        # -------------------------------------------------
-
-                        if qty <= 0:
-
-                            pair_flag = bool(
-                                row.get(
-                                    "is_left_right_pair",
-                                    False
-                                )
-                            )
-
-                            mirror_flag = bool(
-                                row.get(
-                                    "mirror_piece",
-                                    False
-                                )
-                            )
-
-                            fold_type = str(
-                                row.get(
-                                    "fold_type",
-                                    ""
-                                )
-                            ).upper().strip()
-
-                            if (
-                                (pair_flag or mirror_flag)
-                                and fold_type
-                                not in [
-                                    "ON_FOLD",
-                                    "CENTER_FOLD"
-                                ]
-                            ):
-                                qty = 2
-
-                            else:
-                                qty = 1
-
-                        qty = max(
-                            1,
-                            qty
-                        )
-
-                        # =================================================
-                        # 🔒 KHÓA 2 CHIỀU
-                        # =================================================
-
-                        row["cut_quantity"] = qty
-                        row["piece_count"] = qty
-
-                        # =================================================
-                        # MATERIAL CLASS
-                        # =================================================
-
-                        comp_upper = str(
-                            row.get(
-                                "component_name",
+                product_scan_text = " ".join(
+                    [
+                        ai_product_raw,
+                        str(current_query or "").upper(),
+                        str(
+                            bom_data.get(
+                                "style_code",
                                 ""
                             )
                         ).upper()
-
-                        material_zone = str(
-                            row.get(
-                                "material_zone",
-                                "SELF"
-                            )
-                        ).upper().strip()
-
-                        if material_zone == "SELF":
-                            material_class = "FABRIC"
-
-                        elif material_zone == "LINING":
-                            material_class = "LINING"
-
-                        elif material_zone == "FUSING":
-                            material_class = "FUSING"
-
-                        elif material_zone == "RIB":
-                            material_class = "RIB"
-
-                        elif material_zone == "CONTRAST":
-                            material_class = "CONTRAST"
-
-                        else:
-                            material_class = "FABRIC"
-
-                        # Keyword safety
-                        if any(
-                            k in comp_upper
-                            for k in [
-                                "FUSING",
-                                "INTERLINING",
-                                "MEX",
-                                "MẾCH",
-                                "DỰNG",
-                                "KEO"
-                            ]
-                        ):
-                            material_class = "FUSING"
-
-                        elif any(
-                            k in comp_upper
-                            for k in [
-                                "LINING",
-                                "POCKET BAG",
-                                "LÓT",
-                                "RIB",
-                                "BO GÂN"
-                            ]
-                        ):
-                            material_class = "LINING"
-
-                        row["material_class"] = material_class
-
-                        # =================================================
-                        # GEOMETRY NORMALIZE
-                        # =================================================
-
-                        try:
-                            row["bounding_box_length"] = round(
-                                float(
-                                    row.get(
-                                        "bounding_box_length",
-                                        0.0
-                                    )
-                                ),
-                                2
-                            )
-                        except Exception:
-                            row["bounding_box_length"] = 0.0
-
-                        try:
-                            row["bounding_box_width"] = round(
-                                float(
-                                    row.get(
-                                        "bounding_box_width",
-                                        0.0
-                                    )
-                                ),
-                                2
-                            )
-                        except Exception:
-                            row["bounding_box_width"] = 0.0
-
-                        try:
-                            row["polygon_net_area"] = float(
-                                row.get(
-                                    "polygon_net_area",
-                                    0.0
-                                )
-                            )
-                        except Exception:
-                            row["polygon_net_area"] = 0.0
-
-                        # =================================================
-                        # 🚫 KHÔNG CÒN LOGIC:
-                        #
-                        # width > 16 → chia width / 2
-                        # piece_count × 2
-                        #
-                        # Geometry và quantity độc lập.
-                        # =================================================
-
-                        bbox_area = (
-                            row["bounding_box_length"]
-                            * row["bounding_box_width"]
-                        )
-
-                        if (
-                            row["polygon_net_area"] > bbox_area
-                            and bbox_area > 0
-                        ):
-
-                            row["polygon_net_area"] = (
-                                bbox_area * 0.76
-                            )
-
-                        # =================================================
-                        # FABRIC WIDTH
-                        # =================================================
-
-                        row["fabric_width_inch"] = float(
-                            dynamic_width
-                        )
-
-                    # =====================================================
-                    # MASTER DATA
-                    # =====================================================
-
-                    bom_data["fabric_width_inch"] = float(
-                        dynamic_width
-                    )
-
-                    bom_data["usable_width_inch"] = float(
-                        dynamic_width
-                    )
-
-                    bom_data["calculated_on_size"] = str(
-                        target_size
-                    )
-
-                # =========================================================
-                # 7. GHI MASTER RAM
-                # =========================================================
-
-                st.session_state["bom_data"] = bom_data
-
-                st.session_state["current_active_width"] = float(
-                    dynamic_width
+                    ]
                 )
 
-                st.session_state["current_active_size"] = str(
-                    target_size
+
+                # ====================================================
+                # 7. PRODUCT TYPE ALIAS
+                # ====================================================
+
+                product_alias = {
+
+                    "SHORTS": "SHORT",
+                    "BERMUDA": "SHORT",
+                    "BERMUDAS": "SHORT",
+
+                    "WALK SHORT": "SHORT",
+                    "WALK SHORTS": "SHORT",
+
+                    "DENIM SHORT": "SHORT",
+                    "DENIM SHORTS": "SHORT",
+
+                    "JEAN SHORT": "SHORT",
+                    "JEAN SHORTS": "SHORT",
+
+                    "JEANS SHORT": "SHORT",
+                    "JEANS SHORTS": "SHORT",
+
+                    "LONG JEAN": "JEAN_LONG",
+                    "LONG JEANS": "JEAN_LONG",
+
+                    "JEAN LONG": "JEAN_LONG",
+                    "JEANS LONG": "JEAN_LONG",
+
+                    "FULL LENGTH JEAN": "JEAN_LONG",
+                    "FULL LENGTH JEANS": "JEAN_LONG",
+
+                    "PANTS": "PANT",
+                    "TROUSERS": "TROUSER",
+
+                    "T-SHIRT": "TSHIRT",
+                    "T SHIRT": "TSHIRT",
+                    "TEE SHIRT": "TSHIRT"
+                }
+
+
+                normalized_product_type = product_alias.get(
+                    ai_product_raw,
+                    ai_product_raw
                 )
 
-                # =========================================================
-                # 8. RESET PIPELINE
-                # =========================================================
 
-                st.session_state["pipeline_auto_run_executed"] = False
+                # ====================================================
+                # 8. SHORT OVERRIDE - CAO NHẤT
+                # ====================================================
+
+                short_keywords = [
+
+                    "SHORT",
+
+                    "SHORTS",
+
+                    "BERMUDA",
+
+                    "WALK SHORT",
+
+                    "WALKING SHORT",
+
+                    "DENIM SHORT",
+
+                    "DENIM SHORTS",
+
+                    "JEAN SHORT",
+
+                    "JEAN SHORTS",
+
+                    "JEANS SHORT",
+
+                    "JEANS SHORTS"
+                ]
+
+
+                is_short = any(
+                    keyword in product_scan_text
+                    for keyword in short_keywords
+                )
+
+
+                if is_short:
+
+                    final_product_type = "SHORT"
+
+                elif normalized_product_type in [
+                    "JEAN_LONG",
+                    "JEAN",
+                    "PANT",
+                    "TROUSER",
+                    "KHAKI",
+                    "JACKET",
+                    "COAT",
+                    "BLAZER",
+                    "SUIT",
+                    "SHIRT",
+                    "BLOUSE",
+                    "POLO",
+                    "TEE",
+                    "TSHIRT",
+                    "TANK",
+                    "DRESS",
+                    "SKIRT",
+                    "OVERALL",
+                    "COVERALL",
+                    "BIB",
+                    "JUMPSUIT",
+                    "DUNGAREE"
+                ]:
+
+                    final_product_type = normalized_product_type
+
+                else:
+
+                    # Không được fallback JEAN_LONG
+                    final_product_type = "PANT"
+
+
+                # ====================================================
+                # 9. MASTER AI DECISION
+                # ====================================================
+
+                if "ai_expert_decision" not in bom_data:
+                    bom_data["ai_expert_decision"] = {}
+
+                if not isinstance(
+                    bom_data["ai_expert_decision"],
+                    dict
+                ):
+                    bom_data["ai_expert_decision"] = {}
+
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "ai_product_type_raw"
+                ] = ai_product_raw
+
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "detected_product_type"
+                ] = final_product_type
+
+
+                bom_data[
+                    "detected_product_type"
+                ] = final_product_type
+
+
+                bom_data[
+                    "product_type"
+                ] = final_product_type
+
+
+                # ====================================================
+                # 10. MASTER WIDTH / SHRINKAGE COMMIT
+                # ====================================================
+
+                bom_data[
+                    "fabric_width_inch"
+                ] = float(dynamic_width)
+
+                bom_data[
+                    "usable_width_inch"
+                ] = float(dynamic_width)
+
+                bom_data[
+                    "calculated_on_size"
+                ] = str(target_size)
+
+                bom_data[
+                    "warp_shrinkage_percent"
+                ] = float(warp_shrinkage)
+
+                bom_data[
+                    "weft_shrinkage_percent"
+                ] = float(weft_shrinkage)
+
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "detected_base_size"
+                ] = str(target_size)
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "fabric_width"
+                ] = float(dynamic_width)
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "warp_shrinkage_percent"
+                ] = float(warp_shrinkage)
+
+                bom_data[
+                    "ai_expert_decision"
+                ][
+                    "weft_shrinkage_percent"
+                ] = float(weft_shrinkage)
+
+
+                # ====================================================
+                # 11. SESSION MASTER SYNC
+                # ====================================================
+
+                st.session_state[
+                    "bom_data"
+                ] = bom_data
+
+                st.session_state[
+                    "current_active_width"
+                ] = float(dynamic_width)
+
+                st.session_state[
+                    "current_active_size"
+                ] = str(target_size)
+
+                st.session_state[
+                    "current_warp_shrinkage"
+                ] = float(warp_shrinkage)
+
+                st.session_state[
+                    "current_weft_shrinkage"
+                ] = float(weft_shrinkage)
+
+                # ====================================================
+                # 12. DEBUG
+                # ====================================================
+
+                print(
+                    "\n"
+                    "====================================================\n"
+                    "[AI PRODUCT TYPE MASTER]\n"
+                    f"AI RAW        : {ai_product_raw}\n"
+                    f"NORMALIZED    : {normalized_product_type}\n"
+                    f"SHORT CHECK   : {is_short}\n"
+                    f"FINAL TYPE    : {final_product_type}\n"
+                    f"SIZE          : {target_size}\n"
+                    f"WIDTH         : {dynamic_width}\"\n"
+                    f"SHRINK WARP   : {warp_shrinkage}%\n"
+                    f"SHRINK WEFT   : {weft_shrinkage}%\n"
+                    "===================================================="
+                )
+
+
+                # ====================================================
+                # 13. FINISH
+                # ====================================================
 
                 st.session_state.ai_processing = False
 
                 st.rerun()
+
 
             except Exception as e:
 
@@ -2464,7 +2339,6 @@ These two values must remain synchronized.
                 st.session_state.ai_processing = False
 
                 st.rerun()
-
 
 
 def initialize_and_sync_parameters():
