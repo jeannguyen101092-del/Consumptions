@@ -2467,164 +2467,671 @@ These two values must remain synchronized.
 
 
 
+# =====================================================================
+# 🧠 KHỐI 1 (VERSION V23.0): MASTER CONTROLLER
+# 🔒 STRICT PARAMETER SYNC + PIECE QUANTITY RECOVERY
+# =====================================================================
 def initialize_and_sync_parameters():
-    """Khối 1 (PHIÊN BẢN V22 - MASTER CONTROLLER): Đồng bộ thông số, bảo vệ an toàn số mảnh rập"""
-    if not (st.session_state.get("bom_data") or st.session_state.get("accumulated_bom_rows")):
+    """
+    MASTER CONTROLLER:
+    - Đồng bộ khổ vải / size / co rút từ Chat.
+    - Bảo vệ virtual_pieces_layer.
+    - Khôi phục piece_count / cut_quantity thành Số lượng rập.
+    - Tuyệt đối không tự biến số lượng rập hợp lệ thành 1.
+    """
+
+    import re
+    import pandas as pd
+    import streamlit as st
+
+    # =================================================================
+    # 1. KIỂM TRA NGUỒN DỮ LIỆU
+    # =================================================================
+    if not (
+        st.session_state.get("bom_data")
+        or st.session_state.get("accumulated_bom_rows")
+    ):
         return None, None
-        
+
     bom_source = st.session_state.get("bom_data", {})
-    if not isinstance(bom_source, dict): bom_source = {}
-    
-    # 🚨 BẢO VỆ TUYỆT ĐỐI: Trích xuất giữ lại bộ não số lượng rập và lớp ảo trước khi ghi đè
+    if not isinstance(bom_source, dict):
+        bom_source = {}
+
+    # =================================================================
+    # 2. KHÔI PHỤC AI EXPERT DECISION
+    # =================================================================
     ai_expert_decision = bom_source.get("ai_expert_decision", {})
-    if not isinstance(ai_expert_decision, dict): ai_expert_decision = {}
-    
-    virtual_pieces_layer = ai_expert_decision.get("virtual_pieces_layer", {})
-    if not isinstance(virtual_pieces_layer, dict): virtual_pieces_layer = {}
-    
-    # 1. Trích xuất văn bản từ ô chat câu lệnh người dùng
+
+    if not isinstance(ai_expert_decision, dict):
+        ai_expert_decision = {}
+
+    # =================================================================
+    # 3. KHÔI PHỤC VIRTUAL PIECES LAYER
+    # =================================================================
+    virtual_pieces_layer = ai_expert_decision.get(
+        "virtual_pieces_layer",
+        {}
+    )
+
+    if not isinstance(virtual_pieces_layer, dict):
+        virtual_pieces_layer = {}
+
+    # =================================================================
+    # 4. LẤY USER QUERY
+    # =================================================================
     user_query_text = ""
-    if st.session_state.get("last_submitted_query"): 
-        user_query_text = str(st.session_state.get("last_submitted_query")).strip()
-    
-    # 2. Thiết lập thông số mặc định chuẩn từ tầng nhớ gốc
-    fabric_width = float(bom_source.get("fabric_width_inch", 58.0))
-    warp_shrinkage = float(bom_source.get("warp_shrinkage_percent", 0.0))
-    weft_shrinkage = float(bom_source.get("weft_shrinkage_percent", 0.0))
-    
-    # Đồng bộ Size: Ưu tiên lấy từ cấu hình động tầng ngoài để tránh bị Cache AI đè
-    detected_size = st.session_state.get("current_active_size", bom_source.get("detected_base_size", bom_source.get("calculated_on_size", "32")))
+
+    if st.session_state.get("last_submitted_query"):
+        user_query_text = str(
+            st.session_state.get("last_submitted_query")
+        ).strip()
+
+    # =================================================================
+    # 5. ĐỌC THÔNG SỐ GỐC
+    # =================================================================
+    try:
+        fabric_width = float(
+            bom_source.get("fabric_width_inch", 58.0)
+        )
+    except (TypeError, ValueError):
+        fabric_width = 58.0
+
+    try:
+        warp_shrinkage = float(
+            bom_source.get("warp_shrinkage_percent", 0.0)
+        )
+    except (TypeError, ValueError):
+        warp_shrinkage = 0.0
+
+    try:
+        weft_shrinkage = float(
+            bom_source.get("weft_shrinkage_percent", 0.0)
+        )
+    except (TypeError, ValueError):
+        weft_shrinkage = 0.0
+
+    # =================================================================
+    # 6. ĐỒNG BỘ SIZE
+    # =================================================================
+    detected_size = st.session_state.get(
+        "current_active_size",
+        bom_source.get(
+            "detected_base_size",
+            bom_source.get("calculated_on_size", "32")
+        )
+    )
+
     target_size = str(detected_size).upper().strip()
-    if not target_size: 
+
+    if not target_size:
         target_size = "32"
 
-    # 3. Quét thông số ép buộc từ chat bằng Regex nghiêm ngặt
+    # =================================================================
+    # 7. PARSE THÔNG SỐ TỪ CHAT
+    # =================================================================
     if user_query_text:
-        import re
-        w_match = re.search(r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if w_match: 
-            fabric_width = float(w_match.group(2))
-        
-        warp_match = re.search(r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if warp_match: 
-            val = float(warp_match.group(2))
-            if val < 15.0: warp_shrinkage = val 
-        
-        weft_match = re.search(r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(\.\d+)?)\b", user_query_text, re.IGNORECASE)
-        if weft_match: 
-            val = float(weft_match.group(2))
-            if val < 15.0: weft_shrinkage = val
 
-        size_match = re.search(r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b", user_query_text, re.IGNORECASE)
-        if size_match: 
-            target_size = str(size_match.group(2)).upper().strip()
+        # -------------------------------------------------------------
+        # KHỔ VẢI
+        # -------------------------------------------------------------
+        w_match = re.search(
+            r"\b(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
+            user_query_text,
+            re.IGNORECASE
+        )
 
-    # 4. GHI ĐÈ ĐỒNG BỘ LÊN TẦNG NGOÀI (Bảo vệ tham số không bị bộ nhớ đệm AI xóa mất)
-    st.session_state["current_active_width"] = fabric_width
-    st.session_state["current_active_size"] = target_size
-    st.session_state["current_warp_shrinkage"] = warp_shrinkage
-    st.session_state["current_weft_shrinkage"] = weft_shrinkage
+        if w_match:
+            try:
+                fabric_width = float(w_match.group(2))
+            except (TypeError, ValueError):
+                pass
 
-    # Duy trì cấu trúc dữ liệu cũ bên trong bom_data để đảm bảo không gãy logic các hàm phụ
-    bom_source["fabric_width_inch"] = fabric_width
-    bom_source["usable_width_inch"] = fabric_width  
-    bom_source["warp_shrinkage_percent"] = warp_shrinkage
-    bom_source["weft_shrinkage_percent"] = weft_shrinkage
-    bom_source["calculated_on_size"] = target_size
-    
-    # 🔥 KHÔI PHỤC VÀ KHÓA CHẶT BỘ NÃO LỚP ẢO (Ngăn chặn hoàn toàn việc xóa số lượng rập đối xứng)
-    ai_expert_decision["virtual_pieces_layer"] = virtual_pieces_layer
-    bom_source["ai_expert_decision"] = ai_expert_decision
-    
+        # -------------------------------------------------------------
+        # CO RÚT DỌC
+        # -------------------------------------------------------------
+        warp_match = re.search(
+            r"\b(co\s*rút\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
+            user_query_text,
+            re.IGNORECASE
+        )
+
+        if warp_match:
+            try:
+                val = float(warp_match.group(2))
+                if 0.0 <= val < 15.0:
+                    warp_shrinkage = val
+            except (TypeError, ValueError):
+                pass
+
+        # -------------------------------------------------------------
+        # CO RÚT NGANG
+        # -------------------------------------------------------------
+        weft_match = re.search(
+            r"\b(co\s*rút\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
+            user_query_text,
+            re.IGNORECASE
+        )
+
+        if weft_match:
+            try:
+                val = float(weft_match.group(2))
+                if 0.0 <= val < 15.0:
+                    weft_shrinkage = val
+            except (TypeError, ValueError):
+                pass
+
+        # -------------------------------------------------------------
+        # SIZE
+        # -------------------------------------------------------------
+        size_match = re.search(
+            r"\b(cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)\b",
+            user_query_text,
+            re.IGNORECASE
+        )
+
+        if size_match:
+            target_size = str(
+                size_match.group(2)
+            ).upper().strip()
+
+    # =================================================================
+    # 8. 🔥 PIECE QUANTITY RECOVERY ENGINE
+    # =================================================================
+    # Mục tiêu:
+    # AI trả:
+    #   piece_count = 2
+    #   cut_quantity = 2
+    #
+    # thì không được để các tầng sau biến thành:
+    #   Số lượng rập = 1
+    #
+    # Đồng thời nếu User đã sửa thì tuyệt đối giữ User.
+    # =================================================================
+
+    user_edited_pieces = st.session_state.get(
+        "user_edited_pieces",
+        {}
+    )
+
+    if not isinstance(user_edited_pieces, dict):
+        user_edited_pieces = {}
+
+    bom_rows = bom_source.get("bom_rows", [])
+
+    if not isinstance(bom_rows, list):
+        bom_rows = []
+
+    for row_index, row in enumerate(bom_rows):
+
+        if not isinstance(row, dict):
+            continue
+
+        # -------------------------------------------------------------
+        # Xác định khóa vật lý
+        # -------------------------------------------------------------
+        row_key = str(row_index).strip()
+
+        # -------------------------------------------------------------
+        # Tìm quantity từ AI
+        # Ưu tiên:
+        # cut_quantity
+        # piece_count
+        # active_user_pieces
+        # Số lượng rập
+        # pcs_numeric
+        # -------------------------------------------------------------
+        quantity_candidates = [
+            row.get("cut_quantity"),
+            row.get("piece_count"),
+            row.get("active_user_pieces"),
+            row.get("Số lượng rập"),
+            row.get("pcs_numeric"),
+        ]
+
+        ai_piece_qty = None
+
+        for candidate in quantity_candidates:
+            try:
+                if candidate is not None and pd.notna(candidate):
+                    q = int(float(candidate))
+
+                    if q >= 1:
+                        ai_piece_qty = q
+                        break
+
+            except (TypeError, ValueError):
+                continue
+
+        # Nếu AI thực sự không trả quantity
+        # thì mới dùng 1 làm fallback
+        if ai_piece_qty is None:
+            ai_piece_qty = 1
+
+        # -------------------------------------------------------------
+        # USER OVERRIDE có quyền cao nhất
+        # -------------------------------------------------------------
+        user_qty = None
+
+        if row_index in user_edited_pieces:
+            user_qty = user_edited_pieces[row_index]
+
+        elif row_key in user_edited_pieces:
+            user_qty = user_edited_pieces[row_key]
+
+        if user_qty is not None:
+            try:
+                user_qty = max(1, int(float(user_qty)))
+                final_piece_qty = user_qty
+            except (TypeError, ValueError):
+                final_piece_qty = ai_piece_qty
+        else:
+            final_piece_qty = ai_piece_qty
+
+        # -------------------------------------------------------------
+        # GHI NGƯỢC quantity vào BOM ROW
+        # -------------------------------------------------------------
+        row["piece_count"] = int(final_piece_qty)
+        row["cut_quantity"] = int(final_piece_qty)
+        row["pcs_numeric"] = int(final_piece_qty)
+        row["Số lượng rập"] = int(final_piece_qty)
+
+        # -------------------------------------------------------------
+        # GHI VÀO VIRTUAL PIECES LAYER
+        # -------------------------------------------------------------
+        vp = virtual_pieces_layer.get(row_key, {})
+
+        if not isinstance(vp, dict):
+            vp = {}
+
+        vp["active_user_pieces"] = int(final_piece_qty)
+        vp["piece_count"] = int(final_piece_qty)
+        vp["cut_quantity"] = int(final_piece_qty)
+
+        # Giữ tên chi tiết nếu có
+        if row.get("component_name"):
+            vp["component_name"] = str(
+                row.get("component_name")
+            ).strip()
+
+        virtual_pieces_layer[row_key] = vp
+
+    # =================================================================
+    # 9. ĐỒNG BỘ NGƯỢC BOM ROWS VÀO MASTER
+    # =================================================================
+    bom_source["bom_rows"] = bom_rows
+
+    # =================================================================
+    # 10. GHI THÔNG SỐ MASTER RA SESSION STATE
+    # =================================================================
+    st.session_state["current_active_width"] = float(
+        fabric_width
+    )
+
+    st.session_state["current_active_size"] = str(
+        target_size
+    )
+
+    st.session_state["current_warp_shrinkage"] = float(
+        warp_shrinkage
+    )
+
+    st.session_state["current_weft_shrinkage"] = float(
+        weft_shrinkage
+    )
+
+    # =================================================================
+    # 11. GHI THÔNG SỐ VÀO BOM_DATA
+    # =================================================================
+    bom_source["fabric_width_inch"] = float(
+        fabric_width
+    )
+
+    bom_source["usable_width_inch"] = float(
+        fabric_width
+    )
+
+    bom_source["warp_shrinkage_percent"] = float(
+        warp_shrinkage
+    )
+
+    bom_source["weft_shrinkage_percent"] = float(
+        weft_shrinkage
+    )
+
+    bom_source["calculated_on_size"] = str(
+        target_size
+    )
+
+    # =================================================================
+    # 12. 🔒 KHÓA VIRTUAL PIECES LAYER
+    # =================================================================
+    ai_expert_decision["virtual_pieces_layer"] = (
+        virtual_pieces_layer
+    )
+
+    bom_source["ai_expert_decision"] = (
+        ai_expert_decision
+    )
+
+    # =================================================================
+    # 13. MASTER COMMIT
+    # =================================================================
     st.session_state["bom_data"] = bom_source
+
     return bom_source, user_query_text
 
 
 
 
-
-
+# =====================================================================
+# 🧠 CUTTING INSTRUCTION ENGINE (VERSION V26.0)
+# 🔒 STRICT PIECE QUANTITY RECOVERY
+# =====================================================================
 import re
 import streamlit as st
 
-def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_inferred_pcs=1.0):
+
+def extract_cutting_instructions_from_pdf(
+    component_name,
+    raw_pdf_text,
+    current_inferred_pcs=1.0
+):
     """
-    Thuật toán quét Callout văn bản PDF (PHIÊN BẢN V25 - ĐỒNG BỘ SỐ MẢNH THỰC TẾ LÊN LƯỚI UI)
-    Tự động phân tích các lệnh kỹ thuật và xuất ra số lượng rập vật lý chuẩn để triệt tiêu lỗi ĐM ảo.
+    Quét Callout kỹ thuật trong PDF để xác định số lượng mảnh cắt thực tế.
+
+    NGUYÊN TẮC:
+    1. Giữ nguyên số lượng AI đã xác định nếu PDF không có Callout rõ ràng.
+    2. Nếu PDF có CUT / QTY / PCS / X2 / PAIR thì dùng dữ liệu PDF.
+    3. Không tự động ép mọi PANEL / FRONT / BACK / SLEEVE thành 2.
+    4. Không nhân layer_multiplier lần nữa ở các tầng sau.
+    5. final_validated_pcs là số lượng mảnh vật lý cuối cùng.
     """
-    if not raw_pdf_text:
-        return {
-            "layer_multiplier": 1, 
-            "final_validated_pcs": int(float(current_inferred_pcs or 1.0)), 
-            "is_paired": False, 
-            "calc_log": "CAD Fallback: Không tìm thấy dữ liệu văn bản thô PDF."
-        }
-        
-    # Chuẩn hóa chuỗi văn bản để làm sạch khoảng trắng rác
-    text_clean = " ".join(str(raw_pdf_text).lower().split())
-    comp_clean = str(component_name).lower().strip()
-    
-    # Thiết lập cấu trúc mặc định theo quy chuẩn dệt may
+
+    # =================================================================
+    # 1. SAFE BASE QUANTITY
+    # =================================================================
+    try:
+        base_pcs = int(float(current_inferred_pcs))
+    except (TypeError, ValueError):
+        base_pcs = 1
+
+    base_pcs = max(base_pcs, 1)
+
+    final_validated_pcs = base_pcs
+
     layer_multiplier = 1
     is_paired = False
-    calc_log = "AI Engine: Mặc định đồng bộ trực tiếp theo số lượng phôi gốc từ sơ đồ Techpack."
-    
-    # Ép biến số lượng gốc về dạng số nguyên để kiểm tra an toàn hình học
-    base_pcs = int(float(current_inferred_pcs or 1.0))
-    base_pcs = max(base_pcs, 1)
-    
-    # Tạo biến lưu trữ số lượng rập cuối cùng để đồng bộ hiển thị lên giao diện UI
-    final_validated_pcs = base_pcs
-    
-    # Tìm vị trí xuất hiện của tên chi tiết rập trong file văn bản PDF Techpack
-    match_index = text_clean.find(comp_clean)
-    if match_index != -1:
-        # Gom màng quét về trước 80 và sau 120 ký tự để ép chỉ quét trọn vẹn trong một dòng bảng BOM
-        window_start = max(0, match_index - 80)
-        window_end = min(len(text_clean), match_index + 120)
-        scan_window = text_clean[window_start:window_end]
-        
-        # Regex bắt trọn cấu trúc ghi (CUT 2, CUT=2, SELF X2, PANEL X2, QTY: 2)
-        cut_match = re.search(r'(?:cut|cắt|self|shell|\bx\b|\bqty\b)\s*(?:x\s*|\s*|=\s*|[:\s]*|\(-\s*)(\d+)|(?:\s+|\()(\d+)(?:\s*pcs|\s*chi tiết|\))', scan_window)
-        
-        if cut_match:
-            detected_qty_str = cut_match.group(1) or cut_match.group(2)
-            if detected_qty_str:
-                detected_qty = int(detected_qty_str)
-                if detected_qty > 0:
-                    # Ghi nhận số lượng mảnh vật lý thật từ file PDF Techpack
-                    final_validated_pcs = detected_qty
-                    layer_multiplier = 1 # Khóa chặn hệ số nhân về 1 để dập tắt lỗi nhân chồng chéo định mức ở Đoạn 7.1
-                    calc_log = f"Trích xuất Callout PDF: Tìm thấy lệnh cắt tổng {detected_qty} chi tiết (Đã đồng bộ lưới)."
-            
-        # ➔ B. Quét lệnh đối xứng / cặp đôi (PAIR, MIRROR, X2)
-        if any(k in scan_window for k in ["pair", "cặp", "đối", "mirror", "đối xứng", "1 pair"]):
+
+    calc_log = (
+        f"AI Base Quantity: giữ nguyên {base_pcs} mảnh "
+        f"nếu PDF không có Callout xác nhận khác."
+    )
+
+    # =================================================================
+    # 2. KHÔNG CÓ PDF TEXT → GIỮ NGUYÊN AI QUANTITY
+    # =================================================================
+    if not raw_pdf_text:
+        return {
+            "layer_multiplier": 1,
+            "final_validated_pcs": final_validated_pcs,
+            "is_paired": False,
+            "calc_log": (
+                "CAD Fallback: Không có PDF text. "
+                f"Giữ nguyên AI quantity = {final_validated_pcs}."
+            )
+        }
+
+    # =================================================================
+    # 3. CHUẨN HÓA TEXT
+    # =================================================================
+    text_clean = " ".join(
+        str(raw_pdf_text).lower().split()
+    )
+
+    comp_clean = " ".join(
+        str(component_name).lower().split()
+    ).strip()
+
+    if not comp_clean:
+        return {
+            "layer_multiplier": 1,
+            "final_validated_pcs": final_validated_pcs,
+            "is_paired": False,
+            "calc_log": (
+                "Không có Component Name. "
+                f"Giữ AI quantity = {final_validated_pcs}."
+            )
+        }
+
+    # =================================================================
+    # 4. TÌM COMPONENT TRONG PDF
+    # =================================================================
+    match_positions = [
+        m.start()
+        for m in re.finditer(
+            re.escape(comp_clean),
+            text_clean,
+            re.IGNORECASE
+        )
+    ]
+
+    if not match_positions:
+        return {
+            "layer_multiplier": 1,
+            "final_validated_pcs": final_validated_pcs,
+            "is_paired": False,
+            "calc_log": (
+                f"Không tìm thấy Callout cho [{component_name}]. "
+                f"Giữ AI quantity = {final_validated_pcs}."
+            )
+        }
+
+    # =================================================================
+    # 5. QUÉT TỪNG VÙNG QUANH COMPONENT
+    # =================================================================
+    best_detected_qty = None
+    best_priority = 999
+    best_window = ""
+
+    for match_index in match_positions:
+
+        window_start = max(
+            0,
+            match_index - 100
+        )
+
+        window_end = min(
+            len(text_clean),
+            match_index + 180
+        )
+
+        scan_window = text_clean[
+            window_start:window_end
+        ]
+
+        # =============================================================
+        # PRIORITY 1
+        # Explicit CUT / QTY / PCS
+        # =============================================================
+        explicit_patterns = [
+            r"\bcut\s*(?:qty\s*)?(?:x\s*)?[:=]?\s*(\d+)\b",
+            r"\bqty\s*[:=]?\s*(\d+)\b",
+            r"\bquantity\s*[:=]?\s*(\d+)\b",
+            r"\b(\d+)\s*pcs\b",
+            r"\b(\d+)\s*pieces\b",
+            r"\bcut\s+(\d+)\b",
+            r"\bcắt\s+(\d+)\b",
+            r"\bsố\s*lượng\s*[:=]?\s*(\d+)\b",
+            r"\bsl\s*[:=]?\s*(\d+)\b",
+        ]
+
+        detected_qty = None
+        detected_priority = 999
+
+        for pattern in explicit_patterns:
+
+            m = re.search(
+                pattern,
+                scan_window,
+                re.IGNORECASE
+            )
+
+            if m:
+
+                try:
+                    qty = int(m.group(1))
+                except (TypeError, ValueError):
+                    continue
+
+                if qty >= 1:
+
+                    detected_qty = qty
+                    detected_priority = 1
+                    break
+
+        # =============================================================
+        # PRIORITY 2
+        # X2 / X3 / X4
+        # =============================================================
+        if detected_qty is None:
+
+            x_match = re.search(
+                r"(?:\bx\s*|\*\s*)([2-9])\b",
+                scan_window,
+                re.IGNORECASE
+            )
+
+            if x_match:
+
+                try:
+                    qty = int(x_match.group(1))
+                except (TypeError, ValueError):
+                    qty = None
+
+                if qty and qty >= 2:
+
+                    detected_qty = qty
+                    detected_priority = 2
+
+        # =============================================================
+        # PRIORITY 3
+        # PAIR / 1 PAIR / DOUBLE
+        # =============================================================
+        pair_detected = bool(
+            re.search(
+                r"\b(pair|1\s*pair|double|mirror|"
+                r"đối\s*xứng|cặp|đôi)\b",
+                scan_window,
+                re.IGNORECASE
+            )
+        )
+
+        if pair_detected:
+
             is_paired = True
-            # CHỈ ĐƯỢC PHÉP BÙ PHÔI ĐỐI XỨNG (X2) NẾU SỐ LƯỢNG KHI QUÉT ĐANG BỊ THIẾU (= 1)
-            if final_validated_pcs == 1:
-                final_validated_pcs = 2
-                calc_log = "Trích xuất Callout PDF: Phát hiện kết cấu cặp (PAIR) trên rập đơn. Kích hoạt khôi phục 2 mảnh đối xứng."
-                
-        # ➔ C. Quét lệnh gập đôi vải bàn cắt (FOLD, GẬP ĐÔI)
-        if any(k in scan_window for k in ["fold", "gập", "gap doi", "gập đôi"]):
-            calc_log += " | Ghi nhận chi tiết đi biên gập đôi (FOLD)."
-            
-    # 🚨 BỘ PHÒNG VỆ THƯƠNG MẠI: Nếu là chi tiết thân chính đối xứng nhưng quét bị sót lỗi ra số 1 -> Ép khôi phục về số 2 mảnh
-    if final_validated_pcs == 1:
-        if any(x in comp_clean for x in ["panel", "front", "back", "than truoc", "than sau", "sleeve", "tay", "pocket bag", "lot tui", "pocket facing"]):
-            final_validated_pcs = 2
-            calc_log += " | [Auto-Fix] Khôi phục 2 mảnh đối xứng chuẩn kỹ thuật may cho chi tiết thân chính."
 
+            if detected_qty is None:
+
+                # Chỉ suy ra 2 khi PDF thực sự nói PAIR.
+                detected_qty = 2
+                detected_priority = 3
+
+        # =============================================================
+        # CHỌN KẾT QUẢ CÓ ĐỘ ƯU TIÊN CAO NHẤT
+        # =============================================================
+        if (
+            detected_qty is not None
+            and detected_priority < best_priority
+        ):
+            best_detected_qty = detected_qty
+            best_priority = detected_priority
+            best_window = scan_window
+
+    # =================================================================
+    # 6. COMMIT QUANTITY TỪ PDF
+    # =================================================================
+    if best_detected_qty is not None:
+
+        final_validated_pcs = max(
+            int(best_detected_qty),
+            1
+        )
+
+        if best_priority == 1:
+
+            calc_log = (
+                f"PDF Callout xác nhận CUT/QTY = "
+                f"{final_validated_pcs} mảnh. "
+                f"AI Base = {base_pcs}."
+            )
+
+        elif best_priority == 2:
+
+            calc_log = (
+                f"PDF Callout xác nhận X{final_validated_pcs}. "
+                f"AI Base = {base_pcs}."
+            )
+
+        else:
+
+            calc_log = (
+                "PDF Callout xác nhận PAIR/MIRROR. "
+                f"Khôi phục = {final_validated_pcs} mảnh."
+            )
+
+    else:
+
+        # =============================================================
+        # KHÔNG CÓ CALLOUT → TUYỆT ĐỐI KHÔNG ÉP VỀ 2
+        # =============================================================
+        final_validated_pcs = base_pcs
+
+        calc_log = (
+            f"Không có Callout quantity rõ ràng. "
+            f"Giữ nguyên AI Base = {base_pcs}."
+        )
+
+    # =================================================================
+    # 7. 🔒 MASTER GUARD
+    # =================================================================
+    final_validated_pcs = max(
+        int(final_validated_pcs),
+        1
+    )
+
+    # Không cho layer multiplier nhân lại quantity.
+    layer_multiplier = 1
+
+    # =================================================================
+    # 8. RETURN MASTER QUANTITY
+    # =================================================================
     return {
-        "layer_multiplier": layer_multiplier,
-        "final_validated_pcs": final_validated_pcs, # Đổ số lượng thực tế chuẩn ra bên ngoài cho hệ thống dùng chung
-        "is_paired": is_paired,
-        "calc_log": calc_log
+        "layer_multiplier": 1,
+
+        # SỐ LƯỢNG MẢNH VẬT LÝ CUỐI CÙNG
+        "final_validated_pcs": int(
+            final_validated_pcs
+        ),
+
+        "is_paired": bool(is_paired),
+
+        "calc_log": calc_log,
+
+        # Debug để các tầng sau biết nguồn quantity
+        "base_pcs": int(base_pcs),
+
+        "quantity_source": (
+            "PDF_CALLOUT"
+            if best_detected_qty is not None
+            else "AI_BASE"
+        ),
+
+        "detected_pdf_quantity": (
+            int(best_detected_qty)
+            if best_detected_qty is not None
+            else None
+        )
     }
-
-
-
-
 
 
 
