@@ -5357,7 +5357,7 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
     "TSHIRT":    0.760,
 
     # Dress / Skirt
-    "DRESS":     0.750,
+    "DRESS":     0.65,
     "SKIRT":     0.700,
 }
 
