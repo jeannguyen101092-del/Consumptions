@@ -4906,8 +4906,8 @@ if _has_rows:
         "SHORT":    [0.68, "SHORT (Quần short)"],
 
         # 👖 JEAN
-        "JEAN":      [0.75, "JEAN (Vải Denim/Jean)"],
-        "JEAN_LONG": [0.76, "JEAN_LONG (Quần Jeans dài chuẩn)"],
+        "JEAN":      [0.80, "JEAN (Vải Denim/Jean)"],
+        "JEAN_LONG": [0.80, "JEAN_LONG (Quần Jeans dài chuẩn)"],
 
         "KHAKI":    [0.60, "KHAKI (Quần Khaki)"],
         "TROUSER":  [0.71, "TROUSER (Quần tây công sở)"],
@@ -5176,8 +5176,8 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
 
     # Quần jeans:
     # efficiency thấp hơn -> consumption cao hơn
-    "JEAN_LONG": 0.755,
-    "JEAN":      0.755,
+    "JEAN_LONG": 0.80,
+    "JEAN":      0.80,
 
     # Quần thường
     "PANT":      0.735,
