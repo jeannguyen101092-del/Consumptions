@@ -2239,558 +2239,203 @@ if _has_rows:
         "ie_parameter_sync_complete"
     ] = True
 
-# =====================================================================
-# 🟩 ĐOẠN 3.1 - AI PRODUCT CLASSIFIER
-# VERSION V28.0 - MASTER PRODUCT ID / CAD SAFE
-# =====================================================================
-
-import pandas as pd
-import re
-
-
-# =====================================================================
-# 1. COMPANY DENSITY PRIOR
-# =====================================================================
-
-COMPANY_DENSITY_PRIOR = {
-    "SHIRT":      0.82,
-    "JEAN_LONG": 0.795,
-    "SHORT":      0.83,
-    "JACKET":     0.68,
-    "VEST":       0.82,
-    "TOPS_KNIT":  0.78,
-    "SKIRT":      0.82,
-    "DRESS_FLARE": 0.72,
-}
-
-
-# =====================================================================
-# 2. ĐẢM BẢO BOM CONTEXT AN TOÀN
-# =====================================================================
-
-if (
-    "bom_data" not in st.session_state
-    or not isinstance(st.session_state["bom_data"], dict)
-):
-    st.session_state["bom_data"] = {}
-
-
-ctx = st.session_state["bom_data"]
-
-
-if (
-    "ai_expert_decision" not in ctx
-    or not isinstance(ctx["ai_expert_decision"], dict)
-):
-    ctx["ai_expert_decision"] = {}
-
-
-ai_decision = ctx["ai_expert_decision"]
-
-
-# =====================================================================
-# 3. XÁC ĐỊNH COMPONENT COLUMN
-# =====================================================================
-
-comp_col_candidates = [
-    "Component Name",
-    "component_name",
-    "Component_Name",
-    "component",
-    "Component",
-]
-
-
-comp_col_check = next(
-    (
-        c
-        for c in comp_col_candidates
-        if c in df_bom.columns
-    ),
-    None,
-)
-
-
-if comp_col_check is not None:
-
-    all_components_text = " ".join(
-        df_bom[comp_col_check]
-        .fillna("")
-        .astype(str)
-        .str.upper()
-        .tolist()
-    )
-
-else:
-
-    all_components_text = ""
-
-
-# =====================================================================
-# 4. LẤY THÔNG TIN AI / TECH PACK
-# =====================================================================
-
-style_code_upper = str(
-    ai_decision.get(
-        "style_code",
-        ""
-    )
-).upper().strip()
-
-
-material_spec_upper = str(
-    ai_decision.get(
-        "material_spec",
-        ""
-    )
-).upper().strip()
-
-
-product_type_ai = str(
-    ai_decision.get(
-        "product_type_friendly",
-        ""
-    )
-).upper().strip()
-
-
-# Product type đã được Đoạn 2 xác định
-prod_upper_name = str(
-    ctx.get(
-        "detected_product_type",
-        ctx.get(
-            "product_segmented",
-            prod if "prod" in locals() else ""
-        )
-    )
-).upper().strip()
-
-
-# =====================================================================
-# 5. GOM CONTEXT
-# =====================================================================
-
-combined_context_text = " ".join([
-    style_code_upper,
-    material_spec_upper,
-    product_type_ai,
-    prod_upper_name,
-    all_components_text,
-]).upper()
-
-
-# Chuẩn hóa khoảng trắng
-combined_context_text = re.sub(
-    r"\s+",
-    " ",
-    combined_context_text
-).strip()
-
-
-# =====================================================================
-# 6. HÀM KIỂM TRA KEYWORD
-# =====================================================================
-
-def has_keyword(text, keywords):
-
-    return any(
-        keyword in text
-        for keyword in keywords
-    )
-
-
-# =====================================================================
-# 7. PRODUCT CLASSIFICATION
-#
-# Thứ tự ưu tiên:
-#
-# SHIRT
-# ↓
-# SKIRT
-# ↓
-# DRESS
-# ↓
-# JACKET
-# ↓
-# SHORT
-# ↓
-# JEAN/PANTS
-# ↓
-# VEST/TOPS
-# ↓
-# prod Master
-# ↓
-# fallback JEAN_LONG
-# =====================================================================
-
-product_category = None
-
-
-# ---------------------------------------------------------------------
-# 7.1 SHIRT
-# ---------------------------------------------------------------------
-
-if has_keyword(
-    combined_context_text,
-    [
-        "SHIRT",
-        "SƠ MI",
-        "SO MI",
-        "BLOUSE",
-        "BUTTON DOWN",
-        "BUTTON-DOWN",
-        "DRESS SHIRT",
-    ],
-):
-
-    product_category = "SHIRT"
-
-
-# ---------------------------------------------------------------------
-# 7.2 SKIRT
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "SKIRT",
-        "CHÂN VÁY",
-        "CHAN VAY",
-        "MINI SKIRT",
-        "MAXI SKIRT",
-        "PENCIL SKIRT",
-    ],
-):
-
-    product_category = "SKIRT"
-
-
-# ---------------------------------------------------------------------
-# 7.3 DRESS
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "DRESS",
-        "ĐẦM",
-        "DAM",
-        "DRESSING",
-        "FLARE DRESS",
-        "SHIFT DRESS",
-        "MAXI DRESS",
-        "MINI DRESS",
-        "GOWN",
-    ],
-):
-
-    product_category = "DRESS_FLARE"
-
-
-# ---------------------------------------------------------------------
-# 7.4 JACKET / COAT
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "JACKET",
-        "COAT",
-        "BLAZER",
-        "OUTERWEAR",
-        "ÁO KHOÁC",
-        "AO KHOAC",
-        "KHOÁC",
-        "KHOAC",
-        "BOMBER",
-        "PARKA",
-        "WINDBREAKER",
-    ],
-):
-
-    product_category = "JACKET"
-
-
-# ---------------------------------------------------------------------
-# 7.5 SHORT
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "SHORT",
-        "SHORTS",
-        "QUẦN SHORT",
-        "QUAN SHORT",
-    ],
-):
-
-    product_category = "SHORT"
-
-
-# ---------------------------------------------------------------------
-# 7.6 JEAN / PANTS
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    all_components_text,
-    [
-        "TROUSER",
-        "TROUSERS",
-        "PANTS",
-        "PANT",
-        "JEAN",
-        "JEANS",
-        "QUẦN",
-        "QUAN",
-        "ĐŨNG",
-        "DUNG QUAN",
-        "ĐÁY QUẦN",
-        "DAY QUAN",
-        "WAISTBAND",
-        "WAIST BAND",
-        "FLY",
-        "FLY PIECE",
-        "CẠP",
-        "CAP",
-        "LƯNG QUẦN",
-        "LUNG QUAN",
-        "POCKET FACING",
-    ],
-):
-
-    product_category = "JEAN_LONG"
-
-
-# ---------------------------------------------------------------------
-# 7.7 VEST
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "VEST",
-        "WAISTCOAT",
-        "WAIST COAT",
-    ],
-):
-
-    product_category = "VEST"
-
-
-# ---------------------------------------------------------------------
-# 7.8 KNIT TOP
-# ---------------------------------------------------------------------
-
-elif has_keyword(
-    combined_context_text,
-    [
-        "POLO",
-        "T-SHIRT",
-        "TSHIRT",
-        "TEE",
-        "KNIT TOP",
-        "TOPS KNIT",
-        "SWEATSHIRT",
-        "HOODIE",
-    ],
-):
-
-    product_category = "TOPS_KNIT"
-
-
-# =====================================================================
-# 8. NẾU COMPONENT KHÔNG ĐỦ BẰNG CHỨNG → DÙNG PRODUCT MASTER
-# =====================================================================
-
-if product_category is None:
-
-    master_product_map = {
-        "SHIRT": "SHIRT",
-        "SKIRT": "SKIRT",
-        "SHORT": "SHORT",
-        "JACKET": "JACKET",
-        "COAT": "JACKET",
-        "VEST": "VEST",
-        "TOPS_KNIT": "TOPS_KNIT",
-        "T-SHIRT": "TOPS_KNIT",
-        "TSHIRT": "TOPS_KNIT",
-        "POLO": "TOPS_KNIT",
-        "DRESS": "DRESS_FLARE",
-        "DRESS_FLARE": "DRESS_FLARE",
-        "JEAN": "JEAN_LONG",
-        "JEANS": "JEAN_LONG",
-        "PANT": "JEAN_LONG",
-        "PANTS": "JEAN_LONG",
-        "TROUSER": "JEAN_LONG",
-        "JEAN_LONG": "JEAN_LONG",
+    # =====================================================================
+    # 🟩 ĐOẠN 3.1 - AI PRODUCT CLASSIFIER
+    # VERSION V28.1 - COMPACT / CAD SAFE
+    # =====================================================================
+
+    import re
+
+    COMPANY_DENSITY_PRIOR = {
+        "SHIRT": 0.82,
+        "JEAN_LONG": 0.795,
+        "SHORT": 0.83,
+        "JACKET": 0.68,
+        "VEST": 0.82,
+        "TOPS_KNIT": 0.78,
+        "SKIRT": 0.82,
+        "DRESS_FLARE": 0.72,
     }
 
+    if not isinstance(st.session_state.get("bom_data"), dict):
+        st.session_state["bom_data"] = {}
 
-    product_category = master_product_map.get(
-        prod_upper_name,
+    ctx = st.session_state["bom_data"]
+
+    if not isinstance(ctx.get("ai_expert_decision"), dict):
+        ctx["ai_expert_decision"] = {}
+
+    ai_decision = ctx["ai_expert_decision"]
+
+    comp_col = next(
+        (
+            c for c in [
+                "Component Name",
+                "component_name",
+                "Component_Name"
+            ]
+            if c in df_bom.columns
+        ),
         None
     )
 
+    all_components_text = (
+        " ".join(
+            df_bom[comp_col]
+            .fillna("")
+            .astype(str)
+            .str.upper()
+        )
+        if comp_col
+        else ""
+    )
 
-# =====================================================================
-# 9. FALLBACK CUỐI CÙNG
-# =====================================================================
+    style_code = str(
+        ai_decision.get("style_code", "")
+    ).upper().strip()
 
-if product_category not in COMPANY_DENSITY_PRIOR:
+    material_spec = str(
+        ai_decision.get("material_spec", "")
+    ).upper().strip()
 
-    product_category = "JEAN_LONG"
+    prod_master = str(
+        ctx.get(
+            "detected_product_type",
+            ctx.get(
+                "product_segmented",
+                prod if "prod" in locals() else ""
+            )
+        )
+    ).upper().strip()
 
+    combined_text = (
+        f"{style_code} "
+        f"{material_spec} "
+        f"{prod_master} "
+        f"{all_components_text}"
+    ).upper()
 
-# =====================================================================
-# 10. PRODUCT FRIENDLY NAME
-# =====================================================================
+    product_category = None
 
-PRODUCT_FRIENDLY_NAME = {
+    if re.search(
+        r"\b(SHIRT|SƠ MI|SO MI|BLOUSE)\b",
+        combined_text
+    ):
+        product_category = "SHIRT"
 
-    "VEST":
-        "VEST (Áo Vest/Blazer)",
+    elif re.search(
+        r"\b(SKIRT|CHÂN VÁY|CHAN VAY)\b",
+        combined_text
+    ):
+        product_category = "SKIRT"
 
-    "JACKET":
-        "JACKET (Áo khoác Jacket)",
+    elif re.search(
+        r"\b(DRESS|ĐẦM|DAM|FLARE DRESS|SHIFT DRESS|MAXI DRESS)\b",
+        combined_text
+    ):
+        product_category = "DRESS_FLARE"
 
-    "DRESS_FLARE":
-        "DRESS_FLARE (Đầm)",
+    elif re.search(
+        r"\b(JACKET|COAT|BLAZER|ÁO KHOÁC|AO KHOAC|BOMBER|PARKA)\b",
+        combined_text
+    ):
+        product_category = "JACKET"
 
-    "SKIRT":
-        "SKIRT (Chân váy)",
+    elif re.search(
+        r"\b(SHORT|SHORTS|QUẦN SHORT|QUAN SHORT)\b",
+        combined_text
+    ):
+        product_category = "SHORT"
 
-    "TOPS_KNIT":
-        "TOPS_KNIT (Áo thun/Polo)",
+    elif re.search(
+        r"\b(TROUSER|TROUSERS|PANTS|PANT|JEAN|JEANS|QUẦN|QUAN|WAISTBAND|FLY|CẠP|CAP|POCKET FACING)\b",
+        all_components_text
+    ):
+        product_category = "JEAN_LONG"
 
-    "SHIRT":
-        "SHIRT (Áo sơ mi)",
+    elif re.search(
+        r"\b(VEST|WAISTCOAT)\b",
+        combined_text
+    ):
+        product_category = "VEST"
 
-    "SHORT":
-        "SHORT (Quần short)",
+    elif re.search(
+        r"\b(POLO|T-SHIRT|TSHIRT|TEE|KNIT TOP|HOODIE|SWEATSHIRT)\b",
+        combined_text
+    ):
+        product_category = "TOPS_KNIT"
 
-    "JEAN_LONG":
-        "JEAN_LONG (Quần dài Jeans/Pants)",
-}
+    if product_category is None:
 
+        master_map = {
+            "SHIRT": "SHIRT",
+            "SKIRT": "SKIRT",
+            "SHORT": "SHORT",
+            "JACKET": "JACKET",
+            "COAT": "JACKET",
+            "VEST": "VEST",
+            "TOPS_KNIT": "TOPS_KNIT",
+            "POLO": "TOPS_KNIT",
+            "T-SHIRT": "TOPS_KNIT",
+            "TSHIRT": "TOPS_KNIT",
+            "DRESS": "DRESS_FLARE",
+            "DRESS_FLARE": "DRESS_FLARE",
+            "JEAN": "JEAN_LONG",
+            "JEANS": "JEAN_LONG",
+            "PANT": "JEAN_LONG",
+            "PANTS": "JEAN_LONG",
+            "TROUSER": "JEAN_LONG",
+            "JEAN_LONG": "JEAN_LONG",
+        }
 
-ai_product_type = PRODUCT_FRIENDLY_NAME.get(
-    product_category,
-    "JEAN_LONG (Quần dài Jeans/Pants)"
-)
+        product_category = master_map.get(
+            prod_master,
+            "JEAN_LONG"
+        )
 
-
-# =====================================================================
-# 11. DENSITY PRIOR
-# =====================================================================
-
-estimated_density_prior = float(
-    COMPANY_DENSITY_PRIOR.get(
+    density_prior = COMPANY_DENSITY_PRIOR.get(
         product_category,
         COMPANY_DENSITY_PRIOR["JEAN_LONG"]
     )
-)
 
+    friendly_map = {
+        "SHIRT": "SHIRT (Áo sơ mi)",
+        "SKIRT": "SKIRT (Chân váy)",
+        "SHORT": "SHORT (Quần short)",
+        "JACKET": "JACKET (Áo khoác Jacket)",
+        "VEST": "VEST (Áo Vest/Blazer)",
+        "TOPS_KNIT": "TOPS_KNIT (Áo thun/Polo)",
+        "DRESS_FLARE": "DRESS_FLARE (Đầm)",
+        "JEAN_LONG": "JEAN_LONG (Quần dài Jeans/Pants)",
+    }
 
-# =====================================================================
-# 12. BẢO VỆ VIRTUAL PIECES LAYER
-# =====================================================================
+    ai_product_type = friendly_map.get(
+        product_category,
+        friendly_map["JEAN_LONG"]
+    )
 
-virtual_pieces_layer_backup = ai_decision.get(
-    "virtual_pieces_layer",
-    {}
-)
+    virtual_pieces = ai_decision.get(
+        "virtual_pieces_layer",
+        {}
+    )
 
+    if not isinstance(virtual_pieces, dict):
+        virtual_pieces = {}
 
-if not isinstance(
-    virtual_pieces_layer_backup,
-    dict
-):
+    ai_decision["product_category"] = product_category
+    ai_decision["product_type_friendly"] = ai_product_type
+    ai_decision["estimated_density_prior"] = density_prior
+    ai_decision["virtual_pieces_layer"] = virtual_pieces
 
-    virtual_pieces_layer_backup = {}
+    ctx["detected_product_type"] = product_category
+    ctx["product_segmented"] = product_category
+    ctx["estimated_density_prior"] = density_prior
 
+    st.session_state["current_product_category"] = product_category
+    st.session_state["current_product_type_friendly"] = ai_product_type
+    st.session_state["current_estimated_density_prior"] = density_prior
 
-# =====================================================================
-# 13. GHI KẾT QUẢ CLASSIFIER VÀO AI DECISION
-# =====================================================================
-
-ai_decision["product_category"] = product_category
-
-ai_decision["product_type_friendly"] = ai_product_type
-
-ai_decision["estimated_density_prior"] = (
-    estimated_density_prior
-)
-
-ai_decision["virtual_pieces_layer"] = (
-    virtual_pieces_layer_backup
-)
-
-
-# =====================================================================
-# 14. GHI THÊM TRACE ĐỂ AUDIT
-# =====================================================================
-
-ai_decision["classifier_source"] = (
-    "COMPONENT + TECHPACK + PRODUCT_MASTER"
-)
-
-ai_decision["classifier_context"] = {
-    "style_code": style_code_upper,
-    "material_spec": material_spec_upper,
-    "product_master": prod_upper_name,
-    "component_column": comp_col_check,
-}
-
-
-# =====================================================================
-# 15. ĐẨY DENSITY LÊN MASTER SESSION
-# =====================================================================
-
-st.session_state[
-    "current_estimated_density_prior"
-] = estimated_density_prior
-
-
-st.session_state[
-    "current_product_category"
-] = product_category
-
-
-st.session_state[
-    "current_product_type_friendly"
-] = ai_product_type
-
-
-# =====================================================================
-# 16. ĐỒNG BỘ BOM DATA
-# =====================================================================
-
-ctx["ai_expert_decision"] = ai_decision
-
-ctx["detected_product_type"] = product_category
-
-ctx["product_segmented"] = product_category
-
-ctx["estimated_density_prior"] = (
-    estimated_density_prior
-)
-
-
-# =====================================================================
-# 17. LƯU LẠI BOM MASTER
-# =====================================================================
-
-st.session_state["bom_data"] = ctx
-
-
-# =====================================================================
-# 18. STATUS FLAG
-# =====================================================================
-
-st.session_state[
-    "ai_product_classifier_complete"
-] = True
+    st.session_state["bom_data"] = ctx
        # =====================================================================
     # 🟩 ĐOẠN 4 (VERSION V28.0): MASTER GEOMETRY & STRICT MATERIAL CLASSIFIER
     # =====================================================================
