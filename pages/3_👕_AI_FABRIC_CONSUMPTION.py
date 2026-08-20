@@ -730,90 +730,517 @@ def execute_final_gerber_pure_scan(
 
 
 
-import streamlit as st
+import io
 import re
+import hashlib
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 
 # =====================================================================
-# 🟩 ĐOẠN 1: CHAT WORKSPACE LAYER (VERSION V29.7 - CHỐNG SẬP TYPEERROR)
+# 🟩 MASTER CHAT WORKSPACE & PARAMS SYNC
+# VERSION V30.0
+#
+# FLOW:
+#
+# USER CHAT
+#    ↓
+# last_submitted_query
+#    ↓
+# PARAMETER EXTRACTION
+#    ↓
+# MASTER SESSION STATE
+#    ↓
+# BOM DATA
+#    ↓
+# IE CALCULATION ENGINE
+#
+# ĐOẠN NÀY LÀ ĐOẠN DUY NHẤT XỬ LÝ CHAT + PARAMETER SYNC
 # =====================================================================
 
-# 1. Khởi tạo an toàn bộ nhớ đệm hệ thống (Session State)
+
+# =====================================================================
+# 1. SESSION STATE SAFETY
+# =====================================================================
+
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state["chat_history"] = []
+
 if "ai_processing" not in st.session_state:
-    st.session_state.ai_processing = False
+    st.session_state["ai_processing"] = False
+
 if "last_submitted_query" not in st.session_state:
-    st.session_state.last_submitted_query = ""
+    st.session_state["last_submitted_query"] = ""
 
-# 2. Tạo một khung Container riêng độc lập để chứa lịch sử hội thoại cũ
+if (
+    "bom_data" not in st.session_state
+    or not isinstance(st.session_state.get("bom_data"), dict)
+):
+    st.session_state["bom_data"] = {}
+
+ctx = st.session_state["bom_data"]
+
+
+# =====================================================================
+# 2. SAFE NUMBER EXTRACTOR
+# =====================================================================
+
+def extract_number(pattern, text):
+    """
+    Trả về số được tìm thấy.
+    Không tìm thấy -> None.
+    """
+
+    if not text:
+        return None
+
+    match = re.search(
+        pattern,
+        text,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return None
+
+    try:
+        return float(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+# =====================================================================
+# 3. CHAT HISTORY DISPLAY
+# =====================================================================
+
 chat_history_container = st.container()
-with chat_history_container:
-    st.markdown('<br><div class="cad-card"><div class="cad-header">💬 CHATGPT IE COLLABORATION WORKSPACE</div></div>', unsafe_allow_html=True)
-    if st.session_state.get("chat_history"):
-        for msg in st.session_state.chat_history:
-            with st.chat_message("user"):
-                st.write(msg["user"])
-            with st.chat_message("assistant"):
-                st.write(msg["ai"])
 
-# 🚨 KHÓA BIÊN TRÁI: Ô nhập lệnh Chat chính của hệ thống
+with chat_history_container:
+
+    st.markdown(
+        '<br>'
+        '<div class="cad-card">'
+        '<div class="cad-header">'
+        '💬 CHATGPT IE COLLABORATION WORKSPACE'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.session_state.get("chat_history"):
+
+        for msg in st.session_state["chat_history"]:
+
+            if not isinstance(msg, dict):
+                continue
+
+            user_msg = str(msg.get("user", "") or "")
+            ai_msg = str(msg.get("ai", "") or "")
+
+            if user_msg:
+
+                with st.chat_message("user"):
+                    st.write(user_msg)
+
+            if ai_msg:
+
+                with st.chat_message("assistant"):
+                    st.write(ai_msg)
+
+
+# =====================================================================
+# 4. CHAT INPUT
+# =====================================================================
+
 safe_user_prompt = st.chat_input(
-    "Gõ lệnh tính toán (Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
-    key="ie_workspace_fixed_dynamic_chat_final_patch_v29_7"
+    "Gõ lệnh tính toán "
+    "(Ví dụ: tính định mức cỡ 32 khổ 56 co rút dọc 3 ngang 14)...",
+    key="ie_workspace_fixed_dynamic_chat_final_patch_v30_0"
 )
 
-# 3. KÍCH HOẠT CHU TRÌNH BÓC TÁCH THAM SỐ ĐỘNG KHI CÓ CÂU THOẠI
+
+# =====================================================================
+# 5. KHI USER NHẬP LỆNH
+# =====================================================================
+
 if safe_user_prompt:
-    query_text = str(safe_user_prompt).strip()
-    st.session_state["last_submitted_query"] = query_text
-    st.session_state.ai_processing = True
-    
+
+    query_text = str(
+        safe_user_prompt
+    ).strip()
+
+    if not query_text:
+        st.stop()
+
     query_lower = query_text.lower()
-    
-    # 🛠️ FIXED CRITICAL: Khởi tạo phòng vệ bộ nhớ bom_data dứt điểm lỗi TypeError 'NoneType'
-    if "bom_data" not in st.session_state or st.session_state["bom_data"] is None:
-        st.session_state["bom_data"] = {}
-        
-    if not isinstance(st.session_state["bom_data"], dict):
-        st.session_state["bom_data"] = {}
 
-    # A. VÁ REGEX CÔ LẬP BIÊN TỪ BẮT TRÚNG KHỔ VẢI ĐỘNG (ANTI-STALE)
-    width_match = re.search(r'\b(khổ\s*vải|khổ\s*chính|khổ|kho|width)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', query_lower)
-    if width_match:
-        detected_width = float(width_match.group(2))
-        if detected_width > 0.0:
-            # Khóa chặt đồng bộ lên toàn bộ trục RAM hệ thống để các đoạn 4, 5 bên dưới không thể ghi đè
-            st.session_state["current_active_width"] = detected_width
-            st.session_state["fabric_width_inch"] = detected_width
-            st.session_state["bom_data"]["fabric_width_inch"] = detected_width
-        
-    # B. BÓC TÁCH KÍCH CỠ ĐƠN CHIẾC (SIZE CODE)
-    size_match = re.search(r'\b(cỡ|size|kích\s*cỡ)\s*[:=-]?\s*([a-zA-Z0-9]+)\b', query_lower)
+    st.session_state["last_submitted_query"] = query_text
+    st.session_state["ai_processing"] = True
+
+
+    # ================================================================
+    # A. FABRIC WIDTH
+    #
+    # Hỗ trợ:
+    #   khổ 56
+    #   khổ vải 56
+    #   khổ chính 56
+    #   width 56
+    # ================================================================
+
+    width_from_chat = extract_number(
+        r'\b(?:khổ\s*vải|khổ\s*chính|khổ|kho|width)'
+        r'\s*[:=-]?\s*(\d+(?:\.\d+)?)\b',
+        query_lower
+    )
+
+    if (
+        width_from_chat is not None
+        and width_from_chat > 0
+    ):
+
+        detected_width = width_from_chat
+
+    else:
+
+        detected_width = float(
+            st.session_state.get(
+                "current_active_width",
+                st.session_state.get(
+                    "fabric_width_inch",
+                    ctx.get(
+                        "fabric_width_inch",
+                        58.0
+                    )
+                )
+            )
+        )
+
+        if detected_width <= 0:
+            detected_width = 58.0
+
+
+    # MASTER FABRIC WIDTH
+    st.session_state["current_active_width"] = detected_width
+    st.session_state["fabric_width_inch"] = detected_width
+
+    ctx["fabric_width_inch"] = detected_width
+
+
+    # ================================================================
+    # B. FUSING WIDTH
+    # ================================================================
+
+    fusing_from_chat = extract_number(
+        r'\b(?:khổ\s*keo|keo\s*khổ|khổ\s*dựng)'
+        r'\s*[:=-]?\s*(\d+(?:\.\d+)?)\b',
+        query_lower
+    )
+
+    if (
+        fusing_from_chat is not None
+        and fusing_from_chat > 0
+    ):
+
+        fusing_width = fusing_from_chat
+
+    else:
+
+        fusing_width = float(
+            st.session_state.get(
+                "fusing_width_inch",
+                ctx.get(
+                    "fusing_width_inch",
+                    59.0
+                )
+            )
+        )
+
+        if fusing_width <= 0:
+            fusing_width = 59.0
+
+
+    st.session_state["fusing_width_inch"] = fusing_width
+    ctx["fusing_width_inch"] = fusing_width
+
+
+    # ================================================================
+    # C. LINING WIDTH
+    # ================================================================
+
+    lining_from_chat = extract_number(
+        r'\b(?:khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)'
+        r'\s*[:=-]?\s*(\d+(?:\.\d+)?)\b',
+        query_lower
+    )
+
+    if (
+        lining_from_chat is not None
+        and lining_from_chat > 0
+    ):
+
+        lining_width = lining_from_chat
+
+    else:
+
+        lining_width = float(
+            st.session_state.get(
+                "lining_width_inch",
+                ctx.get(
+                    "lining_width_inch",
+                    57.0
+                )
+            )
+        )
+
+        if lining_width <= 0:
+            lining_width = 57.0
+
+
+    st.session_state["lining_width_inch"] = lining_width
+    ctx["lining_width_inch"] = lining_width
+
+
+    # ================================================================
+    # D. SIZE
+    #
+    # Hỗ trợ:
+    #   cỡ 32
+    #   size 32
+    #   kích cỡ 32
+    # ================================================================
+
+    size_match = re.search(
+        r'\b(?:cỡ|size|kích\s*cỡ)'
+        r'\s*[:=-]?\s*([a-zA-Z0-9]+)\b',
+        query_lower,
+        re.IGNORECASE
+    )
+
     if size_match:
-        detected_size = str(size_match.group(2)).upper().strip()
-        st.session_state["current_active_size"] = detected_size
 
-    # C. BÓC TÁCH TỶ LỆ CO RÚT HAI CHIỀU DỌC & NGANG CHUẨN XƯỞNG MAY
-    shrink_v_match = re.search(r'\b(dọc|co\s*dọc|shrink_v|vertical)\s*[:=-]?\s*(-?\d+\.?\d*)\b', query_lower)
-    if shrink_v_match:
-        st.session_state["shrinkage_vertical"] = float(shrink_v_match.group(2))
-        
-    shrink_h_match = re.search(r'\b(ngang|co\s*ngang|shrink_h|horizontal)\s*[:=-]?\s*(-?\d+\.?\d*)\b', query_lower)
-    if shrink_h_match:
-        st.session_state["shrinkage_horizontal"] = float(shrink_h_match.group(2))
+        detected_size_code = (
+            str(size_match.group(1))
+            .upper()
+            .strip()
+        )
 
-    # Ghi vết lịch sử để giữ luồng Streamlit ổn định
-    st.session_state.chat_history.append({
+    else:
+
+        size_candidates = [
+            st.session_state.get("current_active_size"),
+            st.session_state.get("target_size"),
+            ctx.get("detected_base_size"),
+            ctx.get("base_size"),
+            ctx.get("calculated_on_size"),
+            "32"
+        ]
+
+        detected_size_code = "32"
+
+        for candidate in size_candidates:
+
+            if candidate is None:
+                continue
+
+            candidate_text = (
+                str(candidate)
+                .strip()
+            )
+
+            if candidate_text:
+
+                detected_size_code = (
+                    candidate_text
+                    .upper()
+                    .strip()
+                )
+
+                break
+
+
+    # ================================================================
+    # SIZE COMPLEX
+    #
+    # 32X33 -> 32
+    # 32 x 33 -> 32
+    # ================================================================
+
+    detected_size_code = re.split(
+        r'\s*[xX×]\s*',
+        detected_size_code
+    )[0].strip()
+
+
+    # MASTER SIZE
+    st.session_state["current_active_size"] = detected_size_code
+    st.session_state["target_size"] = detected_size_code
+    st.session_state["detected_base_size"] = detected_size_code
+
+    ctx["calculated_on_size"] = detected_size_code
+    ctx["detected_base_size"] = detected_size_code
+
+
+    # ================================================================
+    # E. WARP / VERTICAL SHRINKAGE
+    #
+    # Hỗ trợ:
+    #   co rút dọc 3
+    #   co dọc 3
+    #   dọc 3
+    #   vertical 3
+    # ================================================================
+
+    warp_from_chat = extract_number(
+        r'\b(?:co\s*rút\s*dọc|co\s*dọc|dọc|shrink_v|vertical)'
+        r'\s*[:=-]?\s*(-?\d+(?:\.\d+)?)\s*%?\b',
+        query_lower
+    )
+
+    if warp_from_chat is not None:
+
+        warp_shrink = warp_from_chat
+
+    else:
+
+        # KHÔNG RESET VỀ 0
+        warp_shrink = float(
+            st.session_state.get(
+                "warp_shrinkage",
+                st.session_state.get(
+                    "current_warp_shrinkage",
+                    st.session_state.get(
+                        "shrinkage_vertical",
+                        0.0
+                    )
+                )
+            )
+        )
+
+
+    # ================================================================
+    # F. WEFT / HORIZONTAL SHRINKAGE
+    # ================================================================
+
+    weft_from_chat = extract_number(
+        r'\b(?:co\s*rút\s*ngang|co\s*ngang|ngang|shrink_h|horizontal)'
+        r'\s*[:=-]?\s*(-?\d+(?:\.\d+)?)\s*%?\b',
+        query_lower
+    )
+
+    if weft_from_chat is not None:
+
+        weft_shrink = weft_from_chat
+
+    else:
+
+        # KHÔNG RESET VỀ 0
+        weft_shrink = float(
+            st.session_state.get(
+                "weft_shrinkage",
+                st.session_state.get(
+                    "current_weft_shrinkage",
+                    st.session_state.get(
+                        "shrinkage_horizontal",
+                        0.0
+                    )
+                )
+            )
+        )
+
+
+    # ================================================================
+    # G. ĐỒNG BỘ TOÀN BỘ TÊN BIẾN SHRINKAGE
+    # ================================================================
+
+    # Vertical / Warp
+    st.session_state["warp_shrinkage"] = warp_shrink
+    st.session_state["current_warp_shrinkage"] = warp_shrink
+    st.session_state["shrinkage_vertical"] = warp_shrink
+
+    # Horizontal / Weft
+    st.session_state["weft_shrinkage"] = weft_shrink
+    st.session_state["current_weft_shrinkage"] = weft_shrink
+    st.session_state["shrinkage_horizontal"] = weft_shrink
+
+
+    # ================================================================
+    # H. MASTER SNAPSHOT
+    # ================================================================
+
+    st.session_state["ie_master_params"] = {
+
+        "size": detected_size_code,
+
+        "fabric_width": detected_width,
+
+        "fusing_width": fusing_width,
+
+        "lining_width": lining_width,
+
+        "warp_shrinkage": warp_shrink,
+
+        "weft_shrinkage": weft_shrink,
+    }
+
+
+    # ================================================================
+    # I. ĐỒNG BỘ BOM DATA
+    # ================================================================
+
+    ctx["fabric_width_inch"] = detected_width
+    ctx["fusing_width_inch"] = fusing_width
+    ctx["lining_width_inch"] = lining_width
+
+    ctx["calculated_on_size"] = detected_size_code
+    ctx["detected_base_size"] = detected_size_code
+
+    ctx["warp_shrinkage"] = warp_shrink
+    ctx["weft_shrinkage"] = weft_shrink
+
+    st.session_state["bom_data"] = ctx
+
+
+    # ================================================================
+    # J. TẠO THÔNG BÁO AUDIT
+    # ================================================================
+
+    parameter_summary = (
+        f"Size = {detected_size_code} | "
+        f"Khổ = {detected_width:g}\" | "
+        f"Co dọc = {warp_shrink:g}% | "
+        f"Co ngang = {weft_shrink:g}%"
+    )
+
+    st.session_state["chat_history"].append({
         "user": query_text,
-        "ai": f"⚙️ Hệ thống IE Engine đã tiếp nhận lệnh và đang thực thi tái tính toán định mức theo các tham số sửa đổi mới."
+        "ai": (
+            "⚙️ IE Engine đã nhận và đồng bộ:\n\n"
+            f"{parameter_summary}\n\n"
+            "🔄 Đang kích hoạt tái tính định mức."
+        )
     })
-    
-    # Giải phóng cờ tự động để kích hoạt chu trình tính toán Yards mới
-    st.session_state["pipeline_auto_run_executed"] = False
-    
-    # Gọi lệnh làm mới để nạp tham số mới liên tầng
-    st.rerun()
 
+
+    # ================================================================
+    # K. RESET PIPELINE
+    # ================================================================
+
+    st.session_state["pipeline_auto_run_executed"] = False
+
+    st.session_state["ie_parameter_sync_complete"] = True
+
+
+    # ================================================================
+    # L. RERUN
+    # ================================================================
+
+    st.rerun()
 
 
 
@@ -1131,89 +1558,6 @@ def extract_cutting_instructions_from_pdf(component_name, raw_pdf_text, current_
 
 
 
-
-import io
-import re
-import numpy as np
-import pandas as pd
-import streamlit as st
-import hashlib # Bổ sung thư viện băm mã hóa để tránh lỗi NameError hệ thống cache
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-
-# =====================================================================
-# 🟩 ĐOẠN 1 (PHIÊN BẢN V21 - ĐỒNG BỘ TUYỆT ĐỐI MASTER): PARAMS & SIZE SYNC
-# =====================================================================
-chat_input_text = str(st.session_state.get("last_submitted_query", "")).lower().strip()
-
-def extract_param(pattern, text, session_key, default_val):
-    match = re.search(pattern, text)
-    if match:
-        val = float(match.group(2) if len(match.groups()) >= 2 else match.group(1))
-        st.session_state[session_key] = val
-        return val
-    return float(st.session_state.get(session_key, default_val))
-
-# 1. Bóc tách tỷ lệ co rút vải dọc và ngang từ ô câu lệnh chat
-warp_shrink = extract_param(r'(co rút dọc|dọc)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "warp_shrinkage", 0.0)
-weft_shrink = extract_param(r'(co rút ngang|ngang)\s*[:=-]?\s*(-?\d+\.?\d*)', chat_input_text, "weft_shrinkage", 0.0)
-
-ctx = st.session_state.get("bom_data", {})
-if not isinstance(ctx, dict): 
-    ctx = {}
-
-# 🛠️ 2. SỬA TẬN GỐC LUỒNG BỐC SIZE: Bóc tách đơn nguyên để gỡ bẫy kẹt size 32
-detected_size_code = ""
-if ctx.get("detected_base_size") and str(ctx.get("detected_base_size")).strip() != "":
-    detected_size_code = str(ctx.get("detected_base_size")).upper().strip()
-elif ctx.get("base_size") and str(ctx.get("base_size")).strip() != "":
-    detected_size_code = str(ctx.get("base_size")).upper().strip()
-elif ctx.get("calculated_on_size") and str(ctx.get("calculated_on_size")).strip() != "":
-    detected_size_code = str(ctx.get("calculated_on_size")).upper().strip()
-else:
-    # Quét nhanh lệnh đổi size từ chat (Ví dụ: "size 29" hoặc "cỡ 30")
-    size_match = re.search(r'\b(size|cỡ)\s*([a-zA-Z0-9]+)\b', chat_input_text)
-    if size_match:
-         detected_size_code = size_match.group(2).upper().strip()
-    else:
-         detected_size_code = "32" # Sàn dự phòng cuối cùng
-
-# Giải phóng chuỗi kích thước nhảy size phức tạp (Ví dụ: "32X33" -> lấy eo "32")
-if "X" in detected_size_code:
-    detected_size_code = detected_size_code.split("X")[0].strip()
-
-# ĐỒNG BỘ LÊN TRỤC BIẾN MASTER NGOÀI VÀ TRONG ĐỂ KHÓA CHẶT BẢNG SIZE ĐOẠN 5.2
-st.session_state["current_active_size"] = detected_size_code
-st.session_state["target_size"] = detected_size_code
-st.session_state["detected_base_size"] = detected_size_code
-ctx["calculated_on_size"] = detected_size_code
-ctx["detected_base_size"] = detected_size_code
-
-# 🚨 3. ĐỒNG BỘ KHỔ VẢI CHÍNH THỜI GIAN THỰC (Giải phóng lệnh chặn ép khổ vải 55)
-fabric_width = extract_param(r'\b(khổ\s*vải|khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fabric_width_inch", 58.0) 
-if fabric_width <= 0: 
-    fabric_width = 58.0
-
-# Lưu trữ trọn vẹn lên trục điều khiển Master ngoài để Đoạn 5.1 bóc tách khổ vải động linh hoạt
-st.session_state["current_active_width"] = fabric_width
-st.session_state["fabric_width_inch"] = fabric_width
-ctx["fabric_width_inch"] = fabric_width
-
-# 4. Trích xuất khổ vải Keo và khổ Vải lót độc lập
-fusing_width = extract_param(r'\b(khổ\s*keo|keo\s*khổ|khổ\s*dựng)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "fusing_width_inch", 59.0)
-if fusing_width <= 0: fusing_width = 59.0
-st.session_state["fusing_width_inch"] = fusing_width
-ctx["fusing_width_inch"] = fusing_width
-
-lining_width = extract_param(r'\b(khổ\s*lót|lót\s*khổ|vải\s*lót\s*khổ)\s*[:=-]?\s*(\d+(?:\.\d+)?)\b', chat_input_text, "lining_width_inch", 57.0)
-if lining_width <= 0: lining_width = 57.0
-st.session_state["lining_width_inch"] = lining_width
-ctx["lining_width_inch"] = lining_width
-
-# Đồng bộ hệ số co rút lên trục Master để bảo vệ Khối 3
-st.session_state["current_warp_shrinkage"] = warp_shrink
-st.session_state["current_weft_shrinkage"] = weft_shrink
 
 
 # =====================================================================
