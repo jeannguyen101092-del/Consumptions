@@ -4769,7 +4769,7 @@ CONFIG_MATRIX = {
     # ---------------------------------------------------------------
     # TOPS
     # ---------------------------------------------------------------
-    "SHIRT":  [0.78, "SHIRT (Áo sơ mi vải dệt)"],
+    "SHIRT":  [0.60, "SHIRT (Áo sơ mi vải dệt)"],
     "BLOUSE": [0.78, "BLOUSE (Áo kiểu/Blouse)"],
     "POLO":   [0.76, "POLO (Áo thun cổ bẻ)"],
     "TEE":    [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
