@@ -5341,7 +5341,7 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
     "PANT":      0.735,
     "TROUSER":   0.730,
     "KHAKI":     0.730,
-    "SHORT":     0.710,
+    "SHORT":     0.85,
 
     # Jacket:
     # efficiency cao hơn -> consumption giảm
