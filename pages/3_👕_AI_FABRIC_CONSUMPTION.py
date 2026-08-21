@@ -1515,10 +1515,7 @@ if safe_user_prompt:
     # ================================================================
 
     st.rerun()
-
-
-
-```python
+ ```python
 # =====================================================================
 # 🟩 ĐOẠN 2 - VERSION V28.5
 # MASTER AI SCAN + PRODUCT TYPE VALIDATION + MASTER PARAMETER LOCK
@@ -2425,6 +2422,8 @@ The output must contain the actual product type.
             "ie_parameter_sync_complete"
         ] = False
 ```
+
+
 
 
 # =====================================================================
