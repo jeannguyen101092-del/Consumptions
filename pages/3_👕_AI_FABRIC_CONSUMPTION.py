@@ -4798,7 +4798,7 @@ CONFIG_MATRIX = {
     # ---------------------------------------------------------------
     # OUTERWEAR
     # ---------------------------------------------------------------
-    "JACKET": [0.88, "JACKET (Áo khoác gió/Jeans)"],
+    "JACKET": [0.78, "JACKET (Áo khoác gió/Jeans)"],
     "COAT":   [0.60, "COAT (Áo măng tô/Áo choàng)"],
     "BLAZER": [0.65, "BLAZER (Áo Vest mỏng/Blazer)"],
     "SUIT":   [0.65, "SUIT (Bộ Comple/Suit)"],
