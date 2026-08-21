@@ -1515,7 +1515,7 @@ if safe_user_prompt:
     # ================================================================
 
     st.rerun()
- ```python
+
 # =====================================================================
 # 🟩 ĐOẠN 2 - VERSION V28.5
 # MASTER AI SCAN + PRODUCT TYPE VALIDATION + MASTER PARAMETER LOCK
