@@ -5345,7 +5345,7 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
 
     # Jacket:
     # efficiency cao hơn -> consumption giảm
-    "JACKET":    0.88,
+    "JACKET":    0.78,
     "COAT":      0.720,
     "BLAZER":    0.700,
 
