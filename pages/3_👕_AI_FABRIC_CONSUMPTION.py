@@ -4679,7 +4679,540 @@ if _has_rows:
 
 
    
-UNKNOWN → JEAN_LONG
+# =====================================================================
+# 🟩 ĐOẠN 5.2A
+# VERSION V28.9 - MASTER PRODUCT TYPE / MARKER EFFICIENCY ROUTER
+# 🔒 KHÔNG FALLBACK UNKNOWN -> JEAN_LONG
+# 🔒 ĐỒNG BỘ TRỰC TIẾP AI PRODUCT TYPE TỪ ĐOẠN 2
+# =====================================================================
+
+import re
+import pandas as pd
+import streamlit as st
+
+
+# =====================================================================
+# 1. KHỞI TẠO BOM DATA
+# =====================================================================
+
+if "bom_data" not in st.session_state or not isinstance(
+    st.session_state["bom_data"],
+    dict
+):
+    st.session_state["bom_data"] = {}
+
+ctx = st.session_state["bom_data"]
+
+if not isinstance(ctx, dict):
+    ctx = {}
+    st.session_state["bom_data"] = ctx
+
+
+# =====================================================================
+# 2. LẤY AI EXPERT DECISION
+# =====================================================================
+
+ai_decision = ctx.get(
+    "ai_expert_decision",
+    {}
+)
+
+if not isinstance(ai_decision, dict):
+    ai_decision = {}
+
+
+# =====================================================================
+# 3. MASTER CONFIG MATRIX
+# =====================================================================
+
+CONFIG_MATRIX = {
+
+    "OVERALL": [
+        0.71,
+        "OVERALLS (Quần yếm/Quần bảo hộ)"
+    ],
+
+    "COVERALL": [
+        0.71,
+        "OVERALLS (Quần yếm/Quần bảo hộ)"
+    ],
+
+    "BIB": [
+        0.71,
+        "OVERALLS (Quần yếm/Quần bảo hộ)"
+    ],
+
+    "JUMPSUIT": [
+        0.70,
+        "JUMPSUIT (Đồ liền thân)"
+    ],
+
+    "DUNGAREE": [
+        0.71,
+        "DUNGAREE (Quần yếm)"
+    ],
+
+    "DRESS": [
+        0.75,
+        "DRESS (Đầm)"
+    ],
+
+    "SKIRT": [
+        0.66,
+        "SKIRT (Chân váy)"
+    ],
+
+    "SHORT": [
+        0.68,
+        "SHORT (Quần short)"
+    ],
+
+    "JEAN": [
+        0.75,
+        "JEAN (Quần Jeans/Denim)"
+    ],
+
+    "JEAN_LONG": [
+        0.82,
+        "JEAN_LONG (Quần Jeans dài chuẩn)"
+    ],
+
+    "KHAKI": [
+        0.60,
+        "KHAKI (Quần Khaki)"
+    ],
+
+    "TROUSER": [
+        0.71,
+        "TROUSER (Quần tây công sở)"
+    ],
+
+    "PANT": [
+        0.72,
+        "PANT (Quần dài)"
+    ],
+
+    "JACKET": [
+        0.60,
+        "JACKET (Áo khoác)"
+    ],
+
+    "COAT": [
+        0.60,
+        "COAT (Áo măng tô/Áo choàng)"
+    ],
+
+    "BLAZER": [
+        0.65,
+        "BLAZER (Áo Vest/Blazer)"
+    ],
+
+    "SUIT": [
+        0.65,
+        "SUIT (Bộ Comple/Suit)"
+    ],
+
+    "SHIRT": [
+        0.78,
+        "SHIRT (Áo sơ mi)"
+    ],
+
+    "BLOUSE": [
+        0.78,
+        "BLOUSE (Áo kiểu)"
+    ],
+
+    "POLO": [
+        0.76,
+        "POLO (Áo thun cổ bẻ)"
+    ],
+
+    "TEE": [
+        0.76,
+        "TEE/TSHIRT (Áo thun)"
+    ],
+
+    "TSHIRT": [
+        0.76,
+        "TEE/TSHIRT (Áo thun)"
+    ],
+
+    "TANK": [
+        0.74,
+        "TANK (Áo ba lỗ)"
+    ],
+
+    # -------------------------------------------------------------
+    # UNKNOWN KHÔNG ĐƯỢC ÉP THÀNH JEAN_LONG
+    # -------------------------------------------------------------
+
+    "UNKNOWN": [
+        0.74,
+        "UNKNOWN (Chưa xác định chắc chắn)"
+    ]
+}
+
+
+# =====================================================================
+# 4. HÀM NORMALIZE PRODUCT TYPE
+# =====================================================================
+
+def normalize_router_product_type(raw_type):
+
+    s = str(raw_type or "").upper().strip()
+
+    s = re.sub(r"[_\-]+", " ", s)
+
+    s = re.sub(r"\s+", " ", s)
+
+    # -------------------------------------------------------------
+    # SHORT
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "SHORT",
+        "SHORTS",
+        "BERMUDA"
+    ]):
+        return "SHORT"
+
+    # -------------------------------------------------------------
+    # JUMPSUIT / OVERALL
+    # -------------------------------------------------------------
+
+    if "JUMPSUIT" in s:
+        return "JUMPSUIT"
+
+    if "DUNGAREE" in s:
+        return "DUNGAREE"
+
+    if "COVERALL" in s:
+        return "COVERALL"
+
+    if "OVERALL" in s:
+        return "OVERALL"
+
+    if "BIB" in s:
+        return "BIB"
+
+    # -------------------------------------------------------------
+    # DRESS / SKIRT
+    # -------------------------------------------------------------
+
+    if "DRESS" in s:
+        return "DRESS"
+
+    if "SKIRT" in s:
+        return "SKIRT"
+
+    # -------------------------------------------------------------
+    # SHIRT
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "SHIRT",
+        "DENIM SHIRT",
+        "WORK SHIRT",
+        "BUTTON SHIRT",
+        "BUTTON DOWN"
+    ]):
+        return "SHIRT"
+
+    if "BLOUSE" in s:
+        return "BLOUSE"
+
+    if "POLO" in s:
+        return "POLO"
+
+    if any(k in s for k in [
+        "TSHIRT",
+        "T SHIRT",
+        "TEE"
+    ]):
+        return "TSHIRT"
+
+    if "TANK" in s:
+        return "TANK"
+
+    # -------------------------------------------------------------
+    # JACKET
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "JACKET",
+        "TRUCKER",
+        "DENIM JACKET"
+    ]):
+        return "JACKET"
+
+    if "COAT" in s:
+        return "COAT"
+
+    if "BLAZER" in s:
+        return "BLAZER"
+
+    if "SUIT" in s:
+        return "SUIT"
+
+    # -------------------------------------------------------------
+    # JEAN LONG
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "JEAN LONG",
+        "LONG JEAN",
+        "LONG JEANS",
+        "JEANS LONG",
+        "FULL LENGTH JEANS"
+    ]):
+        return "JEAN_LONG"
+
+    # -------------------------------------------------------------
+    # JEAN
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "JEAN PANT",
+        "JEANS PANT",
+        "DENIM PANT",
+        "DENIM JEAN"
+    ]):
+        return "JEAN"
+
+    # -------------------------------------------------------------
+    # TROUSER
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "TROUSER",
+        "TROUSERS",
+        "DRESS PANT",
+        "DRESS PANTS"
+    ]):
+        return "TROUSER"
+
+    # -------------------------------------------------------------
+    # KHAKI
+    # -------------------------------------------------------------
+
+    if "KHAKI" in s:
+        return "KHAKI"
+
+    # -------------------------------------------------------------
+    # PANT
+    # -------------------------------------------------------------
+
+    if any(k in s for k in [
+        "PANT",
+        "PANTS",
+        "LONG PANT",
+        "LONG PANTS"
+    ]):
+        return "PANT"
+
+    # -------------------------------------------------------------
+    # UNKNOWN
+    # -------------------------------------------------------------
+
+    return "UNKNOWN"
+
+
+# =====================================================================
+# 5. LẤY PRODUCT TYPE TỪ AI
+# =====================================================================
+
+raw_ai_type = ai_decision.get(
+    "ai_product_type_raw",
+    ctx.get(
+        "ai_product_type_raw",
+        ctx.get(
+            "detected_product_type",
+            ""
+        )
+    )
+)
+
+
+# =====================================================================
+# 6. NORMALIZE
+# =====================================================================
+
+ie_detected_type = normalize_router_product_type(
+    raw_ai_type
+)
+
+
+# =====================================================================
+# 7. 🚨 MASTER GUARD
+# =====================================================================
+# Nếu AI đã nhận diện SHIRT thì tuyệt đối không được biến thành
+# JEAN_LONG chỉ vì material là DENIM.
+# =====================================================================
+
+if ie_detected_type == "UNKNOWN":
+
+    # Thử lấy product type thứ hai nếu có
+    secondary_type = normalize_router_product_type(
+        ai_decision.get(
+            "detected_product_type",
+            ""
+        )
+    )
+
+    if secondary_type != "UNKNOWN":
+        ie_detected_type = secondary_type
+
+
+# =====================================================================
+# 8. KHÓA KHÔNG CHO JEAN / DENIM MATERIAL ĐÈ PRODUCT TYPE
+# =====================================================================
+
+material_hint = str(
+    ctx.get(
+        "material_spec",
+        ctx.get(
+            "fabric_description",
+            ""
+        )
+    )
+).upper()
+
+
+if ie_detected_type in [
+    "SHIRT",
+    "BLOUSE",
+    "POLO",
+    "TSHIRT",
+    "TANK",
+    "JACKET",
+    "COAT",
+    "BLAZER"
+]:
+
+    # Giữ nguyên loại áo.
+    # Không được chuyển thành JEAN_LONG chỉ vì material có DENIM/JEAN.
+
+    pass
+
+
+# =====================================================================
+# 9. LẤY MARKER EFFICIENCY
+# =====================================================================
+
+if ie_detected_type not in CONFIG_MATRIX:
+
+    ie_detected_type = "UNKNOWN"
+
+
+dynamic_marker_efficiency = float(
+    CONFIG_MATRIX[ie_detected_type][0]
+)
+
+
+friendly_product_type = CONFIG_MATRIX[
+    ie_detected_type
+][1]
+
+
+# =====================================================================
+# 10. NAP / ONE-WAY
+# =====================================================================
+
+is_nap_mode = bool(
+    st.session_state.get(
+        "is_nap_fabric",
+        False
+    )
+)
+
+is_one_way_mode = bool(
+    st.session_state.get(
+        "is_one_way_fabric",
+        False
+    )
+)
+
+
+# ONE-WAY ưu tiên cao hơn NAP
+if is_one_way_mode:
+
+    dynamic_marker_efficiency -= 0.05
+
+elif is_nap_mode:
+
+    dynamic_marker_efficiency -= 0.03
+
+
+# =====================================================================
+# 11. GIỚI HẠN KỸ THUẬT
+# =====================================================================
+
+dynamic_marker_efficiency = max(
+    0.52,
+    min(
+        dynamic_marker_efficiency,
+        0.95
+    )
+)
+
+dynamic_marker_efficiency = round(
+    dynamic_marker_efficiency,
+    4
+)
+
+
+# =====================================================================
+# 12. MASTER COMMIT
+# =====================================================================
+
+ctx["ie_detected_type"] = ie_detected_type
+
+ctx["ie_product_type_friendly"] = friendly_product_type
+
+ctx["ai_product_type_raw"] = str(
+    raw_ai_type
+)
+
+ctx["ai_expert_decision"] = ai_decision
+
+ctx["ai_expert_decision"][
+    "ai_product_type_raw"
+] = ie_detected_type
+
+ctx["ai_expert_decision"][
+    "detected_product_type"
+] = ie_detected_type
+
+ctx["ai_expert_decision"][
+    "marker_efficiency"
+] = dynamic_marker_efficiency
+
+
+st.session_state[
+    "active_marker_efficiency_value"
+] = float(
+    dynamic_marker_efficiency
+)
+
+
+st.session_state[
+    "bom_data"
+] = ctx
+
+
+# =====================================================================
+# 13. DEBUG LOG
+# =====================================================================
+
+print(
+    "[MARKER ROUTER MASTER]"
+    f" RAW_AI={raw_ai_type}"
+    f" | NORMALIZED={ie_detected_type}"
+    f" | FRIENDLY={friendly_product_type}"
+    f" | MARKER={dynamic_marker_efficiency:.4f}"
+    f" | NAP={is_nap_mode}"
+    f" | ONE_WAY={is_one_way_mode}"
+)
   # =====================================================================
 # 🟩 ĐOẠN 5.2 - PHẦN B1 + B2
 # VERSION V29.5 - MASTER COMMERCIAL CONSUMPTION ENGINE
