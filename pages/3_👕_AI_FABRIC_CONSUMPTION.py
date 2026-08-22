@@ -584,7 +584,9 @@ with col_right:
 
 # =====================================================================
 # 🧠 ĐOẠN A - AI PURE SCAN
-# VERSION V24.5 - MASTER GEOMETRY SAFE + PIECE QTY SAFE
+# VERSION V24.6
+# MASTER GEOMETRY SAFE + PIECE QTY SAFE
+# MASTER WIDTH / SHRINK USER COMMAND LOCK
 # =====================================================================
 
 import copy
@@ -596,10 +598,264 @@ import google.generativeai as genai
 import streamlit as st
 
 
+# =====================================================================
+# 🔒 MASTER PARAMETER PARSER
+# ƯU TIÊN TUYỆT ĐỐI GIÁ TRỊ TỪ USER COMMAND
+# =====================================================================
+
+def parse_master_user_parameters(
+    current_query,
+    active_width,
+    target_size_cmd,
+):
+
+    query = str(
+        current_query or ""
+    ).strip()
+
+    # -----------------------------------------------------------------
+    # DEFAULT SAFE VALUES
+    # -----------------------------------------------------------------
+
+    resolved_width = None
+    resolved_warp_shrink = None
+    resolved_weft_shrink = None
+    resolved_size = target_size_cmd
+
+    # -----------------------------------------------------------------
+    # TEXT NORMALIZATION
+    # -----------------------------------------------------------------
+
+    normalized_query = (
+        query
+        .replace(",", ".")
+        .replace("％", "%")
+        .replace("”", '"')
+        .replace("″", '"')
+    )
+
+    # =================================================================
+    # 1. SIZE
+    # =================================================================
+
+    size_patterns = [
+        r"\bsize\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
+        r"\bsize\s*(\d+(?:\.\d+)?)\b",
+        r"\bSZ\s*[:=]?\s*(\d+(?:\.\d+)?)\b",
+        r"\bSZ\s*(\d+(?:\.\d+)?)\b",
+    ]
+
+    for pattern in size_patterns:
+
+        match = re.search(
+            pattern,
+            normalized_query,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            resolved_size = (
+                match.group(1).strip()
+            )
+
+            break
+
+    # =================================================================
+    # 2. KHỔ VẢI
+    #
+    # Hỗ trợ:
+    #   khổ 58
+    #   khổ vải 58
+    #   kho 58
+    #   width 58
+    #   fabric width 58
+    #   khổ = 58
+    # =================================================================
+
+    width_patterns = [
+
+        r"(?:khổ\s*vải|khổ|kho)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+
+        r"(?:fabric\s*width|width)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+    ]
+
+    for pattern in width_patterns:
+
+        match = re.search(
+            pattern,
+            normalized_query,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            try:
+
+                resolved_width = float(
+                    match.group(1)
+                )
+
+            except Exception:
+
+                resolved_width = None
+
+            break
+
+    # =================================================================
+    # 3. CO DỌC
+    #
+    # Hỗ trợ:
+    #   dọc 3
+    #   doc 3
+    #   co doc 3
+    #   co dọc 3%
+    #   warp 3
+    #   warp shrink 3%
+    # =================================================================
+
+    warp_patterns = [
+
+        r"(?:co\s*)?(?:dọc|doc)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:warp|warp\s*shrink|warp\s*shrinkage)"
+        r"\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+    ]
+
+    for pattern in warp_patterns:
+
+        match = re.search(
+            pattern,
+            normalized_query,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            try:
+
+                resolved_warp_shrink = float(
+                    match.group(1)
+                )
+
+            except Exception:
+
+                resolved_warp_shrink = None
+
+            break
+
+    # =================================================================
+    # 4. CO NGANG
+    #
+    # Hỗ trợ:
+    #   ngang 15
+    #   ngang 15%
+    #   co ngang 15
+    #   weft 15
+    #   weft shrink 15%
+    # =================================================================
+
+    weft_patterns = [
+
+        r"(?:co\s*)?(?:ngang)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:weft|weft\s*shrink|weft\s*shrinkage)"
+        r"\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+    ]
+
+    for pattern in weft_patterns:
+
+        match = re.search(
+            pattern,
+            normalized_query,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            try:
+
+                resolved_weft_shrink = float(
+                    match.group(1)
+                )
+
+            except Exception:
+
+                resolved_weft_shrink = None
+
+            break
+
+    # =================================================================
+    # 5. FALLBACK WIDTH
+    #
+    # CHỈ dùng active_width nếu USER KHÔNG nhập khổ.
+    # =================================================================
+
+    if resolved_width is None:
+
+        try:
+
+            resolved_width = float(
+                active_width
+            )
+
+        except Exception:
+
+            resolved_width = 56.0
+
+    # =================================================================
+    # 6. FALLBACK SHRINK
+    #
+    # Không dùng 4% cứng.
+    # Nếu user không nhập thì giữ None để tầng IE xử lý.
+    # =================================================================
+
+    if resolved_warp_shrink is not None:
+
+        resolved_warp_shrink = float(
+            resolved_warp_shrink
+        )
+
+    if resolved_weft_shrink is not None:
+
+        resolved_weft_shrink = float(
+            resolved_weft_shrink
+        )
+
+    # =================================================================
+    # 7. RETURN MASTER PARAMETERS
+    # =================================================================
+
+    return {
+        "target_size": resolved_size,
+        "fabric_width": float(
+            resolved_width
+        ),
+        "warp_shrink_percent": (
+            resolved_warp_shrink
+        ),
+        "weft_shrink_percent": (
+            resolved_weft_shrink
+        ),
+    }
+
+
+# =====================================================================
+# 🧠 AI PURE SCAN
+# =====================================================================
+
 @st.cache_data(
     show_spinner=False,
     ttl=3600,
-    hash_funcs={bytes: lambda b: hashlib.sha256(b).hexdigest()},
+    hash_funcs={
+        bytes: lambda b: hashlib.sha256(
+            b
+        ).hexdigest()
+    },
 )
 def execute_final_gerber_pure_scan(
     pdf_bytes,
@@ -610,59 +866,188 @@ def execute_final_gerber_pure_scan(
     prompt_agent_2,
 ):
 
-    if hasattr(pdf_bytes, "getvalue"):
+    # =================================================================
+    # 0. MASTER USER PARAMETER RESOLUTION
+    # =================================================================
+
+    master_params = parse_master_user_parameters(
+        current_query=current_query,
+        active_width=active_width,
+        target_size_cmd=target_size_cmd,
+    )
+
+    resolved_size = master_params[
+        "target_size"
+    ]
+
+    resolved_width = master_params[
+        "fabric_width"
+    ]
+
+    resolved_warp_shrink = master_params[
+        "warp_shrink_percent"
+    ]
+
+    resolved_weft_shrink = master_params[
+        "weft_shrink_percent"
+    ]
+
+    # =================================================================
+    # 1. ĐỌC PDF BYTES
+    # =================================================================
+
+    if hasattr(
+        pdf_bytes,
+        "getvalue"
+    ):
+
         pdf_bytes = pdf_bytes.getvalue()
 
-    if not isinstance(pdf_bytes, bytes):
+    if not isinstance(
+        pdf_bytes,
+        bytes
+    ):
+
         raise TypeError(
             "Dữ liệu PDF đầu vào không đúng định dạng bytes hợp lệ!"
         )
 
     # =================================================================
-    # 1. ĐỌC TOÀN BỘ TEXT + ẢNH TECHPACK
+    # 2. ĐỌC TOÀN BỘ TEXT + ẢNH TECHPACK
     # =================================================================
 
     full_pdf_raw_text = ""
+
     image_payloads = []
 
-    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc_recovery:
+    with fitz.open(
+        stream=pdf_bytes,
+        filetype="pdf"
+    ) as doc_recovery:
 
-        total_pages = len(doc_recovery)
+        total_pages = len(
+            doc_recovery
+        )
 
-        for page_idx in range(total_pages):
+        for page_idx in range(
+            total_pages
+        ):
 
-            page_text = doc_recovery[page_idx].get_text("text")
+            page_text = (
+                doc_recovery[
+                    page_idx
+                ].get_text("text")
+            )
 
             full_pdf_raw_text += (
                 f"\n--- PAGE {page_idx + 1} ---\n"
                 f"{page_text}"
             )
 
-            # Chỉ lấy tối đa 2 trang ảnh để kiểm soát token
-            if len(image_payloads) < 2:
+            # ---------------------------------------------------------
+            # CHỈ LẤY TỐI ĐA 2 TRANG ẢNH
+            # ---------------------------------------------------------
+
+            if len(
+                image_payloads
+            ) < 2:
 
                 try:
 
-                    pix = doc_recovery[page_idx].get_pixmap(
-                        dpi=72,
-                        colorspace=fitz.csRGB
+                    pix = (
+                        doc_recovery[
+                            page_idx
+                        ].get_pixmap(
+                            dpi=72,
+                            colorspace=fitz.csRGB
+                        )
                     )
 
                     image_payloads.append(
                         {
                             "mime_type": "image/jpeg",
-                            "data": pix.tobytes("jpeg"),
+                            "data": pix.tobytes(
+                                "jpeg"
+                            ),
                         }
                     )
 
                 except Exception:
+
                     continue
 
     # =================================================================
-    # 2. INPUT CHO GEMINI
+    # 3. MASTER PARAMETERS TEXT
     # =================================================================
 
-    gemini_inputs = list(image_payloads)
+    warp_text = (
+        f"{resolved_warp_shrink:g}%"
+        if resolved_warp_shrink is not None
+        else "NOT SPECIFIED"
+    )
+
+    weft_text = (
+        f"{resolved_weft_shrink:g}%"
+        if resolved_weft_shrink is not None
+        else "NOT SPECIFIED"
+    )
+
+    master_parameter_text = f"""
+===============================================================
+🔒 MASTER USER PARAMETERS - LOCKED
+===============================================================
+
+TARGET SIZE:
+{resolved_size}
+
+FABRIC WIDTH:
+{resolved_width:g} INCH
+
+WARP / VERTICAL SHRINKAGE:
+{warp_text}
+
+WEFT / HORIZONTAL SHRINKAGE:
+{weft_text}
+
+===============================================================
+🚨 PRIORITY RULE
+===============================================================
+
+USER COMMAND HAS HIGHER PRIORITY THAN OLD CACHE,
+DEFAULT VALUE, FALLBACK VALUE OR PREVIOUS SESSION VALUE.
+
+If USER COMMAND explicitly contains:
+
+KHỔ / WIDTH:
+use that exact width.
+
+DỌC / WARP:
+use that exact vertical shrinkage.
+
+NGANG / WEFT:
+use that exact horizontal shrinkage.
+
+SIZE:
+use that exact size.
+
+NEVER replace a user-provided value with:
+
+56"
+4%
+previous session value
+old BOM value
+old cache value
+
+===============================================================
+"""
+
+    # =================================================================
+    # 4. INPUT CHO GEMINI
+    # =================================================================
+
+    gemini_inputs = list(
+        image_payloads
+    )
 
     gemini_inputs.insert(
         0,
@@ -673,17 +1058,23 @@ def execute_final_gerber_pure_scan(
 === TECHPACK TEXT ===
 {full_pdf_raw_text}
 
-=== MASTER PARAMETERS ===
-TARGET SIZE = {target_size_cmd}
-FABRIC WIDTH = {active_width} INCH
+{master_parameter_text}
+
+=== MASTER PARAMETERS SENT TO AI ===
+TARGET SIZE = {resolved_size}
+FABRIC WIDTH = {resolved_width:g} INCH
+WARP SHRINK = {warp_text}
+WEFT SHRINK = {weft_text}
 """
     )
 
     # =================================================================
-    # 3. PROMPT MASTER
+    # 5. PROMPT MASTER
     # =================================================================
 
-    extended_prompt = prompt_agent_2 + """
+    extended_prompt = (
+        prompt_agent_2
+        + """
 
 ===============================================================
 🚨 MASTER GEOMETRY SAFETY RULE
@@ -777,12 +1168,40 @@ A jacket must be JACKET.
 A long jean must be JEAN_LONG.
 
 ===============================================================
-"""
+🚨 WIDTH / SHRINK PARAMETER LOCK
+===============================================================
 
-    gemini_inputs.append(extended_prompt)
+The following values have already been resolved from the USER
+COMMAND by the MASTER PARAMETER PARSER.
+
+TARGET SIZE:
+{resolved_size}
+
+FABRIC WIDTH:
+{resolved_width:g} INCH
+
+WARP SHRINK:
+{warp_text}
+
+WEFT SHRINK:
+{weft_text}
+
+Do NOT invent or replace these values.
+
+If these values appear in the Techpack and conflict with the
+explicit USER COMMAND, the USER COMMAND has priority for the
+current IE calculation.
+
+===============================================================
+"""
+    )
+
+    gemini_inputs.append(
+        extended_prompt
+    )
 
     # =================================================================
-    # 4. GEMINI
+    # 6. GEMINI
     # =================================================================
 
     model = genai.GenerativeModel(
@@ -801,12 +1220,20 @@ A long jean must be JEAN_LONG.
         },
     )
 
-    if not response or not response.text:
+    if (
+        not response
+        or not response.text
+    ):
+
         raise RuntimeError(
             "Mô hình Gemini trả về kết quả rỗng!"
         )
 
     txt = response.text.strip()
+
+    # =================================================================
+    # 7. CLEAN MARKDOWN JSON
+    # =================================================================
 
     if txt.startswith("```"):
 
@@ -831,12 +1258,14 @@ A long jean must be JEAN_LONG.
     txt = txt.strip()
 
     # =================================================================
-    # 5. PARSE JSON
+    # 8. PARSE JSON
     # =================================================================
 
     try:
 
-        blueprint_worker = json.loads(txt)
+        blueprint_worker = json.loads(
+            txt
+        )
 
     except json.JSONDecodeError as json_err:
 
@@ -846,13 +1275,60 @@ A long jean must be JEAN_LONG.
         ) from json_err
 
     # =================================================================
-    # 6. NORMALIZE BOM
+    # 9. NORMALIZE BOM
     # =================================================================
 
-    if blueprint_worker and "bom_rows" in blueprint_worker:
+    if (
+        blueprint_worker
+        and "bom_rows"
+        in blueprint_worker
+    ):
 
-        blueprint_worker["calculated_on_size"] = (
-            target_size_cmd
+        # -------------------------------------------------------------
+        # LOCK CALCULATED SIZE
+        # -------------------------------------------------------------
+
+        blueprint_worker[
+            "calculated_on_size"
+        ] = resolved_size
+
+        # -------------------------------------------------------------
+        # 🔒 MASTER IE PARAMETERS
+        # -------------------------------------------------------------
+
+        blueprint_worker[
+            "master_fabric_width_inch"
+        ] = round(
+            float(
+                resolved_width
+            ),
+            2
+        )
+
+        blueprint_worker[
+            "master_warp_shrink_percent"
+        ] = (
+            round(
+                float(
+                    resolved_warp_shrink
+                ),
+                4
+            )
+            if resolved_warp_shrink is not None
+            else None
+        )
+
+        blueprint_worker[
+            "master_weft_shrink_percent"
+        ] = (
+            round(
+                float(
+                    resolved_weft_shrink
+                ),
+                4
+            )
+            if resolved_weft_shrink is not None
+            else None
         )
 
         # -------------------------------------------------------------
@@ -866,7 +1342,9 @@ A long jean must be JEAN_LONG.
             )
         ).upper().strip()
 
-        blueprint_worker["detected_product_type"] = detected_type
+        blueprint_worker[
+            "detected_product_type"
+        ] = detected_type
 
         # -------------------------------------------------------------
         # COMPONENT LOOP
@@ -886,7 +1364,9 @@ A long jean must be JEAN_LONG.
                 row["component_name"] = (
                     " ".join(
                         str(
-                            row["component_name"]
+                            row[
+                                "component_name"
+                            ]
                         ).upper().split()
                     )
                 )
@@ -904,7 +1384,9 @@ A long jean must be JEAN_LONG.
 
             try:
 
-                row["bounding_box_length"] = round(
+                row[
+                    "bounding_box_length"
+                ] = round(
                     float(
                         row.get(
                             "bounding_box_length",
@@ -916,11 +1398,15 @@ A long jean must be JEAN_LONG.
 
             except Exception:
 
-                row["bounding_box_length"] = 0.0
+                row[
+                    "bounding_box_length"
+                ] = 0.0
 
             try:
 
-                row["bounding_box_width"] = round(
+                row[
+                    "bounding_box_width"
+                ] = round(
                     float(
                         row.get(
                             "bounding_box_width",
@@ -932,7 +1418,9 @@ A long jean must be JEAN_LONG.
 
             except Exception:
 
-                row["bounding_box_width"] = 0.0
+                row[
+                    "bounding_box_width"
+                ] = 0.0
 
             # =========================================================
             # MATERIAL
@@ -981,7 +1469,9 @@ A long jean must be JEAN_LONG.
 
                 mat_class = "RIB"
 
-            row["material_class"] = mat_class
+            row[
+                "material_class"
+            ] = mat_class
 
             # =========================================================
             # PIECE COUNT
@@ -997,26 +1487,36 @@ A long jean must be JEAN_LONG.
                     )
                 )
 
-                row["piece_count"] = max(
+                row[
+                    "piece_count"
+                ] = max(
                     1,
                     int(
-                        float(raw_qty)
+                        float(
+                            raw_qty
+                        )
                     )
                 )
 
             except Exception:
 
-                row["piece_count"] = 1
+                row[
+                    "piece_count"
+                ] = 1
 
             try:
 
-                row["cut_quantity"] = max(
+                row[
+                    "cut_quantity"
+                ] = max(
                     1,
                     int(
                         float(
                             row.get(
                                 "cut_quantity",
-                                row["piece_count"]
+                                row[
+                                    "piece_count"
+                                ]
                             )
                         )
                     )
@@ -1024,23 +1524,24 @@ A long jean must be JEAN_LONG.
 
             except Exception:
 
-                row["cut_quantity"] = row[
+                row[
+                    "cut_quantity"
+                ] = row[
                     "piece_count"
                 ]
 
             # =========================================================
-            # 🚫 QUAN TRỌNG:
-            # KHÔNG CÒN LUẬT WIDTH > 16" CHIA ĐÔI
+            # 🚫 KHÔNG CHIA PIECE > 16"
             # =========================================================
 
-            # KHÔNG được làm:
+            # Không được:
             #
             # if fabric and width > 16:
             #     width /= 2
             #     area /= 2
             #     piece_count *= 2
             #
-            # Vì Jacket Back / Front có thể rộng >16".
+            # Jacket Back / Front có thể rộng >16".
 
             # =========================================================
             # POLYGON AREA
@@ -1060,21 +1561,32 @@ A long jean must be JEAN_LONG.
                 polygon_area = 0.0
 
             bbox_area = (
-                row["bounding_box_length"]
+                row[
+                    "bounding_box_length"
+                ]
                 *
-                row["bounding_box_width"]
+                row[
+                    "bounding_box_width"
+                ]
             )
 
             # ---------------------------------------------------------
-            # Nếu AI không trả area -> tạo area bảo thủ
+            # AI KHÔNG TRẢ AREA
             # ---------------------------------------------------------
 
-            if polygon_area <= 0.0 and bbox_area > 0.0:
+            if (
+                polygon_area <= 0.0
+                and bbox_area > 0.0
+            ):
 
-                polygon_area = bbox_area * 0.75
+                polygon_area = (
+                    bbox_area
+                    *
+                    0.75
+                )
 
             # ---------------------------------------------------------
-            # Không cho polygon vượt bounding box
+            # AREA KHÔNG ĐƯỢC VƯỢT BBOX
             # ---------------------------------------------------------
 
             if (
@@ -1083,11 +1595,13 @@ A long jean must be JEAN_LONG.
             ):
 
                 polygon_area = (
-                    bbox_area * 0.76
+                    bbox_area
+                    *
+                    0.76
                 )
 
             # ---------------------------------------------------------
-            # Không cho area âm
+            # KHÔNG AREA ÂM
             # ---------------------------------------------------------
 
             polygon_area = max(
@@ -1095,7 +1609,9 @@ A long jean must be JEAN_LONG.
                 polygon_area
             )
 
-            row["polygon_net_area"] = round(
+            row[
+                "polygon_net_area"
+            ] = round(
                 polygon_area,
                 2
             )
@@ -1106,7 +1622,9 @@ A long jean must be JEAN_LONG.
 
             try:
 
-                row["gross_consumption"] = round(
+                row[
+                    "gross_consumption"
+                ] = round(
                     float(
                         row.get(
                             "gross_consumption",
@@ -1118,11 +1636,15 @@ A long jean must be JEAN_LONG.
 
             except Exception:
 
-                row["gross_consumption"] = 0.0
+                row[
+                    "gross_consumption"
+                ] = 0.0
 
             try:
 
-                row["marker_efficiency"] = str(
+                row[
+                    "marker_efficiency"
+                ] = str(
                     row.get(
                         "marker_efficiency",
                         "78.0%"
@@ -1131,59 +1653,128 @@ A long jean must be JEAN_LONG.
 
             except Exception:
 
-                row["marker_efficiency"] = "78.0%"
+                row[
+                    "marker_efficiency"
+                ] = "78.0%"
 
             # =========================================================
-            # WIDTH MASTER
+            # 🔒 WIDTH MASTER
+            #
+            # USER COMMAND > active_width > fallback
             # =========================================================
 
-            try:
+            row[
+                "fabric_width_inch"
+            ] = round(
+                float(
+                    resolved_width
+                ),
+                2
+            )
 
-                forced_width = float(
-                    active_width
+            # =========================================================
+            # 🔒 SHRINK MASTER TRÊN TỪNG BOM ROW
+            # =========================================================
+
+            row[
+                "warp_shrink_percent"
+            ] = (
+                round(
+                    float(
+                        resolved_warp_shrink
+                    ),
+                    4
                 )
+                if resolved_warp_shrink is not None
+                else None
+            )
 
-                if current_query:
-
-                    width_match = re.search(
-                        r"(khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)",
-                        str(current_query),
-                        re.IGNORECASE
-                    )
-
-                    if width_match:
-
-                        forced_width = float(
-                            width_match.group(2)
-                        )
-
-                row["fabric_width_inch"] = (
-                    forced_width
+            row[
+                "weft_shrink_percent"
+            ] = (
+                round(
+                    float(
+                        resolved_weft_shrink
+                    ),
+                    4
                 )
-
-            except Exception:
-
-                row["fabric_width_inch"] = float(
-                    active_width
-                )
+                if resolved_weft_shrink is not None
+                else None
+            )
 
     # =================================================================
-    # 7. API COUNTER
+    # 10. API COUNTER
     # =================================================================
 
-    if "api_calls_count" not in st.session_state:
+    if (
+        "api_calls_count"
+        not in st.session_state
+    ):
 
-        st.session_state["api_calls_count"] = 0
+        st.session_state[
+            "api_calls_count"
+        ] = 0
 
-    if "tokens_consumed" not in st.session_state:
+    if (
+        "tokens_consumed"
+        not in st.session_state
+    ):
 
-        st.session_state["tokens_consumed"] = 0
+        st.session_state[
+            "tokens_consumed"
+        ] = 0
 
-    st.session_state["api_calls_count"] += 1
+    st.session_state[
+        "api_calls_count"
+    ] += 1
 
-    st.session_state["tokens_consumed"] += (
-        len(str(full_pdf_raw_text)) // 4
+    st.session_state[
+        "tokens_consumed"
+    ] += (
+        len(
+            str(
+                full_pdf_raw_text
+            )
+        )
+        // 4
     )
+
+    # =================================================================
+    # 11. DEBUG MASTER PARAMETERS
+    # =================================================================
+
+    blueprint_worker[
+        "_master_parameters"
+    ] = {
+        "size": resolved_size,
+        "fabric_width_inch": round(
+            float(
+                resolved_width
+            ),
+            2
+        ),
+        "warp_shrink_percent": (
+            round(
+                float(
+                    resolved_warp_shrink
+                ),
+                4
+            )
+            if resolved_warp_shrink is not None
+            else None
+        ),
+        "weft_shrink_percent": (
+            round(
+                float(
+                    resolved_weft_shrink
+                ),
+                4
+            )
+            if resolved_weft_shrink is not None
+            else None
+        ),
+        "source": "USER_COMMAND_PRIORITY",
+    }
 
     return blueprint_worker
 import io
