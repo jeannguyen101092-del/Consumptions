@@ -5987,14 +5987,462 @@ print(
     f" | ONE_WAY={is_one_way_mode}"
 )
 # =====================================================================
+# # =====================================================================
 # 🟩 ĐOẠN 5.2 - B1 + B2
-# VERSION V28.7
+# VERSION V28.8
 # MASTER COMMERCIAL CONSUMPTION ENGINE
+#
+# 🔒 USER COMMAND > AI MASTER > SESSION > CTX > DEFAULT
+#
+# MASTER:
 # WIDTH + SHRINKAGE + PIECE QTY + GEOMETRY CONTROL
 # =====================================================================
 
+import re
 import pandas as pd
 import streamlit as st
+
+
+# =====================================================================
+# 🔒 MASTER USER PARAMETER PARSER
+# =====================================================================
+
+def _parse_ie_master_parameters(
+    current_query=None,
+    ai_decision=None,
+    ctx=None,
+):
+
+    current_query = str(
+        current_query or ""
+    ).strip()
+
+    if not isinstance(
+        ai_decision,
+        dict
+    ):
+        ai_decision = {}
+
+    if not isinstance(
+        ctx,
+        dict
+    ):
+        ctx = {}
+
+    # =================================================================
+    # NORMALIZE USER COMMAND
+    # =================================================================
+
+    q = (
+        current_query
+        .replace(",", ".")
+        .replace("％", "%")
+        .replace("”", '"')
+        .replace("″", '"')
+    )
+
+    # ================================================================
+    # WIDTH
+    # ================================================================
+
+    user_width = None
+
+    width_patterns = [
+
+        # khổ 58 / khô 58 / kho 58
+        r"(?:khổ|khô|kho)\s*(?:vải)?\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+
+        # fabric width 58
+        r"(?:fabric\s*width|width)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+    ]
+
+    for pattern in width_patterns:
+
+        m = re.search(
+            pattern,
+            q,
+            re.IGNORECASE
+        )
+
+        if m:
+
+            try:
+
+                user_width = float(
+                    m.group(1)
+                )
+
+            except Exception:
+
+                user_width = None
+
+            break
+
+    # ================================================================
+    # WARP / DỌC
+    # ================================================================
+
+    user_warp = None
+
+    warp_patterns = [
+
+        r"(?:co\s*)?(?:dọc|doc)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:warp|warp\s*shrink|warp\s*shrinkage)"
+        r"\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+    ]
+
+    for pattern in warp_patterns:
+
+        m = re.search(
+            pattern,
+            q,
+            re.IGNORECASE
+        )
+
+        if m:
+
+            try:
+
+                user_warp = float(
+                    m.group(1)
+                )
+
+            except Exception:
+
+                user_warp = None
+
+            break
+
+    # ================================================================
+    # WEFT / NGANG
+    # ================================================================
+
+    user_weft = None
+
+    weft_patterns = [
+
+        r"(?:co\s*)?ngang\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:weft|weft\s*shrink|weft\s*shrinkage)"
+        r"\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+    ]
+
+    for pattern in weft_patterns:
+
+        m = re.search(
+            pattern,
+            q,
+            re.IGNORECASE
+        )
+
+        if m:
+
+            try:
+
+                user_weft = float(
+                    m.group(1)
+                )
+
+            except Exception:
+
+                user_weft = None
+
+            break
+
+    # ================================================================
+    # AI MASTER PARAMETERS
+    # ================================================================
+
+    ai_master = ai_decision.get(
+        "_master_parameters",
+        {}
+    )
+
+    if not isinstance(
+        ai_master,
+        dict
+    ):
+
+        ai_master = {}
+
+    # ================================================================
+    # WIDTH RESOLUTION
+    #
+    # PRIORITY:
+    # 1. USER COMMAND
+    # 2. AI MASTER
+    # 3. SESSION
+    # 4. CTX
+    # 5. DEFAULT
+    # ================================================================
+
+    if user_width is not None:
+
+        resolved_width = user_width
+        width_source = "USER_COMMAND"
+
+    elif ai_master.get(
+        "fabric_width_inch"
+    ) is not None:
+
+        try:
+
+            resolved_width = float(
+                ai_master[
+                    "fabric_width_inch"
+                ]
+            )
+
+            width_source = "AI_MASTER"
+
+        except Exception:
+
+            resolved_width = None
+
+    else:
+
+        try:
+
+            session_width = st.session_state.get(
+                "current_active_width",
+                None
+            )
+
+            if session_width is not None:
+
+                resolved_width = float(
+                    session_width
+                )
+
+                width_source = "SESSION"
+
+            else:
+
+                resolved_width = float(
+                    ctx.get(
+                        "fabric_width_inch",
+                        58.0
+                    )
+                )
+
+                width_source = "CTX"
+
+        except Exception:
+
+            resolved_width = 58.0
+            width_source = "DEFAULT"
+
+    if (
+        resolved_width is None
+        or resolved_width <= 0
+    ):
+
+        resolved_width = 58.0
+        width_source = "DEFAULT"
+
+    # ================================================================
+    # WARP RESOLUTION
+    # ================================================================
+
+    if user_warp is not None:
+
+        resolved_warp = user_warp
+        warp_source = "USER_COMMAND"
+
+    elif ai_master.get(
+        "warp_shrink_percent"
+    ) is not None:
+
+        try:
+
+            resolved_warp = float(
+                ai_master[
+                    "warp_shrink_percent"
+                ]
+            )
+
+            warp_source = "AI_MASTER"
+
+        except Exception:
+
+            resolved_warp = None
+
+    else:
+
+        try:
+
+            session_warp = st.session_state.get(
+                "current_warp_shrinkage",
+                None
+            )
+
+            if session_warp is not None:
+
+                resolved_warp = float(
+                    session_warp
+                )
+
+                warp_source = "SESSION"
+
+            else:
+
+                resolved_warp = float(
+                    ctx.get(
+                        "warp_shrinkage_percent",
+                        0.0
+                    )
+                )
+
+                warp_source = "CTX"
+
+        except Exception:
+
+            resolved_warp = 0.0
+            warp_source = "DEFAULT"
+
+    if resolved_warp is None:
+
+        resolved_warp = 0.0
+        warp_source = "DEFAULT"
+
+    # ================================================================
+    # WEFT RESOLUTION
+    # ================================================================
+
+    if user_weft is not None:
+
+        resolved_weft = user_weft
+        weft_source = "USER_COMMAND"
+
+    elif ai_master.get(
+        "weft_shrink_percent"
+    ) is not None:
+
+        try:
+
+            resolved_weft = float(
+                ai_master[
+                    "weft_shrink_percent"
+                ]
+            )
+
+            weft_source = "AI_MASTER"
+
+        except Exception:
+
+            resolved_weft = None
+
+    else:
+
+        try:
+
+            session_weft = st.session_state.get(
+                "current_weft_shrinkage",
+                None
+            )
+
+            if session_weft is not None:
+
+                resolved_weft = float(
+                    session_weft
+                )
+
+                weft_source = "SESSION"
+
+            else:
+
+                resolved_weft = float(
+                    ctx.get(
+                        "weft_shrinkage_percent",
+                        0.0
+                    )
+                )
+
+                weft_source = "CTX"
+
+        except Exception:
+
+            resolved_weft = 0.0
+            weft_source = "DEFAULT"
+
+    if resolved_weft is None:
+
+        resolved_weft = 0.0
+        weft_source = "DEFAULT"
+
+    # ================================================================
+    # SIZE
+    # ================================================================
+
+    size_match = re.search(
+        r"\bsize\s*[:=]?\s*([A-Za-z0-9._-]+)",
+        q,
+        re.IGNORECASE
+    )
+
+    if size_match:
+
+        resolved_size = (
+            size_match.group(1)
+        )
+        size_source = "USER_COMMAND"
+
+    elif ai_master.get(
+        "size"
+    ) is not None:
+
+        resolved_size = str(
+            ai_master[
+                "size"
+            ]
+        )
+        size_source = "AI_MASTER"
+
+    else:
+
+        resolved_size = str(
+            ctx.get(
+                "calculated_on_size",
+                st.session_state.get(
+                    "target_size",
+                    ""
+                )
+            )
+        )
+
+        size_source = "SESSION_CTX"
+
+    # ================================================================
+    # RETURN MASTER
+    # ================================================================
+
+    return {
+        "width": float(
+            resolved_width
+        ),
+
+        "warp_shrink_percent": float(
+            resolved_warp
+        ),
+
+        "weft_shrink_percent": float(
+            resolved_weft
+        ),
+
+        "size": resolved_size,
+
+        "width_source": width_source,
+        "warp_source": warp_source,
+        "weft_source": weft_source,
+        "size_source": size_source,
+    }
 
 
 # =====================================================================
@@ -6002,23 +6450,189 @@ import streamlit as st
 # =====================================================================
 
 if "bom_data" not in st.session_state:
-    st.session_state["bom_data"] = {}
 
-ctx = st.session_state["bom_data"]
+    st.session_state[
+        "bom_data"
+    ] = {}
 
-if not isinstance(ctx, dict):
+
+ctx = st.session_state[
+    "bom_data"
+]
+
+
+if not isinstance(
+    ctx,
+    dict
+):
+
     ctx = {}
-    st.session_state["bom_data"] = ctx
 
+    st.session_state[
+        "bom_data"
+    ] = ctx
+
+
+# =====================================================================
+# AI EXPERT DECISION
+# =====================================================================
 
 if "ai_expert_decision" not in ctx:
-    ctx["ai_expert_decision"] = {}
 
-ai_decision = ctx["ai_expert_decision"]
+    ctx[
+        "ai_expert_decision"
+    ] = {}
 
-if not isinstance(ai_decision, dict):
+
+ai_decision = ctx[
+    "ai_expert_decision"
+]
+
+
+if not isinstance(
+    ai_decision,
+    dict
+):
+
     ai_decision = {}
-    ctx["ai_expert_decision"] = ai_decision
+
+    ctx[
+        "ai_expert_decision"
+    ] = ai_decision
+
+
+# =====================================================================
+# 🔒 CURRENT USER COMMAND
+# =====================================================================
+
+current_query = str(
+    st.session_state.get(
+        "current_query",
+        st.session_state.get(
+            "user_query",
+            ""
+        )
+    )
+)
+
+
+# =====================================================================
+# 🔒 MASTER PARAMETERS
+# =====================================================================
+
+ie_master = _parse_ie_master_parameters(
+    current_query=current_query,
+    ai_decision=ai_decision,
+    ctx=ctx,
+)
+
+
+parsed_width = ie_master[
+    "width"
+]
+
+shrink_v_percent = ie_master[
+    "warp_shrink_percent"
+]
+
+shrink_h_percent = ie_master[
+    "weft_shrink_percent"
+]
+
+shrink_v = (
+    shrink_v_percent
+    /
+    100.0
+)
+
+shrink_h = (
+    shrink_h_percent
+    /
+    100.0
+)
+
+
+# =====================================================================
+# 🔒 MASTER SESSION COMMIT
+#
+# Các tầng phía dưới nếu đọc session sẽ nhận đúng giá trị đã resolve.
+# =====================================================================
+
+st.session_state[
+    "current_active_width"
+] = parsed_width
+
+st.session_state[
+    "current_warp_shrinkage"
+] = shrink_v_percent
+
+st.session_state[
+    "current_weft_shrinkage"
+] = shrink_h_percent
+
+
+ctx[
+    "fabric_width_inch"
+] = parsed_width
+
+ctx[
+    "warp_shrinkage_percent"
+] = shrink_v_percent
+
+ctx[
+    "weft_shrinkage_percent"
+] = shrink_h_percent
+
+ctx[
+    "calculated_on_size"
+] = ie_master[
+    "size"
+]
+
+
+# =====================================================================
+# 🔒 MASTER AUDIT
+# =====================================================================
+
+ctx[
+    "_ie_master_parameters"
+] = {
+
+    "width": parsed_width,
+
+    "warp_shrink_percent": (
+        shrink_v_percent
+    ),
+
+    "weft_shrink_percent": (
+        shrink_h_percent
+    ),
+
+    "size": ie_master[
+        "size"
+    ],
+
+    "width_source": ie_master[
+        "width_source"
+    ],
+
+    "warp_source": ie_master[
+        "warp_source"
+    ],
+
+    "weft_source": ie_master[
+        "weft_source"
+    ],
+
+    "size_source": ie_master[
+        "size_source"
+    ],
+
+    "priority": (
+        "USER_COMMAND > AI_MASTER > "
+        "SESSION > CTX > DEFAULT"
+    ),
+}
 
 
 # =====================================================================
@@ -6029,6 +6643,7 @@ stored_virtual_pieces = ai_decision.get(
     "virtual_pieces_layer",
     {}
 )
+
 
 if not isinstance(
     stored_virtual_pieces,
@@ -6043,6 +6658,7 @@ if not isinstance(
 # =====================================================================
 
 summary_grouped_gross = {
+
     "FABRIC": 0.0,
     "FUSING": 0.0,
     "LINING": 0.0,
@@ -6050,72 +6666,6 @@ summary_grouped_gross = {
     "RIB": 0.0,
     "PADDING": 0.0,
 }
-
-
-# =====================================================================
-# WIDTH MASTER
-# =====================================================================
-
-raw_width = st.session_state.get(
-    "current_active_width",
-    ctx.get(
-        "fabric_width_inch",
-        58.0
-    )
-)
-
-try:
-
-    parsed_width = float(
-        raw_width
-    )
-
-except Exception:
-
-    parsed_width = 58.0
-
-
-if parsed_width <= 0:
-
-    parsed_width = 58.0
-
-
-# =====================================================================
-# SHRINKAGE MASTER
-# =====================================================================
-
-try:
-
-    shrink_v = float(
-        st.session_state.get(
-            "current_warp_shrinkage",
-            ctx.get(
-                "warp_shrinkage_percent",
-                0.0
-            )
-        )
-    ) / 100.0
-
-except Exception:
-
-    shrink_v = 0.0
-
-
-try:
-
-    shrink_h = float(
-        st.session_state.get(
-            "current_weft_shrinkage",
-            ctx.get(
-                "weft_shrinkage_percent",
-                0.0
-            )
-        )
-    ) / 100.0
-
-except Exception:
-
-    shrink_h = 0.0
 
 
 # =====================================================================
@@ -6168,80 +6718,41 @@ product_type = str(
 
 
 # =====================================================================
-# 🔥 GEOMETRY CORRECTION
-#
-# Đây KHÔNG phải Marker Efficiency.
-#
-# Nó chỉ hiệu chỉnh phần area mà AI đang ước lượng quá lớn.
-#
-# JACKET hiện tại trong ảnh đang có area rất cao.
-# Vì vậy giảm area, KHÔNG giảm efficiency.
+# GEOMETRY CORRECTION
 # =====================================================================
 
 PRODUCT_GEOMETRY_FACTOR = {
 
-    # -------------------------------------------------------------
-    # JACKET / OUTERWEAR
-    # -------------------------------------------------------------
-
     "JACKET": 0.72,
-
     "COAT": 0.72,
-
     "BLAZER": 0.78,
-
     "SUIT": 0.80,
 
-    # -------------------------------------------------------------
-    # JEANS / PANTS
-    # -------------------------------------------------------------
-
     "JEAN_LONG": 1.00,
-
     "JEAN": 1.00,
-
     "PANT": 1.00,
-
     "TROUSER": 1.00,
-
     "KHAKI": 1.00,
-
-    # -------------------------------------------------------------
-    # SHORT
-    # -------------------------------------------------------------
 
     "SHORT": 1.00,
 
-    # -------------------------------------------------------------
-    # DRESS / SKIRT
-    # -------------------------------------------------------------
-
     "DRESS": 0.92,
-
     "SKIRT": 0.95,
 
-    # -------------------------------------------------------------
-    # SHIRT
-    # -------------------------------------------------------------
-
     "SHIRT": 0.95,
-
     "BLOUSE": 0.95,
-
     "POLO": 0.98,
-
     "TEE": 1.00,
-
     "TSHIRT": 1.00,
-
     "TANK": 1.00,
-
 }
 
 
-geometry_factor = PRODUCT_GEOMETRY_FACTOR.get(
-    product_type,
-    1.00
+geometry_factor = (
+    PRODUCT_GEOMETRY_FACTOR.get(
+        product_type,
+        1.00
+    )
 )
 
 
@@ -6269,7 +6780,10 @@ if (
             )
         )
 
-        if not isinstance(v, dict):
+        if not isinstance(
+            v,
+            dict
+        ):
 
             v = {}
 
@@ -6288,7 +6802,10 @@ if (
             )
         ).strip()
 
-        c_name_lower = c_name.lower()
+
+        c_name_lower = (
+            c_name.lower()
+        )
 
 
         # =============================================================
@@ -6305,13 +6822,14 @@ if (
             )
         ).upper().strip()
 
+
         if p_cls not in summary_grouped_gross:
 
             p_cls = "FABRIC"
 
 
         # =============================================================
-        # GEOMETRY
+        # GEOMETRY - LENGTH
         # =============================================================
 
         try:
@@ -6333,6 +6851,10 @@ if (
 
             p_length = 0.0
 
+
+        # =============================================================
+        # GEOMETRY - WIDTH
+        # =============================================================
 
         try:
 
@@ -6382,7 +6904,8 @@ if (
         if pure_unit_area <= 0:
 
             pure_unit_area = (
-                p_length *
+                p_length
+                *
                 p_width
             )
 
@@ -6393,11 +6916,7 @@ if (
 
 
         # =============================================================
-        # 🔥 PRODUCT GEOMETRY CORRECTION
-        #
-        # Chỉ áp dụng cho FABRIC / CONTRAST.
-        #
-        # Không sửa FUSING / LINING / RIB.
+        # PRODUCT GEOMETRY CORRECTION
         # =============================================================
 
         if p_cls in [
@@ -6422,10 +6941,13 @@ if (
         # USER PIECE OVERRIDE
         # =============================================================
 
-        user_pieces_dict = st.session_state.get(
-            "user_edited_pieces",
-            {}
+        user_pieces_dict = (
+            st.session_state.get(
+                "user_edited_pieces",
+                {}
+            )
         )
+
 
         user_override_exists = (
             idx in user_pieces_dict
@@ -6437,24 +6959,33 @@ if (
         if idx in user_pieces_dict:
 
             pcs = int(
-                user_pieces_dict[idx]
+                user_pieces_dict[
+                    idx
+                ]
             )
 
         elif str(idx) in user_pieces_dict:
 
             pcs = int(
-                user_pieces_dict[str(idx)]
+                user_pieces_dict[
+                    str(idx)
+                ]
             )
 
         elif (
             "active_user_pieces" in v
-            and int(
-                v["active_user_pieces"]
+            and
+            int(
+                v[
+                    "active_user_pieces"
+                ]
             ) >= 1
         ):
 
             pcs = int(
-                v["active_user_pieces"]
+                v[
+                    "active_user_pieces"
+                ]
             )
 
         elif (
@@ -6472,28 +7003,30 @@ if (
         ):
 
             pcs = int(
-                r["Số lượng rập"]
+                r[
+                    "Số lượng rập"
+                ]
             )
 
         else:
-
-            # ---------------------------------------------------------
-            # Không tự động ép mọi panel/front/back thành 2 nếu
-            # AI / Techpack đã có cut quantity.
-            # ---------------------------------------------------------
 
             pcs = 1
 
 
         # =============================================================
-        # CHỈ FALLBACK 2 KHI THỰC SỰ KHÔNG CÓ THÔNG TIN
+        # FALLBACK 2
         # =============================================================
 
         if (
             not user_override_exists
-            and pcs == 1
-            and not v.get("active_user_pieces")
-            and pd.isna(
+            and
+            pcs == 1
+            and
+            not v.get(
+                "active_user_pieces"
+            )
+            and
+            pd.isna(
                 r.get(
                     "Số lượng rập",
                     float("nan")
@@ -6534,15 +7067,21 @@ if (
 
         if idx not in stored_virtual_pieces:
 
-            stored_virtual_pieces[idx] = {}
+            stored_virtual_pieces[
+                idx
+            ] = {}
 
 
-        stored_virtual_pieces[idx][
+        stored_virtual_pieces[
+            idx
+        ][
             "active_user_pieces"
         ] = pcs
 
 
-        stored_virtual_pieces[idx][
+        stored_virtual_pieces[
+            idx
+        ][
             "polygon_net_area_corrected"
         ] = corrected_unit_area
 
@@ -6563,9 +7102,6 @@ if (
             )
         )
 
-
-        # Giữ nguyên mức seam hiện tại để không làm sai
-        # hệ thống đang kiểm tra.
 
         seam_modifier = (
             1.06
@@ -6632,10 +7168,10 @@ if (
 
         else:
 
-            # ---------------------------------------------------------
-            # FABRIC / CONTRAST
-            # LUÔN LẤY KHỔ CHAT MASTER
-            # ---------------------------------------------------------
+            # =========================================================
+            # 🔒 FABRIC / CONTRAST
+            # USER MASTER WIDTH
+            # =========================================================
 
             current_w = parsed_width
 
@@ -6655,12 +7191,10 @@ if (
         # MARKER EFFICIENCY
         # =============================================================
 
-        row_efficiency = base_efficiency
+        row_efficiency = (
+            base_efficiency
+        )
 
-
-        # -------------------------------------------------------------
-        # Phụ liệu giữ efficiency riêng
-        # -------------------------------------------------------------
 
         if p_cls in [
             "FUSING",
@@ -6689,6 +7223,9 @@ if (
 
         # =============================================================
         # SHRINKAGE
+        #
+        # 🔒 ĐÃ RESOLVE Ở B1
+        # KHÔNG ĐỌC LẠI SESSION Ở ĐÂY
         # =============================================================
 
         shrinkage_multiplier = (
@@ -6781,6 +7318,26 @@ if (
 
 
         # =============================================================
+        # 🔒 ROW MASTER AUDIT
+        # =============================================================
+
+        df_bom.at[
+            idx,
+            "_master_width"
+        ] = current_w
+
+        df_bom.at[
+            idx,
+            "_master_warp_shrink"
+        ] = shrink_v_percent
+
+        df_bom.at[
+            idx,
+            "_master_weft_shrink"
+        ] = shrink_h_percent
+
+
+        # =============================================================
         # DEBUG
         # =============================================================
 
@@ -6794,8 +7351,8 @@ if (
             f" | geometry_factor={geometry_factor:.2f}"
             f" | corrected_area={corrected_unit_area:.2f}"
             f" | width={current_w:.2f}"
-            f" | shrink_v={shrink_v*100:.2f}%"
-            f" | shrink_h={shrink_h*100:.2f}%"
+            f" | shrink_v={shrink_v_percent:.2f}%"
+            f" | shrink_h={shrink_h_percent:.2f}%"
             f" | efficiency={row_efficiency:.4f}"
             f" | gross={gross_consumption_yards:.4f} Yds"
         )
@@ -6856,12 +7413,20 @@ if (
     ] = ctx
 
 
+    # =================================================================
+    # 🔒 FINAL MASTER AUDIT
+    # =================================================================
+
     print(
         "[DM ENGINE FINAL]"
         f" Product={product_type}"
+        f" | Size={ie_master['size']}"
         f" | Width={parsed_width:.2f}\""
-        f" | Warp Shrink={shrink_v*100:.2f}%"
-        f" | Weft Shrink={shrink_h*100:.2f}%"
+        f" | Warp Shrink={shrink_v_percent:.2f}%"
+        f" | Weft Shrink={shrink_h_percent:.2f}%"
+        f" | Width Source={ie_master['width_source']}"
+        f" | Warp Source={ie_master['warp_source']}"
+        f" | Weft Source={ie_master['weft_source']}"
         f" | Geometry Factor={geometry_factor:.2f}"
         f" | Rows={len(df_bom)}"
         f" | Total DM="
