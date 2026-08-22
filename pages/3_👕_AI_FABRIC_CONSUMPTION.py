@@ -1519,17 +1519,19 @@ if safe_user_prompt:
 
 
 # =====================================================================
-# 🟩 ĐOẠN 2 - VERSION V28.5
-# MASTER AI SCAN + PRODUCT TYPE VALIDATION + WIDTH/SHRINK SYNC
+# 🟩 ĐOẠN 2 (VERSION V28.8): AI PRODUCT TYPE MASTER RECOGNITION
+# 🔒 FIX: KHÔNG TỰ ĐỘNG ÉP SẢN PHẨM KHÔNG RÕ THÀNH JEAN_LONG
+# 🔒 FIX: ĐỒNG BỘ detected_product_type -> ai_product_type_raw
+# 🔒 FIX: SHIRT / JACKET / SHORT / JEAN_LONG PHÂN BIỆT RÕ
 # =====================================================================
-
-import re
-import streamlit as st
-
 
 if st.session_state.ai_processing:
 
-    current_query = st.session_state["last_submitted_query"]
+    import re
+    import copy
+    import streamlit as st
+
+    current_query = st.session_state.get("last_submitted_query", "")
 
     active_pdf = (
         st.session_state.get("pdf_bytes")
@@ -1538,92 +1540,205 @@ if st.session_state.ai_processing:
         or st.session_state.get("pdf_data")
     )
 
-    # ================================================================
-    # 1. ĐỌC THÔNG SỐ TỪ CHAT
-    # ================================================================
+    # =================================================================
+    # 1. ĐỌC KHỔ VẢI + SIZE TỪ CHAT
+    # =================================================================
 
     dynamic_width = 58.0
     target_size = "32"
 
-    warp_shrinkage = 0.0
-    weft_shrinkage = 0.0
-
     if current_query:
 
-        query_text = str(current_query)
-
-        # ------------------------------------------------------------
-        # KHỔ VẢI
-        # ------------------------------------------------------------
-        w_m = re.search(
-            r"(?:khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            query_text,
+        width_match = re.search(
+            r"\b(?:khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            str(current_query),
             re.IGNORECASE
         )
 
-        if w_m:
-            dynamic_width = float(w_m.group(1))
+        if width_match:
+            dynamic_width = float(width_match.group(1))
 
-        # ------------------------------------------------------------
-        # SIZE
-        # ------------------------------------------------------------
-        s_m = re.search(
-            r"(?:cỡ|size)\s*[:=]?\s*([a-zA-Z0-9]+)",
-            query_text,
+        size_match = re.search(
+            r"\b(?:cỡ|size)\s*[:=]?\s*([A-Za-z0-9]+)",
+            str(current_query),
             re.IGNORECASE
         )
 
-        if s_m:
-            target_size = str(
-                s_m.group(1)
-            ).upper().strip()
+        if size_match:
+            target_size = str(size_match.group(1)).upper().strip()
 
-        # ------------------------------------------------------------
-        # CO DỌC
-        # ------------------------------------------------------------
-        warp_m = re.search(
-            r"(?:co\s*rút\s*dọc|co\s*dọc|độ\s*co\s*dọc)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
-            query_text,
-            re.IGNORECASE
-        )
+    # =================================================================
+    # 2. HÀM CHUẨN HÓA PRODUCT TYPE
+    # =================================================================
 
-        if warp_m:
-            val = float(warp_m.group(1))
+    def normalize_ai_product_type(raw_type):
 
-            if 0 <= val <= 15:
-                warp_shrinkage = val
+        s = str(raw_type or "").upper().strip()
 
-        # ------------------------------------------------------------
-        # CO NGANG
-        # ------------------------------------------------------------
-        weft_m = re.search(
-            r"(?:co\s*rút\s*ngang|co\s*ngang|độ\s*co\s*ngang)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
-            query_text,
-            re.IGNORECASE
-        )
+        # Làm sạch ký tự
+        s = re.sub(r"[_\-]+", " ", s)
+        s = re.sub(r"\s+", " ", s)
 
-        if weft_m:
-            val = float(weft_m.group(1))
+        # -------------------------------------------------------------
+        # ƯU TIÊN NHẬN DIỆN SẢN PHẨM ĐẶC THÙ
+        # -------------------------------------------------------------
 
-            if 0 <= val <= 15:
-                weft_shrinkage = val
+        # SHORT phải được kiểm tra TRƯỚC PANT / JEAN
+        if any(k in s for k in [
+            "SHORT",
+            "SHORTS",
+            "BERMUDA",
+            "SHORT PANT",
+            "SHORTS PANT"
+        ]):
+            return "SHORT"
 
+        # JUMPSUIT / OVERALL
+        if any(k in s for k in [
+            "JUMPSUIT",
+            "DUNGAREE",
+            "OVERALL",
+            "COVERALL",
+            "BIB OVERALL"
+        ]):
+            return "JUMPSUIT"
 
-    # ================================================================
-    # 2. AI SCAN
-    # ================================================================
+        # DRESS
+        if any(k in s for k in [
+            "DRESS",
+            "GOWN"
+        ]):
+            return "DRESS"
+
+        # SKIRT
+        if any(k in s for k in [
+            "SKIRT"
+        ]):
+            return "SKIRT"
+
+        # -------------------------------------------------------------
+        # ÁO
+        # -------------------------------------------------------------
+
+        if any(k in s for k in [
+            "SHIRT",
+            "SHIRT JACKET",
+            "DENIM SHIRT",
+            "WORK SHIRT",
+            "BUTTON SHIRT",
+            "BUTTONDOWN",
+            "BUTTON DOWN"
+        ]):
+            return "SHIRT"
+
+        if any(k in s for k in [
+            "BLOUSE"
+        ]):
+            return "BLOUSE"
+
+        if any(k in s for k in [
+            "POLO"
+        ]):
+            return "POLO"
+
+        if any(k in s for k in [
+            "T SHIRT",
+            "TEE",
+            "TSHIRT"
+        ]):
+            return "TSHIRT"
+
+        if any(k in s for k in [
+            "TANK",
+            "TANK TOP"
+        ]):
+            return "TANK"
+
+        if any(k in s for k in [
+            "BLAZER"
+        ]):
+            return "BLAZER"
+
+        if any(k in s for k in [
+            "SUIT"
+        ]):
+            return "SUIT"
+
+        if any(k in s for k in [
+            "JACKET",
+            "JACKET SHIRT",
+            "DENIM JACKET",
+            "WORK JACKET",
+            "TRUCKER JACKET"
+        ]):
+            return "JACKET"
+
+        if any(k in s for k in [
+            "COAT",
+            "OVERCOAT",
+            "TRENCH"
+        ]):
+            return "COAT"
+
+        # -------------------------------------------------------------
+        # QUẦN DÀI
+        # -------------------------------------------------------------
+
+        # Chỉ nhận JEAN_LONG khi AI thực sự xác nhận quần Jeans dài
+        if any(k in s for k in [
+            "JEAN LONG",
+            "LONG JEAN",
+            "JEANS LONG",
+            "LONG JEANS",
+            "FULL LENGTH JEANS"
+        ]):
+            return "JEAN_LONG"
+
+        if any(k in s for k in [
+            "JEAN PANT",
+            "JEANS PANT",
+            "DENIM PANT",
+            "DENIM JEAN"
+        ]):
+            return "JEAN"
+
+        if any(k in s for k in [
+            "TROUSER",
+            "TROUSERS",
+            "DRESS PANT",
+            "DRESS PANTS"
+        ]):
+            return "TROUSER"
+
+        if any(k in s for k in [
+            "KHAKI"
+        ]):
+            return "KHAKI"
+
+        if any(k in s for k in [
+            "PANT",
+            "PANTS",
+            "LONG PANT",
+            "LONG PANTS",
+            "TROUSER PANT"
+        ]):
+            return "PANT"
+
+        return "UNKNOWN"
+
+    # =================================================================
+    # 3. PDF CÓ TỒN TẠI KHÔNG?
+    # =================================================================
 
     if active_pdf is not None:
 
-        with st.spinner(
-            "🧠 AI Vision đang quét phôi rập Nguyên Liệu..."
-        ):
+        with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
 
             try:
 
-                # ====================================================
-                # 3. JSON SCHEMA
-                # ====================================================
+                # =====================================================
+                # 4. JSON SCHEMA
+                # =====================================================
 
                 raw_json_schema = {
 
@@ -1636,6 +1751,10 @@ if st.session_state.ai_processing:
                         },
 
                         "detected_base_size": {
+                            "type": "STRING"
+                        },
+
+                        "product_type_reason": {
                             "type": "STRING"
                         },
 
@@ -1825,7 +1944,8 @@ if st.session_state.ai_processing:
                                     "material_zone",
                                     "packing_priority",
                                     "convex_fill_ratio",
-                                    "mirror_piece"
+                                    "mirror_piece",
+                                    "cut_quantity"
                                 ]
                             }
                         }
@@ -1834,189 +1954,258 @@ if st.session_state.ai_processing:
                     "required": [
                         "detected_product_type",
                         "detected_base_size",
+                        "product_type_reason",
                         "bom_rows"
                     ]
                 }
 
-
-                # ====================================================
-                # 4. MASTER PRODUCT TYPE PROMPT
-                # ====================================================
+                # =====================================================
+                # 5. MASTER PROMPT NHẬN DIỆN CHỦNG LOẠI
+                # =====================================================
 
                 prompt_agent_2 = f"""
 
-You are a senior Industrial Garment IE & CAD Pattern Engineering Intelligence.
+You are a senior Industrial Garment IE, CAD Pattern and Tech Pack
+Recognition Engineer.
 
-============================================================
-PRODUCT TYPE IDENTIFICATION - ABSOLUTE PRIORITY
-============================================================
+Your FIRST responsibility is to identify the EXACT GARMENT PRODUCT TYPE.
 
-You MUST identify the ACTUAL GARMENT TYPE from the Tech Pack,
-garment sketch, style description and construction.
+The detected product type controls the marker efficiency calculation,
+therefore YOU MUST NOT guess JEAN_LONG by default.
 
-DO NOT infer product type from the word "JEAN" alone.
+=============================================================
+PRODUCT TYPE CLASSIFICATION
+=============================================================
 
-The following distinctions are mandatory:
+Return exactly ONE of these normalized product types:
 
-------------------------------------------------------------
+OVERALL
+COVERALL
+BIB
+JUMPSUIT
+DUNGAREE
+DRESS
+SKIRT
 SHORT
-------------------------------------------------------------
-
-If the garment is a SHORT / SHORTS / BERMUDA:
-
-Output:
-
-SHORT
-
-Examples:
-
-JEAN SHORT
-DENIM SHORT
-DENIM SHORTS
-JEAN SHORTS
-WALK SHORT
-BERMUDA SHORT
-
-ALL OF THESE MUST BE:
-
-SHORT
-
-NOT:
-
 JEAN
 JEAN_LONG
-PANT
+KHAKI
 TROUSER
-
-------------------------------------------------------------
-JEAN_LONG
-------------------------------------------------------------
-
-Use JEAN_LONG ONLY when the garment is clearly a
-FULL-LENGTH / LONG-LEG JEAN.
-
-Examples:
-
-LONG JEANS
-FULL LENGTH JEANS
-LONG DENIM PANTS
-JEAN LONG PANTS
-
-These may be:
-
-JEAN_LONG
-
-------------------------------------------------------------
-JEAN
-------------------------------------------------------------
-
-Use JEAN only when the product is identified as
-JEAN/DENIM but the document does not clearly establish
-that it is SHORT or FULL-LENGTH.
-
-------------------------------------------------------------
 PANT
-------------------------------------------------------------
+JACKET
+COAT
+BLAZER
+SUIT
+SHIRT
+BLOUSE
+POLO
+TEE
+TSHIRT
+TANK
+UNKNOWN
 
-Use PANT for ordinary long pants when it is not specifically
-identified as JEAN/DENIM.
+=============================================================
+🚨 CRITICAL PRODUCT TYPE RULES
+=============================================================
 
-------------------------------------------------------------
-CRITICAL RULE
-------------------------------------------------------------
+1. SHORTS / BERMUDA / SHORT PANTS
+   -> SHORT
 
-The word "JEAN" by itself does NOT mean JEAN_LONG.
+2. LONG JEANS / FULL LENGTH JEANS
+   -> JEAN_LONG
 
-If the product name contains both:
+3. DENIM PANTS / JEAN PANTS
+   -> JEAN
 
-JEAN + SHORT
+4. LONG PANTS WITHOUT JEAN DENIM IDENTITY
+   -> PANT
 
-or:
+5. TROUSERS / DRESS PANTS
+   -> TROUSER
 
-DENIM + SHORT
+6. BUTTON SHIRT / DENIM SHIRT / WORK SHIRT
+   -> SHIRT
 
-the final product type MUST be:
+7. DENIM JACKET / TRUCKER JACKET / WORK JACKET
+   -> JACKET
 
-SHORT
+8. DO NOT classify a SHIRT as JEAN_LONG merely because the
+   fabric is DENIM.
 
-============================================================
+9. DO NOT classify a JACKET as JEAN_LONG merely because the
+   fabric is DENIM.
 
-Reconstruct the multi-layered CAD metadata for EVERY valid
-fabric/fusing piece in the Tech Pack for Size {target_size}.
+10. The word "JEAN" or "DENIM" describes the MATERIAL in many
+    cases, NOT necessarily the garment type.
 
-============================================================
-ACCESSORY OMISSION
-============================================================
+11. Determine garment type from:
+    - garment silhouette
+    - pattern piece structure
+    - presence of sleeves
+    - collar
+    - cuffs
+    - waistband
+    - fly
+    - crotch construction
+    - leg panels
+    - body panels
+    - hem
+    - pocket construction
+    - tech pack product description
+    - style information
 
-NEVER extract:
+=============================================================
+🚨 SHIRT / JACKET VALIDATION
+=============================================================
 
-buttons,
-sewing threads,
-zippers,
-sliders,
-rivets,
-labels,
-care labels,
-size tabs,
-hangtags,
-polybags,
-metal accessories,
-plastic accessories.
+If the Tech Pack has:
 
-ONLY extract:
+- left/right front body
+- back body
+- sleeve
+- collar
+- cuff
+- button placket
+- chest pocket
 
-SELF,
-LINING,
-FUSING,
-RIB,
-CONTRAST.
+then strongly classify as:
 
-============================================================
-SINGLE PIECE RULE
-============================================================
+SHIRT
 
-'bounding_box_width' MUST represent ONE SINGLE physical piece.
+If it has jacket construction:
 
-NEVER combine left and right pieces.
+- front body
+- back body
+- sleeves
+- collar
+- cuff
+- jacket placket / zipper
+- jacket pocket
 
-============================================================
-GEOMETRY
-============================================================
+then classify:
 
-Extract:
+JACKET
 
-bounding_box_length
-bounding_box_width
-piece_shape
-piece_function
-fold_type
-material_zone
-packing_priority
-convex_fill_ratio
-mirror_piece
-cut_quantity
-grain_direction
-rotation_allowed
-edge_curvature
-shape_complexity
+=============================================================
+🚨 PANT VALIDATION
+=============================================================
 
-All dimensions must be in inches.
+A garment should be classified as PANT / JEAN / JEAN_LONG / SHORT
+only when the pattern architecture clearly contains:
 
-NEVER output zero dimensions for a valid pattern piece.
+- left/right leg
+- front leg
+- back leg
+- crotch
+- inseam
+- outseam
+- waistband
+- fly
+- leg opening
 
-============================================================
-VALIDATION
-============================================================
+Do NOT classify a garment as pants merely because the fabric
+is denim.
 
-Skip rows that are not actual pattern pieces.
+=============================================================
+🚨 JEAN_LONG VALIDATION
+=============================================================
 
-The output must contain the actual product type.
+Only return JEAN_LONG if BOTH conditions are satisfied:
+
+A. It is clearly a PANT / JEAN garment.
+
+AND
+
+B. The garment has LONG / FULL LENGTH legs.
+
+If it is SHORTS -> SHORT.
+
+If it is SHIRT -> SHIRT.
+
+If it is JACKET -> JACKET.
+
+If product type cannot be confidently established:
+-> UNKNOWN
+
+NEVER use JEAN_LONG as an uncertainty fallback.
+
+=============================================================
+TARGET SIZE
+=============================================================
+
+Analyze the Tech Pack for Size {target_size}.
+
+=============================================================
+MATERIAL EXTRACTION
+=============================================================
+
+Extract ONLY pattern-based material pieces:
+
+SELF
+LINING
+FUSING
+RIB
+CONTRAST
+
+Ignore:
+
+buttons
+thread
+zippers
+sliders
+rivets
+labels
+hangtags
+polybags
+metal/plastic accessories.
+
+=============================================================
+SINGLE PIECE GEOMETRY
+=============================================================
+
+bounding_box_width MUST represent ONE physical pattern piece.
+
+Never combine left/right pieces into one width.
+
+Never double the width of one physical piece.
+
+=============================================================
+CUT QUANTITY
+=============================================================
+
+cut_quantity = actual physical quantity required for cutting.
+
+Respect explicit:
+
+CUT 2
+CUT 1
+PAIR
+L/R
+MIRROR
+X2
+CUT AS PAIR
+
+Do not automatically change every piece to 1.
+
+=============================================================
+OUTPUT
+=============================================================
+
+Return:
+
+detected_product_type
+detected_base_size
+product_type_reason
+bom_rows
+
+The product type MUST be based on the actual Tech Pack and
+pattern architecture.
+
 """
 
-
-                # ====================================================
-                # 5. CALL AI
-                # ====================================================
+                # =====================================================
+                # 6. GỌI AI
+                # =====================================================
 
                 bom_data = execute_final_gerber_pure_scan(
 
@@ -2033,314 +2222,105 @@ The output must contain the actual product type.
                     prompt_agent_2=prompt_agent_2
                 )
 
-
-                # ====================================================
-                # 6. MASTER PRODUCT TYPE VALIDATION
-                # ====================================================
+                # =====================================================
+                # 7. CHUẨN HÓA PRODUCT TYPE
+                # =====================================================
 
                 if not isinstance(bom_data, dict):
-                    raise RuntimeError(
-                        "AI không trả về bom_data dạng dictionary."
-                    )
+                    bom_data = {}
 
-
-                ai_product_raw = str(
-                    bom_data.get(
-                        "detected_product_type",
-                        ""
-                    )
-                ).upper().strip()
-
-
-                # ----------------------------------------------------
-                # Lấy thêm tên style / query để kiểm tra SHORT
-                # ----------------------------------------------------
-
-                product_scan_text = " ".join(
-                    [
-                        ai_product_raw,
-                        str(current_query or "").upper(),
-                        str(
-                            bom_data.get(
-                                "style_code",
-                                ""
-                            )
-                        ).upper()
-                    ]
+                raw_detected_type = bom_data.get(
+                    "detected_product_type",
+                    ""
                 )
 
-
-                # ====================================================
-                # 7. PRODUCT TYPE ALIAS
-                # ====================================================
-
-                product_alias = {
-
-                    "SHORTS": "SHORT",
-                    "BERMUDA": "SHORT",
-                    "BERMUDAS": "SHORT",
-
-                    "WALK SHORT": "SHORT",
-                    "WALK SHORTS": "SHORT",
-
-                    "DENIM SHORT": "SHORT",
-                    "DENIM SHORTS": "SHORT",
-
-                    "JEAN SHORT": "SHORT",
-                    "JEAN SHORTS": "SHORT",
-
-                    "JEANS SHORT": "SHORT",
-                    "JEANS SHORTS": "SHORT",
-
-                    "LONG JEAN": "JEAN_LONG",
-                    "LONG JEANS": "JEAN_LONG",
-
-                    "JEAN LONG": "JEAN_LONG",
-                    "JEANS LONG": "JEAN_LONG",
-
-                    "FULL LENGTH JEAN": "JEAN_LONG",
-                    "FULL LENGTH JEANS": "JEAN_LONG",
-
-                    "PANTS": "PANT",
-                    "TROUSERS": "TROUSER",
-
-                    "T-SHIRT": "TSHIRT",
-                    "T SHIRT": "TSHIRT",
-                    "TEE SHIRT": "TSHIRT"
-                }
-
-
-                normalized_product_type = product_alias.get(
-                    ai_product_raw,
-                    ai_product_raw
+                normalized_type = normalize_ai_product_type(
+                    raw_detected_type
                 )
 
+                # =====================================================
+                # 8. TẠO AI EXPERT DECISION
+                # =====================================================
 
-                # ====================================================
-                # 8. SHORT OVERRIDE - CAO NHẤT
-                # ====================================================
-
-                short_keywords = [
-
-                    "SHORT",
-
-                    "SHORTS",
-
-                    "BERMUDA",
-
-                    "WALK SHORT",
-
-                    "WALKING SHORT",
-
-                    "DENIM SHORT",
-
-                    "DENIM SHORTS",
-
-                    "JEAN SHORT",
-
-                    "JEAN SHORTS",
-
-                    "JEANS SHORT",
-
-                    "JEANS SHORTS"
-                ]
-
-
-                is_short = any(
-                    keyword in product_scan_text
-                    for keyword in short_keywords
+                existing_ai_decision = bom_data.get(
+                    "ai_expert_decision",
+                    {}
                 )
 
+                if not isinstance(existing_ai_decision, dict):
+                    existing_ai_decision = {}
 
-                if is_short:
+                existing_ai_decision["ai_product_type_raw"] = normalized_type
 
-                    final_product_type = "SHORT"
+                existing_ai_decision["detected_product_type"] = normalized_type
 
-                elif normalized_product_type in [
-                    "JEAN_LONG",
-                    "JEAN",
-                    "PANT",
-                    "TROUSER",
-                    "KHAKI",
-                    "JACKET",
-                    "COAT",
-                    "BLAZER",
-                    "SUIT",
-                    "SHIRT",
-                    "BLOUSE",
-                    "POLO",
-                    "TEE",
-                    "TSHIRT",
-                    "TANK",
-                    "DRESS",
-                    "SKIRT",
-                    "OVERALL",
-                    "COVERALL",
-                    "BIB",
-                    "JUMPSUIT",
-                    "DUNGAREE"
-                ]:
+                existing_ai_decision["product_type_raw_from_ai"] = str(
+                    raw_detected_type
+                )
 
-                    final_product_type = normalized_product_type
+                existing_ai_decision["product_type_reason"] = str(
+                    bom_data.get("product_type_reason", "")
+                )
 
-                else:
+                existing_ai_decision["detected_base_size"] = str(
+                    target_size
+                )
 
-                    # Không được fallback JEAN_LONG
-                    final_product_type = "PANT"
+                existing_ai_decision["fabric_width"] = float(
+                    dynamic_width
+                )
 
+                bom_data["ai_expert_decision"] = existing_ai_decision
 
-                # ====================================================
-                # 9. MASTER AI DECISION
-                # ====================================================
+                bom_data["ai_product_type_raw"] = normalized_type
 
-                if "ai_expert_decision" not in bom_data:
-                    bom_data["ai_expert_decision"] = {}
+                bom_data["detected_product_type"] = normalized_type
 
-                if not isinstance(
-                    bom_data["ai_expert_decision"],
-                    dict
-                ):
-                    bom_data["ai_expert_decision"] = {}
+                bom_data["fabric_width_inch"] = float(dynamic_width)
 
+                bom_data["usable_width_inch"] = float(dynamic_width)
 
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "ai_product_type_raw"
-                ] = ai_product_raw
+                bom_data["calculated_on_size"] = str(target_size)
 
+                # =====================================================
+                # 9. ĐỒNG BỘ THAM SỐ CHAT
+                # =====================================================
 
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "detected_product_type"
-                ] = final_product_type
+                st.session_state["bom_data"] = bom_data
 
+                st.session_state["current_active_width"] = float(
+                    dynamic_width
+                )
 
-                bom_data[
-                    "detected_product_type"
-                ] = final_product_type
+                st.session_state["current_active_size"] = str(
+                    target_size
+                )
 
-
-                bom_data[
-                    "product_type"
-                ] = final_product_type
-
-
-                # ====================================================
-                # 10. MASTER WIDTH / SHRINKAGE COMMIT
-                # ====================================================
-
-                bom_data[
-                    "fabric_width_inch"
-                ] = float(dynamic_width)
-
-                bom_data[
-                    "usable_width_inch"
-                ] = float(dynamic_width)
-
-                bom_data[
-                    "calculated_on_size"
-                ] = str(target_size)
-
-                bom_data[
-                    "warp_shrinkage_percent"
-                ] = float(warp_shrinkage)
-
-                bom_data[
-                    "weft_shrinkage_percent"
-                ] = float(weft_shrinkage)
-
-
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "detected_base_size"
-                ] = str(target_size)
-
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "fabric_width"
-                ] = float(dynamic_width)
-
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "warp_shrinkage_percent"
-                ] = float(warp_shrinkage)
-
-                bom_data[
-                    "ai_expert_decision"
-                ][
-                    "weft_shrinkage_percent"
-                ] = float(weft_shrinkage)
-
-
-                # ====================================================
-                # 11. SESSION MASTER SYNC
-                # ====================================================
-
-                st.session_state[
-                    "bom_data"
-                ] = bom_data
-
-                st.session_state[
-                    "current_active_width"
-                ] = float(dynamic_width)
-
-                st.session_state[
-                    "current_active_size"
-                ] = str(target_size)
-
-                st.session_state[
-                    "current_warp_shrinkage"
-                ] = float(warp_shrinkage)
-
-                st.session_state[
-                    "current_weft_shrinkage"
-                ] = float(weft_shrinkage)
-
-                # ====================================================
-                # 12. DEBUG
-                # ====================================================
+                # =====================================================
+                # 10. DEBUG PRODUCT TYPE
+                # =====================================================
 
                 print(
-                    "\n"
-                    "====================================================\n"
-                    "[AI PRODUCT TYPE MASTER]\n"
-                    f"AI RAW        : {ai_product_raw}\n"
-                    f"NORMALIZED    : {normalized_product_type}\n"
-                    f"SHORT CHECK   : {is_short}\n"
-                    f"FINAL TYPE    : {final_product_type}\n"
-                    f"SIZE          : {target_size}\n"
-                    f"WIDTH         : {dynamic_width}\"\n"
-                    f"SHRINK WARP   : {warp_shrinkage}%\n"
-                    f"SHRINK WEFT   : {weft_shrinkage}%\n"
-                    "===================================================="
+                    "[PRODUCT TYPE MASTER]"
+                    f" AI_RAW={raw_detected_type}"
+                    f" | NORMALIZED={normalized_type}"
+                    f" | SIZE={target_size}"
+                    f" | WIDTH={dynamic_width}"
                 )
-
-
-                # ====================================================
-                # 13. FINISH
-                # ====================================================
 
                 st.session_state.ai_processing = False
 
                 st.rerun()
-
 
             except Exception as e:
 
                 st.error(
-                    f"❌ Lỗi xử lý luồng AI Execute (Đoạn 2): {str(e)}"
+                    f"❌ Lỗi xử lý AI Execute (Đoạn 2): {str(e)}"
                 )
 
                 st.session_state.ai_processing = False
 
                 st.rerun()
-
-
 # =====================================================================
 # 🧠 MASTER PARAMETER CONTROLLER V27.5
 # 🔒 CHAT COMMAND = NGUỒN SỰ THẬT TUYỆT ĐỐI
@@ -4699,425 +4679,7 @@ if _has_rows:
 
 
    
-   # =====================================================================
-# 🟩 ĐOẠN 5.2 - PHẦN A
-# VERSION V29.0 - MASTER PRODUCT TYPE + MARKER EFFICIENCY ROUTER
-# =====================================================================
-
-import pandas as pd
-import streamlit as st
-import re
-
-# =====================================================================
-# 1. MASTER BOM CONTEXT
-# =====================================================================
-
-if "bom_data" not in st.session_state or not isinstance(
-    st.session_state["bom_data"], dict
-):
-    st.session_state["bom_data"] = {}
-
-ctx = st.session_state["bom_data"]
-
-if "ai_expert_decision" not in ctx or not isinstance(
-    ctx.get("ai_expert_decision"),
-    dict
-):
-    ctx["ai_expert_decision"] = {}
-
-ai_decision = ctx["ai_expert_decision"]
-
-
-# =====================================================================
-# 2. MASTER CONFIG MATRIX
-# =====================================================================
-
-CONFIG_MATRIX = {
-
-    # ---------------------------------------------------------------
-    # OVERALL
-    # ---------------------------------------------------------------
-    "OVERALL":  [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-    "COVERALL": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-    "BIB":      [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-    "JUMPSUIT": [0.70, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-    "DUNGAREE": [0.71, "OVERALLS (Quần yếm/Quần bảo hộ)"],
-
-    # ---------------------------------------------------------------
-    # BOTTOMS
-    # ---------------------------------------------------------------
-    "DRESS":     [0.75, "DRESS (Đầm xòe/suông)"],
-    "SKIRT":     [0.66, "SKIRT (Chân váy)"],
-
-    "SHORT":     [0.68, "SHORT (Quần short)"],
-
-    "JEAN":      [0.80, "JEAN (Vải Denim/Jean)"],
-    "JEAN_LONG": [0.80, "JEAN_LONG (Quần Jeans dài chuẩn)"],
-
-    "KHAKI":     [0.60, "KHAKI (Quần Khaki)"],
-    "TROUSER":   [0.71, "TROUSER (Quần tây công sở)"],
-    "PANT":      [0.72, "PANT (Quần dài dáng suông)"],
-
-    # ---------------------------------------------------------------
-    # OUTERWEAR
-    # ---------------------------------------------------------------
-    "JACKET": [0.78, "JACKET (Áo khoác gió/Jeans)"],
-    "COAT":   [0.60, "COAT (Áo măng tô/Áo choàng)"],
-    "BLAZER": [0.65, "BLAZER (Áo Vest mỏng/Blazer)"],
-    "SUIT":   [0.65, "SUIT (Bộ Comple/Suit)"],
-
-    # ---------------------------------------------------------------
-    # TOPS
-    # ---------------------------------------------------------------
-    "SHIRT":  [0.60, "SHIRT (Áo sơ mi vải dệt)"],
-    "BLOUSE": [0.78, "BLOUSE (Áo kiểu/Blouse)"],
-    "POLO":   [0.76, "POLO (Áo thun cổ bẻ)"],
-    "TEE":    [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
-    "TSHIRT": [0.76, "TEE/TSHIRT (Áo thun cổ tròn)"],
-    "TANK":   [0.74, "TANK (Áo ba lỗ/Sát nách)"],
-}
-
-
-# =====================================================================
-# 3. ALIAS NORMALIZATION
-# =====================================================================
-
-PRODUCT_TYPE_ALIAS = {
-
-    # -------------------------------
-    # SHORT
-    # -------------------------------
-    "SHORTS": "SHORT",
-    "BERMUDA": "SHORT",
-    "BERMUDAS": "SHORT",
-    "WALK SHORT": "SHORT",
-    "WALKING SHORT": "SHORT",
-    "DENIM SHORT": "SHORT",
-    "DENIM SHORTS": "SHORT",
-    "JEAN SHORT": "SHORT",
-    "JEAN SHORTS": "SHORT",
-    "JEANS SHORT": "SHORT",
-    "JEANS SHORTS": "SHORT",
-
-    # -------------------------------
-    # LONG JEANS
-    # -------------------------------
-    "LONG JEAN": "JEAN_LONG",
-    "LONG JEANS": "JEAN_LONG",
-    "JEAN LONG": "JEAN_LONG",
-    "JEANS LONG": "JEAN_LONG",
-    "FULL LENGTH JEAN": "JEAN_LONG",
-    "FULL LENGTH JEANS": "JEAN_LONG",
-
-    # -------------------------------
-    # PANTS
-    # -------------------------------
-    "PANTS": "PANT",
-    "LONG PANT": "PANT",
-    "LONG PANTS": "PANT",
-    "TROUSERS": "TROUSER",
-
-    # -------------------------------
-    # T-SHIRT
-    # -------------------------------
-    "T-SHIRT": "TSHIRT",
-    "T SHIRT": "TSHIRT",
-    "TEE SHIRT": "TSHIRT",
-
-    # -------------------------------
-    # JACKET
-    # -------------------------------
-    "JACKETS": "JACKET",
-
-    # -------------------------------
-    # SHIRT
-    # -------------------------------
-    "SHIRTS": "SHIRT",
-
-    # -------------------------------
-    # POLO
-    # -------------------------------
-    "POLOS": "POLO",
-}
-
-
-# =====================================================================
-# 4. LẤY PRODUCT TYPE THÔ TỪ AI
-# =====================================================================
-
-raw_type_candidates = [
-
-    ai_decision.get("ai_product_type_raw"),
-
-    ai_decision.get("detected_product_type"),
-
-    ctx.get("detected_product_type"),
-
-    ctx.get("product_type"),
-
-    ctx.get("product_type_raw"),
-
-    ctx.get("ie_detected_type"),
-
-    st.session_state.get("ai_product_type_raw"),
-
-    st.session_state.get("detected_product_type"),
-]
-
-
-inherited_raw_type = ""
-
-for candidate in raw_type_candidates:
-
-    if candidate is None:
-        continue
-
-    candidate_clean = str(candidate).upper().strip()
-
-    if candidate_clean and candidate_clean not in [
-        "NONE",
-        "NULL",
-        "UNKNOWN",
-        "N/A",
-        "NAN",
-    ]:
-        inherited_raw_type = candidate_clean
-        break
-
-
-# =====================================================================
-# 5. LẤY THÊM THÔNG TIN TỪ STYLE / QUERY / TECHPACK
-#    DÙNG ĐỂ CHỐNG AI NHẬN SAI SHORT THÀNH JEAN_LONG
-# =====================================================================
-
-style_code_text = str(
-    ctx.get("style_code", "")
-).upper().strip()
-
-user_query_text = str(
-    st.session_state.get(
-        "last_submitted_query",
-        ""
-    )
-).upper().strip()
-
-detected_text_blob = " ".join(
-    [
-        inherited_raw_type,
-        style_code_text,
-        user_query_text,
-        str(ctx.get("product_type_friendly", "")).upper(),
-        str(ctx.get("ai_product_type_friendly", "")).upper(),
-    ]
-).strip()
-
-
-# =====================================================================
-# 6. SHORT OVERRIDE - ƯU TIÊN TUYỆT ĐỐI
-#
-# Nếu Tech Pack / Chat / AI có dấu hiệu SHORT thì phải là SHORT.
-# JEAN SHORT KHÔNG ĐƯỢC PHÉP CHẠY THÀNH JEAN_LONG.
-# =====================================================================
-
-SHORT_PATTERNS = [
-    r"\bSHORT\b",
-    r"\bSHORTS\b",
-    r"\bBERMUDA\b",
-    r"\bWALK\s*SHORT\b",
-    r"\bWALKING\s*SHORT\b",
-    r"\bDENIM\s*SHORT\b",
-    r"\bDENIM\s*SHORTS\b",
-    r"\bJEAN\s*SHORT\b",
-    r"\bJEAN\s*SHORTS\b",
-    r"\bJEANS\s*SHORT\b",
-    r"\bJEANS\s*SHORTS\b",
-]
-
-
-is_short_detected = any(
-    re.search(pattern, detected_text_blob, re.IGNORECASE)
-    for pattern in SHORT_PATTERNS
-)
-
-
-# =====================================================================
-# 7. NORMALIZE PRODUCT TYPE
-# =====================================================================
-
-normalized_type = PRODUCT_TYPE_ALIAS.get(
-    inherited_raw_type,
-    inherited_raw_type
-)
-
-
-# =====================================================================
-# 8. MASTER PRODUCT TYPE DECISION
-# =====================================================================
-
-if is_short_detected:
-
-    # 🔒 SHORT LUÔN ƯU TIÊN HƠN JEAN / PANT / TROUSER
-    ie_detected_type = "SHORT"
-
-elif normalized_type in CONFIG_MATRIX:
-
-    ie_detected_type = normalized_type
-
-else:
-
-    # ---------------------------------------------------------------
-    # KHÔNG CÒN ÉP FALLBACK VỀ JEAN_LONG
-    #
-    # JEAN_LONG chỉ được dùng khi AI thực sự nhận diện là JEAN_LONG.
-    # Nếu AI trả dữ liệu không hợp lệ -> PANT là fallback trung tính.
-    # ---------------------------------------------------------------
-    ie_detected_type = "PANT"
-
-
-# =====================================================================
-# 9. EXTRA SAFETY:
-#    JEAN SHORT / DENIM SHORT TUYỆT ĐỐI KHÔNG ĐƯỢC CHẠY JEAN_LONG
-# =====================================================================
-
-if any(
-    x in detected_text_blob
-    for x in [
-        "JEAN SHORT",
-        "JEAN SHORTS",
-        "DENIM SHORT",
-        "DENIM SHORTS",
-        "JEANS SHORT",
-        "JEANS SHORTS",
-        "BERMUDA",
-        "WALK SHORT",
-    ]
-):
-
-    ie_detected_type = "SHORT"
-
-
-# =====================================================================
-# 10. LẤY HIỆU SUẤT CƠ SỞ
-# =====================================================================
-
-dynamic_marker_efficiency = float(
-    CONFIG_MATRIX[ie_detected_type][0]
-)
-
-product_type_friendly = CONFIG_MATRIX[
-    ie_detected_type
-][1]
-
-
-# =====================================================================
-# 11. NAP / ONE-WAY ROUTER
-# =====================================================================
-
-is_nap_mode = bool(
-    st.session_state.get(
-        "is_nap_fabric",
-        False
-    )
-)
-
-is_one_way_mode = bool(
-    st.session_state.get(
-        "is_one_way_fabric",
-        False
-    )
-)
-
-
-# ONE-WAY ưu tiên cao hơn NAP
-if is_one_way_mode:
-
-    dynamic_marker_efficiency -= 0.05
-
-elif is_nap_mode:
-
-    dynamic_marker_efficiency -= 0.03
-
-
-# =====================================================================
-# 12. GIỚI HẠN AN TOÀN HIỆU SUẤT
-# =====================================================================
-
-dynamic_marker_efficiency = max(
-    0.52,
-    min(
-        round(dynamic_marker_efficiency, 4),
-        0.95
-    )
-)
-
-
-# =====================================================================
-# 13. MASTER COMMIT
-# =====================================================================
-
-ctx["ie_detected_type"] = ie_detected_type
-
-ctx["ie_product_type_friendly"] = product_type_friendly
-
-ctx["detected_product_type"] = ie_detected_type
-
-ctx["product_type"] = ie_detected_type
-
-
-ai_decision["ai_product_type_raw"] = inherited_raw_type
-
-ai_decision["detected_product_type"] = ie_detected_type
-
-ai_decision["product_type_friendly"] = product_type_friendly
-
-ai_decision["marker_efficiency"] = dynamic_marker_efficiency
-
-
-# =====================================================================
-# 14. SESSION MASTER SYNC
-# =====================================================================
-
-st.session_state[
-    "active_marker_efficiency_value"
-] = float(
-    dynamic_marker_efficiency
-)
-
-st.session_state[
-    "ie_detected_type"
-] = ie_detected_type
-
-st.session_state[
-    "ie_product_type_friendly"
-] = product_type_friendly
-
-
-# =====================================================================
-# 15. DEBUG LOG - KIỂM TRA CHÍNH XÁC AI ĐÃ NHẬN DIỆN GÌ
-# =====================================================================
-
-print(
-    "\n"
-    "============================================================\n"
-    "[PRODUCT TYPE ROUTER V29]\n"
-    f"AI RAW TYPE       = {inherited_raw_type}\n"
-    f"NORMALIZED TYPE   = {normalized_type}\n"
-    f"SHORT DETECTED    = {is_short_detected}\n"
-    f"FINAL PRODUCT     = {ie_detected_type}\n"
-    f"EFFICIENCY        = {dynamic_marker_efficiency:.4f}\n"
-    f"NAP MODE          = {is_nap_mode}\n"
-    f"ONE-WAY MODE      = {is_one_way_mode}\n"
-    "============================================================"
-)
-
-
-# =====================================================================
-# 16. LƯU MASTER BOM
-# =====================================================================
-
-ctx["ai_expert_decision"] = ai_decision
-
-st.session_state["bom_data"] = ctx
+UNKNOWN → JEAN_LONG
   # =====================================================================
 # 🟩 ĐOẠN 5.2 - PHẦN B1 + B2
 # VERSION V29.5 - MASTER COMMERCIAL CONSUMPTION ENGINE
