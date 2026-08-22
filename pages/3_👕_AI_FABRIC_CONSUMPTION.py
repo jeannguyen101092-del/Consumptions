@@ -5546,7 +5546,7 @@ CONFIG_MATRIX = {
     ],
 
     "JEAN_LONG": [
-        0.82,
+        0.78,
         "JEAN_LONG (Quần Jeans dài chuẩn)"
     ],
 
