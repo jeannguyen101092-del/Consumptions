@@ -5297,8 +5297,8 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
 
     # Quần jeans:
     # efficiency thấp hơn -> consumption cao hơn
-    "JEAN_LONG": 0.79,
-    "JEAN":      0.79,
+    "JEAN_LONG": 0.88,
+    "JEAN":      0.88,
 
     # Quần thường
     "PANT":      0.78,
