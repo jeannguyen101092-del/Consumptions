@@ -6689,136 +6689,265 @@ if (
         f" | Total DM="
         f"{df_bom['Gross Consumption'].sum():.4f} Yds"
     )
-      # =====================================================================
-    # 🟩 ĐOẠN 5.2C (VERSION V27.0): AUTOMATED CORES IGNITION
+       # =====================================================================
+    # 🟩 ĐOẠN 5.2C - VERSION V28.9
+    # AUTOMATED CORES IGNITION
     # =====================================================================
+
+    import pandas as pd
+    import streamlit as st
 
     if "bom_data" not in st.session_state:
         st.session_state["bom_data"] = {}
 
     ctx = st.session_state["bom_data"]
 
-    # ================================================================
-    # 🔥 KIỂM TRA DỮ LIỆU ĐÃ CÓ NHƯNG CHƯA ĐƯỢC TÍNH DM
-    # ================================================================
+    if not isinstance(ctx, dict):
+        ctx = {}
+        st.session_state["bom_data"] = ctx
+
+    # =====================================================================
+    # KIỂM TRA BOM THÔ
+    # =====================================================================
+
     has_raw_bom = (
         isinstance(ctx.get("bom_rows"), list)
         and len(ctx.get("bom_rows", [])) > 0
     )
 
-    has_virtual_pieces = (
-        isinstance(ctx.get("ai_expert_decision"), dict)
-        and isinstance(
-            ctx.get("ai_expert_decision", {}).get("virtual_pieces_layer"),
-            dict
-        )
-        and len(
-            ctx.get("ai_expert_decision", {})
-               .get("virtual_pieces_layer", {})
-        ) > 0
+    # =====================================================================
+    # KIỂM TRA VIRTUAL PIECES
+    # =====================================================================
+
+    ai_decision = ctx.get(
+        "ai_expert_decision",
+        {}
     )
+
+    if not isinstance(ai_decision, dict):
+        ai_decision = {}
+
+    virtual_pieces = ai_decision.get(
+        "virtual_pieces_layer",
+        {}
+    )
+
+    if not isinstance(virtual_pieces, dict):
+        virtual_pieces = {}
+
+    has_virtual_pieces = (
+        len(virtual_pieces) > 0
+    )
+
+    # =====================================================================
+    # KIỂM TRA DM ĐÃ TÍNH
+    # =====================================================================
 
     has_calculated_bom = (
-        "active_calculated_df_bom" in st.session_state
-        and isinstance(
-            st.session_state.get("active_calculated_df_bom"),
+        isinstance(
+            st.session_state.get(
+                "active_calculated_df_bom"
+            ),
             pd.DataFrame
         )
-        and not st.session_state["active_calculated_df_bom"].empty
+        and not st.session_state[
+            "active_calculated_df_bom"
+        ].empty
     )
 
-    # ================================================================
-    # 🔥 CHỈ KÍCH HOẠT KHI CÓ BOM THÔ NHƯNG CHƯA CÓ MASTER DM
-    # ================================================================
-    if (has_raw_bom or has_virtual_pieces) and not has_calculated_bom:
+    # =====================================================================
+    # CHỈ CHẠY KHI CÓ BOM THÔ NHƯNG CHƯA CÓ MASTER DM
+    # =====================================================================
+
+    if (
+        has_raw_bom
+        or has_virtual_pieces
+    ) and not has_calculated_bom:
 
         if not st.session_state.get(
             "pipeline_auto_run_executed",
             False
         ):
 
-            with st.spinner(
-                "⚙️ IE Engine đang tự động tính định mức thương mại..."
-            ):
+            try:
 
-                try:
+                # =========================================================
+                # KHÓA TRÁNH RERUN LOOP
+                # =========================================================
 
-                    # ------------------------------------------------
-                    # 🔒 KHÓA TRẠNG THÁI TRƯỚC KHI RERUN
-                    # ------------------------------------------------
-                    st.session_state[
-                        "pipeline_auto_run_executed"
-                    ] = True
+                st.session_state[
+                    "pipeline_auto_run_executed"
+                ] = True
 
-                    # ------------------------------------------------
-                    # 🔄 KHÔI PHỤC df_bom NẾU BỊ MẤT SAU RERUN
-                    # ------------------------------------------------
-                    if (
-                        "df_bom" not in locals()
-                        or df_bom is None
-                        or (
-                            isinstance(df_bom, pd.DataFrame)
-                            and df_bom.empty
-                        )
-                    ):
+                # =========================================================
+                # KHÔI PHỤC DF_BOM
+                # =========================================================
 
-                        rows_raw = ctx.get(
-                            "bom_rows",
+                if (
+                    "df_bom" not in locals()
+                    or df_bom is None
+                    or not isinstance(
+                        df_bom,
+                        pd.DataFrame
+                    )
+                    or df_bom.empty
+                ):
+
+                    rows_raw = ctx.get(
+                        "bom_rows",
+                        ctx.get(
+                            "processed_display_rows",
                             st.session_state.get(
                                 "processed_display_rows",
                                 []
                             )
                         )
-
-                        if rows_raw:
-                            df_bom = pd.DataFrame(rows_raw)
-
-                    # ------------------------------------------------
-                    # 🔥 KIỂM TRA LẠI THÔNG SỐ CHAT TRƯỚC KHI CHẠY
-                    # ------------------------------------------------
-                    current_width = float(
-                        st.session_state.get(
-                            "current_active_width",
-                            ctx.get(
-                                "fabric_width_inch",
-                                58.0
-                            )
-                        )
                     )
+
+                    if (
+                        isinstance(
+                            rows_raw,
+                            list
+                        )
+                        and rows_raw
+                    ):
+
+                        df_bom = pd.DataFrame(
+                            rows_raw
+                        )
+
+                # =========================================================
+                # NẾU KHÔNG CÓ DF_BOM
+                # =========================================================
+
+                if (
+                    "df_bom" not in locals()
+                    or df_bom is None
+                    or not isinstance(
+                        df_bom,
+                        pd.DataFrame
+                    )
+                    or df_bom.empty
+                ):
+
+                    st.session_state[
+                        "pipeline_auto_run_executed"
+                    ] = False
+
+                    st.warning(
+                        "⚠️ 5.2C: Không tìm thấy df_bom để chạy B1+B2."
+                    )
+
+                else:
+
+                    # =====================================================
+                    # MASTER WIDTH
+                    # =====================================================
+
+                    current_width = st.session_state.get(
+                        "current_active_width",
+                        None
+                    )
+
+                    if current_width is None:
+
+                        current_width = ctx.get(
+                            "fabric_width_inch",
+                            58.0
+                        )
+
+                    try:
+
+                        current_width = float(
+                            current_width
+                        )
+
+                    except Exception:
+
+                        current_width = 58.0
+
+                    if current_width <= 0:
+                        current_width = 58.0
+
+                    # =====================================================
+                    # MASTER SIZE
+                    # =====================================================
+
+                    current_size = st.session_state.get(
+                        "current_active_size",
+                        None
+                    )
+
+                    if current_size is None:
+
+                        current_size = ctx.get(
+                            "calculated_on_size",
+                            "32"
+                        )
 
                     current_size = str(
-                        st.session_state.get(
-                            "current_active_size",
-                            ctx.get(
-                                "calculated_on_size",
-                                "32"
-                            )
-                        )
+                        current_size
                     ).strip()
 
-                    current_warp = float(
-                        st.session_state.get(
-                            "current_warp_shrinkage",
-                            ctx.get(
-                                "warp_shrinkage_percent",
-                                0.0
-                            )
-                        )
+                    if not current_size:
+                        current_size = "32"
+
+                    # =====================================================
+                    # MASTER WARP
+                    # =====================================================
+
+                    current_warp = st.session_state.get(
+                        "current_warp_shrinkage",
+                        None
                     )
 
-                    current_weft = float(
-                        st.session_state.get(
-                            "current_weft_shrinkage",
-                            ctx.get(
-                                "weft_shrinkage_percent",
-                                0.0
-                            )
+                    if current_warp is None:
+
+                        current_warp = ctx.get(
+                            "warp_shrinkage_percent",
+                            0.0
                         )
+
+                    try:
+
+                        current_warp = float(
+                            current_warp
+                        )
+
+                    except Exception:
+
+                        current_warp = 0.0
+
+                    # =====================================================
+                    # MASTER WEFT
+                    # =====================================================
+
+                    current_weft = st.session_state.get(
+                        "current_weft_shrinkage",
+                        None
                     )
 
-                    # ------------------------------------------------
-                    # 🔒 COMMIT LẠI THÔNG SỐ MASTER
-                    # ------------------------------------------------
+                    if current_weft is None:
+
+                        current_weft = ctx.get(
+                            "weft_shrinkage_percent",
+                            0.0
+                        )
+
+                    try:
+
+                        current_weft = float(
+                            current_weft
+                        )
+
+                    except Exception:
+
+                        current_weft = 0.0
+
+                    # =====================================================
+                    # MASTER SESSION COMMIT
+                    # =====================================================
+
                     st.session_state[
                         "current_active_width"
                     ] = current_width
@@ -6835,38 +6964,84 @@ if (
                         "current_weft_shrinkage"
                     ] = current_weft
 
-                    ctx["fabric_width_inch"] = current_width
-                    ctx["usable_width_inch"] = current_width
-                    ctx["calculated_on_size"] = current_size
-                    ctx["warp_shrinkage_percent"] = current_warp
-                    ctx["weft_shrinkage_percent"] = current_weft
+                    # =====================================================
+                    # MASTER CTX COMMIT
+                    # =====================================================
 
-                    st.session_state["bom_data"] = ctx
+                    ctx[
+                        "fabric_width_inch"
+                    ] = current_width
 
-                    print(
-                        f"[5.2C MASTER SYNC] "
-                        f"Size={current_size} | "
-                        f"Width={current_width}\" | "
-                        f"Warp={current_warp}% | "
-                        f"Weft={current_weft}%"
-                    )
+                    ctx[
+                        "usable_width_inch"
+                    ] = current_width
 
-                    # ------------------------------------------------
-                    # 🔄 RERUN 1 LẦN ĐỂ 5.2B1 → 5.2B2 TÍNH DM
-                    # ------------------------------------------------
-                    st.rerun()
+                    ctx[
+                        "calculated_on_size"
+                    ] = current_size
 
-                except Exception as e:
+                    ctx[
+                        "warp_shrinkage_percent"
+                    ] = current_warp
+
+                    ctx[
+                        "weft_shrinkage_percent"
+                    ] = current_weft
 
                     st.session_state[
-                        "pipeline_auto_run_executed"
-                    ] = False
+                        "bom_data"
+                    ] = ctx
 
-                    st.error(
-                        f"❌ Lỗi AUTOMATED CORES IGNITION: {e}"
+                    # =====================================================
+                    # XÓA DM CŨ
+                    # =====================================================
+
+                    st.session_state.pop(
+                        "active_calculated_df_bom",
+                        None
                     )
 
+                    st.session_state.pop(
+                        "summary_grouped_gross",
+                        None
+                    )
 
+                    # =====================================================
+                    # GIỮ DF_BOM QUA RERUN
+                    # =====================================================
+
+                    st.session_state[
+                        "df_bom_master"
+                    ] = df_bom.copy()
+
+                    # =====================================================
+                    # DEBUG
+                    # =====================================================
+
+                    print(
+                        "[5.2C IGNITION]"
+                        f" | Size={current_size}"
+                        f" | Width={current_width:.2f}\""
+                        f" | Warp={current_warp:.2f}%"
+                        f" | Weft={current_weft:.2f}%"
+                        f" | Rows={len(df_bom)}"
+                    )
+
+                    # =====================================================
+                    # RERUN ĐỂ B1+B2 CHẠY
+                    # =====================================================
+
+                    st.rerun()
+
+            except Exception as e:
+
+                st.session_state[
+                    "pipeline_auto_run_executed"
+                ] = False
+
+                st.error(
+                    f"❌ Lỗi Đoạn 5.2C: {str(e)}"
+                )
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
     # =====================================================================
