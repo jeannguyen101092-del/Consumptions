@@ -8210,66 +8210,64 @@ if (
         f" | Rows={len(df_bom)}"
         f" | Total DM={total_dm:.4f} Yds"
     )
-    # =====================================================================
-    # 🟩 ĐOẠN 5.2C
-    # VERSION V29.1
-    # MASTER COMMERCIAL ENGINE CONTROL
-    #
-    # 🔒 5.2C = CONTROL / RECOVERY LAYER
-    #
-    # KHÔNG TÍNH DM
-    # KHÔNG TẠO WIDTH MỚI
-    # KHÔNG TẠO SHRINKAGE MỚI
-    # KHÔNG TẠO SIZE MỚI
+        # =====================================================================
+    # 🟩 ĐOẠN 5.2C - VERSION V28.9
+    # AUTOMATED CORES IGNITION
     #
     # NHIỆM VỤ:
-    # 1. RECOVER BOM
-    # 2. GIỮ MASTER TỪ B1
-    # 3. ĐẢM BẢO B2 CÓ df_bom ĐỂ CHẠY
-    # 4. KHÔNG RERUN VÒNG LẶP
+    # AI BOM → B1 → B2 → MASTER DM
+    #
+    # 5.2C KHÔNG TÍNH ĐỊNH MỨC
+    # 5.2C CHỈ KÍCH HOẠT PIPELINE
     # =====================================================================
 
     import pandas as pd
     import streamlit as st
 
-
     # =====================================================================
-    # BẢO ĐẢM BOM DATA
+    # 1. INITIALIZE BOM DATA
     # =====================================================================
 
-    if "bom_data" not in st.session_state:
+    if (
+        "bom_data" not in st.session_state
+        or not isinstance(
+            st.session_state.get("bom_data"),
+            dict
+        )
+    ):
 
         st.session_state[
             "bom_data"
         ] = {}
 
-
     ctx = st.session_state[
         "bom_data"
     ]
 
+    # =====================================================================
+    # 2. RECOVER BOM ROWS
+    # =====================================================================
+
+    bom_rows = ctx.get(
+        "bom_rows",
+        []
+    )
 
     if not isinstance(
-        ctx,
-        dict
+        bom_rows,
+        list
     ):
 
-        ctx = {}
-
-        st.session_state[
-            "bom_data"
-        ] = ctx
-
+        bom_rows = []
 
     # =====================================================================
-    # AI DECISION
+    # 3. RECOVER VIRTUAL PIECES
     # =====================================================================
 
     ai_decision = ctx.get(
         "ai_expert_decision",
         {}
     )
-
 
     if not isinstance(
         ai_decision,
@@ -8278,364 +8276,130 @@ if (
 
         ai_decision = {}
 
-        ctx[
-            "ai_expert_decision"
-        ] = ai_decision
-
-
-    # =====================================================================
-    # 🔥 RECOVER df_bom
-    # =====================================================================
-
-    if (
-        "df_bom" not in locals()
-        or df_bom is None
-        or not isinstance(
-            df_bom,
-            pd.DataFrame
-        )
-        or df_bom.empty
-    ):
-
-        rows_raw = ctx.get(
-            "bom_rows",
-            []
-        )
-
-
-        if (
-            not isinstance(
-                rows_raw,
-                list
-            )
-            or
-            len(rows_raw) == 0
-        ):
-
-            rows_raw = st.session_state.get(
-                "processed_display_rows",
-                []
-            )
-
-
-        if (
-            isinstance(
-                rows_raw,
-                list
-            )
-            and
-            len(rows_raw) > 0
-        ):
-
-            try:
-
-                df_bom = pd.DataFrame(
-                    rows_raw
-                )
-
-                print(
-                    "[5.2C RECOVERY]"
-                    f" | df_bom restored"
-                    f" | rows={len(df_bom)}"
-                )
-
-            except Exception as e:
-
-                print(
-                    f"[5.2C RECOVERY ERROR] {e}"
-                )
-
-                df_bom = None
-
-
-    # =====================================================================
-    # 🔒 MASTER PARAMETERS
-    #
-    # CHỈ ĐỌC MASTER ĐÃ ĐƯỢC B1 RESOLVE
-    # =====================================================================
-
-    master = ctx.get(
-        "_ie_master_parameters",
-        {}
-    )
-
-
-    if not isinstance(
-        master,
-        dict
-    ):
-
-        master = {}
-
-
-    # =====================================================================
-    # 🔒 MASTER SYNC
-    # =====================================================================
-
-    if master:
-
-        try:
-
-            master_width = float(
-                master.get(
-                    "width"
-                )
-            )
-
-            master_usable_width = float(
-                master.get(
-                    "usable_width",
-                    master_width
-                )
-            )
-
-            master_warp = float(
-                master.get(
-                    "warp_shrink_percent",
-                    0.0
-                )
-            )
-
-            master_weft = float(
-                master.get(
-                    "weft_shrink_percent",
-                    0.0
-                )
-            )
-
-            master_size = str(
-                master.get(
-                    "size",
-                    ""
-                )
-            ).strip()
-
-
-            # =============================================================
-            # SESSION SYNC
-            # =============================================================
-
-            st.session_state[
-                "current_active_width"
-            ] = master_width
-
-            st.session_state[
-                "current_active_size"
-            ] = master_size
-
-            st.session_state[
-                "current_warp_shrinkage"
-            ] = master_warp
-
-            st.session_state[
-                "current_weft_shrinkage"
-            ] = master_weft
-
-
-            # =============================================================
-            # CTX SYNC
-            # =============================================================
-
-            ctx[
-                "fabric_width_inch"
-            ] = master_width
-
-            ctx[
-                "usable_width_inch"
-            ] = master_usable_width
-
-            ctx[
-                "calculated_on_size"
-            ] = master_size
-
-            ctx[
-                "warp_shrinkage_percent"
-            ] = master_warp
-
-            ctx[
-                "weft_shrinkage_percent"
-            ] = master_weft
-
-
-            print(
-                "[5.2C MASTER]"
-                f" | Width={master_width:.2f}\""
-                f" | Usable={master_usable_width:.2f}\""
-                f" | Size={master_size}"
-                f" | Warp={master_warp:.2f}%"
-                f" | Weft={master_weft:.2f}%"
-            )
-
-
-        except Exception as e:
-
-            print(
-                f"[5.2C MASTER ERROR] {e}"
-            )
-
-
-    # =====================================================================
-    # 🔥 VIRTUAL PIECES
-    # =====================================================================
-
-    virtual_pieces = ai_decision.get(
+    virtual_layer = ai_decision.get(
         "virtual_pieces_layer",
         {}
     )
 
-
     if not isinstance(
-        virtual_pieces,
+        virtual_layer,
         dict
     ):
 
-        virtual_pieces = {}
-
+        virtual_layer = {}
 
     # =====================================================================
-    # 🔥 CHECK RAW BOM
+    # 4. CHECK MASTER DM
+    # =====================================================================
+
+    active_bom = st.session_state.get(
+        "active_calculated_df_bom"
+    )
+
+    has_calculated_bom = (
+        isinstance(
+            active_bom,
+            pd.DataFrame
+        )
+        and
+        not active_bom.empty
+        and
+        "Gross Consumption"
+        in active_bom.columns
+    )
+
+    # =====================================================================
+    # 5. CHECK RAW DATA
+    #
+    # QUAN TRỌNG:
+    # Không chỉ kiểm tra bom_rows.
+    # Có virtual pieces cũng phải cho pipeline chạy.
     # =====================================================================
 
     has_raw_bom = (
-
-        isinstance(
-            ctx.get(
-                "bom_rows"
-            ),
-            list
-        )
-
-        and
-
         len(
-            ctx.get(
-                "bom_rows",
-                []
-            )
+            bom_rows
         ) > 0
     )
-
-
-    # =====================================================================
-    # 🔥 CHECK VIRTUAL PIECES
-    # =====================================================================
 
     has_virtual_pieces = (
-
-        isinstance(
-            virtual_pieces,
-            dict
-        )
-
-        and
-
         len(
-            virtual_pieces
+            virtual_layer
         ) > 0
     )
 
-
     # =====================================================================
-    # 🔥 CHECK CALCULATED BOM
+    # 6. DEBUG MASTER
     # =====================================================================
 
-    has_calculated_bom = (
-
-        "active_calculated_df_bom"
-        in
-        st.session_state
-
-        and
-
-        isinstance(
-            st.session_state.get(
-                "active_calculated_df_bom"
-            ),
-            pd.DataFrame
-        )
-
-        and
-
-        not st.session_state[
-            "active_calculated_df_bom"
-        ].empty
+    print(
+        "[5.2C CHECK]"
+        f" | bom_rows={len(bom_rows)}"
+        f" | virtual_pieces={len(virtual_layer)}"
+        f" | has_raw_bom={has_raw_bom}"
+        f" | has_virtual={has_virtual_pieces}"
+        f" | has_calculated={has_calculated_bom}"
+        f" | pipeline="
+        f"{st.session_state.get('pipeline_auto_run_executed', False)}"
     )
 
-
     # =====================================================================
-    # 🔥 FINAL DF CHECK
-    # =====================================================================
-
-    has_working_df_bom = (
-
-        "df_bom" in locals()
-
-        and
-
-        df_bom is not None
-
-        and
-
-        isinstance(
-            df_bom,
-            pd.DataFrame
-        )
-
-        and
-
-        not df_bom.empty
-    )
-
-
-    # =====================================================================
-    # 🔒 SAVE RECOVERED BOM
-    # =====================================================================
-
-    if has_working_df_bom:
-
-        try:
-
-            ctx[
-                "bom_rows"
-            ] = df_bom.to_dict(
-                orient="records"
-            )
-
-        except Exception as e:
-
-            print(
-                f"[5.2C BOM SAVE ERROR] {e}"
-            )
-
-
-    # =====================================================================
-    # 🔥 DO NOT FORCE RERUN
+    # 7. SYNCHRONIZE BOM ROWS BACK TO CTX
     #
-    # B2 sẽ chạy tiếp trong cùng execution.
+    # Nếu Đoạn 2 đã tạo bom_rows nhưng ctx chưa nhận,
+    # khóa lại ở đây.
     # =====================================================================
 
     if (
-        has_working_df_bom
+        not has_raw_bom
         and
-        not has_calculated_bom
+        isinstance(
+            st.session_state.get(
+                "processed_display_rows"
+            ),
+            list
+        )
+        and
+        len(
+            st.session_state.get(
+                "processed_display_rows"
+            )
+        ) > 0
     ):
 
+        ctx[
+            "bom_rows"
+        ] = st.session_state[
+            "processed_display_rows"
+        ]
+
+        bom_rows = ctx[
+            "bom_rows"
+        ]
+
+        has_raw_bom = True
+
         print(
-            "[5.2C]"
-            " | B2 READY"
-            f" | rows={len(df_bom)}"
-            " | ACTION=CONTINUE_TO_B2"
+            "[5.2C RECOVERY]"
+            " → recovered bom_rows "
+            "from processed_display_rows"
         )
 
+    # =====================================================================
+    # 8. DO NOT RUN AGAIN IF MASTER DM ALREADY EXISTS
+    # =====================================================================
 
-    elif has_calculated_bom:
+    if has_calculated_bom:
 
         print(
             "[5.2C]"
-            " | CALCULATED BOM EXISTS"
-            " | ACTION=SKIP"
+            " → MASTER DM already exists."
+            " Skip rerun."
         )
 
+    # =====================================================================
+    # 9. START COMMERCIAL DM PIPELINE
+    # =====================================================================
 
     elif (
         has_raw_bom
@@ -8643,44 +8407,222 @@ if (
         has_virtual_pieces
     ):
 
-        print(
-            "[5.2C]"
-            " | BOM DATA EXISTS"
-            " | df_bom NOT AVAILABLE"
-            " | WAITING RECOVERY"
+        # ================================================================
+        # PREVENT LOOP
+        # ================================================================
+
+        already_running = st.session_state.get(
+            "pipeline_auto_run_executed",
+            False
         )
 
+        if not already_running:
 
-    else:
+            try:
 
-        print(
-            "[5.2C]"
-            " | NO BOM DATA"
-            " | ACTION=WAIT"
-        )
+                # ========================================================
+                # LOCK
+                # ========================================================
 
+                st.session_state[
+                    "pipeline_auto_run_executed"
+                ] = True
 
-    # =====================================================================
-    # 🔒 FINAL CTX COMMIT
-    # =====================================================================
+                # ========================================================
+                # MASTER WIDTH
+                # ========================================================
 
-    st.session_state[
-        "bom_data"
-    ] = ctx
+                current_width = st.session_state.get(
+                    "current_active_width",
+                    ctx.get(
+                        "fabric_width_inch",
+                        58.0
+                    )
+                )
 
+                try:
 
-    # =====================================================================
-    # DEBUG
-    # =====================================================================
+                    current_width = float(
+                        current_width
+                    )
 
-    print(
-        "[5.2C FINAL]"
-        f" | raw_bom={has_raw_bom}"
-        f" | virtual={has_virtual_pieces}"
-        f" | df_bom={has_working_df_bom}"
-        f" | calculated={has_calculated_bom}"
-        " | STATUS=READY"
-    )
+                except Exception:
+
+                    current_width = 58.0
+
+                if current_width <= 0:
+
+                    current_width = 58.0
+
+                # ========================================================
+                # MASTER SIZE
+                # ========================================================
+
+                current_size = st.session_state.get(
+                    "current_active_size",
+                    ctx.get(
+                        "calculated_on_size",
+                        "32"
+                    )
+                )
+
+                current_size = str(
+                    current_size
+                ).strip()
+
+                if not current_size:
+
+                    current_size = "32"
+
+                # ========================================================
+                # MASTER WARP
+                # ========================================================
+
+                current_warp = st.session_state.get(
+                    "current_warp_shrinkage",
+                    ctx.get(
+                        "warp_shrinkage_percent",
+                        0.0
+                    )
+                )
+
+                try:
+
+                    current_warp = float(
+                        current_warp
+                    )
+
+                except Exception:
+
+                    current_warp = 0.0
+
+                # ========================================================
+                # MASTER WEFT
+                # ========================================================
+
+                current_weft = st.session_state.get(
+                    "current_weft_shrinkage",
+                    ctx.get(
+                        "weft_shrinkage_percent",
+                        0.0
+                    )
+                )
+
+                try:
+
+                    current_weft = float(
+                        current_weft
+                    )
+
+                except Exception:
+
+                    current_weft = 0.0
+
+                # ========================================================
+                # COMMIT MASTER PARAMETERS
+                # ========================================================
+
+                st.session_state[
+                    "current_active_width"
+                ] = current_width
+
+                st.session_state[
+                    "current_active_size"
+                ] = current_size
+
+                st.session_state[
+                    "current_warp_shrinkage"
+                ] = current_warp
+
+                st.session_state[
+                    "current_weft_shrinkage"
+                ] = current_weft
+
+                ctx[
+                    "fabric_width_inch"
+                ] = current_width
+
+                ctx[
+                    "usable_width_inch"
+                ] = current_width
+
+                ctx[
+                    "calculated_on_size"
+                ] = current_size
+
+                ctx[
+                    "warp_shrinkage_percent"
+                ] = current_warp
+
+                ctx[
+                    "weft_shrinkage_percent"
+                ] = current_weft
+
+                # ========================================================
+                # FORCE BOM DATA SAVE
+                # ========================================================
+
+                if (
+                    len(bom_rows)
+                    > 0
+                ):
+
+                    ctx[
+                        "bom_rows"
+                    ] = bom_rows
+
+                # ========================================================
+                # SAVE CTX
+                # ========================================================
+
+                st.session_state[
+                    "bom_data"
+                ] = ctx
+
+                # ========================================================
+                # DEBUG
+                # ========================================================
+
+                print(
+                    "[5.2C IGNITION]"
+                    f" → Rows={len(bom_rows)}"
+                    f" | Virtual={len(virtual_layer)}"
+                    f" | Size={current_size}"
+                    f" | Width={current_width}\""
+                    f" | Warp={current_warp}%"
+                    f" | Weft={current_weft}%"
+                )
+
+                # ========================================================
+                # RERUN
+                #
+                # Sau rerun:
+                #
+                # 5.2 B1
+                # ↓
+                # 5.2 B2
+                # ↓
+                # active_calculated_df_bom
+                #
+                # ========================================================
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.session_state[
+                    "pipeline_auto_run_executed"
+                ] = False
+
+                st.error(
+                    "❌ Lỗi ĐOẠN 5.2C: "
+                    f"{str(e)}"
+                )
+
+                print(
+                    "[5.2C ERROR]",
+                    repr(e)
+                )
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
     # =====================================================================
