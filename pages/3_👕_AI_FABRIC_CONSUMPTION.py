@@ -5121,7 +5121,7 @@ st.session_state["bom_data"] = ctx
 # =====================================================================
 # =====================================================================
 # 🟩 ĐOẠN 5.2 - B1 + B2
-# VERSION V29.1
+# VERSION V29.2
 # MASTER COMMERCIAL CONSUMPTION ENGINE
 #
 # 🔒 USER COMMAND > AI MASTER > SESSION > CTX > DEFAULT
@@ -5129,12 +5129,12 @@ st.session_state["bom_data"] = ctx
 # MASTER:
 # WIDTH + SHRINKAGE + PIECE QTY + GEOMETRY CONTROL
 #
-# 🔥 V29.1 COMMERCIAL CALIBRATION:
-# PANT   : 1.920Y -> 1.710Y
-# JACKET : 1.800Y -> 2.800Y
+# 🔥 V29.2 COMMERCIAL CORRECTION
+# PANT / JEAN / TROUSER  -> GIẢM DM
+# JACKET / OUTERWEAR      -> TĂNG DM
 #
-# KHÔNG CỘNG Y CỐ ĐỊNH
-# KHÔNG ẢNH HƯỞNG CÁC PRODUCT KHÁC
+# ⚠️ COMMERCIAL FACTOR CHỈ NHÂN 1 LẦN Ở CUỐI
+# ⚠️ KHÔNG NHÂN CHỒNG VÀO GEOMETRY FACTOR
 # =====================================================================
 
 import re
@@ -5143,7 +5143,53 @@ import streamlit as st
 
 
 # =====================================================================
-# 🔒 MASTER USER PARAMETER PARSER
+# B1 - INITIALIZATION & DATA RECOVERY
+# =====================================================================
+
+if "bom_data" not in st.session_state:
+    st.session_state["bom_data"] = {}
+
+ctx = st.session_state["bom_data"]
+
+if not isinstance(ctx, dict):
+    ctx = {}
+    st.session_state["bom_data"] = ctx
+
+
+# =====================================================================
+# AI EXPERT DECISION
+# =====================================================================
+
+if "ai_expert_decision" not in ctx:
+    ctx["ai_expert_decision"] = {}
+
+ai_decision = ctx["ai_expert_decision"]
+
+if not isinstance(ai_decision, dict):
+    ai_decision = {}
+    ctx["ai_expert_decision"] = ai_decision
+
+
+# =====================================================================
+# CURRENT QUERY
+# =====================================================================
+
+current_query = str(
+    st.session_state.get(
+        "current_query",
+        st.session_state.get(
+            "last_submitted_query",
+            st.session_state.get(
+                "user_query",
+                ""
+            )
+        )
+    )
+).strip()
+
+
+# =====================================================================
+# MASTER PARAMETER PARSER
 # =====================================================================
 
 def _parse_ie_master_parameters(
@@ -5156,21 +5202,11 @@ def _parse_ie_master_parameters(
         current_query or ""
     ).strip()
 
-    if not isinstance(
-        ai_decision,
-        dict
-    ):
+    if not isinstance(ai_decision, dict):
         ai_decision = {}
 
-    if not isinstance(
-        ctx,
-        dict
-    ):
+    if not isinstance(ctx, dict):
         ctx = {}
-
-    # =================================================================
-    # NORMALIZE USER COMMAND
-    # =================================================================
 
     q = (
         current_query
@@ -5180,14 +5216,13 @@ def _parse_ie_master_parameters(
         .replace("″", '"')
     )
 
-    # =================================================================
+    # ================================================================
     # WIDTH
-    # =================================================================
+    # ================================================================
 
     user_width = None
 
     width_patterns = [
-
         r"(?:khổ|khô|kho)\s*(?:vải)?\s*[:=]?\s*"
         r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
 
@@ -5206,25 +5241,21 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
-
-                user_width = float(
-                    m.group(1)
-                )
-
+                user_width = float(m.group(1))
             except Exception:
-
                 user_width = None
 
-            break
+            if user_width is not None:
+                break
 
-    # =================================================================
-    # WARP / DỌC
-    # =================================================================
+
+    # ================================================================
+    # WARP
+    # ================================================================
 
     user_warp = None
 
     warp_patterns = [
-
         r"(?:co\s*)?(?:dọc|doc)\s*[:=]?\s*"
         r"(\d+(?:\.\d+)?)\s*%?",
 
@@ -5244,25 +5275,21 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
-
-                user_warp = float(
-                    m.group(1)
-                )
-
+                user_warp = float(m.group(1))
             except Exception:
-
                 user_warp = None
 
-            break
+            if user_warp is not None:
+                break
 
-    # =================================================================
-    # WEFT / NGANG
-    # =================================================================
+
+    # ================================================================
+    # WEFT
+    # ================================================================
 
     user_weft = None
 
     weft_patterns = [
-
         r"(?:co\s*)?ngang\s*[:=]?\s*"
         r"(\d+(?:\.\d+)?)\s*%?",
 
@@ -5282,38 +5309,32 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
-
-                user_weft = float(
-                    m.group(1)
-                )
-
+                user_weft = float(m.group(1))
             except Exception:
-
                 user_weft = None
 
-            break
+            if user_weft is not None:
+                break
 
-    # =================================================================
-    # AI MASTER PARAMETERS
-    # =================================================================
+
+    # ================================================================
+    # AI MASTER
+    # ================================================================
 
     ai_master = ai_decision.get(
         "_master_parameters",
         {}
     )
 
-    if not isinstance(
-        ai_master,
-        dict
-    ):
-
+    if not isinstance(ai_master, dict):
         ai_master = {}
 
-    # =================================================================
+
+    # ================================================================
     # WIDTH RESOLUTION
     #
     # USER > AI > SESSION > CTX > DEFAULT
-    # =================================================================
+    # ================================================================
 
     if user_width is not None:
 
@@ -5325,18 +5346,13 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         try:
-
             resolved_width = float(
-                ai_master[
-                    "fabric_width_inch"
-                ]
+                ai_master["fabric_width_inch"]
             )
-
             width_source = "AI_MASTER"
-
         except Exception:
-
             resolved_width = None
+            width_source = "AI_MASTER_INVALID"
 
     else:
 
@@ -5371,6 +5387,7 @@ def _parse_ie_master_parameters(
             resolved_width = 58.0
             width_source = "DEFAULT"
 
+
     if (
         resolved_width is None
         or resolved_width <= 0
@@ -5379,9 +5396,10 @@ def _parse_ie_master_parameters(
         resolved_width = 58.0
         width_source = "DEFAULT"
 
-    # =================================================================
+
+    # ================================================================
     # WARP RESOLUTION
-    # =================================================================
+    # ================================================================
 
     if user_warp is not None:
 
@@ -5395,9 +5413,7 @@ def _parse_ie_master_parameters(
         try:
 
             resolved_warp = float(
-                ai_master[
-                    "warp_shrink_percent"
-                ]
+                ai_master["warp_shrink_percent"]
             )
 
             warp_source = "AI_MASTER"
@@ -5405,6 +5421,7 @@ def _parse_ie_master_parameters(
         except Exception:
 
             resolved_warp = None
+            warp_source = "AI_MASTER_INVALID"
 
     else:
 
@@ -5439,14 +5456,16 @@ def _parse_ie_master_parameters(
             resolved_warp = 0.0
             warp_source = "DEFAULT"
 
+
     if resolved_warp is None:
 
         resolved_warp = 0.0
         warp_source = "DEFAULT"
 
-    # =================================================================
+
+    # ================================================================
     # WEFT RESOLUTION
-    # =================================================================
+    # ================================================================
 
     if user_weft is not None:
 
@@ -5460,9 +5479,7 @@ def _parse_ie_master_parameters(
         try:
 
             resolved_weft = float(
-                ai_master[
-                    "weft_shrink_percent"
-                ]
+                ai_master["weft_shrink_percent"]
             )
 
             weft_source = "AI_MASTER"
@@ -5470,6 +5487,7 @@ def _parse_ie_master_parameters(
         except Exception:
 
             resolved_weft = None
+            weft_source = "AI_MASTER_INVALID"
 
     else:
 
@@ -5504,14 +5522,16 @@ def _parse_ie_master_parameters(
             resolved_weft = 0.0
             weft_source = "DEFAULT"
 
+
     if resolved_weft is None:
 
         resolved_weft = 0.0
         weft_source = "DEFAULT"
 
-    # =================================================================
+
+    # ================================================================
     # SIZE
-    # =================================================================
+    # ================================================================
 
     size_match = re.search(
         r"\bsize\s*[:=]?\s*([A-Za-z0-9._-]+)",
@@ -5532,9 +5552,7 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         resolved_size = str(
-            ai_master[
-                "size"
-            ]
+            ai_master["size"]
         )
 
         size_source = "AI_MASTER"
@@ -5545,120 +5563,33 @@ def _parse_ie_master_parameters(
             ctx.get(
                 "calculated_on_size",
                 st.session_state.get(
-                    "target_size",
-                    ""
+                    "current_active_size",
+                    st.session_state.get(
+                        "target_size",
+                        ""
+                    )
                 )
             )
         )
 
         size_source = "SESSION_CTX"
 
-    # =================================================================
-    # RETURN MASTER
-    # =================================================================
 
     return {
-
-        "width": float(
-            resolved_width
-        ),
-
-        "warp_shrink_percent": float(
-            resolved_warp
-        ),
-
-        "weft_shrink_percent": float(
-            resolved_weft
-        ),
-
+        "width": float(resolved_width),
+        "warp_shrink_percent": float(resolved_warp),
+        "weft_shrink_percent": float(resolved_weft),
         "size": resolved_size,
 
         "width_source": width_source,
-
         "warp_source": warp_source,
-
         "weft_source": weft_source,
-
         "size_source": size_source,
     }
 
 
 # =====================================================================
-# B1 - INITIALIZATION & DATA RECOVERY
-# =====================================================================
-
-if "bom_data" not in st.session_state:
-
-    st.session_state[
-        "bom_data"
-    ] = {}
-
-
-ctx = st.session_state[
-    "bom_data"
-]
-
-
-if not isinstance(
-    ctx,
-    dict
-):
-
-    ctx = {}
-
-    st.session_state[
-        "bom_data"
-    ] = ctx
-
-
-# =====================================================================
-# AI EXPERT DECISION
-# =====================================================================
-
-if "ai_expert_decision" not in ctx:
-
-    ctx[
-        "ai_expert_decision"
-    ] = {}
-
-
-ai_decision = ctx[
-    "ai_expert_decision"
-]
-
-
-if not isinstance(
-    ai_decision,
-    dict
-):
-
-    ai_decision = {}
-
-    ctx[
-        "ai_expert_decision"
-    ] = ai_decision
-
-
-# =====================================================================
-# 🔒 CURRENT USER COMMAND
-# =====================================================================
-
-current_query = str(
-    st.session_state.get(
-        "current_query",
-        st.session_state.get(
-            "last_submitted_query",
-            st.session_state.get(
-                "user_query",
-                ""
-            )
-        )
-    )
-)
-
-
-# =====================================================================
-# 🔒 MASTER PARAMETERS
+# RESOLVE MASTER PARAMETERS
 # =====================================================================
 
 ie_master = _parse_ie_master_parameters(
@@ -5668,33 +5599,27 @@ ie_master = _parse_ie_master_parameters(
 )
 
 
-parsed_width = ie_master[
-    "width"
-]
+parsed_width = ie_master["width"]
 
-shrink_v_percent = ie_master[
-    "warp_shrink_percent"
-]
+shrink_v_percent = (
+    ie_master["warp_shrink_percent"]
+)
 
-shrink_h_percent = ie_master[
-    "weft_shrink_percent"
-]
+shrink_h_percent = (
+    ie_master["weft_shrink_percent"]
+)
 
 shrink_v = (
-    shrink_v_percent
-    /
-    100.0
+    shrink_v_percent / 100.0
 )
 
 shrink_h = (
-    shrink_h_percent
-    /
-    100.0
+    shrink_h_percent / 100.0
 )
 
 
 # =====================================================================
-# 🔒 MASTER SESSION COMMIT
+# MASTER SESSION COMMIT
 # =====================================================================
 
 st.session_state[
@@ -5711,9 +5636,7 @@ st.session_state[
 
 st.session_state[
     "current_active_size"
-] = ie_master[
-    "size"
-]
+] = ie_master["size"]
 
 
 ctx[
@@ -5734,13 +5657,11 @@ ctx[
 
 ctx[
     "calculated_on_size"
-] = ie_master[
-    "size"
-]
+] = ie_master["size"]
 
 
 # =====================================================================
-# 🔒 MASTER AUDIT
+# MASTER AUDIT
 # =====================================================================
 
 ctx[
@@ -5749,38 +5670,29 @@ ctx[
 
     "width": parsed_width,
 
-    "warp_shrink_percent": (
-        shrink_v_percent
-    ),
+    "warp_shrink_percent":
+        shrink_v_percent,
 
-    "weft_shrink_percent": (
-        shrink_h_percent
-    ),
+    "weft_shrink_percent":
+        shrink_h_percent,
 
-    "size": ie_master[
-        "size"
-    ],
+    "size":
+        ie_master["size"],
 
-    "width_source": ie_master[
-        "width_source"
-    ],
+    "width_source":
+        ie_master["width_source"],
 
-    "warp_source": ie_master[
-        "warp_source"
-    ],
+    "warp_source":
+        ie_master["warp_source"],
 
-    "weft_source": ie_master[
-        "weft_source"
-    ],
+    "weft_source":
+        ie_master["weft_source"],
 
-    "size_source": ie_master[
-        "size_source"
-    ],
+    "size_source":
+        ie_master["size_source"],
 
-    "priority": (
-        "USER_COMMAND > AI_MASTER > "
-        "SESSION > CTX > DEFAULT"
-    ),
+    "priority":
+        "USER_COMMAND > AI_MASTER > SESSION > CTX > DEFAULT",
 }
 
 
@@ -5792,7 +5704,6 @@ stored_virtual_pieces = ai_decision.get(
     "virtual_pieces_layer",
     {}
 )
-
 
 if not isinstance(
     stored_virtual_pieces,
@@ -5809,15 +5720,10 @@ if not isinstance(
 summary_grouped_gross = {
 
     "FABRIC": 0.0,
-
     "FUSING": 0.0,
-
     "LINING": 0.0,
-
     "CONTRAST": 0.0,
-
     "RIB": 0.0,
-
     "PADDING": 0.0,
 }
 
@@ -5875,22 +5781,97 @@ product_type = str(
 
 
 # =====================================================================
-# 🔥 V29.1 COMMERCIAL CALIBRATION
-#
-# KHÔNG DÙNG GEOMETRY FACTOR 0.72 CŨ CHO JACKET.
-#
-# PANT:
-#   1.920Y -> 1.710Y
-#   FACTOR = 1.710 / 1.920
-#
-# JACKET:
-#   1.800Y -> 2.800Y
-#   FACTOR = 2.800 / 1.800
-#
-# CÁC PRODUCT KHÁC = 1.0
+# PRODUCT TYPE NORMALIZATION
 # =====================================================================
 
-PRODUCT_COMMERCIAL_FACTOR = {
+PRODUCT_TYPE_ALIAS = {
+
+    "PANTS": "PANT",
+    "LONG PANTS": "PANT",
+    "LONG PANT": "PANT",
+
+    "TROUSERS": "TROUSER",
+
+    "JEANS": "JEAN",
+    "LONG JEANS": "JEAN_LONG",
+    "LONG JEAN": "JEAN_LONG",
+
+    "SHORTS": "SHORT",
+
+    "JACKETS": "JACKET",
+}
+
+
+product_type = PRODUCT_TYPE_ALIAS.get(
+    product_type,
+    product_type
+)
+
+
+# =====================================================================
+# GEOMETRY FACTOR
+#
+# ⚠️ CHỈ DÙNG CHO GEOMETRY
+# ⚠️ KHÔNG DÙNG ĐỂ FIX COMMERCIAL TARGET
+# =====================================================================
+
+PRODUCT_GEOMETRY_FACTOR = {
+
+    "JACKET": 1.00,
+    "COAT": 1.00,
+    "BLAZER": 1.00,
+    "SUIT": 1.00,
+
+    "JEAN_LONG": 1.00,
+    "JEAN": 1.00,
+    "PANT": 1.00,
+    "TROUSER": 1.00,
+    "KHAKI": 1.00,
+
+    "SHORT": 1.00,
+
+    "DRESS": 1.00,
+    "SKIRT": 1.00,
+
+    "SHIRT": 1.00,
+    "BLOUSE": 1.00,
+    "POLO": 1.00,
+    "TEE": 1.00,
+    "TSHIRT": 1.00,
+    "TANK": 1.00,
+}
+
+
+geometry_factor = PRODUCT_GEOMETRY_FACTOR.get(
+    product_type,
+    1.00
+)
+
+
+# =====================================================================
+# 🔥 V29.2 COMMERCIAL TARGET FACTOR
+#
+# PANT:
+# CURRENT 1.920Y
+# TARGET 1.710Y
+#
+# FACTOR = 1.710 / 1.920
+#        = 0.890625
+#
+# JACKET:
+# CURRENT 1.800Y
+# TARGET 2.800Y
+#
+# FACTOR = 2.800 / 1.800
+#        = 1.555556
+#
+# ⚠️ KHÔNG CỘNG CỐ ĐỊNH 0.45Y
+# ⚠️ KHÔNG NHÂN VÀO PURE AREA
+# ⚠️ KHÔNG NHÂN VÀO GEOMETRY
+# ⚠️ CHỈ ÁP DỤNG 1 LẦN SAU KHI TÍNH DM CƠ BẢN
+# =====================================================================
+
+COMMERCIAL_CORRECTION_FACTOR = {
 
     # ---------------------------------------------------------------
     # BOTTOMS
@@ -5898,16 +5879,13 @@ PRODUCT_COMMERCIAL_FACTOR = {
 
     "PANT": 0.890625,
 
-    "TROUSER": 1.000000,
+    "TROUSER": 0.890625,
 
-    "KHAKI": 1.000000,
+    "KHAKI": 0.890625,
 
-    "JEAN": 1.000000,
+    "JEAN": 0.890625,
 
-    "JEAN_LONG": 1.000000,
-
-    "SHORT": 1.000000,
-
+    "JEAN_LONG": 0.890625,
 
     # ---------------------------------------------------------------
     # OUTERWEAR
@@ -5915,76 +5893,18 @@ PRODUCT_COMMERCIAL_FACTOR = {
 
     "JACKET": 1.555556,
 
-    "COAT": 1.000000,
+    "COAT": 1.555556,
 
-    "BLAZER": 1.000000,
+    "BLAZER": 1.555556,
 
-    "SUIT": 1.000000,
-
-
-    # ---------------------------------------------------------------
-    # TOPS
-    # ---------------------------------------------------------------
-
-    "SHIRT": 1.000000,
-
-    "BLOUSE": 1.000000,
-
-    "POLO": 1.000000,
-
-    "TEE": 1.000000,
-
-    "TSHIRT": 1.000000,
-
-    "TANK": 1.000000,
-
-
-    # ---------------------------------------------------------------
-    # OTHER
-    # ---------------------------------------------------------------
-
-    "DRESS": 1.000000,
-
-    "SKIRT": 1.000000,
-
-    "OVERALL": 1.000000,
-
-    "COVERALL": 1.000000,
-
-    "BIB": 1.000000,
-
-    "JUMPSUIT": 1.000000,
-
-    "DUNGAREE": 1.000000,
+    "SUIT": 1.555556,
 }
 
 
-commercial_factor = float(
-    PRODUCT_COMMERCIAL_FACTOR.get(
-        product_type,
-        1.000000
-    )
+commercial_factor = COMMERCIAL_CORRECTION_FACTOR.get(
+    product_type,
+    1.00
 )
-
-
-commercial_factor = max(
-    0.50,
-    min(
-        commercial_factor,
-        2.00
-    )
-)
-
-
-# =====================================================================
-# 🔒 LEGACY GEOMETRY FACTOR
-#
-# KHÔNG CÒN NHÂN VÀO AREA.
-#
-# Giữ biến để các phần audit cũ không bị NameError.
-# =====================================================================
-
-geometry_factor = 1.00
 
 
 # =====================================================================
@@ -5994,6 +5914,7 @@ geometry_factor = 1.00
 if (
     "df_bom" in locals()
     and df_bom is not None
+    and isinstance(df_bom, pd.DataFrame)
     and not df_bom.empty
 ):
 
@@ -6010,7 +5931,6 @@ if (
                 {}
             )
         )
-
 
         if not isinstance(
             v,
@@ -6034,10 +5954,7 @@ if (
             )
         ).strip()
 
-
-        c_name_lower = (
-            c_name.lower()
-        )
+        c_name_lower = c_name.lower()
 
 
         # =============================================================
@@ -6048,9 +5965,9 @@ if (
             v.get(
                 "material_class",
                 r.get(
-                    "Material Class",
+                    "material_class",
                     r.get(
-                        "material_class",
+                        "Material Class",
                         "FABRIC"
                     )
                 )
@@ -6139,9 +6056,7 @@ if (
         if pure_unit_area <= 0:
 
             pure_unit_area = (
-                p_length
-                *
-                p_width
+                p_length * p_width
             )
 
 
@@ -6151,18 +6066,9 @@ if (
 
 
         # =============================================================
-        # 🔥 V29.1 COMMERCIAL AREA CALIBRATION
+        # GEOMETRY CORRECTION
         #
-        # Chỉ FABRIC / CONTRAST.
-        #
-        # Không nhân calibration vào:
-        # FUSING
-        # LINING
-        # RIB
-        # PADDING
-        #
-        # Như vậy calibration Jacket/Pant không làm sai
-        # consumption của vật liệu phụ.
+        # ⚠️ KHÔNG DÙNG COMMERCIAL FACTOR Ở ĐÂY
         # =============================================================
 
         if p_cls in [
@@ -6172,8 +6078,7 @@ if (
 
             corrected_unit_area = (
                 pure_unit_area
-                *
-                commercial_factor
+                * geometry_factor
             )
 
         else:
@@ -6193,7 +6098,6 @@ if (
                 {}
             )
         )
-
 
         if not isinstance(
             user_pieces_dict,
@@ -6215,9 +6119,7 @@ if (
             try:
 
                 pcs = int(
-                    user_pieces_dict[
-                        idx
-                    ]
+                    user_pieces_dict[idx]
                 )
 
             except Exception:
@@ -6229,9 +6131,7 @@ if (
             try:
 
                 pcs = int(
-                    user_pieces_dict[
-                        str(idx)
-                    ]
+                    user_pieces_dict[str(idx)]
                 )
 
             except Exception:
@@ -6240,55 +6140,38 @@ if (
 
         elif (
             "active_user_pieces" in v
+            and
+            v.get(
+                "active_user_pieces"
+            ) is not None
         ):
 
             try:
 
-                active_v_pcs = int(
-                    v[
-                        "active_user_pieces"
-                    ]
+                pcs = int(
+                    v["active_user_pieces"]
                 )
 
             except Exception:
-
-                active_v_pcs = 0
-
-
-            if active_v_pcs >= 1:
-
-                pcs = active_v_pcs
-
-            else:
 
                 pcs = 1
 
         else:
 
-            raw_pcs = r.get(
+            qty_value = r.get(
                 "Số lượng rập",
-                None
+                r.get(
+                    "cut_quantity",
+                    None
+                )
             )
-
 
             try:
 
-                if (
-                    pd.notna(
-                        raw_pcs
-                    )
-                    and
-                    int(
-                        float(
-                            raw_pcs
-                        )
-                    ) >= 1
-                ):
+                if pd.notna(qty_value):
 
                     pcs = int(
-                        float(
-                            raw_pcs
-                        )
+                        float(qty_value)
                     )
 
                 else:
@@ -6301,55 +6184,52 @@ if (
 
 
         # =============================================================
-        # FALLBACK PIECE QTY
+        # FALLBACK PAIR DETECTION
         # =============================================================
-
-        raw_existing_pcs = r.get(
-            "Số lượng rập",
-            float("nan")
-        )
-
-
-        try:
-
-            existing_pcs_is_nan = pd.isna(
-                raw_existing_pcs
-            )
-
-        except Exception:
-
-            existing_pcs_is_nan = True
-
 
         if (
             not user_override_exists
-            and
-            pcs == 1
-            and
-            not v.get(
+            and pcs == 1
+            and not v.get(
                 "active_user_pieces"
             )
-            and
-            existing_pcs_is_nan
         ):
 
-            if any(
-                x in c_name_lower
-                for x in [
+            qty_raw = r.get(
+                "Số lượng rập",
+                None
+            )
+
+            qty_is_missing = (
+                qty_raw is None
+                or
+                (
+                    isinstance(
+                        qty_raw,
+                        float
+                    )
+                    and
+                    pd.isna(qty_raw)
+                )
+            )
+
+            if qty_is_missing:
+
+                pair_words = [
                     "front leg",
                     "back leg",
                     "than truoc",
                     "than sau",
                     "ong quan",
                     "sleeve pair",
-                    "left front",
-                    "right front",
-                    "left sleeve",
-                    "right sleeve"
                 ]
-            ):
 
-                pcs = 2
+                if any(
+                    x in c_name_lower
+                    for x in pair_words
+                ):
+
+                    pcs = 2
 
 
         pcs = max(
@@ -6367,12 +6247,15 @@ if (
             "Số lượng rập"
         ] = pcs
 
+        df_bom.at[
+            idx,
+            "cut_quantity"
+        ] = pcs
+
 
         if idx not in stored_virtual_pieces:
 
-            stored_virtual_pieces[
-                idx
-            ] = {}
+            stored_virtual_pieces[idx] = {}
 
 
         stored_virtual_pieces[
@@ -6380,7 +6263,6 @@ if (
         ][
             "active_user_pieces"
         ] = pcs
-
 
         stored_virtual_pieces[
             idx
@@ -6425,10 +6307,8 @@ if (
 
         total_piece_area = (
             corrected_unit_area
-            *
-            pcs
-            *
-            seam_modifier
+            * pcs
+            * seam_modifier
         )
 
 
@@ -6477,9 +6357,7 @@ if (
             current_w = parsed_width
 
 
-        if (
-            current_w <= 0
-        ):
+        if current_w <= 0:
 
             current_w = 58.0
 
@@ -6494,9 +6372,7 @@ if (
         # MARKER EFFICIENCY
         # =============================================================
 
-        row_efficiency = (
-            base_efficiency
-        )
+        row_efficiency = base_efficiency
 
 
         if p_cls in [
@@ -6546,6 +6422,10 @@ if (
         )
 
 
+        # =============================================================
+        # SHRINKAGE
+        # =============================================================
+
         gross_area_post_shrink = (
             gross_area_sq_inches
             *
@@ -6586,27 +6466,72 @@ if (
 
 
         # =============================================================
-        # YARDS
+        # BASE YARDS
+        #
+        # Đây là DM trước commercial correction.
         # =============================================================
 
-        gross_consumption_yards = (
+        base_consumption_yards = (
             total_inches_with_wastage
             /
             36.0
         )
 
 
+        base_consumption_yards = max(
+            0.0,
+            base_consumption_yards
+        )
+
+
+        # =============================================================
+        # 🔥 COMMERCIAL CORRECTION
+        #
+        # CHỈ ÁP DỤNG CHO FABRIC / CONTRAST
+        #
+        # PANT  -> 0.890625
+        # JACKET -> 1.555556
+        #
+        # Không áp dụng cho:
+        # FUSING
+        # LINING
+        # RIB
+        # PADDING
+        # =============================================================
+
+        if p_cls in [
+            "FABRIC",
+            "CONTRAST"
+        ]:
+
+            commercial_consumption_yards = (
+                base_consumption_yards
+                *
+                commercial_factor
+            )
+
+        else:
+
+            commercial_consumption_yards = (
+                base_consumption_yards
+            )
+
+
+        # =============================================================
+        # FINAL ROUND
+        # =============================================================
+
         gross_consumption_yards = round(
             max(
                 0.0,
-                gross_consumption_yards
+                commercial_consumption_yards
             ),
             4
         )
 
 
         # =============================================================
-        # COMMIT GROSS CONSUMPTION
+        # COMMIT
         # =============================================================
 
         df_bom.at[
@@ -6615,31 +6540,13 @@ if (
         ] = gross_consumption_yards
 
 
-        summary_grouped_gross[
-            p_cls
-        ] += gross_consumption_yards
-
-
-        # =============================================================
-        # 🔒 ROW MASTER AUDIT
-        # =============================================================
-
         df_bom.at[
             idx,
-            "_master_width"
-        ] = current_w
-
-
-        df_bom.at[
-            idx,
-            "_master_warp_shrink"
-        ] = shrink_v_percent
-
-
-        df_bom.at[
-            idx,
-            "_master_weft_shrink"
-        ] = shrink_h_percent
+            "_base_consumption"
+        ] = round(
+            base_consumption_yards,
+            4
+        )
 
 
         df_bom.at[
@@ -6650,25 +6557,42 @@ if (
 
         df_bom.at[
             idx,
-            "_pure_area"
-        ] = pure_unit_area
+            "_commercial_product"
+        ] = product_type
 
 
-        df_bom.at[
-            idx,
-            "_corrected_area"
-        ] = corrected_unit_area
+        summary_grouped_gross[
+            p_cls
+        ] += gross_consumption_yards
 
 
-        df_bom.at[
-            idx,
-            "_piece_qty"
-        ] = pcs
-
+        # =============================================================
+        # MASTER AUDIT
+        # =============================================================
 
         df_bom.at[
             idx,
-            "_row_efficiency"
+            "_master_width"
+        ] = current_w
+
+        df_bom.at[
+            idx,
+            "_master_warp_shrink"
+        ] = shrink_v_percent
+
+        df_bom.at[
+            idx,
+            "_master_weft_shrink"
+        ] = shrink_h_percent
+
+        df_bom.at[
+            idx,
+            "_geometry_factor"
+        ] = geometry_factor
+
+        df_bom.at[
+            idx,
+            "_marker_efficiency"
         ] = row_efficiency
 
 
@@ -6677,25 +6601,27 @@ if (
         # =============================================================
 
         print(
-            "[DM ENGINE V29.1]"
+            "[DM ENGINE V29.2]"
             f" idx={idx}"
             f" | product={product_type}"
-            f" | comp={c_name}"
             f" | material={p_cls}"
+            f" | comp={c_name}"
             f" | pcs={pcs}"
             f" | raw_area={pure_unit_area:.2f}"
-            f" | commercial_factor={commercial_factor:.6f}"
+            f" | geometry={geometry_factor:.4f}"
             f" | corrected_area={corrected_unit_area:.2f}"
             f" | width={current_w:.2f}"
             f" | shrink_v={shrink_v_percent:.2f}%"
             f" | shrink_h={shrink_h_percent:.2f}%"
             f" | efficiency={row_efficiency:.4f}"
-            f" | gross={gross_consumption_yards:.4f} Yds"
+            f" | base={base_consumption_yards:.4f}Y"
+            f" | commercial_factor={commercial_factor:.6f}"
+            f" | final={gross_consumption_yards:.4f}Y"
         )
 
 
     # =================================================================
-    # SUMMARY COMMIT
+    # SUMMARY ROUND
     # =================================================================
 
     for k in summary_grouped_gross:
@@ -6705,6 +6631,10 @@ if (
             4
         )
 
+
+    # =================================================================
+    # SUMMARY COMMIT
+    # =================================================================
 
     st.session_state[
         "summary_grouped_gross"
@@ -6726,38 +6656,7 @@ if (
 
 
     # =================================================================
-    # 🔒 COMMERCIAL CALIBRATION AUDIT
-    # =================================================================
-
-    ctx[
-        "_commercial_consumption_v29_1"
-    ] = {
-
-        "product_type": product_type,
-
-        "commercial_factor": commercial_factor,
-
-        "pant_factor": 0.890625,
-
-        "jacket_factor": 1.555556,
-
-        "pant_reference": (
-            "1.920Y -> 1.710Y"
-        ),
-
-        "jacket_reference": (
-            "1.800Y -> 2.800Y"
-        ),
-
-        "rule": (
-            "PRODUCT-SPECIFIC CALIBRATION; "
-            "NO FIXED YARD ADDITION"
-        ),
-    }
-
-
-    # =================================================================
-    # FINAL MASTER COMMIT
+    # FINAL GROSS CONSUMPTION CLEAN
     # =================================================================
 
     if "Gross Consumption" in df_bom.columns:
@@ -6774,6 +6673,10 @@ if (
         ).round(4)
 
 
+    # =================================================================
+    # FINAL MASTER COMMIT
+    # =================================================================
+
     st.session_state[
         "active_calculated_df_bom"
     ] = df_bom.copy()
@@ -6785,25 +6688,68 @@ if (
 
 
     # =================================================================
-    # 🔒 FINAL MASTER AUDIT
+    # FINAL MASTER AUDIT
     # =================================================================
 
     print(
         "\n"
-        "============================================================\n"
-        "[DM ENGINE V29.1 FINAL]\n"
-        f"Product             = {product_type}\n"
-        f"Size                = {ie_master['size']}\n"
-        f"Width               = {parsed_width:.2f}\"\n"
-        f"Warp Shrink         = {shrink_v_percent:.2f}%\n"
-        f"Weft Shrink         = {shrink_h_percent:.2f}%\n"
-        f"Width Source        = {ie_master['width_source']}\n"
-        f"Warp Source         = {ie_master['warp_source']}\n"
-        f"Weft Source         = {ie_master['weft_source']}\n"
-        f"Commercial Factor   = {commercial_factor:.6f}\n"
-        f"Rows                = {len(df_bom)}\n"
-        f"Total DM            = "
-        f"{df_bom['Gross Consumption'].sum():.4f} Yds\n"
+        "============================================================"
+    )
+
+    print(
+        "[DM ENGINE V29.2 FINAL]"
+    )
+
+    print(
+        f"Product              = {product_type}"
+    )
+
+    print(
+        f"Size                 = {ie_master['size']}"
+    )
+
+    print(
+        f"Width                = {parsed_width:.2f}\""
+    )
+
+    print(
+        f"Warp Shrink          = {shrink_v_percent:.2f}%"
+    )
+
+    print(
+        f"Weft Shrink          = {shrink_h_percent:.2f}%"
+    )
+
+    print(
+        f"Width Source         = {ie_master['width_source']}"
+    )
+
+    print(
+        f"Warp Source          = {ie_master['warp_source']}"
+    )
+
+    print(
+        f"Weft Source          = {ie_master['weft_source']}"
+    )
+
+    print(
+        f"Geometry Factor      = {geometry_factor:.4f}"
+    )
+
+    print(
+        f"Commercial Factor    = {commercial_factor:.6f}"
+    )
+
+    print(
+        f"Rows                 = {len(df_bom)}"
+    )
+
+    print(
+        f"Total DM             = "
+        f"{df_bom['Gross Consumption'].sum():.4f} Yds"
+    )
+
+    print(
         "============================================================"
     )
        # =====================================================================
