@@ -2292,19 +2292,36 @@ if safe_user_prompt:
 
 
     # =====================================================================
-    # 🟩 ĐOẠN 2 - VERSION V28.8
+    # 🟩 ĐOẠN 2 - VERSION V28.9
     # MASTER AI SCAN + PRODUCT TYPE + WIDTH/SHRINK + MATERIAL LOCK
     # =====================================================================
 
-    if st.session_state.ai_processing:
+    if st.session_state.get("ai_processing", False):
 
         import re
         import pandas as pd
         import streamlit as st
 
+        # =================================================================
+        # 1. CURRENT QUERY - MASTER USER COMMAND
+        # =================================================================
+
         current_query = str(
-            st.session_state.get("last_submitted_query", "")
+            st.session_state.get(
+                "current_query",
+                st.session_state.get(
+                    "last_submitted_query",
+                    st.session_state.get(
+                        "user_query",
+                        ""
+                    )
+                )
+            )
         ).strip()
+
+        # =================================================================
+        # 2. ACTIVE PDF RECOVERY
+        # =================================================================
 
         active_pdf = (
             st.session_state.get("pdf_bytes")
@@ -2314,8 +2331,7 @@ if safe_user_prompt:
         )
 
         # =================================================================
-        # 1. MASTER PARAMETER PARSER
-        #    ƯU TIÊN TUYỆT ĐỐI GIÁ TRỊ TỪ CHAT
+        # 3. MASTER PARAMETER INITIALIZATION
         # =================================================================
 
         dynamic_width = 58.0
@@ -2323,27 +2339,46 @@ if safe_user_prompt:
         warp_shrinkage = 0.0
         weft_shrinkage = 0.0
 
-        query_clean = " ".join(
-            str(current_query).lower().split()
+        query_clean = (
+            str(current_query)
+            .replace(",", ".")
+            .replace("％", "%")
+            .replace("”", '"')
+            .replace("″", '"')
+            .lower()
         )
 
-        # -------------------------------------------------------------
-        # KHỔ VẢI
-        # Hỗ trợ:
-        # khổ 58
-        # khổ vải 58
-        # khổ = 58
-        # width 58
-        # -------------------------------------------------------------
+        query_clean = " ".join(
+            query_clean.split()
+        )
+
+        # =================================================================
+        # 4. WIDTH PARSER
+        # =================================================================
 
         width_patterns = [
-            r"\bkhổ\s*vải\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bkhổ\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bwidth\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bfabric\s*width\s*[:=]?\s*(\d+(?:\.\d+)?)",
+
+            r"\bkhổ\s*vải\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            r"\bkhổ\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            r"\bkhô\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            r"\bkho\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            r"\bfabric\s*width\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            r"\bwidth\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
         ]
 
         for pattern in width_patterns:
+
             w_match = re.search(
                 pattern,
                 query_clean,
@@ -2351,24 +2386,42 @@ if safe_user_prompt:
             )
 
             if w_match:
-                try:
-                    parsed_width = float(w_match.group(1))
 
-                    # Chỉ nhận khổ vải hợp lý
-                    if 20.0 <= parsed_width <= 100.0:
-                        dynamic_width = parsed_width
+                try:
+
+                    parsed_width = float(
+                        w_match.group(1)
+                    )
+
+                    if (
+                        20.0
+                        <= parsed_width
+                        <= 100.0
+                    ):
+
+                        dynamic_width = (
+                            parsed_width
+                        )
+
                         break
 
                 except Exception:
                     pass
 
-        # -------------------------------------------------------------
-        # SIZE
-        # -------------------------------------------------------------
+        # =================================================================
+        # 5. SIZE PARSER
+        # =================================================================
 
         size_patterns = [
-            r"\bsize\s*[:=]?\s*([a-zA-Z0-9]+)",
-            r"\bcỡ\s*[:=]?\s*([a-zA-Z0-9]+)",
+
+            r"\bsize\s*[:=]?\s*"
+            r"([a-zA-Z0-9._-]+)",
+
+            r"\bcỡ\s*[:=]?\s*"
+            r"([a-zA-Z0-9._-]+)",
+
+            r"\bco\s*size\s*[:=]?\s*"
+            r"([a-zA-Z0-9._-]+)",
         ]
 
         for pattern in size_patterns:
@@ -2380,6 +2433,7 @@ if safe_user_prompt:
             )
 
             if s_match:
+
                 target_size = str(
                     s_match.group(1)
                 ).upper().strip()
@@ -2387,15 +2441,26 @@ if safe_user_prompt:
                 if target_size:
                     break
 
-        # -------------------------------------------------------------
-        # CO DỌC
-        # -------------------------------------------------------------
+        # =================================================================
+        # 6. WARP SHRINKAGE
+        # =================================================================
 
         warp_patterns = [
-            r"\bco\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bco\s*rút\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bđộ\s*co\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bwarp\s*shrinkage\s*[:=]?\s*(\d+(?:\.\d+)?)",
+
+            r"\bco\s*dọc\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bco\s*rút\s*dọc\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bđộ\s*co\s*dọc\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bwarp\s*shrinkage\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bwarp\s*shrink\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
         ]
 
         for pattern in warp_patterns:
@@ -2407,25 +2472,48 @@ if safe_user_prompt:
             )
 
             if m:
-                try:
-                    value = float(m.group(1))
 
-                    if 0.0 <= value <= 15.0:
-                        warp_shrinkage = value
+                try:
+
+                    value = float(
+                        m.group(1)
+                    )
+
+                    if (
+                        0.0
+                        <= value
+                        <= 15.0
+                    ):
+
+                        warp_shrinkage = (
+                            value
+                        )
+
                         break
 
                 except Exception:
                     pass
 
-        # -------------------------------------------------------------
-        # CO NGANG
-        # -------------------------------------------------------------
+        # =================================================================
+        # 7. WEFT SHRINKAGE
+        # =================================================================
 
         weft_patterns = [
-            r"\bco\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bco\s*rút\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bđộ\s*co\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            r"\bweft\s*shrinkage\s*[:=]?\s*(\d+(?:\.\d+)?)",
+
+            r"\bco\s*ngang\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bco\s*rút\s*ngang\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bđộ\s*co\s*ngang\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bweft\s*shrinkage\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
+
+            r"\bweft\s*shrink\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)\s*%?",
         ]
 
         for pattern in weft_patterns:
@@ -2437,45 +2525,71 @@ if safe_user_prompt:
             )
 
             if m:
-                try:
-                    value = float(m.group(1))
 
-                    if 0.0 <= value <= 15.0:
-                        weft_shrinkage = value
+                try:
+
+                    value = float(
+                        m.group(1)
+                    )
+
+                    if (
+                        0.0
+                        <= value
+                        <= 15.0
+                    ):
+
+                        weft_shrinkage = (
+                            value
+                        )
+
                         break
 
                 except Exception:
                     pass
 
         # =================================================================
-        # 2. GHI MASTER PARAMETERS NGAY LẬP TỨC VÀO SESSION
+        # 8. MASTER SESSION COMMIT
         # =================================================================
 
-        st.session_state["current_active_width"] = float(dynamic_width)
-        st.session_state["current_active_size"] = str(target_size)
+        st.session_state[
+            "current_active_width"
+        ] = float(
+            dynamic_width
+        )
 
-        st.session_state["current_warp_shrinkage"] = float(
+        st.session_state[
+            "current_active_size"
+        ] = str(
+            target_size
+        )
+
+        st.session_state[
+            "current_warp_shrinkage"
+        ] = float(
             warp_shrinkage
         )
 
-        st.session_state["current_weft_shrinkage"] = float(
+        st.session_state[
+            "current_weft_shrinkage"
+        ] = float(
             weft_shrinkage
         )
 
         # =================================================================
-        # 3. DEBUG / XÁC NHẬN THAM SỐ CHAT
+        # 9. DEBUG
         # =================================================================
 
-        st.info(
-            f"⚙️ IE Engine đã nhận và đồng bộ:\n\n"
-            f"**Size = {target_size} | "
-            f"Khổ = {dynamic_width:.0f}\" | "
-            f"Co dọc = {warp_shrinkage:g}% | "
-            f"Co ngang = {weft_shrinkage:g}%**"
+        print(
+            "[ĐOẠN 2 MASTER]"
+            f" Query={current_query}"
+            f" | Size={target_size}"
+            f" | Width={dynamic_width}\""
+            f" | Warp={warp_shrinkage}%"
+            f" | Weft={weft_shrinkage}%"
         )
 
         # =================================================================
-        # 4. CHỈ TIẾP TỤC KHI CÓ PDF
+        # 10. ONLY CONTINUE WHEN PDF EXISTS
         # =================================================================
 
         if active_pdf is not None:
@@ -2487,7 +2601,7 @@ if safe_user_prompt:
                 try:
 
                     # =====================================================
-                    # 5. JSON SCHEMA
+                    # 11. JSON SCHEMA
                     # =====================================================
 
                     raw_json_schema = {
@@ -2642,7 +2756,6 @@ if safe_user_prompt:
                                                 "grain_alignment": {
                                                     "type": "STRING"
                                                 }
-
                                             },
 
                                             "required": [
@@ -2693,7 +2806,6 @@ if safe_user_prompt:
                                                 "crotch_projection_ratio": {
                                                     "type": "NUMBER"
                                                 }
-
                                             }
                                         }
                                     },
@@ -2724,7 +2836,7 @@ if safe_user_prompt:
                     }
 
                     # =====================================================
-                    # 6. MASTER PRODUCT TYPE + MATERIAL PROMPT
+                    # 12. AI MASTER PROMPT
                     # =====================================================
 
                     prompt_agent_2 = f"""
@@ -2749,109 +2861,61 @@ USER WEFT SHRINKAGE:
 
 
 =========================================================
-🚨 SECTION A - PRODUCT TYPE IDENTIFICATION
+SECTION A - PRODUCT TYPE
 =========================================================
 
 Identify the ACTUAL garment product from the PDF.
 
-Allowed product types:
+Allowed:
 
-- JEAN_LONG
-- PANT_LONG
-- SHORT
-- JACKET
-- SHIRT
-- TSHIRT
-- POLO
-- DRESS
-- SKIRT
-- HOODIE
-- OTHER
-
-
-CRITICAL:
-
-Do NOT automatically classify every bottom garment as JEAN_LONG.
-
-If the document shows:
-
-- shorts
-- short pants
-- above-knee length
-- short inseam
-- shorts silhouette
-
-then classify:
-
+JEAN_LONG
+PANT_LONG
 SHORT
-
-
-If the document shows:
-
-- long trouser
-- long pants
-- jeans
-- denim jeans
-- full length leg
-
-then classify:
-
-JEAN_LONG or PANT_LONG according to evidence.
-
-
-If the document clearly shows:
-
-- jacket
-- outerwear
-- coat
-- jacket body
-- sleeve
-- collar
-- cuff
-- front opening
-
-then classify:
-
 JACKET
-
-
-If the document clearly shows a shirt silhouette,
-classify:
-
 SHIRT
+TSHIRT
+POLO
+DRESS
+SKIRT
+HOODIE
+OTHER
 
+Do NOT automatically classify every bottom as JEAN_LONG.
 
-NEVER use JEAN_LONG as a generic fallback.
+SHORT only when evidence shows shorts or short pants.
+
+JEAN_LONG / PANT_LONG only for long pants,
+jeans or full-length trousers.
+
+JACKET when the PDF clearly shows jacket/outerwear
+construction.
 
 
 =========================================================
-🚨 SECTION B - ACCESSORY EXCLUSION
+SECTION B - ACCESSORY EXCLUSION
 =========================================================
 
 NEVER create BOM pieces for:
 
-- BUTTON
-- ZIPPER
-- SLIDER
-- RIVET
-- THREAD
-- LABEL
-- CARE LABEL
-- SIZE LABEL
-- HANGTAG
-- POLYBAG
-- METAL ACCESSORY
-- PLASTIC ACCESSORY
-- DRAW CORD
-- CORD END
-- HARDWARE
-
-
-These are NOT pattern pieces.
+BUTTON
+ZIPPER
+SLIDER
+RIVET
+THREAD
+LABEL
+CARE LABEL
+SIZE LABEL
+HANGTAG
+POLYBAG
+HARDWARE
+PLASTIC ACCESSORY
+METAL ACCESSORY
+DRAW CORD
+CORD END
 
 
 =========================================================
-🚨 SECTION C - MATERIAL CLASS MASTER RULE
+SECTION C - MATERIAL CLASS
 =========================================================
 
 Allowed:
@@ -2864,174 +2928,103 @@ CONTRAST
 PADDING
 
 
----------------------------------------------------------
-🔴 ABSOLUTE RIB RULE
----------------------------------------------------------
+=========================================================
+ABSOLUTE RIB RULE
+=========================================================
 
-RIB is NOT allowed simply because a component is:
+RIB is allowed ONLY when explicit evidence exists.
 
-- collar
-- cuff
-- waistband
-- facing
-- binding
-- pocket
-- sleeve
-- shoulder
-- neck
+Examples:
 
-A normal FABRIC collar is FABRIC.
+RIB
+RIB KNIT
+RIB FABRIC
+RIB COLLAR
+RIB CUFF
+RIB WAISTBAND
+BO GÂN
+BO RIB
+KNIT RIB
 
-A normal FABRIC cuff is FABRIC.
+A normal collar is FABRIC.
 
-A normal FABRIC waistband is FABRIC.
+A normal cuff is FABRIC.
 
-A normal FABRIC shoulder is FABRIC.
+A normal waistband is FABRIC.
 
-A normal FABRIC facing is FABRIC.
+A normal shoulder is FABRIC.
 
+A normal facing is FABRIC.
 
-Only classify as RIB when the Techpack/PDF
-contains explicit evidence such as:
-
-- RIB
-- RIB KNIT
-- RIB FABRIC
-- RIB COLLAR
-- RIB CUFF
-- RIB WAISTBAND
-- BO GÂN
-- BO RIB
-- KNIT RIB
-
-
-If there is NO explicit RIB evidence:
-
-material_class MUST NOT be RIB.
-
-
-For example:
-
-JACKET shoulder
-→ FABRIC
-
-JACKET collar
-→ FABRIC
-
-JACKET cuff
-→ FABRIC
-
-JACKET facing
-→ FABRIC
-
-JACKET body
-→ FABRIC
+Do NOT invent RIB.
 
 
 =========================================================
-🚨 SECTION D - LINING RULE
+LINING RULE
 =========================================================
 
-LINING only when supported by Techpack evidence:
+LINING only when explicitly supported by the Techpack.
 
-- LINING
-- BODY LINING
-- SLEEVE LINING
-- POCKET BAG
-- POCKET LINING
-- LINING PANEL
+Examples:
 
-Do not convert normal shell fabric into LINING.
-
-
-=========================================================
-🚨 SECTION E - FUSING RULE
-=========================================================
-
-FUSING only when explicitly supported by:
-
-- FUSING
-- INTERLINING
-- MEX
-- DỰNG
-- KE0
-- KE0 DỰNG
-- FUSING INTERFACING
-- INTERFACING
-
-
-Do not create FUSING simply because a collar,
-cuff or facing exists.
+LINING
+BODY LINING
+SLEEVE LINING
+POCKET BAG
+POCKET LINING
+LINING PANEL
 
 
 =========================================================
-🚨 SECTION F - SINGLE PIECE GEOMETRY
+FUSING RULE
 =========================================================
 
-bounding_box_width MUST represent:
+FUSING only when explicitly supported.
 
-ONE SINGLE physical pattern piece.
+Examples:
+
+FUSING
+INTERLINING
+INTERFACING
+MEX
+DỰNG
+KEO
+
+
+=========================================================
+SINGLE PIECE GEOMETRY
+=========================================================
+
+bounding_box_width MUST represent ONE SINGLE
+physical pattern piece.
 
 NEVER combine left and right pieces.
 
 NEVER output double-width for paired panels.
 
-For example:
 
-LEFT FRONT + RIGHT FRONT
+=========================================================
+CUT QUANTITY
+=========================================================
 
-must NOT become one 25-30 inch piece.
+cut_quantity MUST represent actual physical quantity.
 
-Each physical pattern piece gets its own geometry.
+1 physical piece = 1
+
+left + right pair = 2
+
+front pair = 2
+
+sleeve pair = 2
+
+Do NOT multiply again because mirror_piece is true.
 
 
 =========================================================
-🚨 SECTION G - CUT QUANTITY
+JACKET FABRIC RULE
 =========================================================
 
-cut_quantity MUST represent actual physical
-pattern pieces required.
-
-Examples:
-
-1 physical piece
-→ 1
-
-left + right pair
-→ 2
-
-front pair
-→ 2
-
-sleeve pair
-→ 2
-
-If Techpack explicitly states CUT 4
-→ 4
-
-
-Do NOT multiply cut_quantity again merely because
-mirror_piece = true.
-
-
-=========================================================
-🚨 SECTION H - FABRIC PIECES
-=========================================================
-
-All normal shell/body pattern pieces must be:
-
-FABRIC
-
-unless the Techpack explicitly proves they are:
-
-LINING
-FUSING
-RIB
-CONTRAST
-PADDING
-
-
-Especially for JACKET:
+For JACKET:
 
 FRONT BODY
 BACK BODY
@@ -3044,12 +3037,12 @@ POCKET
 POCKET FLAP
 HOOD
 
-must remain FABRIC unless the PDF explicitly
-identifies another material.
+remain FABRIC unless Techpack explicitly proves
+another material.
 
 
 =========================================================
-🚨 SECTION I - GEOMETRY
+GEOMETRY
 =========================================================
 
 Extract:
@@ -3064,33 +3057,31 @@ rotation_allowed
 edge_curvature
 shape_complexity
 
-
-Never output zero dimensions for a valid pattern.
+Never output zero dimensions for valid pattern pieces.
 
 
 =========================================================
-🚨 SECTION J - VALIDATION
+FINAL VALIDATION
 =========================================================
 
 Before returning JSON:
 
-1. Confirm product type from actual PDF evidence.
-2. Confirm material class from actual PDF evidence.
+1. Confirm product type from PDF.
+2. Confirm material class from PDF.
 3. Confirm RIB has explicit evidence.
-4. Confirm cut_quantity is physical quantity.
-5. Confirm each width belongs to ONE physical piece.
-6. Exclude all accessories.
+4. Confirm cut_quantity.
+5. Confirm width is for ONE physical piece.
+6. Exclude accessories.
 7. Do not invent RIB.
 8. Do not invent LINING.
 9. Do not invent FUSING.
 10. Do not default product type to JEAN_LONG.
 
-
 Return ONLY valid BOM pattern pieces.
 """
 
                     # =====================================================
-                    # 7. GỌI AI ENGINE
+                    # 13. EXECUTE AI ENGINE
                     # =====================================================
 
                     bom_data = execute_final_gerber_pure_scan(
@@ -3109,39 +3100,71 @@ Return ONLY valid BOM pattern pieces.
                     )
 
                     # =====================================================
-                    # 8. MASTER POST-PROCESSING
-                    #    KHÓA RIB / MATERIAL CLASS
+                    # 14. VALIDATE AI RESULT
                     # =====================================================
 
-                    if bom_data and isinstance(bom_data, dict):
+                    if (
+                        bom_data
+                        and isinstance(
+                            bom_data,
+                            dict
+                        )
+                    ):
 
-                        bom_data["fabric_width_inch"] = float(
+                        if not isinstance(
+                            bom_data.get(
+                                "bom_rows"
+                            ),
+                            list
+                        ):
+
+                            bom_data[
+                                "bom_rows"
+                            ] = []
+
+                        # =================================================
+                        # MASTER PARAMETERS
+                        # =================================================
+
+                        bom_data[
+                            "fabric_width_inch"
+                        ] = float(
                             dynamic_width
                         )
 
-                        bom_data["usable_width_inch"] = float(
+                        bom_data[
+                            "usable_width_inch"
+                        ] = float(
                             dynamic_width
                         )
 
-                        bom_data["warp_shrinkage_percent"] = float(
+                        bom_data[
+                            "warp_shrinkage_percent"
+                        ] = float(
                             warp_shrinkage
                         )
 
-                        bom_data["weft_shrinkage_percent"] = float(
+                        bom_data[
+                            "weft_shrinkage_percent"
+                        ] = float(
                             weft_shrinkage
                         )
 
-                        bom_data["calculated_on_size"] = str(
+                        bom_data[
+                            "calculated_on_size"
+                        ] = str(
                             target_size
                         )
 
-                        bom_data["detected_base_size"] = str(
+                        bom_data[
+                            "detected_base_size"
+                        ] = str(
                             target_size
                         )
 
-                        # -------------------------------------------------
-                        # Lấy raw text nếu có để kiểm chứng RIB
-                        # -------------------------------------------------
+                        # =================================================
+                        # 15. READ PDF TEXT FOR MATERIAL VALIDATION
+                        # =================================================
 
                         raw_pdf_text_for_validation = ""
 
@@ -3151,7 +3174,10 @@ Return ONLY valid BOM pattern pieces.
 
                             pdf_check = (
                                 active_pdf.getvalue()
-                                if hasattr(active_pdf, "getvalue")
+                                if hasattr(
+                                    active_pdf,
+                                    "getvalue"
+                                )
                                 else active_pdf
                             )
 
@@ -3164,18 +3190,26 @@ Return ONLY valid BOM pattern pieces.
 
                                     raw_pdf_text_for_validation += (
                                         " "
-                                        + pg.get_text("text")
+                                        + pg.get_text(
+                                            "text"
+                                        )
                                     ).lower()
 
-                        except Exception:
+                        except Exception as pdf_error:
+
+                            print(
+                                "[ĐOẠN 2 PDF TEXT WARNING]",
+                                pdf_error
+                            )
 
                             raw_pdf_text_for_validation = ""
 
-                        # -------------------------------------------------
-                        # TỪ KHÓA RIB THẬT SỰ
-                        # -------------------------------------------------
+                        # =================================================
+                        # 16. REAL RIB KEYWORDS
+                        # =================================================
 
                         explicit_rib_keywords = [
+
                             "rib knit",
                             "rib fabric",
                             "rib collar",
@@ -3183,25 +3217,68 @@ Return ONLY valid BOM pattern pieces.
                             "rib waistband",
                             "rib",
                             "bo gân",
-                            "bo rib",
-                            "bo gan"
+                            "bo gan",
+                            "bo rib"
                         ]
 
                         pdf_has_real_rib = any(
-                            keyword in raw_pdf_text_for_validation
-                            for keyword in explicit_rib_keywords
+                            keyword
+                            in raw_pdf_text_for_validation
+                            for keyword
+                            in explicit_rib_keywords
                         )
 
-                        # -------------------------------------------------
-                        # MASTER MATERIAL LOCK
-                        # -------------------------------------------------
+                        # =================================================
+                        # 17. MATERIAL LOCK
+                        # =================================================
 
-                        for row in bom_data.get(
-                            "bom_rows",
-                            []
-                        ):
+                        accessory_words = [
 
-                            if not isinstance(row, dict):
+                            "BUTTON",
+                            "ZIPPER",
+                            "SLIDER",
+                            "RIVET",
+                            "THREAD",
+                            "LABEL",
+                            "CARE LABEL",
+                            "SIZE LABEL",
+                            "HANGTAG",
+                            "POLYBAG",
+                            "HARDWARE",
+                            "DRAW CORD",
+                            "CORD END"
+                        ]
+
+                        fusing_words = [
+
+                            "FUSING",
+                            "INTERLINING",
+                            "INTERFACING",
+                            "MEX",
+                            "DỰNG",
+                            "DUNG",
+                            "KEO"
+                        ]
+
+                        lining_words = [
+
+                            "LINING",
+                            "POCKET BAG",
+                            "POCKET LINING",
+                            "LOT TUI",
+                            "LÓT TÚI",
+                            "SLEEVE LINING",
+                            "BODY LINING"
+                        ]
+
+                        for row in bom_data[
+                            "bom_rows"
+                        ]:
+
+                            if not isinstance(
+                                row,
+                                dict
+                            ):
                                 continue
 
                             comp_name = str(
@@ -3209,47 +3286,40 @@ Return ONLY valid BOM pattern pieces.
                                     "component_name",
                                     ""
                                 )
-                            ).upper().strip()
+                            ).strip()
 
-                            comp_lower = comp_name.lower()
+                            comp_upper = (
+                                comp_name.upper()
+                            )
+
+                            comp_lower = (
+                                comp_name.lower()
+                            )
 
                             current_material = str(
                                 row.get(
                                     "material_class",
-                                    row.get(
-                                        "material_zone",
-                                        "FABRIC"
-                                    )
+                                    "FABRIC"
                                 )
                             ).upper().strip()
 
                             # =============================================
-                            # ACCESSORY BLOCK
+                            # ACCESSORY
                             # =============================================
 
-                            accessory_words = [
-                                "BUTTON",
-                                "ZIPPER",
-                                "SLIDER",
-                                "RIVET",
-                                "THREAD",
-                                "LABEL",
-                                "CARE LABEL",
-                                "SIZE LABEL",
-                                "HANGTAG",
-                                "POLYBAG",
-                                "HARDWARE"
-                            ]
-
                             if any(
-                                word in comp_name
+                                word in comp_upper
                                 for word in accessory_words
                             ):
-                                row["_ignore_for_bom"] = True
+
+                                row[
+                                    "_ignore_for_bom"
+                                ] = True
+
                                 continue
 
                             # =============================================
-                            # RIB LOCK
+                            # RIB
                             # =============================================
 
                             explicit_component_rib = any(
@@ -3262,59 +3332,48 @@ Return ONLY valid BOM pattern pieces.
                                 ]
                             )
 
-                            if current_material == "RIB":
+                            if (
+                                current_material
+                                == "RIB"
+                            ):
 
                                 if not (
                                     pdf_has_real_rib
                                     and explicit_component_rib
                                 ):
 
-                                    current_material = "FABRIC"
+                                    current_material = (
+                                        "FABRIC"
+                                    )
 
                             # =============================================
-                            # FUSING LOCK
+                            # FUSING
                             # =============================================
-
-                            fusing_words = [
-                                "FUSING",
-                                "INTERLINING",
-                                "INTERFACING",
-                                "MEX",
-                                "DỰNG",
-                                "DUNG",
-                                "KEO"
-                            ]
 
                             if any(
-                                key in comp_name
+                                key in comp_upper
                                 for key in fusing_words
                             ):
 
-                                current_material = "FUSING"
+                                current_material = (
+                                    "FUSING"
+                                )
 
                             # =============================================
-                            # LINING LOCK
+                            # LINING
                             # =============================================
-
-                            lining_words = [
-                                "LINING",
-                                "POCKET BAG",
-                                "POCKET LINING",
-                                "LOT TUI",
-                                "LÓT TÚI",
-                                "SLEEVE LINING",
-                                "BODY LINING"
-                            ]
 
                             if any(
-                                key in comp_name
+                                key in comp_upper
                                 for key in lining_words
                             ):
 
-                                current_material = "LINING"
+                                current_material = (
+                                    "LINING"
+                                )
 
                             # =============================================
-                            # RIB EXPLICIT COMPONENT
+                            # EXPLICIT RIB
                             # =============================================
 
                             if (
@@ -3322,41 +3381,80 @@ Return ONLY valid BOM pattern pieces.
                                 and pdf_has_real_rib
                             ):
 
-                                current_material = "RIB"
+                                current_material = (
+                                    "RIB"
+                                )
 
                             # =============================================
-                            # FINAL MATERIAL
+                            # VALID MATERIAL
                             # =============================================
 
-                            row["material_class"] = (
-                                current_material
-                            )
+                            if current_material not in [
+                                "FABRIC",
+                                "LINING",
+                                "FUSING",
+                                "RIB",
+                                "CONTRAST",
+                                "PADDING"
+                            ]:
 
-                            # Đồng bộ material_zone
+                                current_material = (
+                                    "FABRIC"
+                                )
+
+                            row[
+                                "material_class"
+                            ] = current_material
+
+                            # =============================================
+                            # MATERIAL ZONE
+                            # =============================================
+
                             if current_material == "FABRIC":
-                                row["material_zone"] = "SELF"
+
+                                row[
+                                    "material_zone"
+                                ] = "SELF"
 
                             elif current_material == "LINING":
-                                row["material_zone"] = "LINING"
+
+                                row[
+                                    "material_zone"
+                                ] = "LINING"
 
                             elif current_material == "FUSING":
-                                row["material_zone"] = "FUSING"
+
+                                row[
+                                    "material_zone"
+                                ] = "FUSING"
 
                             elif current_material == "RIB":
-                                row["material_zone"] = "RIB"
+
+                                row[
+                                    "material_zone"
+                                ] = "RIB"
 
                             elif current_material == "CONTRAST":
-                                row["material_zone"] = "CONTRAST"
+
+                                row[
+                                    "material_zone"
+                                ] = "CONTRAST"
 
                             elif current_material == "PADDING":
-                                row["material_zone"] = "SELF"
+
+                                row[
+                                    "material_zone"
+                                ] = "SELF"
 
                             # =============================================
-                            # NUMBER SAFETY
+                            # CUT QUANTITY
                             # =============================================
 
                             try:
-                                row["cut_quantity"] = max(
+
+                                row[
+                                    "cut_quantity"
+                                ] = max(
                                     1,
                                     int(
                                         float(
@@ -3367,11 +3465,22 @@ Return ONLY valid BOM pattern pieces.
                                         )
                                     )
                                 )
+
                             except Exception:
-                                row["cut_quantity"] = 1
+
+                                row[
+                                    "cut_quantity"
+                                ] = 1
+
+                            # =============================================
+                            # LENGTH
+                            # =============================================
 
                             try:
-                                row["bounding_box_length"] = round(
+
+                                row[
+                                    "bounding_box_length"
+                                ] = round(
                                     float(
                                         row.get(
                                             "bounding_box_length",
@@ -3380,11 +3489,22 @@ Return ONLY valid BOM pattern pieces.
                                     ),
                                     2
                                 )
+
                             except Exception:
-                                row["bounding_box_length"] = 0.0
+
+                                row[
+                                    "bounding_box_length"
+                                ] = 0.0
+
+                            # =============================================
+                            # WIDTH
+                            # =============================================
 
                             try:
-                                row["bounding_box_width"] = round(
+
+                                row[
+                                    "bounding_box_width"
+                                ] = round(
                                     float(
                                         row.get(
                                             "bounding_box_width",
@@ -3393,50 +3513,108 @@ Return ONLY valid BOM pattern pieces.
                                     ),
                                     2
                                 )
+
                             except Exception:
-                                row["bounding_box_width"] = 0.0
+
+                                row[
+                                    "bounding_box_width"
+                                ] = 0.0
 
                             # =============================================
-                            # WIDTH MASTER LOCK
+                            # MASTER WIDTH
                             # =============================================
 
-                            row["fabric_width_inch"] = float(
+                            row[
+                                "fabric_width_inch"
+                            ] = float(
                                 dynamic_width
                             )
 
                         # =================================================
-                        # 9. GHI MASTER RAM
+                        # 18. ENSURE BOM DATA IS SAVED
                         # =================================================
 
-                        st.session_state["bom_data"] = bom_data
+                        st.session_state[
+                            "bom_data"
+                        ] = bom_data
+
+                        # =================================================
+                        # 19. MASTER SESSION
+                        # =================================================
 
                         st.session_state[
                             "current_active_width"
-                        ] = float(dynamic_width)
+                        ] = float(
+                            dynamic_width
+                        )
 
                         st.session_state[
                             "current_active_size"
-                        ] = str(target_size)
+                        ] = str(
+                            target_size
+                        )
 
                         st.session_state[
                             "current_warp_shrinkage"
-                        ] = float(warp_shrinkage)
+                        ] = float(
+                            warp_shrinkage
+                        )
 
                         st.session_state[
                             "current_weft_shrinkage"
-                        ] = float(weft_shrinkage)
+                        ] = float(
+                            weft_shrinkage
+                        )
 
                         # =================================================
-                        # 10. RESET PIPELINE ĐỂ TÍNH LẠI
+                        # 20. IMPORTANT
+                        #
+                        # KHÔNG TẠO active_calculated_df_bom Ở ĐOẠN 2
+                        #
+                        # ĐỂ 5.2B1 → 5.2B2 → 5.2C
+                        # TIẾP TỤC TÍNH DM
+                        # =================================================
+
+                        st.session_state.pop(
+                            "active_calculated_df_bom",
+                            None
+                        )
+
+                        # =================================================
+                        # 21. CHO PHÉP ĐOẠN 5.2C CHẠY
                         # =================================================
 
                         st.session_state[
                             "pipeline_auto_run_executed"
                         ] = False
 
-                        st.session_state.ai_processing = False
+                        # =================================================
+                        # 22. STOP AI SCAN
+                        # =================================================
+
+                        st.session_state[
+                            "ai_processing"
+                        ] = False
+
+                        # =================================================
+                        # 23. RERUN
+                        # =================================================
 
                         st.rerun()
+
+                    else:
+
+                        st.error(
+                            "❌ AI không trả về bom_data hợp lệ."
+                        )
+
+                        st.session_state[
+                            "ai_processing"
+                        ] = False
+
+                        st.session_state[
+                            "pipeline_auto_run_executed"
+                        ] = False
 
                 # =========================================================
                 # ERROR HANDLER
@@ -3445,17 +3623,22 @@ Return ONLY valid BOM pattern pieces.
                 except Exception as e:
 
                     st.error(
-                        f"❌ Lỗi xử lý luồng AI Execute "
+                        "❌ Lỗi xử lý luồng AI Execute "
                         f"(Đoạn 2): {str(e)}"
                     )
 
-                    st.session_state.ai_processing = False
+                    print(
+                        "[ĐOẠN 2 ERROR]",
+                        repr(e)
+                    )
+
+                    st.session_state[
+                        "ai_processing"
+                    ] = False
 
                     st.session_state[
                         "pipeline_auto_run_executed"
                     ] = False
-
-                    st.rerun()
 # =====================================================================
 # 🧠 MASTER PARAMETER CONTROLLER V27.5
 # 🔒 CHAT COMMAND = NGUỒN SỰ THẬT TUYỆT ĐỐI
