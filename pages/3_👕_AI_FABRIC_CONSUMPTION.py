@@ -2291,809 +2291,1171 @@ if safe_user_prompt:
 
 
 
-# =====================================================================
-# 🟩 ĐOẠN 2 (VERSION V28.8): AI PRODUCT TYPE MASTER RECOGNITION
-# 🔒 FIX: KHÔNG TỰ ĐỘNG ÉP SẢN PHẨM KHÔNG RÕ THÀNH JEAN_LONG
-# 🔒 FIX: ĐỒNG BỘ detected_product_type -> ai_product_type_raw
-# 🔒 FIX: SHIRT / JACKET / SHORT / JEAN_LONG PHÂN BIỆT RÕ
-# =====================================================================
+    # =====================================================================
+    # 🟩 ĐOẠN 2 - VERSION V28.8
+    # MASTER AI SCAN + PRODUCT TYPE + WIDTH/SHRINK + MATERIAL LOCK
+    # =====================================================================
 
-if st.session_state.ai_processing:
+    if st.session_state.ai_processing:
 
-    import re
-    import copy
-    import streamlit as st
+        import re
+        import pandas as pd
+        import streamlit as st
 
-    current_query = st.session_state.get("last_submitted_query", "")
+        current_query = str(
+            st.session_state.get("last_submitted_query", "")
+        ).strip()
 
-    active_pdf = (
-        st.session_state.get("pdf_bytes")
-        or st.session_state.get("uploaded_file")
-        or st.session_state.get("current_pdf")
-        or st.session_state.get("pdf_data")
-    )
-
-    # =================================================================
-    # 1. ĐỌC KHỔ VẢI + SIZE TỪ CHAT
-    # =================================================================
-
-    dynamic_width = 58.0
-    target_size = "32"
-
-    if current_query:
-
-        width_match = re.search(
-            r"\b(?:khổ\s*vải|khổ)\s*[:=]?\s*(\d+(?:\.\d+)?)",
-            str(current_query),
-            re.IGNORECASE
+        active_pdf = (
+            st.session_state.get("pdf_bytes")
+            or st.session_state.get("uploaded_file")
+            or st.session_state.get("current_pdf")
+            or st.session_state.get("pdf_data")
         )
 
-        if width_match:
-            dynamic_width = float(width_match.group(1))
+        # =================================================================
+        # 1. MASTER PARAMETER PARSER
+        #    ƯU TIÊN TUYỆT ĐỐI GIÁ TRỊ TỪ CHAT
+        # =================================================================
 
-        size_match = re.search(
-            r"\b(?:cỡ|size)\s*[:=]?\s*([A-Za-z0-9]+)",
-            str(current_query),
-            re.IGNORECASE
+        dynamic_width = 58.0
+        target_size = "32"
+        warp_shrinkage = 0.0
+        weft_shrinkage = 0.0
+
+        query_clean = " ".join(
+            str(current_query).lower().split()
         )
 
-        if size_match:
-            target_size = str(size_match.group(1)).upper().strip()
-
-    # =================================================================
-    # 2. HÀM CHUẨN HÓA PRODUCT TYPE
-    # =================================================================
-
-    def normalize_ai_product_type(raw_type):
-
-        s = str(raw_type or "").upper().strip()
-
-        # Làm sạch ký tự
-        s = re.sub(r"[_\-]+", " ", s)
-        s = re.sub(r"\s+", " ", s)
-
         # -------------------------------------------------------------
-        # ƯU TIÊN NHẬN DIỆN SẢN PHẨM ĐẶC THÙ
+        # KHỔ VẢI
+        # Hỗ trợ:
+        # khổ 58
+        # khổ vải 58
+        # khổ = 58
+        # width 58
         # -------------------------------------------------------------
 
-        # SHORT phải được kiểm tra TRƯỚC PANT / JEAN
-        if any(k in s for k in [
-            "SHORT",
-            "SHORTS",
-            "BERMUDA",
-            "SHORT PANT",
-            "SHORTS PANT"
-        ]):
-            return "SHORT"
+        width_patterns = [
+            r"\bkhổ\s*vải\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bkhổ\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bwidth\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bfabric\s*width\s*[:=]?\s*(\d+(?:\.\d+)?)",
+        ]
 
-        # JUMPSUIT / OVERALL
-        if any(k in s for k in [
-            "JUMPSUIT",
-            "DUNGAREE",
-            "OVERALL",
-            "COVERALL",
-            "BIB OVERALL"
-        ]):
-            return "JUMPSUIT"
+        for pattern in width_patterns:
+            w_match = re.search(
+                pattern,
+                query_clean,
+                re.IGNORECASE
+            )
 
-        # DRESS
-        if any(k in s for k in [
-            "DRESS",
-            "GOWN"
-        ]):
-            return "DRESS"
+            if w_match:
+                try:
+                    parsed_width = float(w_match.group(1))
 
-        # SKIRT
-        if any(k in s for k in [
-            "SKIRT"
-        ]):
-            return "SKIRT"
+                    # Chỉ nhận khổ vải hợp lý
+                    if 20.0 <= parsed_width <= 100.0:
+                        dynamic_width = parsed_width
+                        break
+
+                except Exception:
+                    pass
 
         # -------------------------------------------------------------
-        # ÁO
+        # SIZE
         # -------------------------------------------------------------
 
-        if any(k in s for k in [
-            "SHIRT",
-            "SHIRT JACKET",
-            "DENIM SHIRT",
-            "WORK SHIRT",
-            "BUTTON SHIRT",
-            "BUTTONDOWN",
-            "BUTTON DOWN"
-        ]):
-            return "SHIRT"
+        size_patterns = [
+            r"\bsize\s*[:=]?\s*([a-zA-Z0-9]+)",
+            r"\bcỡ\s*[:=]?\s*([a-zA-Z0-9]+)",
+        ]
 
-        if any(k in s for k in [
-            "BLOUSE"
-        ]):
-            return "BLOUSE"
+        for pattern in size_patterns:
 
-        if any(k in s for k in [
-            "POLO"
-        ]):
-            return "POLO"
+            s_match = re.search(
+                pattern,
+                query_clean,
+                re.IGNORECASE
+            )
 
-        if any(k in s for k in [
-            "T SHIRT",
-            "TEE",
-            "TSHIRT"
-        ]):
-            return "TSHIRT"
+            if s_match:
+                target_size = str(
+                    s_match.group(1)
+                ).upper().strip()
 
-        if any(k in s for k in [
-            "TANK",
-            "TANK TOP"
-        ]):
-            return "TANK"
-
-        if any(k in s for k in [
-            "BLAZER"
-        ]):
-            return "BLAZER"
-
-        if any(k in s for k in [
-            "SUIT"
-        ]):
-            return "SUIT"
-
-        if any(k in s for k in [
-            "JACKET",
-            "JACKET SHIRT",
-            "DENIM JACKET",
-            "WORK JACKET",
-            "TRUCKER JACKET"
-        ]):
-            return "JACKET"
-
-        if any(k in s for k in [
-            "COAT",
-            "OVERCOAT",
-            "TRENCH"
-        ]):
-            return "COAT"
+                if target_size:
+                    break
 
         # -------------------------------------------------------------
-        # QUẦN DÀI
+        # CO DỌC
         # -------------------------------------------------------------
 
-        # Chỉ nhận JEAN_LONG khi AI thực sự xác nhận quần Jeans dài
-        if any(k in s for k in [
-            "JEAN LONG",
-            "LONG JEAN",
-            "JEANS LONG",
-            "LONG JEANS",
-            "FULL LENGTH JEANS"
-        ]):
-            return "JEAN_LONG"
+        warp_patterns = [
+            r"\bco\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bco\s*rút\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bđộ\s*co\s*dọc\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bwarp\s*shrinkage\s*[:=]?\s*(\d+(?:\.\d+)?)",
+        ]
 
-        if any(k in s for k in [
-            "JEAN PANT",
-            "JEANS PANT",
-            "DENIM PANT",
-            "DENIM JEAN"
-        ]):
-            return "JEAN"
+        for pattern in warp_patterns:
 
-        if any(k in s for k in [
-            "TROUSER",
-            "TROUSERS",
-            "DRESS PANT",
-            "DRESS PANTS"
-        ]):
-            return "TROUSER"
+            m = re.search(
+                pattern,
+                query_clean,
+                re.IGNORECASE
+            )
 
-        if any(k in s for k in [
-            "KHAKI"
-        ]):
-            return "KHAKI"
+            if m:
+                try:
+                    value = float(m.group(1))
 
-        if any(k in s for k in [
-            "PANT",
-            "PANTS",
-            "LONG PANT",
-            "LONG PANTS",
-            "TROUSER PANT"
-        ]):
-            return "PANT"
+                    if 0.0 <= value <= 15.0:
+                        warp_shrinkage = value
+                        break
 
-        return "UNKNOWN"
+                except Exception:
+                    pass
 
-    # =================================================================
-    # 3. PDF CÓ TỒN TẠI KHÔNG?
-    # =================================================================
+        # -------------------------------------------------------------
+        # CO NGANG
+        # -------------------------------------------------------------
 
-    if active_pdf is not None:
+        weft_patterns = [
+            r"\bco\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bco\s*rút\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bđộ\s*co\s*ngang\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            r"\bweft\s*shrinkage\s*[:=]?\s*(\d+(?:\.\d+)?)",
+        ]
 
-        with st.spinner("🧠 AI Vision đang quét phôi rập Nguyên Liệu..."):
+        for pattern in weft_patterns:
 
-            try:
+            m = re.search(
+                pattern,
+                query_clean,
+                re.IGNORECASE
+            )
 
-                # =====================================================
-                # 4. JSON SCHEMA
-                # =====================================================
+            if m:
+                try:
+                    value = float(m.group(1))
 
-                raw_json_schema = {
+                    if 0.0 <= value <= 15.0:
+                        weft_shrinkage = value
+                        break
 
-                    "type": "OBJECT",
+                except Exception:
+                    pass
 
-                    "properties": {
+        # =================================================================
+        # 2. GHI MASTER PARAMETERS NGAY LẬP TỨC VÀO SESSION
+        # =================================================================
 
-                        "detected_product_type": {
-                            "type": "STRING"
-                        },
+        st.session_state["current_active_width"] = float(dynamic_width)
+        st.session_state["current_active_size"] = str(target_size)
 
-                        "detected_base_size": {
-                            "type": "STRING"
-                        },
+        st.session_state["current_warp_shrinkage"] = float(
+            warp_shrinkage
+        )
 
-                        "product_type_reason": {
-                            "type": "STRING"
-                        },
+        st.session_state["current_weft_shrinkage"] = float(
+            weft_shrinkage
+        )
 
-                        "bom_rows": {
+        # =================================================================
+        # 3. DEBUG / XÁC NHẬN THAM SỐ CHAT
+        # =================================================================
 
-                            "type": "ARRAY",
+        st.info(
+            f"⚙️ IE Engine đã nhận và đồng bộ:\n\n"
+            f"**Size = {target_size} | "
+            f"Khổ = {dynamic_width:.0f}\" | "
+            f"Co dọc = {warp_shrinkage:g}% | "
+            f"Co ngang = {weft_shrinkage:g}%**"
+        )
 
-                            "items": {
+        # =================================================================
+        # 4. CHỈ TIẾP TỤC KHI CÓ PDF
+        # =================================================================
 
-                                "type": "OBJECT",
+        if active_pdf is not None:
 
-                                "properties": {
+            with st.spinner(
+                "🧠 AI Vision đang quét phôi rập Nguyên Liệu..."
+            ):
 
-                                    "component_name": {
-                                        "type": "STRING"
-                                    },
+                try:
 
-                                    "bounding_box_length": {
-                                        "type": "NUMBER"
-                                    },
+                    # =====================================================
+                    # 5. JSON SCHEMA
+                    # =====================================================
 
-                                    "bounding_box_width": {
-                                        "type": "NUMBER"
-                                    },
+                    raw_json_schema = {
 
-                                    "piece_shape": {
-                                        "type": "STRING"
-                                    },
+                        "type": "OBJECT",
 
-                                    "piece_function": {
-                                        "type": "STRING"
-                                    },
+                        "properties": {
 
-                                    "fold_type": {
-                                        "type": "STRING"
-                                    },
+                            "detected_product_type": {
+                                "type": "STRING"
+                            },
 
-                                    "material_zone": {
-                                        "type": "STRING",
-                                        "enum": [
-                                            "SELF",
-                                            "LINING",
-                                            "FUSING",
-                                            "RIB",
-                                            "CONTRAST"
-                                        ]
-                                    },
+                            "detected_base_size": {
+                                "type": "STRING"
+                            },
 
-                                    "grain_constraint": {
-                                        "type": "STRING"
-                                    },
+                            "product_type_confidence": {
+                                "type": "NUMBER"
+                            },
 
-                                    "packing_priority": {
-                                        "type": "INTEGER"
-                                    },
+                            "bom_rows": {
 
-                                    "convex_fill_ratio": {
-                                        "type": "NUMBER"
-                                    },
+                                "type": "ARRAY",
 
-                                    "seam_allowance": {
-                                        "type": "STRING"
-                                    },
+                                "items": {
 
-                                    "mirror_piece": {
-                                        "type": "BOOLEAN"
-                                    },
+                                    "type": "OBJECT",
 
-                                    "is_left_right_pair": {
-                                        "type": "BOOLEAN"
-                                    },
+                                    "properties": {
 
-                                    "requires_matching": {
-                                        "type": "BOOLEAN"
-                                    },
-
-                                    "critical_alignment": {
-                                        "type": "STRING"
-                                    },
-
-                                    "cut_quantity": {
-                                        "type": "INTEGER"
-                                    },
-
-                                    "grain_direction": {
-                                        "type": "STRING"
-                                    },
-
-                                    "rotation_allowed": {
-                                        "type": "STRING"
-                                    },
-
-                                    "edge_curvature": {
-                                        "type": "STRING"
-                                    },
-
-                                    "shape_complexity": {
-                                        "type": "STRING"
-                                    },
-
-                                    "inference_source": {
-                                        "type": "STRING"
-                                    },
-
-                                    "cad_reconstruction_score": {
-                                        "type": "INTEGER"
-                                    },
-
-                                    "field_confidence": {
-
-                                        "type": "OBJECT",
-
-                                        "properties": {
-
-                                            "dimensions": {
-                                                "type": "STRING"
-                                            },
-
-                                            "geometry_shape": {
-                                                "type": "STRING"
-                                            },
-
-                                            "grain_alignment": {
-                                                "type": "STRING"
-                                            }
+                                        "component_name": {
+                                            "type": "STRING"
                                         },
 
-                                        "required": [
-                                            "dimensions",
-                                            "geometry_shape",
-                                            "grain_alignment"
-                                        ]
-                                    },
+                                        "material_class": {
+                                            "type": "STRING",
+                                            "enum": [
+                                                "FABRIC",
+                                                "LINING",
+                                                "FUSING",
+                                                "RIB",
+                                                "CONTRAST",
+                                                "PADDING"
+                                            ]
+                                        },
 
-                                    "shape_parameters": {
+                                        "bounding_box_length": {
+                                            "type": "NUMBER"
+                                        },
 
-                                        "type": "OBJECT",
+                                        "bounding_box_width": {
+                                            "type": "NUMBER"
+                                        },
 
-                                        "properties": {
+                                        "piece_shape": {
+                                            "type": "STRING"
+                                        },
 
-                                            "estimated_corner_points": {
-                                                "type": "INTEGER"
+                                        "piece_function": {
+                                            "type": "STRING"
+                                        },
+
+                                        "fold_type": {
+                                            "type": "STRING"
+                                        },
+
+                                        "material_zone": {
+                                            "type": "STRING",
+                                            "enum": [
+                                                "SELF",
+                                                "LINING",
+                                                "FUSING",
+                                                "RIB",
+                                                "CONTRAST"
+                                            ]
+                                        },
+
+                                        "grain_constraint": {
+                                            "type": "STRING"
+                                        },
+
+                                        "packing_priority": {
+                                            "type": "INTEGER"
+                                        },
+
+                                        "convex_fill_ratio": {
+                                            "type": "NUMBER"
+                                        },
+
+                                        "seam_allowance": {
+                                            "type": "STRING"
+                                        },
+
+                                        "mirror_piece": {
+                                            "type": "BOOLEAN"
+                                        },
+
+                                        "is_left_right_pair": {
+                                            "type": "BOOLEAN"
+                                        },
+
+                                        "requires_matching": {
+                                            "type": "BOOLEAN"
+                                        },
+
+                                        "critical_alignment": {
+                                            "type": "STRING"
+                                        },
+
+                                        "cut_quantity": {
+                                            "type": "INTEGER"
+                                        },
+
+                                        "grain_direction": {
+                                            "type": "STRING"
+                                        },
+
+                                        "rotation_allowed": {
+                                            "type": "STRING"
+                                        },
+
+                                        "edge_curvature": {
+                                            "type": "STRING"
+                                        },
+
+                                        "shape_complexity": {
+                                            "type": "STRING"
+                                        },
+
+                                        "inference_source": {
+                                            "type": "STRING"
+                                        },
+
+                                        "cad_reconstruction_score": {
+                                            "type": "INTEGER"
+                                        },
+
+                                        "field_confidence": {
+
+                                            "type": "OBJECT",
+
+                                            "properties": {
+
+                                                "dimensions": {
+                                                    "type": "STRING"
+                                                },
+
+                                                "geometry_shape": {
+                                                    "type": "STRING"
+                                                },
+
+                                                "grain_alignment": {
+                                                    "type": "STRING"
+                                                }
+
                                             },
 
-                                            "dominant_axis": {
-                                                "type": "STRING"
-                                            },
+                                            "required": [
+                                                "dimensions",
+                                                "geometry_shape",
+                                                "grain_alignment"
+                                            ]
+                                        },
 
-                                            "top_width_ratio": {
-                                                "type": "NUMBER"
-                                            },
+                                        "shape_parameters": {
 
-                                            "bottom_width_ratio": {
-                                                "type": "NUMBER"
-                                            },
+                                            "type": "OBJECT",
 
-                                            "left_edge_profile": {
-                                                "type": "STRING"
-                                            },
+                                            "properties": {
 
-                                            "right_edge_profile": {
-                                                "type": "STRING"
-                                            },
+                                                "estimated_corner_points": {
+                                                    "type": "INTEGER"
+                                                },
 
-                                            "waist_curve_depth": {
-                                                "type": "NUMBER"
-                                            },
+                                                "dominant_axis": {
+                                                    "type": "STRING"
+                                                },
 
-                                            "hem_curve_depth": {
-                                                "type": "NUMBER"
-                                            },
+                                                "top_width_ratio": {
+                                                    "type": "NUMBER"
+                                                },
 
-                                            "crotch_projection_ratio": {
-                                                "type": "NUMBER"
+                                                "bottom_width_ratio": {
+                                                    "type": "NUMBER"
+                                                },
+
+                                                "left_edge_profile": {
+                                                    "type": "STRING"
+                                                },
+
+                                                "right_edge_profile": {
+                                                    "type": "STRING"
+                                                },
+
+                                                "waist_curve_depth": {
+                                                    "type": "NUMBER"
+                                                },
+
+                                                "hem_curve_depth": {
+                                                    "type": "NUMBER"
+                                                },
+
+                                                "crotch_projection_ratio": {
+                                                    "type": "NUMBER"
+                                                }
+
                                             }
                                         }
-                                    }
-                                },
+                                    },
 
-                                "required": [
-                                    "component_name",
-                                    "bounding_box_length",
-                                    "bounding_box_width",
-                                    "piece_shape",
-                                    "piece_function",
-                                    "fold_type",
-                                    "material_zone",
-                                    "packing_priority",
-                                    "convex_fill_ratio",
-                                    "mirror_piece",
-                                    "cut_quantity"
-                                ]
+                                    "required": [
+                                        "component_name",
+                                        "material_class",
+                                        "bounding_box_length",
+                                        "bounding_box_width",
+                                        "piece_shape",
+                                        "piece_function",
+                                        "fold_type",
+                                        "material_zone",
+                                        "packing_priority",
+                                        "convex_fill_ratio",
+                                        "mirror_piece",
+                                        "cut_quantity"
+                                    ]
+                                }
                             }
-                        }
-                    },
+                        },
 
-                    "required": [
-                        "detected_product_type",
-                        "detected_base_size",
-                        "product_type_reason",
-                        "bom_rows"
-                    ]
-                }
+                        "required": [
+                            "detected_product_type",
+                            "detected_base_size",
+                            "bom_rows"
+                        ]
+                    }
 
-                # =====================================================
-                # 5. MASTER PROMPT NHẬN DIỆN CHỦNG LOẠI
-                # =====================================================
+                    # =====================================================
+                    # 6. MASTER PRODUCT TYPE + MATERIAL PROMPT
+                    # =====================================================
 
-                prompt_agent_2 = f"""
+                    prompt_agent_2 = f"""
 
-You are a senior Industrial Garment IE, CAD Pattern and Tech Pack
-Recognition Engineer.
+You are a senior Industrial Garment IE,
+CAD Pattern Engineering and Commercial Fabric
+Consumption Intelligence.
 
-Your FIRST responsibility is to identify the EXACT GARMENT PRODUCT TYPE.
+Analyze the entire Techpack/PDF.
 
-The detected product type controls the marker efficiency calculation,
-therefore YOU MUST NOT guess JEAN_LONG by default.
+TARGET SIZE:
+{target_size}
 
-=============================================================
-PRODUCT TYPE CLASSIFICATION
-=============================================================
+USER FABRIC WIDTH:
+{dynamic_width:.2f} inches
 
-Return exactly ONE of these normalized product types:
+USER WARP SHRINKAGE:
+{warp_shrinkage:.2f}%
 
-OVERALL
-COVERALL
-BIB
-JUMPSUIT
-DUNGAREE
-DRESS
-SKIRT
+USER WEFT SHRINKAGE:
+{weft_shrinkage:.2f}%
+
+
+=========================================================
+🚨 SECTION A - PRODUCT TYPE IDENTIFICATION
+=========================================================
+
+Identify the ACTUAL garment product from the PDF.
+
+Allowed product types:
+
+- JEAN_LONG
+- PANT_LONG
+- SHORT
+- JACKET
+- SHIRT
+- TSHIRT
+- POLO
+- DRESS
+- SKIRT
+- HOODIE
+- OTHER
+
+
+CRITICAL:
+
+Do NOT automatically classify every bottom garment as JEAN_LONG.
+
+If the document shows:
+
+- shorts
+- short pants
+- above-knee length
+- short inseam
+- shorts silhouette
+
+then classify:
+
 SHORT
-JEAN
-JEAN_LONG
-KHAKI
-TROUSER
-PANT
-JACKET
-COAT
-BLAZER
-SUIT
-SHIRT
-BLOUSE
-POLO
-TEE
-TSHIRT
-TANK
-UNKNOWN
 
-=============================================================
-🚨 CRITICAL PRODUCT TYPE RULES
-=============================================================
 
-1. SHORTS / BERMUDA / SHORT PANTS
-   -> SHORT
+If the document shows:
 
-2. LONG JEANS / FULL LENGTH JEANS
-   -> JEAN_LONG
+- long trouser
+- long pants
+- jeans
+- denim jeans
+- full length leg
 
-3. DENIM PANTS / JEAN PANTS
-   -> JEAN
+then classify:
 
-4. LONG PANTS WITHOUT JEAN DENIM IDENTITY
-   -> PANT
+JEAN_LONG or PANT_LONG according to evidence.
 
-5. TROUSERS / DRESS PANTS
-   -> TROUSER
 
-6. BUTTON SHIRT / DENIM SHIRT / WORK SHIRT
-   -> SHIRT
+If the document clearly shows:
 
-7. DENIM JACKET / TRUCKER JACKET / WORK JACKET
-   -> JACKET
-
-8. DO NOT classify a SHIRT as JEAN_LONG merely because the
-   fabric is DENIM.
-
-9. DO NOT classify a JACKET as JEAN_LONG merely because the
-   fabric is DENIM.
-
-10. The word "JEAN" or "DENIM" describes the MATERIAL in many
-    cases, NOT necessarily the garment type.
-
-11. Determine garment type from:
-    - garment silhouette
-    - pattern piece structure
-    - presence of sleeves
-    - collar
-    - cuffs
-    - waistband
-    - fly
-    - crotch construction
-    - leg panels
-    - body panels
-    - hem
-    - pocket construction
-    - tech pack product description
-    - style information
-
-=============================================================
-🚨 SHIRT / JACKET VALIDATION
-=============================================================
-
-If the Tech Pack has:
-
-- left/right front body
-- back body
+- jacket
+- outerwear
+- coat
+- jacket body
 - sleeve
 - collar
 - cuff
-- button placket
-- chest pocket
-
-then strongly classify as:
-
-SHIRT
-
-If it has jacket construction:
-
-- front body
-- back body
-- sleeves
-- collar
-- cuff
-- jacket placket / zipper
-- jacket pocket
+- front opening
 
 then classify:
 
 JACKET
 
-=============================================================
-🚨 PANT VALIDATION
-=============================================================
 
-A garment should be classified as PANT / JEAN / JEAN_LONG / SHORT
-only when the pattern architecture clearly contains:
+If the document clearly shows a shirt silhouette,
+classify:
 
-- left/right leg
-- front leg
-- back leg
-- crotch
-- inseam
-- outseam
-- waistband
-- fly
-- leg opening
+SHIRT
 
-Do NOT classify a garment as pants merely because the fabric
-is denim.
 
-=============================================================
-🚨 JEAN_LONG VALIDATION
-=============================================================
+NEVER use JEAN_LONG as a generic fallback.
 
-Only return JEAN_LONG if BOTH conditions are satisfied:
 
-A. It is clearly a PANT / JEAN garment.
+=========================================================
+🚨 SECTION B - ACCESSORY EXCLUSION
+=========================================================
 
-AND
+NEVER create BOM pieces for:
 
-B. The garment has LONG / FULL LENGTH legs.
+- BUTTON
+- ZIPPER
+- SLIDER
+- RIVET
+- THREAD
+- LABEL
+- CARE LABEL
+- SIZE LABEL
+- HANGTAG
+- POLYBAG
+- METAL ACCESSORY
+- PLASTIC ACCESSORY
+- DRAW CORD
+- CORD END
+- HARDWARE
 
-If it is SHORTS -> SHORT.
 
-If it is SHIRT -> SHIRT.
+These are NOT pattern pieces.
 
-If it is JACKET -> JACKET.
 
-If product type cannot be confidently established:
--> UNKNOWN
+=========================================================
+🚨 SECTION C - MATERIAL CLASS MASTER RULE
+=========================================================
 
-NEVER use JEAN_LONG as an uncertainty fallback.
+Allowed:
 
-=============================================================
-TARGET SIZE
-=============================================================
-
-Analyze the Tech Pack for Size {target_size}.
-
-=============================================================
-MATERIAL EXTRACTION
-=============================================================
-
-Extract ONLY pattern-based material pieces:
-
-SELF
+FABRIC
 LINING
 FUSING
 RIB
 CONTRAST
+PADDING
 
-Ignore:
 
-buttons
-thread
-zippers
-sliders
-rivets
-labels
-hangtags
-polybags
-metal/plastic accessories.
+---------------------------------------------------------
+🔴 ABSOLUTE RIB RULE
+---------------------------------------------------------
 
-=============================================================
-SINGLE PIECE GEOMETRY
-=============================================================
+RIB is NOT allowed simply because a component is:
 
-bounding_box_width MUST represent ONE physical pattern piece.
+- collar
+- cuff
+- waistband
+- facing
+- binding
+- pocket
+- sleeve
+- shoulder
+- neck
 
-Never combine left/right pieces into one width.
+A normal FABRIC collar is FABRIC.
 
-Never double the width of one physical piece.
+A normal FABRIC cuff is FABRIC.
 
-=============================================================
-CUT QUANTITY
-=============================================================
+A normal FABRIC waistband is FABRIC.
 
-cut_quantity = actual physical quantity required for cutting.
+A normal FABRIC shoulder is FABRIC.
 
-Respect explicit:
+A normal FABRIC facing is FABRIC.
 
-CUT 2
-CUT 1
-PAIR
-L/R
-MIRROR
-X2
-CUT AS PAIR
 
-Do not automatically change every piece to 1.
+Only classify as RIB when the Techpack/PDF
+contains explicit evidence such as:
 
-=============================================================
-OUTPUT
-=============================================================
+- RIB
+- RIB KNIT
+- RIB FABRIC
+- RIB COLLAR
+- RIB CUFF
+- RIB WAISTBAND
+- BO GÂN
+- BO RIB
+- KNIT RIB
 
-Return:
 
-detected_product_type
-detected_base_size
-product_type_reason
-bom_rows
+If there is NO explicit RIB evidence:
 
-The product type MUST be based on the actual Tech Pack and
-pattern architecture.
+material_class MUST NOT be RIB.
 
+
+For example:
+
+JACKET shoulder
+→ FABRIC
+
+JACKET collar
+→ FABRIC
+
+JACKET cuff
+→ FABRIC
+
+JACKET facing
+→ FABRIC
+
+JACKET body
+→ FABRIC
+
+
+=========================================================
+🚨 SECTION D - LINING RULE
+=========================================================
+
+LINING only when supported by Techpack evidence:
+
+- LINING
+- BODY LINING
+- SLEEVE LINING
+- POCKET BAG
+- POCKET LINING
+- LINING PANEL
+
+Do not convert normal shell fabric into LINING.
+
+
+=========================================================
+🚨 SECTION E - FUSING RULE
+=========================================================
+
+FUSING only when explicitly supported by:
+
+- FUSING
+- INTERLINING
+- MEX
+- DỰNG
+- KE0
+- KE0 DỰNG
+- FUSING INTERFACING
+- INTERFACING
+
+
+Do not create FUSING simply because a collar,
+cuff or facing exists.
+
+
+=========================================================
+🚨 SECTION F - SINGLE PIECE GEOMETRY
+=========================================================
+
+bounding_box_width MUST represent:
+
+ONE SINGLE physical pattern piece.
+
+NEVER combine left and right pieces.
+
+NEVER output double-width for paired panels.
+
+For example:
+
+LEFT FRONT + RIGHT FRONT
+
+must NOT become one 25-30 inch piece.
+
+Each physical pattern piece gets its own geometry.
+
+
+=========================================================
+🚨 SECTION G - CUT QUANTITY
+=========================================================
+
+cut_quantity MUST represent actual physical
+pattern pieces required.
+
+Examples:
+
+1 physical piece
+→ 1
+
+left + right pair
+→ 2
+
+front pair
+→ 2
+
+sleeve pair
+→ 2
+
+If Techpack explicitly states CUT 4
+→ 4
+
+
+Do NOT multiply cut_quantity again merely because
+mirror_piece = true.
+
+
+=========================================================
+🚨 SECTION H - FABRIC PIECES
+=========================================================
+
+All normal shell/body pattern pieces must be:
+
+FABRIC
+
+unless the Techpack explicitly proves they are:
+
+LINING
+FUSING
+RIB
+CONTRAST
+PADDING
+
+
+Especially for JACKET:
+
+FRONT BODY
+BACK BODY
+SLEEVE
+COLLAR
+CUFF
+FRONT FACING
+BACK FACING
+POCKET
+POCKET FLAP
+HOOD
+
+must remain FABRIC unless the PDF explicitly
+identifies another material.
+
+
+=========================================================
+🚨 SECTION I - GEOMETRY
+=========================================================
+
+Extract:
+
+bounding_box_length
+bounding_box_width
+piece_shape
+piece_function
+fold_type
+grain_direction
+rotation_allowed
+edge_curvature
+shape_complexity
+
+
+Never output zero dimensions for a valid pattern.
+
+
+=========================================================
+🚨 SECTION J - VALIDATION
+=========================================================
+
+Before returning JSON:
+
+1. Confirm product type from actual PDF evidence.
+2. Confirm material class from actual PDF evidence.
+3. Confirm RIB has explicit evidence.
+4. Confirm cut_quantity is physical quantity.
+5. Confirm each width belongs to ONE physical piece.
+6. Exclude all accessories.
+7. Do not invent RIB.
+8. Do not invent LINING.
+9. Do not invent FUSING.
+10. Do not default product type to JEAN_LONG.
+
+
+Return ONLY valid BOM pattern pieces.
 """
 
-                # =====================================================
-                # 6. GỌI AI
-                # =====================================================
+                    # =====================================================
+                    # 7. GỌI AI ENGINE
+                    # =====================================================
 
-                bom_data = execute_final_gerber_pure_scan(
+                    bom_data = execute_final_gerber_pure_scan(
 
-                    pdf_bytes=active_pdf,
+                        pdf_bytes=active_pdf,
 
-                    current_query=current_query,
+                        current_query=current_query,
 
-                    active_width=dynamic_width,
+                        active_width=dynamic_width,
 
-                    target_size_cmd=target_size,
+                        target_size_cmd=target_size,
 
-                    raw_json_schema=raw_json_schema,
+                        raw_json_schema=raw_json_schema,
 
-                    prompt_agent_2=prompt_agent_2
-                )
+                        prompt_agent_2=prompt_agent_2
+                    )
 
-                # =====================================================
-                # 7. CHUẨN HÓA PRODUCT TYPE
-                # =====================================================
+                    # =====================================================
+                    # 8. MASTER POST-PROCESSING
+                    #    KHÓA RIB / MATERIAL CLASS
+                    # =====================================================
 
-                if not isinstance(bom_data, dict):
-                    bom_data = {}
+                    if bom_data and isinstance(bom_data, dict):
 
-                raw_detected_type = bom_data.get(
-                    "detected_product_type",
-                    ""
-                )
+                        bom_data["fabric_width_inch"] = float(
+                            dynamic_width
+                        )
 
-                normalized_type = normalize_ai_product_type(
-                    raw_detected_type
-                )
+                        bom_data["usable_width_inch"] = float(
+                            dynamic_width
+                        )
 
-                # =====================================================
-                # 8. TẠO AI EXPERT DECISION
-                # =====================================================
+                        bom_data["warp_shrinkage_percent"] = float(
+                            warp_shrinkage
+                        )
 
-                existing_ai_decision = bom_data.get(
-                    "ai_expert_decision",
-                    {}
-                )
+                        bom_data["weft_shrinkage_percent"] = float(
+                            weft_shrinkage
+                        )
 
-                if not isinstance(existing_ai_decision, dict):
-                    existing_ai_decision = {}
+                        bom_data["calculated_on_size"] = str(
+                            target_size
+                        )
 
-                existing_ai_decision["ai_product_type_raw"] = normalized_type
+                        bom_data["detected_base_size"] = str(
+                            target_size
+                        )
 
-                existing_ai_decision["detected_product_type"] = normalized_type
+                        # -------------------------------------------------
+                        # Lấy raw text nếu có để kiểm chứng RIB
+                        # -------------------------------------------------
 
-                existing_ai_decision["product_type_raw_from_ai"] = str(
-                    raw_detected_type
-                )
+                        raw_pdf_text_for_validation = ""
 
-                existing_ai_decision["product_type_reason"] = str(
-                    bom_data.get("product_type_reason", "")
-                )
+                        try:
 
-                existing_ai_decision["detected_base_size"] = str(
-                    target_size
-                )
+                            import fitz
 
-                existing_ai_decision["fabric_width"] = float(
-                    dynamic_width
-                )
+                            pdf_check = (
+                                active_pdf.getvalue()
+                                if hasattr(active_pdf, "getvalue")
+                                else active_pdf
+                            )
 
-                bom_data["ai_expert_decision"] = existing_ai_decision
+                            with fitz.open(
+                                stream=pdf_check,
+                                filetype="pdf"
+                            ) as validation_doc:
 
-                bom_data["ai_product_type_raw"] = normalized_type
+                                for pg in validation_doc:
 
-                bom_data["detected_product_type"] = normalized_type
+                                    raw_pdf_text_for_validation += (
+                                        " "
+                                        + pg.get_text("text")
+                                    ).lower()
 
-                bom_data["fabric_width_inch"] = float(dynamic_width)
+                        except Exception:
 
-                bom_data["usable_width_inch"] = float(dynamic_width)
+                            raw_pdf_text_for_validation = ""
 
-                bom_data["calculated_on_size"] = str(target_size)
+                        # -------------------------------------------------
+                        # TỪ KHÓA RIB THẬT SỰ
+                        # -------------------------------------------------
 
-                # =====================================================
-                # 9. ĐỒNG BỘ THAM SỐ CHAT
-                # =====================================================
+                        explicit_rib_keywords = [
+                            "rib knit",
+                            "rib fabric",
+                            "rib collar",
+                            "rib cuff",
+                            "rib waistband",
+                            "rib",
+                            "bo gân",
+                            "bo rib",
+                            "bo gan"
+                        ]
 
-                st.session_state["bom_data"] = bom_data
+                        pdf_has_real_rib = any(
+                            keyword in raw_pdf_text_for_validation
+                            for keyword in explicit_rib_keywords
+                        )
 
-                st.session_state["current_active_width"] = float(
-                    dynamic_width
-                )
+                        # -------------------------------------------------
+                        # MASTER MATERIAL LOCK
+                        # -------------------------------------------------
 
-                st.session_state["current_active_size"] = str(
-                    target_size
-                )
+                        for row in bom_data.get(
+                            "bom_rows",
+                            []
+                        ):
 
-                # =====================================================
-                # 10. DEBUG PRODUCT TYPE
-                # =====================================================
+                            if not isinstance(row, dict):
+                                continue
 
-                print(
-                    "[PRODUCT TYPE MASTER]"
-                    f" AI_RAW={raw_detected_type}"
-                    f" | NORMALIZED={normalized_type}"
-                    f" | SIZE={target_size}"
-                    f" | WIDTH={dynamic_width}"
-                )
+                            comp_name = str(
+                                row.get(
+                                    "component_name",
+                                    ""
+                                )
+                            ).upper().strip()
 
-                st.session_state.ai_processing = False
+                            comp_lower = comp_name.lower()
 
-                st.rerun()
+                            current_material = str(
+                                row.get(
+                                    "material_class",
+                                    row.get(
+                                        "material_zone",
+                                        "FABRIC"
+                                    )
+                                )
+                            ).upper().strip()
 
-            except Exception as e:
+                            # =============================================
+                            # ACCESSORY BLOCK
+                            # =============================================
 
-                st.error(
-                    f"❌ Lỗi xử lý AI Execute (Đoạn 2): {str(e)}"
-                )
+                            accessory_words = [
+                                "BUTTON",
+                                "ZIPPER",
+                                "SLIDER",
+                                "RIVET",
+                                "THREAD",
+                                "LABEL",
+                                "CARE LABEL",
+                                "SIZE LABEL",
+                                "HANGTAG",
+                                "POLYBAG",
+                                "HARDWARE"
+                            ]
 
-                st.session_state.ai_processing = False
+                            if any(
+                                word in comp_name
+                                for word in accessory_words
+                            ):
+                                row["_ignore_for_bom"] = True
+                                continue
 
-                st.rerun()
+                            # =============================================
+                            # RIB LOCK
+                            # =============================================
+
+                            explicit_component_rib = any(
+                                key in comp_lower
+                                for key in [
+                                    "rib",
+                                    "bo gân",
+                                    "bo gan",
+                                    "rib knit"
+                                ]
+                            )
+
+                            if current_material == "RIB":
+
+                                if not (
+                                    pdf_has_real_rib
+                                    and explicit_component_rib
+                                ):
+
+                                    current_material = "FABRIC"
+
+                            # =============================================
+                            # FUSING LOCK
+                            # =============================================
+
+                            fusing_words = [
+                                "FUSING",
+                                "INTERLINING",
+                                "INTERFACING",
+                                "MEX",
+                                "DỰNG",
+                                "DUNG",
+                                "KEO"
+                            ]
+
+                            if any(
+                                key in comp_name
+                                for key in fusing_words
+                            ):
+
+                                current_material = "FUSING"
+
+                            # =============================================
+                            # LINING LOCK
+                            # =============================================
+
+                            lining_words = [
+                                "LINING",
+                                "POCKET BAG",
+                                "POCKET LINING",
+                                "LOT TUI",
+                                "LÓT TÚI",
+                                "SLEEVE LINING",
+                                "BODY LINING"
+                            ]
+
+                            if any(
+                                key in comp_name
+                                for key in lining_words
+                            ):
+
+                                current_material = "LINING"
+
+                            # =============================================
+                            # RIB EXPLICIT COMPONENT
+                            # =============================================
+
+                            if (
+                                explicit_component_rib
+                                and pdf_has_real_rib
+                            ):
+
+                                current_material = "RIB"
+
+                            # =============================================
+                            # FINAL MATERIAL
+                            # =============================================
+
+                            row["material_class"] = (
+                                current_material
+                            )
+
+                            # Đồng bộ material_zone
+                            if current_material == "FABRIC":
+                                row["material_zone"] = "SELF"
+
+                            elif current_material == "LINING":
+                                row["material_zone"] = "LINING"
+
+                            elif current_material == "FUSING":
+                                row["material_zone"] = "FUSING"
+
+                            elif current_material == "RIB":
+                                row["material_zone"] = "RIB"
+
+                            elif current_material == "CONTRAST":
+                                row["material_zone"] = "CONTRAST"
+
+                            elif current_material == "PADDING":
+                                row["material_zone"] = "SELF"
+
+                            # =============================================
+                            # NUMBER SAFETY
+                            # =============================================
+
+                            try:
+                                row["cut_quantity"] = max(
+                                    1,
+                                    int(
+                                        float(
+                                            row.get(
+                                                "cut_quantity",
+                                                1
+                                            )
+                                        )
+                                    )
+                                )
+                            except Exception:
+                                row["cut_quantity"] = 1
+
+                            try:
+                                row["bounding_box_length"] = round(
+                                    float(
+                                        row.get(
+                                            "bounding_box_length",
+                                            0
+                                        )
+                                    ),
+                                    2
+                                )
+                            except Exception:
+                                row["bounding_box_length"] = 0.0
+
+                            try:
+                                row["bounding_box_width"] = round(
+                                    float(
+                                        row.get(
+                                            "bounding_box_width",
+                                            0
+                                        )
+                                    ),
+                                    2
+                                )
+                            except Exception:
+                                row["bounding_box_width"] = 0.0
+
+                            # =============================================
+                            # WIDTH MASTER LOCK
+                            # =============================================
+
+                            row["fabric_width_inch"] = float(
+                                dynamic_width
+                            )
+
+                        # =================================================
+                        # 9. GHI MASTER RAM
+                        # =================================================
+
+                        st.session_state["bom_data"] = bom_data
+
+                        st.session_state[
+                            "current_active_width"
+                        ] = float(dynamic_width)
+
+                        st.session_state[
+                            "current_active_size"
+                        ] = str(target_size)
+
+                        st.session_state[
+                            "current_warp_shrinkage"
+                        ] = float(warp_shrinkage)
+
+                        st.session_state[
+                            "current_weft_shrinkage"
+                        ] = float(weft_shrinkage)
+
+                        # =================================================
+                        # 10. RESET PIPELINE ĐỂ TÍNH LẠI
+                        # =================================================
+
+                        st.session_state[
+                            "pipeline_auto_run_executed"
+                        ] = False
+
+                        st.session_state.ai_processing = False
+
+                        st.rerun()
+
+                # =========================================================
+                # ERROR HANDLER
+                # =========================================================
+
+                except Exception as e:
+
+                    st.error(
+                        f"❌ Lỗi xử lý luồng AI Execute "
+                        f"(Đoạn 2): {str(e)}"
+                    )
+
+                    st.session_state.ai_processing = False
+
+                    st.session_state[
+                        "pipeline_auto_run_executed"
+                    ] = False
+
+                    st.rerun()
 # =====================================================================
 # 🧠 MASTER PARAMETER CONTROLLER V27.5
 # 🔒 CHAT COMMAND = NGUỒN SỰ THẬT TUYỆT ĐỐI
