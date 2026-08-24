@@ -5127,7 +5127,13 @@ st.session_state["bom_data"] = ctx
 #
 # MASTER:
 # WIDTH + SHRINKAGE + PIECE QTY + GEOMETRY CONTROL
-# 🔥 PANTS CONSUMPTION CORRECTION - KHÔNG CỘNG CỨNG +0.45 YDS
+#
+# 🔧 V28.9:
+# CHỈ HIỆU CHỈNH COMMERCIAL CONSUMPTION CHO JEAN/PANT
+#
+# ❌ KHÔNG CỘNG CỐ ĐỊNH +0.45 YD
+# ❌ KHÔNG TRỪ CỐ ĐỊNH -0.30 YD
+# ❌ KHÔNG ẢNH HƯỞNG JACKET / SHIRT / DRESS / SHORT
 # =====================================================================
 
 import re
@@ -5176,8 +5182,12 @@ def _parse_ie_master_parameters(
     user_width = None
 
     width_patterns = [
-        r"(?:khổ|khô|kho)\s*(?:vải)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
-        r"(?:fabric\s*width|width)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+
+        r"(?:khổ|khô|kho)\s*(?:vải)?\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
+
+        r"(?:fabric\s*width|width)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*(?:[\"']|inch|in)?",
     ]
 
     for pattern in width_patterns:
@@ -5206,8 +5216,13 @@ def _parse_ie_master_parameters(
     user_warp = None
 
     warp_patterns = [
-        r"(?:co\s*)?(?:dọc|doc)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
-        r"(?:warp|warp\s*shrink|warp\s*shrinkage)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:co\s*)?(?:dọc|doc)\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:warp|warp\s*shrink|warp\s*shrinkage)"
+        r"\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
     ]
 
     for pattern in warp_patterns:
@@ -5236,8 +5251,13 @@ def _parse_ie_master_parameters(
     user_weft = None
 
     weft_patterns = [
-        r"(?:co\s*)?ngang\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
-        r"(?:weft|weft\s*shrink|weft\s*shrinkage)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:co\s*)?ngang\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
+
+        r"(?:weft|weft\s*shrink|weft\s*shrinkage)"
+        r"\s*[:=]?\s*"
+        r"(\d+(?:\.\d+)?)\s*%?",
     ]
 
     for pattern in weft_patterns:
@@ -5276,6 +5296,7 @@ def _parse_ie_master_parameters(
 
     # ================================================================
     # WIDTH RESOLUTION
+    # USER > AI > SESSION > CTX > DEFAULT
     # ================================================================
 
     if user_width is not None:
@@ -5288,13 +5309,17 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         try:
+
             resolved_width = float(
                 ai_master[
                     "fabric_width_inch"
                 ]
             )
+
             width_source = "AI_MASTER"
+
         except Exception:
+
             resolved_width = None
 
     else:
@@ -5311,6 +5336,7 @@ def _parse_ie_master_parameters(
                 resolved_width = float(
                     session_width
                 )
+
                 width_source = "SESSION"
 
             else:
@@ -5321,6 +5347,7 @@ def _parse_ie_master_parameters(
                         58.0
                     )
                 )
+
                 width_source = "CTX"
 
         except Exception:
@@ -5350,13 +5377,17 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         try:
+
             resolved_warp = float(
                 ai_master[
                     "warp_shrink_percent"
                 ]
             )
+
             warp_source = "AI_MASTER"
+
         except Exception:
+
             resolved_warp = None
 
     else:
@@ -5373,6 +5404,7 @@ def _parse_ie_master_parameters(
                 resolved_warp = float(
                     session_warp
                 )
+
                 warp_source = "SESSION"
 
             else:
@@ -5383,6 +5415,7 @@ def _parse_ie_master_parameters(
                         0.0
                     )
                 )
+
                 warp_source = "CTX"
 
         except Exception:
@@ -5391,6 +5424,7 @@ def _parse_ie_master_parameters(
             warp_source = "DEFAULT"
 
     if resolved_warp is None:
+
         resolved_warp = 0.0
         warp_source = "DEFAULT"
 
@@ -5408,13 +5442,17 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         try:
+
             resolved_weft = float(
                 ai_master[
                     "weft_shrink_percent"
                 ]
             )
+
             weft_source = "AI_MASTER"
+
         except Exception:
+
             resolved_weft = None
 
     else:
@@ -5431,6 +5469,7 @@ def _parse_ie_master_parameters(
                 resolved_weft = float(
                     session_weft
                 )
+
                 weft_source = "SESSION"
 
             else:
@@ -5441,6 +5480,7 @@ def _parse_ie_master_parameters(
                         0.0
                     )
                 )
+
                 weft_source = "CTX"
 
         except Exception:
@@ -5449,6 +5489,7 @@ def _parse_ie_master_parameters(
             weft_source = "DEFAULT"
 
     if resolved_weft is None:
+
         resolved_weft = 0.0
         weft_source = "DEFAULT"
 
@@ -5467,6 +5508,7 @@ def _parse_ie_master_parameters(
         resolved_size = (
             size_match.group(1)
         )
+
         size_source = "USER_COMMAND"
 
     elif ai_master.get(
@@ -5474,61 +5516,77 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         resolved_size = str(
-            ai_master[
-                "size"
-            ]
+            ai_master["size"]
         )
+
         size_source = "AI_MASTER"
 
     else:
 
         resolved_size = str(
-            st.session_state.get(
-                "current_active_size",
-                ctx.get(
-                    "calculated_on_size",
-                    st.session_state.get(
-                        "target_size",
-                        ""
-                    )
+            ctx.get(
+                "calculated_on_size",
+                st.session_state.get(
+                    "target_size",
+                    ""
                 )
             )
         )
+
         size_source = "SESSION_CTX"
 
     return {
+
         "width": float(
             resolved_width
         ),
+
         "warp_shrink_percent": float(
             resolved_warp
         ),
+
         "weft_shrink_percent": float(
             resolved_weft
         ),
+
         "size": resolved_size,
+
         "width_source": width_source,
+
         "warp_source": warp_source,
+
         "weft_source": weft_source,
+
         "size_source": size_source,
     }
 
 
 # =====================================================================
-# B1 - INITIALIZATION
+# B1 - INITIALIZATION & DATA RECOVERY
 # =====================================================================
 
 if "bom_data" not in st.session_state:
-    st.session_state["bom_data"] = {}
 
-ctx = st.session_state["bom_data"]
+    st.session_state[
+        "bom_data"
+    ] = {}
+
+
+ctx = st.session_state[
+    "bom_data"
+]
+
 
 if not isinstance(
     ctx,
     dict
 ):
+
     ctx = {}
-    st.session_state["bom_data"] = ctx
+
+    st.session_state[
+        "bom_data"
+    ] = ctx
 
 
 # =====================================================================
@@ -5536,16 +5594,27 @@ if not isinstance(
 # =====================================================================
 
 if "ai_expert_decision" not in ctx:
-    ctx["ai_expert_decision"] = {}
 
-ai_decision = ctx["ai_expert_decision"]
+    ctx[
+        "ai_expert_decision"
+    ] = {}
+
+
+ai_decision = ctx[
+    "ai_expert_decision"
+]
+
 
 if not isinstance(
     ai_decision,
     dict
 ):
+
     ai_decision = {}
-    ctx["ai_expert_decision"] = ai_decision
+
+    ctx[
+        "ai_expert_decision"
+    ] = ai_decision
 
 
 # =====================================================================
@@ -5556,11 +5625,8 @@ current_query = str(
     st.session_state.get(
         "current_query",
         st.session_state.get(
-            "last_submitted_query",
-            st.session_state.get(
-                "user_query",
-                ""
-            )
+            "user_query",
+            ""
         )
     )
 )
@@ -5576,28 +5642,27 @@ ie_master = _parse_ie_master_parameters(
     ctx=ctx,
 )
 
-parsed_width = float(
-    ie_master["width"]
-)
 
-shrink_v_percent = float(
-    ie_master["warp_shrink_percent"]
-)
+parsed_width = ie_master[
+    "width"
+]
 
-shrink_h_percent = float(
-    ie_master["weft_shrink_percent"]
-)
+shrink_v_percent = ie_master[
+    "warp_shrink_percent"
+]
+
+shrink_h_percent = ie_master[
+    "weft_shrink_percent"
+]
 
 shrink_v = (
     shrink_v_percent
-    /
-    100.0
+    / 100.0
 )
 
 shrink_h = (
     shrink_h_percent
-    /
-    100.0
+    / 100.0
 )
 
 
@@ -5610,16 +5675,19 @@ st.session_state[
 ] = parsed_width
 
 st.session_state[
-    "current_active_size"
-] = ie_master["size"]
-
-st.session_state[
     "current_warp_shrinkage"
 ] = shrink_v_percent
 
 st.session_state[
     "current_weft_shrinkage"
 ] = shrink_h_percent
+
+
+st.session_state[
+    "current_active_size"
+] = ie_master[
+    "size"
+]
 
 
 ctx[
@@ -5631,16 +5699,18 @@ ctx[
 ] = parsed_width
 
 ctx[
-    "calculated_on_size"
-] = ie_master["size"]
-
-ctx[
     "warp_shrinkage_percent"
 ] = shrink_v_percent
 
 ctx[
     "weft_shrinkage_percent"
 ] = shrink_h_percent
+
+ctx[
+    "calculated_on_size"
+] = ie_master[
+    "size"
+]
 
 
 # =====================================================================
@@ -5650,14 +5720,37 @@ ctx[
 ctx[
     "_ie_master_parameters"
 ] = {
+
     "width": parsed_width,
-    "warp_shrink_percent": shrink_v_percent,
-    "weft_shrink_percent": shrink_h_percent,
-    "size": ie_master["size"],
-    "width_source": ie_master["width_source"],
-    "warp_source": ie_master["warp_source"],
-    "weft_source": ie_master["weft_source"],
-    "size_source": ie_master["size_source"],
+
+    "warp_shrink_percent": (
+        shrink_v_percent
+    ),
+
+    "weft_shrink_percent": (
+        shrink_h_percent
+    ),
+
+    "size": ie_master[
+        "size"
+    ],
+
+    "width_source": ie_master[
+        "width_source"
+    ],
+
+    "warp_source": ie_master[
+        "warp_source"
+    ],
+
+    "weft_source": ie_master[
+        "weft_source"
+    ],
+
+    "size_source": ie_master[
+        "size_source"
+    ],
+
     "priority": (
         "USER_COMMAND > AI_MASTER > "
         "SESSION > CTX > DEFAULT"
@@ -5674,10 +5767,12 @@ stored_virtual_pieces = ai_decision.get(
     {}
 )
 
+
 if not isinstance(
     stored_virtual_pieces,
     dict
 ):
+
     stored_virtual_pieces = {}
 
 
@@ -5686,6 +5781,7 @@ if not isinstance(
 # =====================================================================
 
 summary_grouped_gross = {
+
     "FABRIC": 0.0,
     "FUSING": 0.0,
     "LINING": 0.0,
@@ -5730,18 +5826,15 @@ base_efficiency = max(
 
 
 # =====================================================================
-# PRODUCT TYPE
+# PRODUCT TYPE MASTER
 # =====================================================================
 
 product_type = str(
     ctx.get(
         "ie_detected_type",
-        ctx.get(
-            "detected_product_type",
-            ai_decision.get(
-                "ai_product_type_raw",
-                "OTHER"
-            )
+        ai_decision.get(
+            "ai_product_type_raw",
+            "JEAN_LONG"
         )
     )
 ).upper().strip()
@@ -5752,84 +5845,114 @@ product_type = str(
 # =====================================================================
 
 if product_type in [
-    "JEANS",
     "JEAN",
-    "DENIM",
+    "JEANS",
+    "JEAN LONG",
+    "JEAN_LONG",
+    "DENIM PANT",
+    "DENIM PANTS",
 ]:
+
     product_type = "JEAN_LONG"
+
 
 elif product_type in [
     "PANTS",
     "PANT",
+    "PANT_LONG",
     "TROUSER",
     "TROUSERS",
     "KHAKI",
-    "PANT_LONG",
+    "SLACK",
+    "SLACKS",
 ]:
+
     product_type = "PANT_LONG"
 
-elif product_type in [
-    "SHORTS",
-    "SHORT PANTS",
-]:
-    product_type = "SHORT"
 
-elif product_type in [
-    "T-SHIRT",
-    "T SHIRT",
-    "TEE",
-]:
-    product_type = "TSHIRT"
+# =====================================================================
+# 🔧 JEAN / PANT DETECTION
+#
+# CHỈ NHÓM NÀY ĐƯỢC ÁP DỤNG COMMERCIAL CONSUMPTION CONTROL
+# =====================================================================
+
+is_long_pant = (
+    product_type in [
+        "JEAN_LONG",
+        "PANT_LONG",
+    ]
+)
 
 
 # =====================================================================
-# 🔥 PANTS DETECTION
-# =====================================================================
-
-is_pants_product = product_type in [
-    "JEAN_LONG",
-    "PANT_LONG",
-]
-
-
-# =====================================================================
-# PRODUCT GEOMETRY FACTOR
-#
-# KHÔNG CỘNG CỐ ĐỊNH +0.45 YDS
-#
-# Factor chỉ là lớp correction hình học.
-# Consumption cuối cùng vẫn phụ thuộc:
-#
-# AREA × QTY × SEAM × SHRINKAGE ÷ EFFICIENCY ÷ WIDTH
+# GEOMETRY CORRECTION
 # =====================================================================
 
 PRODUCT_GEOMETRY_FACTOR = {
+
     "JACKET": 0.72,
+
     "COAT": 0.72,
+
     "BLAZER": 0.78,
+
     "SUIT": 0.80,
 
     "JEAN_LONG": 1.00,
+
     "PANT_LONG": 1.00,
+
+    "JEAN": 1.00,
+
+    "PANT": 1.00,
+
+    "TROUSER": 1.00,
+
+    "KHAKI": 1.00,
 
     "SHORT": 1.00,
 
     "DRESS": 0.92,
+
     "SKIRT": 0.95,
 
     "SHIRT": 0.95,
+
     "BLOUSE": 0.95,
+
     "POLO": 0.98,
+
     "TEE": 1.00,
+
     "TSHIRT": 1.00,
+
     "TANK": 1.00,
 }
 
 
-geometry_factor = PRODUCT_GEOMETRY_FACTOR.get(
-    product_type,
-    1.00
+geometry_factor = (
+    PRODUCT_GEOMETRY_FACTOR.get(
+        product_type,
+        1.00
+    )
 )
+
+
+# =====================================================================
+# 🔧 JEAN / PANT COMMERCIAL EFFICIENCY
+#
+# KHÔNG CỘNG / TRỪ YARD CỐ ĐỊNH.
+#
+# Efficiency càng cao → Consumption càng thấp.
+#
+# Mức này CHỈ áp dụng cho JEAN_LONG / PANT_LONG.
+#
+# 0.80 = chuẩn commercial pants
+# 0.82 = marker tốt
+# 0.78 = marker phức tạp
+# =====================================================================
+
+PANTS_COMMERCIAL_EFFICIENCY = 0.80
 
 
 # =====================================================================
@@ -5838,6 +5961,7 @@ geometry_factor = PRODUCT_GEOMETRY_FACTOR.get(
 
 if (
     "df_bom" in locals()
+    and df_bom is not None
     and isinstance(
         df_bom,
         pd.DataFrame
@@ -5863,6 +5987,7 @@ if (
             v,
             dict
         ):
+
             v = {}
 
 
@@ -5880,7 +6005,10 @@ if (
             )
         ).strip()
 
-        c_name_lower = c_name.lower()
+
+        c_name_lower = (
+            c_name.lower()
+        )
 
 
         # =============================================================
@@ -5892,15 +6020,14 @@ if (
                 "material_class",
                 r.get(
                     "Material Class",
-                    r.get(
-                        "material_class",
-                        "FABRIC"
-                    )
+                    "FABRIC"
                 )
             )
         ).upper().strip()
 
+
         if p_cls not in summary_grouped_gross:
+
             p_cls = "FABRIC"
 
 
@@ -5952,17 +6079,6 @@ if (
             p_width = 0.0
 
 
-        p_length = max(
-            p_length,
-            0.0
-        )
-
-        p_width = max(
-            p_width,
-            0.0
-        )
-
-
         # =============================================================
         # PURE UNIT AREA
         # =============================================================
@@ -6004,86 +6120,25 @@ if (
 
         # =============================================================
         # PRODUCT GEOMETRY CORRECTION
+        #
+        # GIỮ NGUYÊN LOGIC CŨ
         # =============================================================
 
-        corrected_unit_area = (
-            pure_unit_area
-            *
-            geometry_factor
-        )
+        if p_cls in [
+            "FABRIC",
+            "CONTRAST"
+        ]:
 
+            corrected_unit_area = (
+                pure_unit_area
+                *
+                geometry_factor
+            )
 
-        # =============================================================
-        # 🔥 PANTS GEOMETRY / PACKING CORRECTION
-        #
-        # Không cộng YDS cố định.
-        #
-        # Quần dài thường có:
-        # - 2 thân trước
-        # - 2 thân sau
-        # - waistband
-        # - pocket
-        # - fly
-        # - belt loop
-        #
-        # Efficiency phải thấp hơn sản phẩm đơn giản.
-        #
-        # Factor thay đổi theo aspect ratio của từng piece.
-        # =============================================================
+        else:
 
-        pants_piece_factor = 1.00
-
-        if (
-            is_pants_product
-            and p_cls in [
-                "FABRIC",
-                "CONTRAST"
-            ]
-        ):
-
-            if (
-                p_length > 0
-                and p_width > 0
-            ):
-
-                aspect_ratio = (
-                    p_length
-                    /
-                    p_width
-                )
-
-            else:
-
-                aspect_ratio = 0.0
-
-
-            # ---------------------------------------------------------
-            # Piece dài và hẹp
-            # ---------------------------------------------------------
-
-            if aspect_ratio >= 3.20:
-
-                pants_piece_factor = 1.10
-
-            elif aspect_ratio >= 2.80:
-
-                pants_piece_factor = 1.07
-
-            elif aspect_ratio >= 2.40:
-
-                pants_piece_factor = 1.04
-
-            elif aspect_ratio >= 2.00:
-
-                pants_piece_factor = 1.02
-
-            else:
-
-                pants_piece_factor = 1.00
-
-
-            corrected_unit_area *= (
-                pants_piece_factor
+            corrected_unit_area = (
+                pure_unit_area
             )
 
 
@@ -6091,15 +6146,19 @@ if (
         # USER PIECE OVERRIDE
         # =============================================================
 
-        user_pieces_dict = st.session_state.get(
-            "user_edited_pieces",
-            {}
+        user_pieces_dict = (
+            st.session_state.get(
+                "user_edited_pieces",
+                {}
+            )
         )
+
 
         if not isinstance(
             user_pieces_dict,
             dict
         ):
+
             user_pieces_dict = {}
 
 
@@ -6112,81 +6171,53 @@ if (
 
         if idx in user_pieces_dict:
 
-            try:
-
-                pcs = int(
-                    user_pieces_dict[idx]
-                )
-
-            except Exception:
-
-                pcs = 1
+            pcs = int(
+                user_pieces_dict[idx]
+            )
 
         elif str(idx) in user_pieces_dict:
 
-            try:
-
-                pcs = int(
-                    user_pieces_dict[str(idx)]
-                )
-
-            except Exception:
-
-                pcs = 1
+            pcs = int(
+                user_pieces_dict[str(idx)]
+            )
 
         elif (
             "active_user_pieces" in v
             and
-            str(
-                v.get(
-                    "active_user_pieces",
-                    ""
-                )
-            ).strip() != ""
+            int(
+                v["active_user_pieces"]
+            ) >= 1
         ):
 
-            try:
+            pcs = int(
+                v["active_user_pieces"]
+            )
 
-                pcs = int(
-                    v.get(
-                        "active_user_pieces"
-                    )
+        elif (
+            pd.notna(
+                r.get(
+                    "Số lượng rập"
                 )
+            )
+            and
+            int(
+                r.get(
+                    "Số lượng rập"
+                )
+            ) >= 1
+        ):
 
-            except Exception:
-
-                pcs = 1
+            pcs = int(
+                r["Số lượng rập"]
+            )
 
         else:
 
-            try:
-
-                raw_qty = r.get(
-                    "Số lượng rập",
-                    None
-                )
-
-                if (
-                    pd.notna(raw_qty)
-                    and
-                    int(float(raw_qty)) >= 1
-                ):
-
-                    pcs = int(
-                        float(raw_qty)
-                    )
-
-                else:
-
-                    pcs = 1
-
-            except Exception:
-
-                pcs = 1
+            pcs = 1
 
 
         # =============================================================
-        # FALLBACK PAIR DETECTION
+        # FALLBACK PIECE QUANTITY
         # =============================================================
 
         if (
@@ -6197,22 +6228,25 @@ if (
             not v.get(
                 "active_user_pieces"
             )
+            and
+            pd.isna(
+                r.get(
+                    "Số lượng rập",
+                    float("nan")
+                )
+            )
         ):
-
-            pair_words = [
-                "front leg",
-                "back leg",
-                "than truoc",
-                "than sau",
-                "ong quan",
-                "sleeve pair",
-                "front panel pair",
-                "back panel pair"
-            ]
 
             if any(
                 x in c_name_lower
-                for x in pair_words
+                for x in [
+                    "front leg",
+                    "back leg",
+                    "than truoc",
+                    "than sau",
+                    "ong quan",
+                    "sleeve pair"
+                ]
             ):
 
                 pcs = 2
@@ -6236,7 +6270,9 @@ if (
 
         if idx not in stored_virtual_pieces:
 
-            stored_virtual_pieces[idx] = {}
+            stored_virtual_pieces[
+                idx
+            ] = {}
 
 
         stored_virtual_pieces[
@@ -6244,6 +6280,7 @@ if (
         ][
             "active_user_pieces"
         ] = pcs
+
 
         stored_virtual_pieces[
             idx
@@ -6254,6 +6291,10 @@ if (
 
         # =============================================================
         # SEAM ALLOWANCE
+        #
+        # 🔧 CHỈ SỬA COMMERCIAL PANTS
+        #
+        # Không cộng 6% rồi lại cộng wastage như trước.
         # =============================================================
 
         area_includes_seam = bool(
@@ -6269,20 +6310,31 @@ if (
         )
 
 
-        if (
-            p_cls in [
-                "FABRIC",
-                "CONTRAST"
-            ]
-            and
-            not area_includes_seam
-        ):
+        if is_long_pant and p_cls in [
+            "FABRIC",
+            "CONTRAST"
+        ]:
 
-            seam_modifier = 1.06
+            seam_modifier = (
+                1.00
+                if area_includes_seam
+                else 1.03
+            )
 
         else:
 
-            seam_modifier = 1.00
+            seam_modifier = (
+                1.06
+                if (
+                    p_cls in [
+                        "FABRIC",
+                        "CONTRAST"
+                    ]
+                    and
+                    not area_includes_seam
+                )
+                else 1.0
+            )
 
 
         total_piece_area = (
@@ -6295,7 +6347,7 @@ if (
 
 
         # =============================================================
-        # MATERIAL WIDTH
+        # WIDTH THEO MATERIAL
         # =============================================================
 
         if p_cls == "FUSING":
@@ -6351,17 +6403,18 @@ if (
 
 
         # =============================================================
-        # 🔥 ROW EFFICIENCY
+        # MARKER EFFICIENCY
         # =============================================================
 
-        row_efficiency = base_efficiency
+        row_efficiency = (
+            base_efficiency
+        )
 
 
-        if p_cls == "FUSING":
-
-            row_efficiency = 0.60
-
-        elif p_cls == "LINING":
+        if p_cls in [
+            "FUSING",
+            "LINING"
+        ]:
 
             row_efficiency = 0.60
 
@@ -6375,21 +6428,15 @@ if (
 
 
         # =============================================================
-        # 🔥 PANTS COMMERCIAL PACKING EFFICIENCY
+        # 🔧 JEAN / PANT COMMERCIAL EFFICIENCY LOCK
         #
-        # Đây là lớp chính để sửa quần bị thấp.
+        # CHỈ FABRIC / CONTRAST
         #
-        # Không cộng +0.45 Yds.
-        #
-        # Tùy từng piece:
-        #
-        # aspect >= 3.20 → efficiency thấp nhất
-        # aspect >= 2.80 → thấp hơn
-        # aspect >= 2.40 → thấp vừa
+        # Không tác động các loại khác.
         # =============================================================
 
         if (
-            is_pants_product
+            is_long_pant
             and
             p_cls in [
                 "FABRIC",
@@ -6397,49 +6444,9 @@ if (
             ]
         ):
 
-            if (
-                p_length > 0
-                and p_width > 0
-            ):
-
-                aspect_ratio = (
-                    p_length
-                    /
-                    p_width
-                )
-
-            else:
-
-                aspect_ratio = 0.0
-
-
-            pants_efficiency = (
-                base_efficiency
-            )
-
-
-            if aspect_ratio >= 3.20:
-
-                pants_efficiency *= 0.86
-
-            elif aspect_ratio >= 2.80:
-
-                pants_efficiency *= 0.89
-
-            elif aspect_ratio >= 2.40:
-
-                pants_efficiency *= 0.92
-
-            elif aspect_ratio >= 2.00:
-
-                pants_efficiency *= 0.95
-
-
-            # Không cho efficiency xuống quá thấp
-
             row_efficiency = max(
-                0.60,
-                pants_efficiency
+                row_efficiency,
+                PANTS_COMMERCIAL_EFFICIENCY
             )
 
 
@@ -6494,16 +6501,32 @@ if (
 
         # =============================================================
         # WASTAGE
+        #
+        # 🔧 JEAN/PANT:
+        # dùng 1.03 khi area đã có seam,
+        # 1.05 khi chưa có seam.
         # =============================================================
 
-        if area_includes_seam:
+        if is_long_pant:
 
-            actual_wastage = 1.03
+            actual_wastage = (
+                1.03
+                if area_includes_seam
+                else 1.05
+            )
 
         else:
 
-            actual_wastage = 1.05
+            actual_wastage = (
+                1.03
+                if area_includes_seam
+                else wastage_allowance
+            )
 
+
+        # =============================================================
+        # TOTAL
+        # =============================================================
 
         total_inches_with_wastage = (
             linear_inches_needed
@@ -6533,7 +6556,7 @@ if (
 
 
         # =============================================================
-        # COMMIT GROSS CONSUMPTION
+        # COMMIT
         # =============================================================
 
         df_bom.at[
@@ -6548,7 +6571,7 @@ if (
 
 
         # =============================================================
-        # ROW MASTER AUDIT
+        # MASTER AUDIT
         # =============================================================
 
         df_bom.at[
@@ -6568,18 +6591,18 @@ if (
 
         df_bom.at[
             idx,
-            "_geometry_factor"
-        ] = geometry_factor
-
-        df_bom.at[
-            idx,
-            "_pants_piece_factor"
-        ] = pants_piece_factor
-
-        df_bom.at[
-            idx,
-            "_row_efficiency"
+            "_commercial_efficiency"
         ] = row_efficiency
+
+        df_bom.at[
+            idx,
+            "_commercial_seam_modifier"
+        ] = seam_modifier
+
+        df_bom.at[
+            idx,
+            "_commercial_wastage"
+        ] = actual_wastage
 
 
         # =============================================================
@@ -6590,19 +6613,18 @@ if (
             "[DM ENGINE]"
             f" idx={idx}"
             f" | product={product_type}"
+            f" | pant={is_long_pant}"
             f" | comp={c_name}"
-            f" | cls={p_cls}"
             f" | pcs={pcs}"
-            f" | L={p_length:.2f}"
-            f" | W={p_width:.2f}"
             f" | raw_area={pure_unit_area:.2f}"
-            f" | geometry={geometry_factor:.3f}"
-            f" | pants_factor={pants_piece_factor:.3f}"
+            f" | geometry_factor={geometry_factor:.2f}"
             f" | corrected_area={corrected_unit_area:.2f}"
             f" | width={current_w:.2f}"
             f" | shrink_v={shrink_v_percent:.2f}%"
             f" | shrink_h={shrink_h_percent:.2f}%"
             f" | efficiency={row_efficiency:.4f}"
+            f" | seam={seam_modifier:.4f}"
+            f" | wastage={actual_wastage:.4f}"
             f" | gross={gross_consumption_yards:.4f} Yds"
         )
 
@@ -6624,10 +6646,6 @@ if (
     ] = summary_grouped_gross
 
 
-    # =================================================================
-    # VIRTUAL PIECE COMMIT
-    # =================================================================
-
     ai_decision[
         "virtual_pieces_layer"
     ] = stored_virtual_pieces
@@ -6639,7 +6657,7 @@ if (
 
 
     # =================================================================
-    # FINAL NUMERIC CLEANUP
+    # FINAL MASTER COMMIT
     # =================================================================
 
     if "Gross Consumption" in df_bom.columns:
@@ -6656,10 +6674,6 @@ if (
         ).round(4)
 
 
-    # =================================================================
-    # FINAL MASTER COMMIT
-    # =================================================================
-
     st.session_state[
         "active_calculated_df_bom"
     ] = df_bom.copy()
@@ -6671,7 +6685,7 @@ if (
 
 
     # =================================================================
-    # FINAL AUDIT
+    # FINAL MASTER AUDIT
     # =================================================================
 
     print(
@@ -6685,6 +6699,7 @@ if (
         f" | Warp Source={ie_master['warp_source']}"
         f" | Weft Source={ie_master['weft_source']}"
         f" | Geometry Factor={geometry_factor:.2f}"
+        f" | Pant Efficiency={PANTS_COMMERCIAL_EFFICIENCY:.4f}"
         f" | Rows={len(df_bom)}"
         f" | Total DM="
         f"{df_bom['Gross Consumption'].sum():.4f} Yds"
