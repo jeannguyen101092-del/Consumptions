@@ -5128,12 +5128,12 @@ st.session_state["bom_data"] = ctx
 # MASTER:
 # WIDTH + SHRINKAGE + PIECE QTY + GEOMETRY CONTROL
 #
-# 🔧 V28.9:
-# CHỈ HIỆU CHỈNH COMMERCIAL CONSUMPTION CHO JEAN/PANT
-#
-# ❌ KHÔNG CỘNG CỐ ĐỊNH +0.45 YD
-# ❌ KHÔNG TRỪ CỐ ĐỊNH -0.30 YD
-# ❌ KHÔNG ẢNH HƯỞNG JACKET / SHIRT / DRESS / SHORT
+# 🔥 V28.9 COMMERCIAL FIX
+# - KHÔNG DÙNG GEOMETRY FACTOR GIẢM DM
+# - KHÔNG CỘNG CỐ ĐỊNH +0.45Y CHO JEAN/PANT
+# - MARKER EFFICIENCY LÀ CƠ CHẾ PACKING CHÍNH
+# - JACKET KHÔNG CÒN BỊ NHÂN 0.72
+# - TẤT CẢ PRODUCT TYPE CHẠY CÙNG MASTER AREA LOGIC
 # =====================================================================
 
 import re
@@ -5201,10 +5201,13 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
+
                 user_width = float(
                     m.group(1)
                 )
+
             except Exception:
+
                 user_width = None
 
             break
@@ -5236,10 +5239,13 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
+
                 user_warp = float(
                     m.group(1)
                 )
+
             except Exception:
+
                 user_warp = None
 
             break
@@ -5271,10 +5277,13 @@ def _parse_ie_master_parameters(
         if m:
 
             try:
+
                 user_weft = float(
                     m.group(1)
                 )
+
             except Exception:
+
                 user_weft = None
 
             break
@@ -5292,6 +5301,7 @@ def _parse_ie_master_parameters(
         ai_master,
         dict
     ):
+
         ai_master = {}
 
     # ================================================================
@@ -5357,7 +5367,8 @@ def _parse_ie_master_parameters(
 
     if (
         resolved_width is None
-        or resolved_width <= 0
+        or
+        resolved_width <= 0
     ):
 
         resolved_width = 58.0
@@ -5516,7 +5527,9 @@ def _parse_ie_master_parameters(
     ) is not None:
 
         resolved_size = str(
-            ai_master["size"]
+            ai_master[
+                "size"
+            ]
         )
 
         size_source = "AI_MASTER"
@@ -5562,7 +5575,7 @@ def _parse_ie_master_parameters(
 
 
 # =====================================================================
-# B1 - INITIALIZATION & DATA RECOVERY
+# B1 - INITIALIZATION
 # =====================================================================
 
 if "bom_data" not in st.session_state:
@@ -5657,12 +5670,14 @@ shrink_h_percent = ie_master[
 
 shrink_v = (
     shrink_v_percent
-    / 100.0
+    /
+    100.0
 )
 
 shrink_h = (
     shrink_h_percent
-    / 100.0
+    /
+    100.0
 )
 
 
@@ -5675,19 +5690,18 @@ st.session_state[
 ] = parsed_width
 
 st.session_state[
+    "current_active_size"
+] = ie_master[
+    "size"
+]
+
+st.session_state[
     "current_warp_shrinkage"
 ] = shrink_v_percent
 
 st.session_state[
     "current_weft_shrinkage"
 ] = shrink_h_percent
-
-
-st.session_state[
-    "current_active_size"
-] = ie_master[
-    "size"
-]
 
 
 ctx[
@@ -5783,23 +5797,32 @@ if not isinstance(
 summary_grouped_gross = {
 
     "FABRIC": 0.0,
+
     "FUSING": 0.0,
+
     "LINING": 0.0,
+
     "CONTRAST": 0.0,
+
     "RIB": 0.0,
+
     "PADDING": 0.0,
 }
 
 
 # =====================================================================
-# WASTAGE
+# COMMERCIAL WASTAGE
 # =====================================================================
 
 wastage_allowance = 1.05
 
 
 # =====================================================================
-# BASE MARKER EFFICIENCY
+# MASTER MARKER EFFICIENCY
+#
+# Đây là nơi xử lý packing density.
+#
+# Không dùng thêm geometry_factor để giảm diện tích.
 # =====================================================================
 
 try:
@@ -5807,7 +5830,10 @@ try:
     base_efficiency = float(
         st.session_state.get(
             "active_marker_efficiency_value",
-            0.78
+            ctx.get(
+                "marker_efficiency",
+                0.78
+            )
         )
     )
 
@@ -5826,7 +5852,7 @@ base_efficiency = max(
 
 
 # =====================================================================
-# PRODUCT TYPE MASTER
+# PRODUCT TYPE
 # =====================================================================
 
 product_type = str(
@@ -5834,125 +5860,39 @@ product_type = str(
         "ie_detected_type",
         ai_decision.get(
             "ai_product_type_raw",
-            "JEAN_LONG"
+            "OTHER"
         )
     )
 ).upper().strip()
 
 
 # =====================================================================
-# PRODUCT TYPE NORMALIZATION
-# =====================================================================
-
-if product_type in [
-    "JEAN",
-    "JEANS",
-    "JEAN LONG",
-    "JEAN_LONG",
-    "DENIM PANT",
-    "DENIM PANTS",
-]:
-
-    product_type = "JEAN_LONG"
-
-
-elif product_type in [
-    "PANTS",
-    "PANT",
-    "PANT_LONG",
-    "TROUSER",
-    "TROUSERS",
-    "KHAKI",
-    "SLACK",
-    "SLACKS",
-]:
-
-    product_type = "PANT_LONG"
-
-
-# =====================================================================
-# 🔧 JEAN / PANT DETECTION
+# 🔥 V28.9
+# KHÔNG DÙNG PRODUCT GEOMETRY PENALTY
 #
-# CHỈ NHÓM NÀY ĐƯỢC ÁP DỤNG COMMERCIAL CONSUMPTION CONTROL
-# =====================================================================
-
-is_long_pant = (
-    product_type in [
-        "JEAN_LONG",
-        "PANT_LONG",
-    ]
-)
-
-
-# =====================================================================
-# GEOMETRY CORRECTION
-# =====================================================================
-
-PRODUCT_GEOMETRY_FACTOR = {
-
-    "JACKET": 0.72,
-
-    "COAT": 0.72,
-
-    "BLAZER": 0.78,
-
-    "SUIT": 0.80,
-
-    "JEAN_LONG": 1.00,
-
-    "PANT_LONG": 1.00,
-
-    "JEAN": 1.00,
-
-    "PANT": 1.00,
-
-    "TROUSER": 1.00,
-
-    "KHAKI": 1.00,
-
-    "SHORT": 1.00,
-
-    "DRESS": 0.92,
-
-    "SKIRT": 0.95,
-
-    "SHIRT": 0.95,
-
-    "BLOUSE": 0.95,
-
-    "POLO": 0.98,
-
-    "TEE": 1.00,
-
-    "TSHIRT": 1.00,
-
-    "TANK": 1.00,
-}
-
-
-geometry_factor = (
-    PRODUCT_GEOMETRY_FACTOR.get(
-        product_type,
-        1.00
-    )
-)
-
-
-# =====================================================================
-# 🔧 JEAN / PANT COMMERCIAL EFFICIENCY
+# LÝ DO:
 #
-# KHÔNG CỘNG / TRỪ YARD CỐ ĐỊNH.
+# Diện tích rập thực tế
+#       ↓
+# Piece Quantity
+#       ↓
+# Seam Allowance
+#       ↓
+# Marker Efficiency
+#       ↓
+# Shrinkage
+#       ↓
+# Wastage
 #
-# Efficiency càng cao → Consumption càng thấp.
+# Không được giảm diện tích thêm bằng:
+# JACKET = 0.72
+# DRESS = 0.92
+# SHIRT = 0.95
 #
-# Mức này CHỈ áp dụng cho JEAN_LONG / PANT_LONG.
-#
-# 0.80 = chuẩn commercial pants
-# 0.82 = marker tốt
-# 0.78 = marker phức tạp
+# Vì sẽ làm DM thấp giả tạo.
 # =====================================================================
 
-PANTS_COMMERCIAL_EFFICIENCY = 0.80
+geometry_factor = 1.00
 
 
 # =====================================================================
@@ -5961,12 +5901,10 @@ PANTS_COMMERCIAL_EFFICIENCY = 0.80
 
 if (
     "df_bom" in locals()
-    and df_bom is not None
-    and isinstance(
-        df_bom,
-        pd.DataFrame
-    )
-    and not df_bom.empty
+    and
+    df_bom is not None
+    and
+    not df_bom.empty
 ):
 
     for idx, r in df_bom.iterrows():
@@ -6020,7 +5958,10 @@ if (
                 "material_class",
                 r.get(
                     "Material Class",
-                    "FABRIC"
+                    r.get(
+                        "material_class",
+                        "FABRIC"
+                    )
                 )
             )
         ).upper().strip()
@@ -6106,40 +6047,52 @@ if (
 
         if pure_unit_area <= 0:
 
-            pure_unit_area = (
-                p_length
-                *
-                p_width
-            )
+            if (
+                p_length > 0
+                and
+                p_width > 0
+            ):
 
+                pure_unit_area = (
+                    p_length
+                    *
+                    p_width
+                )
+
+
+        # =============================================================
+        # KHÔNG TẠO AREA GIẢ CHO PIECE KHÔNG CÓ GEOMETRY
+        #
+        # Trước đây:
+        # pure_unit_area = 10.0
+        #
+        # đã được bỏ để tránh sinh DM giả.
+        # =============================================================
 
         if pure_unit_area <= 0:
 
-            pure_unit_area = 10.0
+            df_bom.at[
+                idx,
+                "Gross Consumption"
+            ] = 0.0
+
+            df_bom.at[
+                idx,
+                "_dm_warning"
+            ] = "NO_VALID_GEOMETRY"
+
+            continue
 
 
         # =============================================================
-        # PRODUCT GEOMETRY CORRECTION
+        # 🔥 RAW AREA = ACTUAL PATTERN AREA
         #
-        # GIỮ NGUYÊN LOGIC CŨ
+        # Không nhân PRODUCT GEOMETRY FACTOR.
         # =============================================================
 
-        if p_cls in [
-            "FABRIC",
-            "CONTRAST"
-        ]:
-
-            corrected_unit_area = (
-                pure_unit_area
-                *
-                geometry_factor
-            )
-
-        else:
-
-            corrected_unit_area = (
-                pure_unit_area
-            )
+        corrected_unit_area = (
+            pure_unit_area
+        )
 
 
         # =============================================================
@@ -6169,47 +6122,97 @@ if (
         )
 
 
+        # =============================================================
+        # PIECE QUANTITY
+        # =============================================================
+
         if idx in user_pieces_dict:
 
-            pcs = int(
-                user_pieces_dict[idx]
-            )
+            try:
+
+                pcs = int(
+                    user_pieces_dict[
+                        idx
+                    ]
+                )
+
+            except Exception:
+
+                pcs = 1
 
         elif str(idx) in user_pieces_dict:
 
-            pcs = int(
-                user_pieces_dict[str(idx)]
-            )
+            try:
+
+                pcs = int(
+                    user_pieces_dict[
+                        str(idx)
+                    ]
+                )
+
+            except Exception:
+
+                pcs = 1
 
         elif (
-            "active_user_pieces" in v
-            and
-            int(
-                v["active_user_pieces"]
-            ) >= 1
+            v.get(
+                "active_user_pieces"
+            ) is not None
         ):
 
-            pcs = int(
-                v["active_user_pieces"]
-            )
+            try:
 
-        elif (
-            pd.notna(
-                r.get(
-                    "Số lượng rập"
+                pcs = int(
+                    v[
+                        "active_user_pieces"
+                    ]
                 )
+
+            except Exception:
+
+                pcs = 1
+
+        elif pd.notna(
+            r.get(
+                "Số lượng rập",
+                float("nan")
             )
-            and
-            int(
-                r.get(
-                    "Số lượng rập"
-                )
-            ) >= 1
         ):
 
-            pcs = int(
-                r["Số lượng rập"]
+            try:
+
+                pcs = int(
+                    float(
+                        r.get(
+                            "Số lượng rập"
+                        )
+                    )
+                )
+
+            except Exception:
+
+                pcs = 1
+
+        elif pd.notna(
+            r.get(
+                "cut_quantity",
+                float("nan")
             )
+        ):
+
+            try:
+
+                pcs = int(
+                    float(
+                        r.get(
+                            "cut_quantity"
+                        )
+                    )
+                )
+
+            except Exception:
+
+                pcs = 1
 
         else:
 
@@ -6217,17 +6220,19 @@ if (
 
 
         # =============================================================
-        # FALLBACK PIECE QUANTITY
+        # FALLBACK PIECE QTY
+        #
+        # Chỉ dùng khi AI không cung cấp quantity.
         # =============================================================
 
         if (
             not user_override_exists
             and
-            pcs == 1
+            pcs <= 1
             and
-            not v.get(
+            v.get(
                 "active_user_pieces"
-            )
+            ) is None
             and
             pd.isna(
                 r.get(
@@ -6235,18 +6240,44 @@ if (
                     float("nan")
                 )
             )
+            and
+            pd.isna(
+                r.get(
+                    "cut_quantity",
+                    float("nan")
+                )
+            )
         ):
+
+            pair_keywords = [
+
+                "front leg",
+
+                "back leg",
+
+                "front panel pair",
+
+                "back panel pair",
+
+                "than truoc",
+
+                "than sau",
+
+                "ong quan",
+
+                "sleeve pair",
+
+                "left/right",
+
+                "left right",
+
+                "pair",
+            ]
+
 
             if any(
                 x in c_name_lower
-                for x in [
-                    "front leg",
-                    "back leg",
-                    "than truoc",
-                    "than sau",
-                    "ong quan",
-                    "sleeve pair"
-                ]
+                for x in pair_keywords
             ):
 
                 pcs = 2
@@ -6291,10 +6322,6 @@ if (
 
         # =============================================================
         # SEAM ALLOWANCE
-        #
-        # 🔧 CHỈ SỬA COMMERCIAL PANTS
-        #
-        # Không cộng 6% rồi lại cộng wastage như trước.
         # =============================================================
 
         area_includes_seam = bool(
@@ -6310,31 +6337,20 @@ if (
         )
 
 
-        if is_long_pant and p_cls in [
-            "FABRIC",
-            "CONTRAST"
-        ]:
+        if (
+            p_cls in [
+                "FABRIC",
+                "CONTRAST"
+            ]
+            and
+            not area_includes_seam
+        ):
 
-            seam_modifier = (
-                1.00
-                if area_includes_seam
-                else 1.03
-            )
+            seam_modifier = 1.06
 
         else:
 
-            seam_modifier = (
-                1.06
-                if (
-                    p_cls in [
-                        "FABRIC",
-                        "CONTRAST"
-                    ]
-                    and
-                    not area_includes_seam
-                )
-                else 1.0
-            )
+            seam_modifier = 1.00
 
 
         total_piece_area = (
@@ -6347,7 +6363,7 @@ if (
 
 
         # =============================================================
-        # WIDTH THEO MATERIAL
+        # MATERIAL WIDTH
         # =============================================================
 
         if p_cls == "FUSING":
@@ -6403,7 +6419,12 @@ if (
 
 
         # =============================================================
-        # MARKER EFFICIENCY
+        # 🔒 MARKER EFFICIENCY
+        #
+        # FABRIC / CONTRAST:
+        # dùng MASTER active_marker_efficiency_value
+        #
+        # Đây là nơi duy nhất xử lý packing density.
         # =============================================================
 
         row_efficiency = (
@@ -6411,42 +6432,40 @@ if (
         )
 
 
-        if p_cls in [
-            "FUSING",
-            "LINING"
-        ]:
+        if p_cls == "FUSING":
 
-            row_efficiency = 0.60
+            row_efficiency = float(
+                st.session_state.get(
+                    "fusing_marker_efficiency",
+                    0.60
+                )
+            )
+
+        elif p_cls == "LINING":
+
+            row_efficiency = float(
+                st.session_state.get(
+                    "lining_marker_efficiency",
+                    0.60
+                )
+            )
 
         elif p_cls == "RIB":
 
-            row_efficiency = 0.82
+            row_efficiency = float(
+                st.session_state.get(
+                    "rib_marker_efficiency",
+                    0.82
+                )
+            )
 
         elif p_cls == "PADDING":
 
-            row_efficiency = 0.85
-
-
-        # =============================================================
-        # 🔧 JEAN / PANT COMMERCIAL EFFICIENCY LOCK
-        #
-        # CHỈ FABRIC / CONTRAST
-        #
-        # Không tác động các loại khác.
-        # =============================================================
-
-        if (
-            is_long_pant
-            and
-            p_cls in [
-                "FABRIC",
-                "CONTRAST"
-            ]
-        ):
-
-            row_efficiency = max(
-                row_efficiency,
-                PANTS_COMMERCIAL_EFFICIENCY
+            row_efficiency = float(
+                st.session_state.get(
+                    "padding_marker_efficiency",
+                    0.85
+                )
             )
 
 
@@ -6481,6 +6500,10 @@ if (
         )
 
 
+        # =============================================================
+        # POST SHRINKAGE
+        # =============================================================
+
         gross_area_post_shrink = (
             gross_area_sq_inches
             *
@@ -6501,32 +6524,18 @@ if (
 
         # =============================================================
         # WASTAGE
-        #
-        # 🔧 JEAN/PANT:
-        # dùng 1.03 khi area đã có seam,
-        # 1.05 khi chưa có seam.
         # =============================================================
 
-        if is_long_pant:
+        if area_includes_seam:
 
-            actual_wastage = (
-                1.03
-                if area_includes_seam
-                else 1.05
-            )
+            actual_wastage = 1.03
 
         else:
 
             actual_wastage = (
-                1.03
-                if area_includes_seam
-                else wastage_allowance
+                wastage_allowance
             )
 
-
-        # =============================================================
-        # TOTAL
-        # =============================================================
 
         total_inches_with_wastage = (
             linear_inches_needed
@@ -6579,30 +6588,41 @@ if (
             "_master_width"
         ] = current_w
 
+
         df_bom.at[
             idx,
             "_master_warp_shrink"
         ] = shrink_v_percent
+
 
         df_bom.at[
             idx,
             "_master_weft_shrink"
         ] = shrink_h_percent
 
+
         df_bom.at[
             idx,
-            "_commercial_efficiency"
+            "_master_efficiency"
         ] = row_efficiency
 
-        df_bom.at[
-            idx,
-            "_commercial_seam_modifier"
-        ] = seam_modifier
 
         df_bom.at[
             idx,
-            "_commercial_wastage"
-        ] = actual_wastage
+            "_master_geometry_factor"
+        ] = 1.00
+
+
+        df_bom.at[
+            idx,
+            "_master_product_type"
+        ] = product_type
+
+
+        df_bom.at[
+            idx,
+            "_master_seam_modifier"
+        ] = seam_modifier
 
 
         # =============================================================
@@ -6610,21 +6630,20 @@ if (
         # =============================================================
 
         print(
-            "[DM ENGINE]"
+            "[DM ENGINE V28.9]"
             f" idx={idx}"
             f" | product={product_type}"
-            f" | pant={is_long_pant}"
             f" | comp={c_name}"
+            f" | class={p_cls}"
             f" | pcs={pcs}"
             f" | raw_area={pure_unit_area:.2f}"
-            f" | geometry_factor={geometry_factor:.2f}"
+            f" | geometry_factor=1.00"
             f" | corrected_area={corrected_unit_area:.2f}"
             f" | width={current_w:.2f}"
             f" | shrink_v={shrink_v_percent:.2f}%"
             f" | shrink_h={shrink_h_percent:.2f}%"
             f" | efficiency={row_efficiency:.4f}"
             f" | seam={seam_modifier:.4f}"
-            f" | wastage={actual_wastage:.4f}"
             f" | gross={gross_consumption_yards:.4f} Yds"
         )
 
@@ -6657,7 +6676,7 @@ if (
 
 
     # =================================================================
-    # FINAL MASTER COMMIT
+    # FINAL GROSS CONSUMPTION CLEAN
     # =================================================================
 
     if "Gross Consumption" in df_bom.columns:
@@ -6674,6 +6693,10 @@ if (
         ).round(4)
 
 
+    # =================================================================
+    # FINAL MASTER COMMIT
+    # =================================================================
+
     st.session_state[
         "active_calculated_df_bom"
     ] = df_bom.copy()
@@ -6689,7 +6712,7 @@ if (
     # =================================================================
 
     print(
-        "[DM ENGINE FINAL]"
+        "[DM ENGINE FINAL V28.9]"
         f" Product={product_type}"
         f" | Size={ie_master['size']}"
         f" | Width={parsed_width:.2f}\""
@@ -6698,8 +6721,8 @@ if (
         f" | Width Source={ie_master['width_source']}"
         f" | Warp Source={ie_master['warp_source']}"
         f" | Weft Source={ie_master['weft_source']}"
-        f" | Geometry Factor={geometry_factor:.2f}"
-        f" | Pant Efficiency={PANTS_COMMERCIAL_EFFICIENCY:.4f}"
+        f" | Geometry Factor=1.00"
+        f" | Base Efficiency={base_efficiency:.4f}"
         f" | Rows={len(df_bom)}"
         f" | Total DM="
         f"{df_bom['Gross Consumption'].sum():.4f} Yds"
