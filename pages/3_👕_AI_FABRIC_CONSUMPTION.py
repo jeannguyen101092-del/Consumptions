@@ -5118,7 +5118,7 @@ print(
 ctx["ai_expert_decision"] = ai_decision
 
 st.session_state["bom_data"] = ctx
-  # =====================================================================
+ # =====================================================================
 # 🟩 ĐOẠN 5.2 - PHẦN B1 + B2
 # VERSION V29.5 - MASTER COMMERCIAL CONSUMPTION ENGINE
 # 🔒 CHAT WIDTH + SHRINKAGE + PRODUCT EFFICIENCY SYNC
@@ -5202,6 +5202,10 @@ except (TypeError, ValueError):
 shrink_v_percent = max(0.0, min(shrink_v_percent, 30.0))
 shrink_h_percent = max(0.0, min(shrink_h_percent, 30.0))
 
+# 🔥 FIX LỖI NAMEERROR: Định nghĩa chính xác biến shrink_v và shrink_h dạng số thập phân
+shrink_v = shrink_v_percent / 100.0
+shrink_h = shrink_h_percent / 100.0
+
 # 🔒 MASTER COMMIT SHRINKAGE
 st.session_state["current_warp_shrinkage"] = shrink_v_percent
 st.session_state["current_weft_shrinkage"] = shrink_h_percent
@@ -5234,41 +5238,30 @@ except (TypeError, ValueError):
 base_efficiency = max(0.52, min(base_efficiency, 0.95))
 
 # =====================================================================
-# 🟢 FIX ĐỊNH MỨC CAO: ĐIỀU CHỈNH LẠI PRODUCT-SPECIFIC EFFICIENCY
+# 🟢 PRODUCT-SPECIFIC EFFICIENCY
 # =====================================================================
 PRODUCT_EFFICIENCY_ADJUSTMENT = {
-    # Quần jeans: Hạ thấp efficiency xuống để tăng DM lên ~8% gánh hao hụt cắt thực tế
     "JEAN_LONG": 0.720,
     "JEAN":      0.720,
-
-    # Quần thường và Shorts
     "PANT":      0.745,
     "TROUSER":   0.740,
     "KHAKI":     0.740,
     "SHORT":     0.730,
-
-    # Jacket / Coats: Đẩy mạnh efficiency lên cao để ép định mức (DM) giảm xuống ~40%
     "JACKET":    0.850, 
     "COAT":      0.820,
     "BLAZER":    0.800,
-
-    # Áo sơ mi và áo thun
     "SHIRT":     0.780,
     "BLOUSE":    0.780,
     "POLO":      0.760,
     "TEE":       0.760,
     "TSHIRT":    0.760,
-
-    # Váy đầm
     "DRESS":     0.680,
     "SKIRT":     0.720,
 }
 
 product_efficiency = PRODUCT_EFFICIENCY_ADJUSTMENT.get(product_type, base_efficiency)
 
-# ---------------------------------------------------------------------
 # Tuyến tính bổ sung chế độ sọc/tuyết vải (Nap / One Way)
-# ---------------------------------------------------------------------
 is_nap_mode = bool(st.session_state.get("is_nap_fabric", False))
 is_one_way_mode = bool(st.session_state.get("is_one_way_fabric", False))
 
@@ -5285,7 +5278,7 @@ ctx["ie_detected_type"] = product_type
 
 
 # =====================================================================
-# 🟢 B2 - COMMERCIAL CONSUMPTION ENGINE (COMPLETED)
+# 🟢 B2 - COMMERCIAL CONSUMPTION ENGINE
 # =====================================================================
 
 summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
@@ -5299,12 +5292,10 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
 
     df_bom["Khổ vải sản xuất (inch)"] = parsed_width
 
-    # Lấy thông tin ghi đè tùy biến nếu có từ giao diện
     user_pieces_dict = st.session_state.get("user_edited_pieces", {})
     user_material_dict = st.session_state.get("user_edited_materials", {})
 
     # Tính toán hệ số nhân co rút dôi dư an toàn thương mại
-    # Công thức nhân diện tích co: Factor = 1 / ((1 - v) * (1 - h))
     shrink_factor = 1.0 / (max(0.7, 1.0 - shrink_v) * max(0.7, 1.0 - shrink_h))
 
     # Duyệt và áp công thức tính toán Định Mức Thương Mại trên từng linh kiện
@@ -5312,34 +5303,25 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
         comp_name = str(row.get("Component", "")).strip()
         mat_type = str(row.get("Material_Type", "FABRIC")).upper().strip()
         
-        # 1. Thu thập số lượng chi tiết rập
         qty_pieces = user_pieces_dict.get(comp_name, row.get("Số lượng rập", 1))
         try:
             qty_pieces = int(float(qty_pieces))
         except (ValueError, TypeError):
             qty_pieces = 1
             
-        # 2. Thu thập diện tích rập gốc (Polygon Area tính bằng inch vuông hoặc mét vuông)
         base_area = float(row.get("Polygon_Area", row.get("Base_Area", 0.0)))
         
-        # 3. Tính toán Định mức Tổng thể Thương mại (Gross Consumption) dựa trên Efficiency điều chỉnh
         if product_efficiency > 0 and base_area > 0:
-            # Công thức chuẩn hóa: (Diện tích x Số lượng x Hệ số co rút) / Hiệu suất sơ đồ
             calculated_gross = (base_area * qty_pieces * shrink_factor) / product_efficiency
-            
-            # Đổi đơn vị ra mét dài (Linear Meters) dựa trên khổ vải thực tế nếu diện tích là inch vuông
-            # Nếu hệ thống đã tính sẵn định mức gốc dạng cơ sở, ta scale trực tiếp theo tỷ lệ nghịch efficiency
             if "Base_Consumption" in row and float(row["Base_Consumption"]) > 0:
                 calculated_gross = (float(row["Base_Consumption"]) * shrink_factor * (base_efficiency / product_efficiency))
         else:
             calculated_gross = float(row.get("Base_Consumption", 0.0)) * shrink_factor
 
-        # Giới hạn làm tròn số đẹp cho định mức may công nghiệp
         final_gross = round(max(0.0, calculated_gross), 4)
         df_bom.at[idx, "Gross Consumption"] = final_gross
         df_bom.at[idx, "Số lượng rập"] = qty_pieces
 
-        # Gom nhóm tổng kết vật liệu chính/phụ
         for key in summary_grouped_gross.keys():
             if key in mat_type:
                 summary_grouped_gross[key] += final_gross
@@ -5349,8 +5331,8 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
     st.session_state["active_calculated_df_bom"] = df_bom
     ctx["bom_rows"] = df_bom.to_dict(orient="records")
     
-    # Hiển thị kết quả ra màn hình Streamlit để nghiệm thu
-    st.success(f"⚡ Đã tối ưu định mức! Hiệu suất áp dụng [{product_type}]: {round(product_efficiency*100, 2)}% (Giảm tải Jacket & Bù trừ Jeans).")
+    st.success(f"⚡ Đã tối ưu định mức! Hiệu suất áp dụng [{product_type}]: {round(product_efficiency*100, 2)}% (Khổ: {parsed_width}, Co dọc: {shrink_v_percent}%, Co ngang: {shrink_h_percent}%)")
+
 
       # =====================================================================
     # 🟩 ĐOẠN 5.2C (VERSION V27.0): AUTOMATED CORES IGNITION
