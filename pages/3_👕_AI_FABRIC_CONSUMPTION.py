@@ -6447,273 +6447,232 @@ else:
     ] = pd.DataFrame()
 
 
-# =====================================================================
-# 🟩 END OF 5.2 B1 + B2 V30.0
-# =====================================================================
-     # =====================================================================
-# 🟩 ĐOẠN 5.2C - VERSION V29.2
-# MASTER COMMERCIAL CONSUMPTION IGNITION
-# 🔒 KHÔNG TÍNH DM - CHỈ ĐẢM BẢO B1+B2 ĐƯỢC CHẠY
-# =====================================================================
+    # =====================================================================
+    # 🟩 ĐOẠN 5.2C - VERSION V29.2
+    # MASTER COMMERCIAL CONSUMPTION IGNITION
+    # =====================================================================
 
-if "bom_data" not in st.session_state:
-    st.session_state["bom_data"] = {}
+    if "bom_data" not in st.session_state:
+        st.session_state["bom_data"] = {}
 
-ctx = st.session_state["bom_data"]
+    ctx = st.session_state["bom_data"]
 
-if not isinstance(ctx, dict):
-    ctx = {}
-    st.session_state["bom_data"] = ctx
+    if not isinstance(ctx, dict):
+        ctx = {}
+        st.session_state["bom_data"] = ctx
 
+    # =================================================================
+    # 1. KIỂM TRA BOM THÔ
+    # =================================================================
 
-# =====================================================================
-# 1. KIỂM TRA BOM THÔ
-# =====================================================================
+    bom_rows = ctx.get("bom_rows", [])
 
-bom_rows = ctx.get("bom_rows", [])
-
-has_raw_bom = (
-    isinstance(bom_rows, list)
-    and len(bom_rows) > 0
-)
-
-
-# =====================================================================
-# 2. KIỂM TRA DATAFRAME ĐÃ CÓ
-# =====================================================================
-
-existing_df = st.session_state.get(
-    "active_calculated_df_bom",
-    None
-)
-
-has_dataframe = (
-    isinstance(existing_df, pd.DataFrame)
-    and not existing_df.empty
-)
-
-
-# =====================================================================
-# 3. KIỂM TRA DM THỰC SỰ CÓ GIÁ TRỊ
-# =====================================================================
-
-has_real_consumption = False
-
-if has_dataframe:
-
-    dm_columns = [
-        "Gross Consumption (Yds)",
-        "Gross Consumption",
-        "Gross Consumption (Yard)",
-        "Gross Consumption Yds",
-        "Consumption",
-        "Định mức",
-        "DM"
-    ]
-
-    for col in dm_columns:
-
-        if col in existing_df.columns:
-
-            try:
-
-                values = pd.to_numeric(
-                    existing_df[col],
-                    errors="coerce"
-                ).fillna(0)
-
-                if float(values.sum()) > 0:
-
-                    has_real_consumption = True
-                    break
-
-            except Exception:
-                pass
-
-
-# =====================================================================
-# 4. KHÔI PHỤC THAM SỐ MASTER
-# =====================================================================
-
-try:
-
-    current_width = float(
-        st.session_state.get(
-            "current_active_width",
-            ctx.get(
-                "fabric_width_inch",
-                58.0
-            )
-        )
+    has_raw_bom = (
+        isinstance(bom_rows, list)
+        and len(bom_rows) > 0
     )
 
-except Exception:
+    # =================================================================
+    # 2. KIỂM TRA DATAFRAME ĐÃ CÓ
+    # =================================================================
 
-    current_width = 58.0
-
-
-if current_width <= 0:
-    current_width = 58.0
-
-
-try:
-
-    current_size = str(
-        st.session_state.get(
-            "current_active_size",
-            ctx.get(
-                "calculated_on_size",
-                "32"
-            )
-        )
-    ).strip()
-
-except Exception:
-
-    current_size = "32"
-
-
-try:
-
-    current_warp = float(
-        st.session_state.get(
-            "current_warp_shrinkage",
-            ctx.get(
-                "warp_shrinkage_percent",
-                0.0
-            )
-        )
+    existing_df = st.session_state.get(
+        "active_calculated_df_bom",
+        None
     )
 
-except Exception:
+    has_dataframe = (
+        isinstance(existing_df, pd.DataFrame)
+        and not existing_df.empty
+    )
 
-    current_warp = 0.0
+    # =================================================================
+    # 3. KIỂM TRA DM THỰC SỰ CÓ GIÁ TRỊ
+    # =================================================================
 
+    has_real_consumption = False
 
-try:
+    if has_dataframe:
 
-    current_weft = float(
-        st.session_state.get(
-            "current_weft_shrinkage",
-            ctx.get(
-                "weft_shrinkage_percent",
-                0.0
+        dm_columns = [
+            "Gross Consumption (Yds)",
+            "Gross Consumption",
+            "Gross Consumption (Yard)",
+            "Gross Consumption Yds",
+            "Consumption",
+            "Định mức",
+            "DM"
+        ]
+
+        for col in dm_columns:
+
+            if col in existing_df.columns:
+
+                try:
+
+                    values = pd.to_numeric(
+                        existing_df[col],
+                        errors="coerce"
+                    ).fillna(0)
+
+                    if float(values.sum()) > 0:
+                        has_real_consumption = True
+                        break
+
+                except Exception:
+                    pass
+
+    # =================================================================
+    # 4. KHÔI PHỤC THAM SỐ MASTER
+    # =================================================================
+
+    try:
+
+        current_width = float(
+            st.session_state.get(
+                "current_active_width",
+                ctx.get(
+                    "fabric_width_inch",
+                    58.0
+                )
             )
         )
-    )
 
-except Exception:
+    except Exception:
 
-    current_weft = 0.0
+        current_width = 58.0
 
+    if current_width <= 0:
+        current_width = 58.0
 
-# =====================================================================
-# 5. MASTER SYNC
-# =====================================================================
+    try:
 
-st.session_state[
-    "current_active_width"
-] = current_width
+        current_size = str(
+            st.session_state.get(
+                "current_active_size",
+                ctx.get(
+                    "calculated_on_size",
+                    "32"
+                )
+            )
+        ).strip()
 
-st.session_state[
-    "current_active_size"
-] = current_size
+    except Exception:
 
-st.session_state[
-    "current_warp_shrinkage"
-] = current_warp
+        current_size = "32"
 
-st.session_state[
-    "current_weft_shrinkage"
-] = current_weft
+    try:
 
+        current_warp = float(
+            st.session_state.get(
+                "current_warp_shrinkage",
+                ctx.get(
+                    "warp_shrinkage_percent",
+                    0.0
+                )
+            )
+        )
 
-ctx[
-    "fabric_width_inch"
-] = current_width
+    except Exception:
 
-ctx[
-    "usable_width_inch"
-] = current_width
+        current_warp = 0.0
 
-ctx[
-    "calculated_on_size"
-] = current_size
+    try:
 
-ctx[
-    "warp_shrinkage_percent"
-] = current_warp
+        current_weft = float(
+            st.session_state.get(
+                "current_weft_shrinkage",
+                ctx.get(
+                    "weft_shrinkage_percent",
+                    0.0
+                )
+            )
+        )
 
-ctx[
-    "weft_shrinkage_percent"
-] = current_weft
+    except Exception:
 
+        current_weft = 0.0
 
-# =====================================================================
-# 6. 🔥 MASTER IGNITION
-#
-# Nếu:
-# - Có BOM thô
-# - Chưa có dataframe
-# HOẶC
-# - Có dataframe nhưng DM = 0
-#
-# → cho phép B1+B2 tính lại
-# =====================================================================
-
-need_recalculate = (
-    has_raw_bom
-    and (
-        not has_dataframe
-        or not has_real_consumption
-    )
-)
-
-
-if need_recalculate:
+    # =================================================================
+    # 5. MASTER SYNC
+    # =================================================================
 
     st.session_state[
-        "pipeline_auto_run_executed"
-    ] = False
+        "current_active_width"
+    ] = current_width
 
-    # Xóa dataframe DM cũ bị 0
-    if "active_calculated_df_bom" in st.session_state:
+    st.session_state[
+        "current_active_size"
+    ] = current_size
 
-        old_df = st.session_state.get(
-            "active_calculated_df_bom"
+    st.session_state[
+        "current_warp_shrinkage"
+    ] = current_warp
+
+    st.session_state[
+        "current_weft_shrinkage"
+    ] = current_weft
+
+    ctx[
+        "fabric_width_inch"
+    ] = current_width
+
+    ctx[
+        "usable_width_inch"
+    ] = current_width
+
+    ctx[
+        "calculated_on_size"
+    ] = current_size
+
+    ctx[
+        "warp_shrinkage_percent"
+    ] = current_warp
+
+    ctx[
+        "weft_shrinkage_percent"
+    ] = current_weft
+
+    # =================================================================
+    # 6. MASTER IGNITION
+    # =================================================================
+
+    need_recalculate = (
+        has_raw_bom
+        and (
+            not has_dataframe
+            or not has_real_consumption
         )
-
-        if isinstance(old_df, pd.DataFrame):
-
-            st.session_state[
-                "active_calculated_df_bom"
-            ] = old_df.copy()
-
-
-    print(
-        "\n"
-        "============================================================\n"
-        "[5.2C MASTER IGNITION V29.2]\n"
-        f"BOM RAW          = {has_raw_bom}\n"
-        f"DATAFRAME        = {has_dataframe}\n"
-        f"REAL DM          = {has_real_consumption}\n"
-        f"RECALCULATE      = {need_recalculate}\n"
-        f"WIDTH            = {current_width}\"\n"
-        f"SIZE             = {current_size}\n"
-        f"WARP SHRINK      = {current_warp}%\n"
-        f"WEFT SHRINK      = {current_weft}%\n"
-        "============================================================"
     )
 
+    if need_recalculate:
 
-# =====================================================================
-# 7. MASTER COMMIT
-# =====================================================================
+        st.session_state[
+            "pipeline_auto_run_executed"
+        ] = False
 
-st.session_state[
-    "bom_data"
-] = ctx
+        print(
+            "\n"
+            "============================================================\n"
+            "[5.2C MASTER IGNITION V29.2]\n"
+            f"BOM RAW          = {has_raw_bom}\n"
+            f"DATAFRAME        = {has_dataframe}\n"
+            f"REAL DM          = {has_real_consumption}\n"
+            f"RECALCULATE      = {need_recalculate}\n"
+            f"WIDTH            = {current_width}\"\n"
+            f"SIZE             = {current_size}\n"
+            f"WARP SHRINK      = {current_warp}%\n"
+            f"WEFT SHRINK      = {current_weft}%\n"
+            "============================================================"
+        )
 
+    # =================================================================
+    # 7. MASTER COMMIT
+    # =================================================================
+
+    st.session_state[
+        "bom_data"
+    ] = ctx
         # =====================================================================
     # 🟩 ĐOẠN 6: KHỞI TẠO HÀM XUẤT EXCEL NỘI BỘ (LOCAL EXPORT ENGINE - FIXED)
     # =====================================================================
