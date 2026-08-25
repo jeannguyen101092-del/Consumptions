@@ -5118,10 +5118,10 @@ print(
 ctx["ai_expert_decision"] = ai_decision
 
 st.session_state["bom_data"] = ctx
- # =====================================================================
+# =====================================================================
 # 🟩 ĐOẠN 5.2 - PHẦN B1 + B2
-# VERSION V29.5 - MASTER COMMERCIAL CONSUMPTION ENGINE
-# 🔒 CHAT WIDTH + SHRINKAGE + PRODUCT EFFICIENCY SYNC
+# VERSION V29.6 - MASTER COMMERCIAL CONSUMPTION ENGINE
+# 🔒 CHAT WIDTH + SHRINKAGE + PRODUCT EFFICIENCY SYNC (FIX ZERO VALUE)
 # =====================================================================
 
 import pandas as pd
@@ -5202,7 +5202,6 @@ except (TypeError, ValueError):
 shrink_v_percent = max(0.0, min(shrink_v_percent, 30.0))
 shrink_h_percent = max(0.0, min(shrink_h_percent, 30.0))
 
-# 🔥 FIX LỖI NAMEERROR: Định nghĩa chính xác biến shrink_v và shrink_h dạng số thập phân
 shrink_v = shrink_v_percent / 100.0
 shrink_h = shrink_h_percent / 100.0
 
@@ -5261,7 +5260,6 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
 
 product_efficiency = PRODUCT_EFFICIENCY_ADJUSTMENT.get(product_type, base_efficiency)
 
-# Tuyến tính bổ sung chế độ sọc/tuyết vải (Nap / One Way)
 is_nap_mode = bool(st.session_state.get("is_nap_fabric", False))
 is_one_way_mode = bool(st.session_state.get("is_one_way_fabric", False))
 
@@ -5278,15 +5276,17 @@ ctx["ie_detected_type"] = product_type
 
 
 # =====================================================================
-# 🟢 B2 - COMMERCIAL CONSUMPTION ENGINE
+# 🟢 B2 - COMMERCIAL CONSUMPTION ENGINE (FIXED COLUMN MAPPING)
 # =====================================================================
 
 summary_grouped_gross = {"FABRIC": 0.0, "FUSING": 0.0, "LINING": 0.0, "CONTRAST": 0.0, "RIB": 0.0, "PADDING": 0.0}
 
 if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
     
-    # Chuẩn hóa cấu trúc cột đầu ra bắt buộc
-    for col in ["Gross Consumption", "Số lượng rập", "Khổ vải sản xuất (inch)"]:
+    # Ép tên tiêu đề hiển thị trên UI khớp chính xác với cột dữ liệu tính toán
+    target_col = "Gross Consumption" if "Gross Consumption" in df_bom.columns else "Gross Consumption (Yds)"
+    
+    for col in [target_col, "Số lượng rập", "Khổ vải sản xuất (inch)"]:
         if col not in df_bom.columns:
             df_bom[col] = 0.0 if col != "Số lượng rập" else 1
 
@@ -5295,31 +5295,34 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
     user_pieces_dict = st.session_state.get("user_edited_pieces", {})
     user_material_dict = st.session_state.get("user_edited_materials", {})
 
-    # Tính toán hệ số nhân co rút dôi dư an toàn thương mại
     shrink_factor = 1.0 / (max(0.7, 1.0 - shrink_v) * max(0.7, 1.0 - shrink_h))
 
-    # Duyệt và áp công thức tính toán Định Mức Thương Mại trên từng linh kiện
     for idx, row in df_bom.iterrows():
-        comp_name = str(row.get("Component", "")).strip()
-        mat_type = str(row.get("Material_Type", "FABRIC")).upper().strip()
+        comp_name = str(row.get("Component", row.get("Component Name (Tên Chi Tiết)", ""))).strip()
+        mat_type = str(row.get("Material Class", row.get("Material_Type", "FABRIC"))).upper().strip()
         
-        qty_pieces = user_pieces_dict.get(comp_name, row.get("Số lượng rập", 1))
+        qty_pieces = user_pieces_dict.get(comp_name, row.get("Số lượng", row.get("Số lượng rập", 1)))
         try:
             qty_pieces = int(float(qty_pieces))
         except (ValueError, TypeError):
             qty_pieces = 1
             
-        base_area = float(row.get("Polygon_Area", row.get("Base_Area", 0.0)))
+        # 🔥 FIX: Nhận diện chính xác tên cột polygon_net_area viết thường từ database hiển thị trên giao diện
+        base_area = float(row.get("polygon_net_area", row.get("Polygon_Area", row.get("Base_Area", 0.0))))
         
+        # Nếu đang tính toán theo đơn vị diện tích Inch vuông sang Yards dài:
+        # Công thức: (polygon_net_area * qty * shrink_factor) / (product_efficiency * Khổ vải * 36 inch)
         if product_efficiency > 0 and base_area > 0:
-            calculated_gross = (base_area * qty_pieces * shrink_factor) / product_efficiency
+            calculated_gross = (base_area * qty_pieces * shrink_factor) / (product_efficiency * parsed_width * 36.0)
+            
+            # Khôi phục dự phòng nếu tính theo tỷ lệ Base_Consumption gốc 
             if "Base_Consumption" in row and float(row["Base_Consumption"]) > 0:
                 calculated_gross = (float(row["Base_Consumption"]) * shrink_factor * (base_efficiency / product_efficiency))
         else:
             calculated_gross = float(row.get("Base_Consumption", 0.0)) * shrink_factor
 
         final_gross = round(max(0.0, calculated_gross), 4)
-        df_bom.at[idx, "Gross Consumption"] = final_gross
+        df_bom.at[idx, target_col] = final_gross
         df_bom.at[idx, "Số lượng rập"] = qty_pieces
 
         for key in summary_grouped_gross.keys():
@@ -5331,7 +5334,7 @@ if isinstance(df_bom, pd.DataFrame) and not df_bom.empty:
     st.session_state["active_calculated_df_bom"] = df_bom
     ctx["bom_rows"] = df_bom.to_dict(orient="records")
     
-    st.success(f"⚡ Đã tối ưu định mức! Hiệu suất áp dụng [{product_type}]: {round(product_efficiency*100, 2)}% (Khổ: {parsed_width}, Co dọc: {shrink_v_percent}%, Co ngang: {shrink_h_percent}%)")
+    st.success(f"⚡ Đã tối ưu định mức! Hiệu suất áp dụng [{product_type}]: {round(product_efficiency*100, 2)}% (Đã đồng bộ hóa diện tích mạng lưới rập sang đơn vị Yards dài thành công).")
 
 
       # =====================================================================
