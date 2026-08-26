@@ -30,6 +30,6 @@ opencv-python-headless
 openpyxl
 pandas
 pymupdf
-supabase==2.4.0
-Pillow==10.2.0
-requests==2.31.0
+supabase
+Pillow
+requests
