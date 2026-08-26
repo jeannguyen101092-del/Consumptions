@@ -1,30 +1,58 @@
 # =====================================================================
-# 🔍 PRODUCT IMAGE SEARCH & BULK STORAGE
-# VERSION V2.4.2
+# 🔍 PRODUCT IMAGE SEARCH & AUTO CATEGORY STORAGE
+# VERSION V2.5
 #
-# MASTER LOCAL CLIP IMAGE EMBEDDING ENGINE
+# MASTER LOCAL CLIP IMAGE EMBEDDING + ZERO-SHOT CATEGORY ENGINE
 #
 # MODEL:
 # openai/clip-vit-base-patch32
 #
-# OUTPUT:
-# 512-dimensional image embedding
+# IMAGE VECTOR:
+# 512D
+#
+# CATEGORY:
+# AI tự nhận diện bằng CLIP ZERO-SHOT
+#
+# FLOW:
+#
+# IMAGE
+#   ↓
+# PIL RGB
+#   ↓
+# CLIP IMAGE ENCODER
+#   ↓
+# 512D IMAGE VECTOR
+#
+# IMAGE
+#   ↓
+# CLIP TEXT ENCODER
+#   ↓
+# CATEGORY VECTORS
+#   ↓
+# COSINE SIMILARITY
+#   ↓
+# AI CATEGORY + CONFIDENCE
+#
+#   ↓
+# SUPABASE STORAGE
+#   ↓
+# products
 #
 # ❌ KHÔNG dùng Hugging Face Inference API
-# ❌ KHÔNG dùng HF_TOKEN để inference
+# ❌ KHÔNG cần HF_TOKEN
 # ❌ KHÔNG hard-code Supabase key
 #
 # 🔐 SUPABASE:
 # Đọc từ Streamlit Secrets / Tomy
-#
+# =====================================================================
+
+
+# =====================================================================
+# 1. STREAMLIT
 # =====================================================================
 
 import streamlit as st
 
-
-# =====================================================================
-# 1. PAGE CONFIG
-# =====================================================================
 
 st.set_page_config(
     page_title="Quản lý & Tìm kiếm mã hàng",
@@ -90,16 +118,15 @@ if MISSING_PACKAGES:
         "❌ STREAMLIT ĐANG THIẾU THƯ VIỆN"
     )
 
-    st.write(
-        "Package còn thiếu:"
-    )
+    st.write("Package còn thiếu:")
 
     for package in MISSING_PACKAGES:
         st.code(package)
 
     st.warning(
-        "Hãy thêm package vào requirements.txt "
-        "sau đó Reboot / Clear cache & reboot."
+        "Hãy thêm các package trên vào "
+        "requirements.txt rồi Reboot / "
+        "Clear cache & reboot."
     )
 
     st.code(
@@ -122,6 +149,10 @@ safetensors""",
 
 def get_secret_value(names):
 
+    # ---------------------------------------------------------
+    # DIRECT SECRETS
+    # ---------------------------------------------------------
+
     for name in names:
 
         try:
@@ -138,6 +169,10 @@ def get_secret_value(names):
         except Exception:
             pass
 
+
+    # ---------------------------------------------------------
+    # GROUP SECRETS
+    # ---------------------------------------------------------
 
     for group_name in [
         "supabase",
@@ -176,7 +211,7 @@ def get_secret_value(names):
 
 
 # =====================================================================
-# 5. SUPABASE
+# 5. SUPABASE CONFIG
 # =====================================================================
 
 SUPABASE_URL = get_secret_value(
@@ -202,7 +237,7 @@ SUPABASE_KEY = get_secret_value(
 
 
 # =====================================================================
-# 6. SECRET CHECK
+# 6. SECRET VALIDATION
 # =====================================================================
 
 missing_secrets = []
@@ -225,6 +260,10 @@ if missing_secrets:
     st.error(
         "❌ Không đọc được thông tin bảo mật "
         "từ Streamlit Secrets."
+    )
+
+    st.write(
+        "Hãy kiểm tra:"
     )
 
     for item in missing_secrets:
@@ -267,7 +306,131 @@ CLIP_DIMENSION = 512
 
 
 # =====================================================================
-# 9. DEVICE
+# 9. CATEGORY MASTER
+# =====================================================================
+#
+# AI sẽ phân loại ảnh vào một trong các nhóm này.
+#
+# Có thể thêm category mới ở đây mà không cần sửa database.
+# =====================================================================
+
+CATEGORY_CONFIG = {
+
+    "Quần dài": [
+        "long pants",
+        "trousers",
+        "full length pants",
+        "long leg pants",
+        "straight leg pants"
+    ],
+
+    "Quần short": [
+        "shorts",
+        "short pants",
+        "short trousers"
+    ],
+
+    "Quần jean": [
+        "jeans",
+        "denim jeans",
+        "denim pants",
+        "denim trousers"
+    ],
+
+    "Quần jogger": [
+        "jogger pants",
+        "joggers",
+        "jogger trousers",
+        "sports jogger pants"
+    ],
+
+    "Quần túi hộp": [
+        "cargo pants",
+        "cargo trousers",
+        "utility cargo pants",
+        "multi pocket pants"
+    ],
+
+    "Áo": [
+        "shirt",
+        "top",
+        "casual shirt",
+        "woven shirt",
+        "fashion top"
+    ],
+
+    "T-shirt": [
+        "t-shirt",
+        "tee shirt",
+        "short sleeve t-shirt",
+        "cotton t-shirt"
+    ],
+
+    "Polo": [
+        "polo shirt",
+        "polo top",
+        "polo t-shirt"
+    ],
+
+    "Hoodie": [
+        "hoodie",
+        "hooded sweatshirt",
+        "hooded top"
+    ],
+
+    "Jacket": [
+        "jacket",
+        "fashion jacket",
+        "casual jacket",
+        "outerwear jacket"
+    ],
+
+    "Skirt": [
+        "skirt",
+        "women's skirt",
+        "fashion skirt"
+    ],
+
+    "Dress": [
+        "dress",
+        "women's dress",
+        "fashion dress"
+    ]
+
+}
+
+
+CATEGORY_OPTIONS = list(
+    CATEGORY_CONFIG.keys()
+)
+
+
+# =====================================================================
+# 10. AI CATEGORY PROMPTS
+# =====================================================================
+#
+# Dùng prompt đầy đủ để CLIP hiểu đây là ảnh sản phẩm may mặc.
+# =====================================================================
+
+CATEGORY_PROMPTS = {
+
+    category: [
+        (
+            "a garment product photo of "
+            + prompt
+        )
+
+        for prompt in prompts
+    ]
+
+    for category, prompts
+    in CATEGORY_CONFIG.items()
+
+}
+
+
+# =====================================================================
+# 11. DEVICE
 # =====================================================================
 
 if torch.cuda.is_available():
@@ -284,7 +447,7 @@ else:
 
 
 # =====================================================================
-# 10. LOAD CLIP MODEL
+# 12. LOAD CLIP
 # =====================================================================
 
 @st.cache_resource(
@@ -308,7 +471,7 @@ def load_clip_model():
 
 
 # =====================================================================
-# 11. LOAD MODEL
+# 13. LOAD MODEL
 # =====================================================================
 
 try:
@@ -329,23 +492,7 @@ except Exception as e:
 
 
 # =====================================================================
-# 12. CATEGORY
-# =====================================================================
-
-CATEGORY_OPTIONS = [
-
-    "Quần dài",
-    "Quần short",
-    "Áo",
-    "Quần jogger",
-    "Quần jean",
-    "Quần túi hộp"
-
-]
-
-
-# =====================================================================
-# 13. IMAGE NORMALIZE
+# 14. IMAGE NORMALIZE
 # =====================================================================
 
 def normalize_image(file_bytes):
@@ -384,7 +531,7 @@ def normalize_image(file_bytes):
 
 
 # =====================================================================
-# 14. IMAGE HASH
+# 15. IMAGE HASH
 # =====================================================================
 
 def get_image_hash(image_bytes):
@@ -395,16 +542,12 @@ def get_image_hash(image_bytes):
 
 
 # =====================================================================
-# 15. NORMALIZE VECTOR
+# 16. NORMALIZE VECTOR
 # =====================================================================
 
 def normalize_embedding(
     embedding
 ):
-
-    # ---------------------------------------------------------
-    # Chuyển Tensor → list
-    # ---------------------------------------------------------
 
     if isinstance(
         embedding,
@@ -427,10 +570,6 @@ def normalize_embedding(
     ]
 
 
-    # ---------------------------------------------------------
-    # CHECK
-    # ---------------------------------------------------------
-
     if len(values) != CLIP_DIMENSION:
 
         raise Exception(
@@ -440,10 +579,6 @@ def normalize_embedding(
             f"{CLIP_DIMENSION}"
         )
 
-
-    # ---------------------------------------------------------
-    # L2
-    # ---------------------------------------------------------
 
     norm = math.sqrt(
         sum(
@@ -460,52 +595,32 @@ def normalize_embedding(
         )
 
 
-    values = [
+    return [
         x / norm
         for x in values
     ]
 
 
-    return values
-
-
 # =====================================================================
-# 16. CLIP IMAGE EMBEDDING
+# 17. IMAGE EMBEDDING
 # =====================================================================
 #
-# FIX V2.4.2
+# FIX tương thích transformers mới:
 #
-# Không sử dụng:
-#
-# image_features.ndim
-#
-# trước khi xác định object thực tế.
-#
-# Transformers version mới có thể trả:
-#
-# BaseModelOutputWithPooling
-#
-# thay vì Tensor.
-#
-# Vì vậy dùng:
-#
-# clip_model.vision_model(...)
-#
-# → pooler_output
-#
-# → visual_projection
-#
-# → 512D
-#
+# vision_model()
+#      ↓
+# pooler_output
+#      ↓
+# visual_projection
+#      ↓
+# 512D
 # =====================================================================
 
-def get_clip_image_embedding(image):
+def get_clip_image_embedding(
+    image
+):
 
     try:
-
-        # ---------------------------------------------------------
-        # PROCESS
-        # ---------------------------------------------------------
 
         inputs = clip_processor(
             images=image,
@@ -513,19 +628,11 @@ def get_clip_image_embedding(image):
         )
 
 
-        # ---------------------------------------------------------
-        # DEVICE
-        # ---------------------------------------------------------
-
         pixel_values = (
             inputs["pixel_values"]
             .to(DEVICE)
         )
 
-
-        # ---------------------------------------------------------
-        # VISION ENCODER
-        # ---------------------------------------------------------
 
         with torch.inference_mode():
 
@@ -535,10 +642,6 @@ def get_clip_image_embedding(image):
                 )
             )
 
-
-        # ---------------------------------------------------------
-        # GET POOLER OUTPUT
-        # ---------------------------------------------------------
 
         if hasattr(
             vision_outputs,
@@ -561,14 +664,9 @@ def get_clip_image_embedding(image):
         else:
 
             raise Exception(
-                "Không lấy được "
-                "pooler_output từ CLIP vision encoder."
+                "Không lấy được pooler_output."
             )
 
-
-        # ---------------------------------------------------------
-        # CHECK TENSOR
-        # ---------------------------------------------------------
 
         if not isinstance(
             pooled_output,
@@ -580,19 +678,6 @@ def get_clip_image_embedding(image):
             )
 
 
-        # ---------------------------------------------------------
-        # VISUAL PROJECTION
-        # ---------------------------------------------------------
-        #
-        # CLIP vision hidden size:
-        # 768
-        #
-        # Projection:
-        # 768 → 512
-        #
-        # Đây là embedding chuẩn của CLIP.
-        # ---------------------------------------------------------
-
         with torch.inference_mode():
 
             image_features = (
@@ -601,10 +686,6 @@ def get_clip_image_embedding(image):
                 )
             )
 
-
-        # ---------------------------------------------------------
-        # FLATTEN
-        # ---------------------------------------------------------
 
         image_features = (
             image_features
@@ -615,22 +696,14 @@ def get_clip_image_embedding(image):
         )
 
 
-        # ---------------------------------------------------------
-        # CHECK 512
-        # ---------------------------------------------------------
-
         if image_features.numel() != 512:
 
             raise Exception(
-                "CLIP image embedding "
-                f"không phải 512D: "
+                "Image embedding không phải "
+                f"512D: "
                 f"{image_features.numel()}"
             )
 
-
-        # ---------------------------------------------------------
-        # L2 NORMALIZATION
-        # ---------------------------------------------------------
 
         norm = torch.linalg.vector_norm(
             image_features
@@ -640,7 +713,7 @@ def get_clip_image_embedding(image):
         if norm.item() <= 0:
 
             raise Exception(
-                "CLIP embedding norm = 0."
+                "Image embedding norm = 0."
             )
 
 
@@ -649,19 +722,10 @@ def get_clip_image_embedding(image):
         )
 
 
-        # ---------------------------------------------------------
-        # FINAL LIST
-        # ---------------------------------------------------------
-
         embedding = (
-            image_features
-            .tolist()
+            image_features.tolist()
         )
 
-
-        # ---------------------------------------------------------
-        # FINAL HARD CHECK
-        # ---------------------------------------------------------
 
         if len(embedding) != 512:
 
@@ -677,12 +741,407 @@ def get_clip_image_embedding(image):
     except Exception as e:
 
         raise Exception(
-            f"CLIP embedding lỗi: {e}"
+            f"CLIP image embedding lỗi: {e}"
         )
 
 
 # =====================================================================
-# 17. CACHE CLIP
+# 18. TEXT EMBEDDING
+# =====================================================================
+#
+# Không dùng get_text_features() trực tiếp để tránh vấn đề
+# BaseModelOutputWithPooling tương tự image encoder.
+#
+# Flow:
+#
+# text_model
+#    ↓
+# pooler_output
+#    ↓
+# text_projection
+#    ↓
+# 512D
+# =====================================================================
+
+def get_clip_text_embedding(
+    text
+):
+
+    try:
+
+        inputs = clip_processor(
+            text=[text],
+            return_tensors="pt",
+            padding=True,
+            truncation=True
+        )
+
+
+        input_ids = (
+            inputs["input_ids"]
+            .to(DEVICE)
+        )
+
+
+        attention_mask = None
+
+
+        if "attention_mask" in inputs:
+
+            attention_mask = (
+                inputs["attention_mask"]
+                .to(DEVICE)
+            )
+
+
+        with torch.inference_mode():
+
+            if attention_mask is not None:
+
+                text_outputs = (
+                    clip_model.text_model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask
+                    )
+                )
+
+            else:
+
+                text_outputs = (
+                    clip_model.text_model(
+                        input_ids=input_ids
+                    )
+                )
+
+
+        if hasattr(
+            text_outputs,
+            "pooler_output"
+        ):
+
+            pooled_output = (
+                text_outputs.pooler_output
+            )
+
+        elif isinstance(
+            text_outputs,
+            tuple
+        ):
+
+            pooled_output = (
+                text_outputs[1]
+            )
+
+        else:
+
+            raise Exception(
+                "Không lấy được text pooler_output."
+            )
+
+
+        with torch.inference_mode():
+
+            text_features = (
+                clip_model.text_projection(
+                    pooled_output
+                )
+            )
+
+
+        text_features = (
+            text_features
+            .detach()
+            .float()
+            .cpu()
+            .flatten()
+        )
+
+
+        if text_features.numel() != 512:
+
+            raise Exception(
+                "Text embedding không phải "
+                f"512D: "
+                f"{text_features.numel()}"
+            )
+
+
+        norm = torch.linalg.vector_norm(
+            text_features
+        )
+
+
+        if norm.item() <= 0:
+
+            raise Exception(
+                "Text embedding norm = 0."
+            )
+
+
+        text_features = (
+            text_features / norm
+        )
+
+
+        return text_features.tolist()
+
+
+    except Exception as e:
+
+        raise Exception(
+            f"CLIP text embedding lỗi: {e}"
+        )
+
+
+# =====================================================================
+# 19. PRE-COMPUTE CATEGORY TEXT EMBEDDINGS
+# =====================================================================
+#
+# Tạo vector category một lần.
+#
+# Không cần chạy lại cho từng ảnh.
+# =====================================================================
+
+@st.cache_resource(
+    show_spinner="🧠 Đang xây dựng AI Category Engine..."
+)
+def build_category_embeddings():
+
+    category_vectors = {}
+
+
+    for category, prompts in CATEGORY_PROMPTS.items():
+
+        prompt_vectors = []
+
+
+        for prompt in prompts:
+
+            vector = get_clip_text_embedding(
+                prompt
+            )
+
+            prompt_vectors.append(
+                vector
+            )
+
+
+        # ---------------------------------------------------------
+        # AVERAGE PROMPTS
+        # ---------------------------------------------------------
+
+        tensor_vectors = torch.tensor(
+            prompt_vectors,
+            dtype=torch.float32
+        )
+
+
+        category_vector = (
+            tensor_vectors.mean(
+                dim=0
+            )
+        )
+
+
+        # ---------------------------------------------------------
+        # NORMALIZE CATEGORY VECTOR
+        # ---------------------------------------------------------
+
+        category_vector = (
+            category_vector
+            /
+            torch.linalg.vector_norm(
+                category_vector
+            )
+        )
+
+
+        category_vectors[
+            category
+        ] = category_vector
+
+
+    return category_vectors
+
+
+# =====================================================================
+# 20. BUILD CATEGORY ENGINE
+# =====================================================================
+
+try:
+
+    CATEGORY_VECTORS = (
+        build_category_embeddings()
+    )
+
+except Exception as e:
+
+    st.error(
+        "❌ Không thể xây dựng "
+        "AI Category Engine."
+    )
+
+    st.exception(e)
+
+    st.stop()
+
+
+# =====================================================================
+# 21. AUTO CATEGORY CLASSIFICATION
+# =====================================================================
+#
+# INPUT:
+# image embedding 512D
+#
+# OUTPUT:
+# category
+# confidence
+# all scores
+# =====================================================================
+
+def classify_product_category(
+    image_embedding
+):
+
+    try:
+
+        image_vector = torch.tensor(
+            image_embedding,
+            dtype=torch.float32
+        )
+
+
+        image_vector = (
+            image_vector
+            /
+            torch.linalg.vector_norm(
+                image_vector
+            )
+        )
+
+
+        results = []
+
+
+        for category, category_vector in (
+            CATEGORY_VECTORS.items()
+        ):
+
+            similarity = torch.dot(
+                image_vector,
+                category_vector
+            ).item()
+
+
+            results.append(
+
+                {
+
+                    "category":
+                        category,
+
+                    "similarity":
+                        similarity
+
+                }
+
+            )
+
+
+        # ---------------------------------------------------------
+        # SORT
+        # ---------------------------------------------------------
+
+        results.sort(
+            key=lambda x:
+                x["similarity"],
+            reverse=True
+        )
+
+
+        best = results[0]
+
+
+        # ---------------------------------------------------------
+        # CONVERT SIMILARITY TO DISPLAY
+        #
+        # CLIP cosine có thể âm/dương.
+        # Không gọi đây là xác suất tuyệt đối.
+        # ---------------------------------------------------------
+
+        raw_score = (
+            best["similarity"]
+        )
+
+
+        # ---------------------------------------------------------
+        # DISPLAY CONFIDENCE
+        #
+        # Đây là confidence tương đối để người dùng dễ đọc,
+        # không phải probability thống kê.
+        # ---------------------------------------------------------
+
+        confidence = max(
+            0.0,
+            min(
+                100.0,
+                (
+                    raw_score + 1.0
+                )
+                /
+                2.0
+                *
+                100.0
+            )
+        )
+
+
+        # ---------------------------------------------------------
+        # MARGIN
+        # ---------------------------------------------------------
+
+        if len(results) >= 2:
+
+            margin = (
+                results[0]["similarity"]
+                -
+                results[1]["similarity"]
+            )
+
+        else:
+
+            margin = 1.0
+
+
+        return {
+
+            "category":
+                best["category"],
+
+            "similarity":
+                raw_score,
+
+            "confidence":
+                confidence,
+
+            "margin":
+                margin,
+
+            "ranking":
+                results
+
+        }
+
+
+    except Exception as e:
+
+        raise Exception(
+            f"AI category lỗi: {e}"
+        )
+
+
+# =====================================================================
+# 22. IMAGE HASH
 # =====================================================================
 
 @st.cache_data(
@@ -704,10 +1163,12 @@ def get_cached_clip_embedding(
 
 
 # =====================================================================
-# 18. FILENAME
+# 23. FILENAME
 # =====================================================================
 
-def sanitize_filename(filename):
+def sanitize_filename(
+    filename
+):
 
     filename = filename.strip()
 
@@ -719,10 +1180,12 @@ def sanitize_filename(filename):
 
 
 # =====================================================================
-# 19. PRODUCT CODE
+# 24. PRODUCT CODE
 # =====================================================================
 
-def extract_product_code(filename):
+def extract_product_code(
+    filename
+):
 
     filename_only = (
         filename
@@ -737,10 +1200,12 @@ def extract_product_code(filename):
 
 
 # =====================================================================
-# 20. CONTENT TYPE
+# 25. CONTENT TYPE
 # =====================================================================
 
-def get_content_type(filename):
+def get_content_type(
+    filename
+):
 
     ext = (
         filename
@@ -750,10 +1215,15 @@ def get_content_type(filename):
 
 
     if ext == "png":
+
         return "image/png"
 
 
-    if ext in ["jpg", "jpeg"]:
+    if ext in [
+        "jpg",
+        "jpeg"
+    ]:
+
         return "image/jpeg"
 
 
@@ -761,7 +1231,7 @@ def get_content_type(filename):
 
 
 # =====================================================================
-# 21. STORAGE
+# 26. STORAGE
 # =====================================================================
 
 def upload_image_to_storage(
@@ -810,20 +1280,16 @@ def upload_image_to_storage(
 
         )
 
-
     except Exception as e:
-
-        # ---------------------------------------------------------
-        # Một số version supabase có thể báo duplicate.
-        # Với upsert=true vẫn có thể khác behavior.
-        # ---------------------------------------------------------
 
         error_text = str(e).lower()
 
         if (
-            "already exists" not in error_text
+            "already exists"
+            not in error_text
             and
-            "duplicate" not in error_text
+            "duplicate"
+            not in error_text
         ):
 
             raise Exception(
@@ -874,7 +1340,7 @@ def upload_image_to_storage(
 
 
 # =====================================================================
-# 22. SAVE PRODUCT
+# 27. SAVE PRODUCT
 # =====================================================================
 
 def save_product(
@@ -931,7 +1397,106 @@ def save_product(
 
 
 # =====================================================================
-# 23. TABS
+# 28. DISPLAY AI RESULT
+# =====================================================================
+
+def display_ai_category_result(
+    classification
+):
+
+    category = (
+        classification["category"]
+    )
+
+    confidence = (
+        classification["confidence"]
+    )
+
+    similarity = (
+        classification["similarity"]
+    )
+
+    margin = (
+        classification["margin"]
+    )
+
+    ranking = (
+        classification["ranking"]
+    )
+
+
+    # ---------------------------------------------------------
+    # CATEGORY
+    # ---------------------------------------------------------
+
+    st.success(
+        f"🤖 AI nhận diện: **{category}**"
+    )
+
+
+    col1, col2, col3 = st.columns(3)
+
+
+    with col1:
+
+        st.metric(
+            "AI Category",
+            category
+        )
+
+
+    with col2:
+
+        st.metric(
+            "Similarity",
+            f"{similarity * 100:.2f}%"
+        )
+
+
+    with col3:
+
+        st.metric(
+            "AI Confidence",
+            f"{confidence:.1f}%"
+        )
+
+
+    # ---------------------------------------------------------
+    # MARGIN
+    # ---------------------------------------------------------
+
+    st.caption(
+        f"Category separation margin: "
+        f"{margin * 100:.2f}%"
+    )
+
+
+    # ---------------------------------------------------------
+    # TOP RESULTS
+    # ---------------------------------------------------------
+
+    with st.expander(
+        "🔎 Xem AI phân tích các chủng loại"
+    ):
+
+        for index, item in enumerate(
+            ranking[:6]
+        ):
+
+            score = (
+                item["similarity"]
+            )
+
+            st.write(
+                f"{index + 1}. "
+                f"**{item['category']}**"
+                f" — "
+                f"{score * 100:.2f}%"
+            )
+
+
+# =====================================================================
+# 29. TABS
 # =====================================================================
 
 tab1, tab2 = st.tabs(
@@ -940,7 +1505,7 @@ tab1, tab2 = st.tabs(
 
         "🔍 TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG",
 
-        "📦 LƯU KHO HÀNG LOẠT"
+        "📦 LƯU KHO TỰ ĐỘNG BẰNG AI"
 
     ]
 
@@ -948,7 +1513,7 @@ tab1, tab2 = st.tabs(
 
 
 # =====================================================================
-# 24. TAB 1 - SEARCH
+# 30. TAB 1 - SEARCH
 # =====================================================================
 
 with tab1:
@@ -965,7 +1530,7 @@ with tab1:
 
     st.caption(
         f"Model: {CLIP_MODEL_NAME} | "
-        f"Vector: {CLIP_DIMENSION}D | "
+        f"Vector: 512D | "
         f"Device: {DEVICE_NAME}"
     )
 
@@ -1008,9 +1573,13 @@ with tab1:
         with col_search_2:
 
             st.image(
+
                 uploaded_sketch,
+
                 caption="Ảnh Sketch của bạn",
+
                 width=250
+
             )
 
 
@@ -1036,13 +1605,6 @@ with tab1:
                         )
 
 
-                        if not raw_bytes:
-
-                            raise Exception(
-                                "Ảnh rỗng."
-                            )
-
-
                         image_hash = (
                             get_image_hash(
                                 raw_bytes
@@ -1057,37 +1619,6 @@ with tab1:
                             )
                         )
 
-
-                        if len(
-                            sketch_embedding
-                        ) != 512:
-
-                            raise Exception(
-                                "Vector CLIP "
-                                "không phải 512D."
-                            )
-
-
-                        st.success(
-                            "✅ CLIP embedding "
-                            "thành công."
-                        )
-
-
-                        st.caption(
-                            "Vector dimension: "
-                            +
-                            str(
-                                len(
-                                    sketch_embedding
-                                )
-                            )
-                        )
-
-
-                        # -------------------------------------------------
-                        # RPC
-                        # -------------------------------------------------
 
                         response = (
                             supabase
@@ -1207,322 +1738,500 @@ with tab1:
 
 
 # =====================================================================
-# 25. TAB 2 - BULK UPLOAD
+# 31. TAB 2 - AI AUTO CLASSIFICATION + BULK UPLOAD
 # =====================================================================
 
 with tab2:
 
     st.header(
-        "📦 Đẩy Dữ Liệu Mã Hàng Hàng Loạt "
-        "Lên Hệ Thống"
+        "📦 Lưu Kho Hàng Loạt — AI Tự Nhận Diện"
     )
 
 
     st.info(
+        "🤖 Không cần chọn chủng loại. "
+        "AI sẽ tự phân loại từng ảnh trước khi lưu."
+    )
 
-        "💡 Tên file = mã hàng.\n\n"
-        "Ví dụ:\n\n"
-        "`R09-490416.JPG` → `R09-490416`"
+
+    st.caption(
+        "Ví dụ: "
+        "`R09-490416.JPG` → "
+        "AI nhận diện → Quần jean → "
+        "lưu Supabase."
+    )
+
+
+    uploaded_files = st.file_uploader(
+
+        "📂 Chọn nhiều ảnh sản phẩm:",
+
+        type=[
+            "png",
+            "jpg",
+            "jpeg"
+        ],
+
+        accept_multiple_files=True,
+
+        key="fu_bulk_v25"
 
     )
 
 
-    col_upload_1, col_upload_2 = (
-        st.columns(2)
-    )
-
-
-    with col_upload_1:
-
-        upload_category = st.selectbox(
-
-            "Phân loại dòng hàng khi lưu kho:",
-
-            CATEGORY_OPTIONS,
-
-            key="sb_upload"
-
-        )
-
-
-        uploaded_files = st.file_uploader(
-
-            "Chọn nhiều ảnh sản phẩm:",
-
-            type=[
-                "png",
-                "jpg",
-                "jpeg"
-            ],
-
-            accept_multiple_files=True,
-
-            key="fu_bulk"
-
-        )
-
+    # ================================================================
+    # FILE SELECTED
+    # ================================================================
 
     if uploaded_files:
 
-        with col_upload_2:
+        st.write(
+            f"📂 Đã chọn "
+            f"**{len(uploaded_files)}** ảnh."
+        )
 
-            st.write(
-                f"📂 Đã chọn "
-                f"**{len(uploaded_files)}** file."
+
+        if st.button(
+
+            "🤖 PHÂN LOẠI AI & TỰ ĐỘNG LƯU",
+
+            type="primary",
+
+            key="btn_bulk_v25"
+
+        ):
+
+            progress = st.progress(0)
+
+            status = st.empty()
+
+
+            success_count = 0
+
+            failed_count = 0
+
+            failed_items = []
+
+
+            results_table = []
+
+
+            total_files = len(
+                uploaded_files
             )
 
 
-            if st.button(
+            # ========================================================
+            # PROCESS EACH IMAGE
+            # ========================================================
 
-                "📤 Tiến hành lưu toàn bộ vào kho",
-
-                type="primary",
-
-                key="btn_bulk"
-
+            for index, file in enumerate(
+                uploaded_files
             ):
 
-                progress = st.progress(0)
-
-                status = st.empty()
-
-
-                success_count = 0
-
-                failed_count = 0
-
-                failed_items = []
-
-
-                total_files = len(
-                    uploaded_files
+                product_code = (
+                    extract_product_code(
+                        file.name
+                    )
                 )
 
 
-                for index, file in enumerate(
-                    uploaded_files
-                ):
+                try:
 
-                    product_code = (
-                        extract_product_code(
-                            file.name
+                    # ------------------------------------------------
+                    # STATUS
+                    # ------------------------------------------------
+
+                    status.text(
+
+                        f"⏳ "
+                        f"{index + 1}/"
+                        f"{total_files} — "
+                        f"{product_code}"
+
+                    )
+
+
+                    # ------------------------------------------------
+                    # READ IMAGE
+                    # ------------------------------------------------
+
+                    raw_bytes = (
+                        file.getvalue()
+                    )
+
+
+                    if not raw_bytes:
+
+                        raise Exception(
+                            "File rỗng."
+                        )
+
+
+                    image = (
+                        normalize_image(
+                            raw_bytes
                         )
                     )
 
 
-                    try:
+                    # ------------------------------------------------
+                    # IMAGE EMBEDDING
+                    # ------------------------------------------------
 
-                        status.text(
+                    status.text(
 
-                            f"⏳ Đang xử lý "
-                            f"{index + 1}/"
-                            f"{total_files}: "
-                            f"{product_code}"
+                        f"🤖 CLIP đang phân tích "
+                        f"{product_code}..."
 
+                    )
+
+
+                    image_hash = (
+                        get_image_hash(
+                            raw_bytes
+                        )
+                    )
+
+
+                    embedding = (
+                        get_cached_clip_embedding(
+
+                            image_hash,
+
+                            raw_bytes
+
+                        )
+                    )
+
+
+                    if len(
+                        embedding
+                    ) != 512:
+
+                        raise Exception(
+                            "Image vector "
+                            "không phải 512D."
                         )
 
 
-                        # -----------------------------------------
-                        # READ
-                        # -----------------------------------------
+                    # ------------------------------------------------
+                    # AI CATEGORY
+                    # ------------------------------------------------
 
-                        raw_bytes = (
-                            file.getvalue()
-                        )
+                    status.text(
 
+                        f"🧠 AI đang nhận diện "
+                        f"chủng loại "
+                        f"{product_code}..."
 
-                        if not raw_bytes:
-
-                            raise Exception(
-                                "File rỗng."
-                            )
+                    )
 
 
-                        # -----------------------------------------
-                        # IMAGE
-                        # -----------------------------------------
-
-                        image = (
-                            normalize_image(
-                                raw_bytes
-                            )
-                        )
-
-
-                        # -----------------------------------------
-                        # CLIP
-                        # -----------------------------------------
-
-                        status.text(
-
-                            f"🤖 CLIP đang xử lý "
-                            f"{product_code}..."
-
-                        )
-
-
-                        embedding = (
-                            get_clip_image_embedding(
-                                image
-                            )
-                        )
-
-
-                        # -----------------------------------------
-                        # 512 CHECK
-                        # -----------------------------------------
-
-                        if len(
+                    classification = (
+                        classify_product_category(
                             embedding
-                        ) != 512:
-
-                            raise Exception(
-                                "CLIP vector "
-                                f"không phải 512D: "
-                                f"{len(embedding)}"
-                            )
+                        )
+                    )
 
 
-                        # -----------------------------------------
-                        # STORAGE
-                        # -----------------------------------------
+                    ai_category = (
+                        classification[
+                            "category"
+                        ]
+                    )
 
-                        status.text(
 
-                            f"☁️ Đang upload "
-                            f"{product_code}..."
+                    ai_confidence = (
+                        classification[
+                            "confidence"
+                        ]
+                    )
+
+
+                    ai_similarity = (
+                        classification[
+                            "similarity"
+                        ]
+                    )
+
+
+                    # ------------------------------------------------
+                    # STORAGE
+                    # ------------------------------------------------
+
+                    status.text(
+
+                        f"☁️ Đang upload ảnh "
+                        f"{product_code}..."
+
+                    )
+
+
+                    image_url = (
+                        upload_image_to_storage(
+
+                            raw_bytes,
+
+                            file.name
 
                         )
+                    )
 
 
-                        image_url = (
-                            upload_image_to_storage(
-                                raw_bytes,
-                                file.name
-                            )
-                        )
+                    # ------------------------------------------------
+                    # DATABASE
+                    # ------------------------------------------------
+
+                    status.text(
+
+                        f"💾 Đang lưu "
+                        f"{product_code} → "
+                        f"{ai_category}"
+
+                    )
 
 
-                        # -----------------------------------------
-                        # DATABASE
-                        # -----------------------------------------
+                    save_product(
 
-                        status.text(
+                        product_code=
+                            product_code,
 
-                            f"💾 Đang lưu "
-                            f"{product_code}..."
+                        image_url=
+                            image_url,
 
-                        )
+                        category=
+                            ai_category,
+
+                        embedding=
+                            embedding
+
+                    )
 
 
-                        save_product(
+                    # ------------------------------------------------
+                    # SUCCESS
+                    # ------------------------------------------------
 
-                            product_code=
+                    success_count += 1
+
+
+                    results_table.append(
+
+                        {
+
+                            "Mã hàng":
                                 product_code,
 
-                            image_url=
-                                image_url,
+                            "AI nhận diện":
+                                ai_category,
 
-                            category=
-                                upload_category,
+                            "Confidence":
+                                f"{ai_confidence:.1f}%",
 
-                            embedding=
-                                embedding
+                            "Similarity":
+                                f"{ai_similarity * 100:.2f}%",
 
-                        )
+                            "Trạng thái":
+                                "✅ Đã lưu"
 
-
-                        success_count += 1
-
-
-                    except Exception as e:
-
-                        failed_count += 1
-
-                        failed_items.append(
-
-                            {
-
-                                "file":
-                                    file.name,
-
-                                "product_code":
-                                    product_code,
-
-                                "error":
-                                    str(e)
-
-                            }
-
-                        )
-
-
-                    progress.progress(
-
-                        int(
-
-                            (
-
-                                index + 1
-
-                            )
-                            /
-                            total_files
-                            *
-                            100
-
-                        )
+                        }
 
                     )
 
 
-                status.empty()
+                except Exception as e:
+
+                    failed_count += 1
 
 
-                if success_count:
+                    failed_items.append(
 
-                    st.success(
+                        {
 
-                        "🎉 HOÀN THÀNH!\n\n"
+                            "file":
+                                file.name,
 
-                        f"✅ Thành công: "
-                        f"{success_count}\n\n"
+                            "product_code":
+                                product_code,
 
-                        f"❌ Lỗi: "
-                        f"{failed_count}"
+                            "error":
+                                str(e)
+
+                        }
 
                     )
 
-                else:
 
-                    st.error(
-                        "❌ Không có file nào "
-                        "được lưu thành công."
+                    results_table.append(
+
+                        {
+
+                            "Mã hàng":
+                                product_code,
+
+                            "AI nhận diện":
+                                "—",
+
+                            "Confidence":
+                                "—",
+
+                            "Similarity":
+                                "—",
+
+                            "Trạng thái":
+                                "❌ Lỗi"
+
+                        }
+
                     )
 
 
-                if failed_items:
+                # ----------------------------------------------------
+                # PROGRESS
+                # ----------------------------------------------------
 
-                    with st.expander(
-                        "🔎 Chi tiết file lỗi"
-                    ):
+                progress.progress(
 
-                        for item in failed_items:
+                    int(
 
-                            st.error(
+                        (
+                            index + 1
+                        )
+                        /
+                        total_files
+                        *
+                        100
 
-                                f"📄 File: "
-                                f"{item['file']}\n\n"
+                    )
 
-                                f"🏷️ Mã: "
-                                f"{item['product_code']}\n\n"
+                )
 
-                                f"❌ Lỗi: "
-                                f"{item['error']}"
 
-                            )
+            # ========================================================
+            # COMPLETE
+            # ========================================================
+
+            status.empty()
+
+
+            st.divider()
+
+
+            st.subheader(
+                "📊 KẾT QUẢ AI"
+            )
+
+
+            # ========================================================
+            # SUMMARY
+            # ========================================================
+
+            col1, col2, col3 = st.columns(3)
+
+
+            with col1:
+
+                st.metric(
+                    "Tổng ảnh",
+                    total_files
+                )
+
+
+            with col2:
+
+                st.metric(
+                    "AI + lưu thành công",
+                    success_count
+                )
+
+
+            with col3:
+
+                st.metric(
+                    "Lỗi",
+                    failed_count
+                )
+
+
+            # ========================================================
+            # RESULT TABLE
+            # ========================================================
+
+            if results_table:
+
+                import pandas as pd
+
+                df_result = pd.DataFrame(
+                    results_table
+                )
+
+
+                st.dataframe(
+
+                    df_result,
+
+                    use_container_width=True,
+
+                    hide_index=True
+
+                )
+
+
+            # ========================================================
+            # FAILED DETAILS
+            # ========================================================
+
+            if failed_items:
+
+                with st.expander(
+                    "🔎 Chi tiết file lỗi"
+                ):
+
+                    for item in failed_items:
+
+                        st.error(
+
+                            f"📄 File: "
+                            f"{item['file']}\n\n"
+
+                            f"🏷️ Mã: "
+                            f"{item['product_code']}\n\n"
+
+                            f"❌ Lỗi: "
+                            f"{item['error']}"
+
+                        )
+
+
+            # ========================================================
+            # SUCCESS
+            # ========================================================
+
+            if success_count > 0:
+
+                st.success(
+
+                    f"🎉 Hoàn thành! "
+                    f"AI đã tự nhận diện và "
+                    f"lưu thành công "
+                    f"{success_count}/"
+                    f"{total_files} mã hàng."
+
+                )
+
+
+            if failed_count > 0:
+
+                st.warning(
+
+                    f"⚠️ Có "
+                    f"{failed_count} "
+                    "file chưa lưu được."
+
+                )
 
 
 # =====================================================================
-# END
+# END V2.5
 # =====================================================================
