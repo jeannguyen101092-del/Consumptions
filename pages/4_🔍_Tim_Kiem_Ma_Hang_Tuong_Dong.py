@@ -1,40 +1,69 @@
 # =====================================================================
 # 🔍 PRODUCT IMAGE SEARCH & BULK STORAGE
-# VERSION V2.3
+# VERSION V2.4
 #
-# MASTER CLIP IMAGE EMBEDDING ENGINE
+# MASTER LOCAL CLIP IMAGE EMBEDDING ENGINE
+#
+# MODEL:
+# openai/clip-vit-base-patch32
+#
+# OUTPUT:
+# 512-dimensional image embedding
+#
+# IMPORTANT:
+# ❌ KHÔNG dùng Hugging Face Inference API
+# ❌ KHÔNG dùng HF_TOKEN để inference
+# ❌ KHÔNG gọi router.huggingface.co
+#
+# CLIP được chạy LOCAL bằng:
+# transformers + torch
 #
 # FLOW:
 #
 # IMAGE
 #   ↓
-# NORMALIZE
+# PIL RGB
 #   ↓
-# CLIP IMAGE EMBEDDING
+# CLIPProcessor
 #   ↓
-# VECTOR
+# CLIPModel.get_image_features()
 #   ↓
-# SUPABASE products.embedding
+# 512D VECTOR
 #   ↓
-# match_products_v2
+# L2 NORMALIZATION
 #   ↓
-# TOP SIMILAR PRODUCTS
-#
-# 🔐 ALL SECRETS ARE READ FROM STREAMLIT / TOMY SECRETS
-# ❌ NO API KEY / TOKEN IS WRITTEN IN GITHUB
+# Supabase products.embedding
+#   ↓
+# match_products_v2()
+#   ↓
+# TOP 4 SIMILAR PRODUCTS
 # =====================================================================
 
 
-import streamlit as st
-from supabase import create_client, Client
-
-import requests
-from PIL import Image
+# =====================================================================
+# 0. IMPORT
+# =====================================================================
 
 import io
 import re
 import hashlib
 import math
+
+import streamlit as st
+
+from PIL import Image
+
+import torch
+
+from transformers import (
+    CLIPModel,
+    CLIPProcessor
+)
+
+from supabase import (
+    create_client,
+    Client
+)
 
 
 # =====================================================================
@@ -42,30 +71,29 @@ import math
 # =====================================================================
 
 st.set_page_config(
+
     page_title="Quản lý & Tìm kiếm mã hàng",
+
     page_icon="🔍",
+
     layout="wide"
+
 )
 
 
 # =====================================================================
-# 2. SECRET READER
+# 2. SUPABASE SECRET READER
 # =====================================================================
-# Không ghi Secret trực tiếp trong GitHub.
 #
-# Hàm này hỗ trợ cả:
+# Key thật KHÔNG nằm trong GitHub.
 #
-# SUPABASE_URL
-# SUPABASE_KEY
-# HF_TOKEN
-#
-# và một số tên biến tương đương.
+# Chỉ đọc từ Streamlit/Tomy Secrets.
 # =====================================================================
 
 def get_secret_value(names):
 
     # ---------------------------------------------------------
-    # A. Tìm Secret trực tiếp
+    # Tìm trực tiếp
     # ---------------------------------------------------------
 
     for name in names:
@@ -88,16 +116,15 @@ def get_secret_value(names):
 
 
     # ---------------------------------------------------------
-    # B. Tìm trong nhóm Secret
+    # Tìm trong group
     # ---------------------------------------------------------
 
     groups = [
+
         "supabase",
-        "SUPABASE",
-        "huggingface",
-        "HUGGINGFACE",
-        "hf",
-        "HF"
+
+        "SUPABASE"
+
     ]
 
 
@@ -147,13 +174,19 @@ def get_secret_value(names):
 # =====================================================================
 
 SUPABASE_URL = get_secret_value(
+
     [
+
         "SUPABASE_URL",
+
         "SUPABASE_PROJECT_URL",
-        "SUPABASE_PROJECT",
+
         "supabase_url",
+
         "supabase_project_url"
+
     ]
+
 )
 
 
@@ -162,162 +195,73 @@ SUPABASE_URL = get_secret_value(
 # =====================================================================
 
 SUPABASE_KEY = get_secret_value(
+
     [
+
         "SUPABASE_KEY",
+
         "SUPABASE_ANON_KEY",
+
         "SUPABASE_API_KEY",
+
         "supabase_key",
+
         "supabase_anon_key",
-        "anon_key",
-        "api_key"
+
+        "anon_key"
+
     ]
+
 )
 
 
 # =====================================================================
-# 5. HUGGING FACE TOKEN
+# 5. CHECK SUPABASE SECRET
 # =====================================================================
 
-HF_TOKEN = get_secret_value(
-    [
-        "HF_TOKEN",
-        "HUGGINGFACE_TOKEN",
-        "HUGGING_FACE_TOKEN",
-        "HF_API_TOKEN",
-        "HUGGINGFACE_API_TOKEN",
-        "huggingface_token",
-        "hugging_face_token",
-        "hf_token"
-    ]
-)
-
-
-# =====================================================================
-# 6. KIỂM TRA SECRET
-# =====================================================================
-
-missing_secrets = []
+missing = []
 
 
 if not SUPABASE_URL:
 
-    missing_secrets.append(
-        "SUPABASE URL"
+    missing.append(
+        "SUPABASE_URL"
     )
 
 
 if not SUPABASE_KEY:
 
-    missing_secrets.append(
-        "SUPABASE KEY"
+    missing.append(
+        "SUPABASE_KEY"
     )
 
 
-if not HF_TOKEN:
-
-    missing_secrets.append(
-        "HUGGING FACE TOKEN"
-    )
-
-
-if missing_secrets:
+if missing:
 
     st.error(
-        "❌ Không đọc được Secret cần thiết."
+        "❌ Không đọc được Supabase Secrets."
     )
 
     st.warning(
+
         "Thiếu:\n\n"
-        + "\n".join(
+
+        +
+
+        "\n".join(
             [
                 f"- {x}"
-                for x in missing_secrets
+                for x in missing
             ]
         )
+
     )
 
     st.stop()
 
 
 # =====================================================================
-# 7. CLIP MODEL
-# =====================================================================
-#
-# CLIP model dùng cho image embedding.
-#
-# Có thể thay bằng model CLIP tương thích khác
-# bằng cách tạo HF_MODEL trong Secrets.
-#
-# =====================================================================
-
-HF_MODEL = get_secret_value(
-    [
-        "HF_MODEL",
-        "HUGGINGFACE_MODEL",
-        "HF_IMAGE_MODEL",
-        "huggingface_model"
-    ]
-)
-
-
-if not HF_MODEL:
-
-    HF_MODEL = (
-        "openai/clip-vit-base-patch32"
-    )
-
-
-# =====================================================================
-# 8. HUGGING FACE FEATURE EXTRACTION API
-# =====================================================================
-#
-# KHÔNG dùng:
-#
-# router.huggingface.co/hf-inference/models/...
-#
-# vì provider đó đã báo:
-#
-# Model not supported by provider hf-inference
-#
-# Ta dùng endpoint router với task image-feature-extraction.
-# =====================================================================
-
-HF_API_URL = (
-    "https://router.huggingface.co/"
-    "hf-inference/models/"
-    f"{HF_MODEL}"
-)
-
-
-# =====================================================================
-# 9. HUGGING FACE HEADERS
-# =====================================================================
-
-HF_HEADERS = {
-
-    "Authorization":
-        f"Bearer {HF_TOKEN}",
-
-    "Content-Type":
-        "application/octet-stream",
-
-    "Accept":
-        "application/json",
-
-    "User-Agent":
-        (
-            "Mozilla/5.0 "
-            "(Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/120.0.0.0 "
-            "Safari/537.36"
-        )
-}
-
-
-# =====================================================================
-# 10. SUPABASE CONNECTION
+# 6. SUPABASE CONNECTION
 # =====================================================================
 
 try:
@@ -342,7 +286,102 @@ except Exception as e:
 
 
 # =====================================================================
-# 11. CATEGORY OPTIONS
+# 7. CLIP CONFIG
+# =====================================================================
+
+CLIP_MODEL_NAME = (
+    "openai/clip-vit-base-patch32"
+)
+
+
+CLIP_DIMENSION = 512
+
+
+# =====================================================================
+# 8. DEVICE
+# =====================================================================
+
+if torch.cuda.is_available():
+
+    DEVICE = torch.device(
+        "cuda"
+    )
+
+    DEVICE_NAME = "CUDA GPU"
+
+else:
+
+    DEVICE = torch.device(
+        "cpu"
+    )
+
+    DEVICE_NAME = "CPU"
+
+
+# =====================================================================
+# 9. LOAD CLIP MODEL
+# =====================================================================
+#
+# Model chỉ load một lần trong Streamlit.
+#
+# Không gọi Hugging Face inference API.
+#
+# Lần đầu chạy app sẽ tải model về.
+# =====================================================================
+
+@st.cache_resource(
+    show_spinner="🤖 Đang tải CLIP AI model..."
+)
+def load_clip_model():
+
+    processor = CLIPProcessor.from_pretrained(
+
+        CLIP_MODEL_NAME
+
+    )
+
+
+    model = CLIPModel.from_pretrained(
+
+        CLIP_MODEL_NAME
+
+    )
+
+
+    model = model.to(
+        DEVICE
+    )
+
+
+    model.eval()
+
+
+    return processor, model
+
+
+# =====================================================================
+# 10. LOAD MODEL
+# =====================================================================
+
+try:
+
+    clip_processor, clip_model = (
+        load_clip_model()
+    )
+
+except Exception as e:
+
+    st.error(
+        "❌ Không thể tải CLIP model."
+    )
+
+    st.exception(e)
+
+    st.stop()
+
+
+# =====================================================================
+# 11. CATEGORY
 # =====================================================================
 
 CATEGORY_OPTIONS = [
@@ -365,22 +404,19 @@ CATEGORY_OPTIONS = [
 # =====================================================================
 # 12. NORMALIZE IMAGE
 # =====================================================================
-#
-# CLIP nhận RGB image.
-#
-# Tất cả PNG/JPG được chuẩn hóa thành JPEG RGB.
-# =====================================================================
 
-def normalize_image_bytes(
+def normalize_image(
     file_bytes
 ):
 
     try:
 
         image = Image.open(
+
             io.BytesIO(
                 file_bytes
             )
+
         )
 
 
@@ -396,72 +432,23 @@ def normalize_image_bytes(
 
 
         # ---------------------------------------------------------
-        # Resize nhẹ để giảm payload
-        #
-        # Không crop vì crop có thể làm mất hình dáng garment.
-        # Giữ nguyên aspect ratio.
+        # EXIF orientation
         # ---------------------------------------------------------
 
-        max_size = 1600
+        try:
 
-        width, height = image.size
+            from PIL import ImageOps
 
-
-        if max(
-            width,
-            height
-        ) > max_size:
-
-            scale = (
-                max_size
-                /
-                max(width, height)
+            image = ImageOps.exif_transpose(
+                image
             )
 
+        except Exception:
 
-            new_width = int(
-                width * scale
-            )
-
-
-            new_height = int(
-                height * scale
-            )
+            pass
 
 
-            image = image.resize(
-
-                (
-                    new_width,
-                    new_height
-                ),
-
-                Image.Resampling.LANCZOS
-
-            )
-
-
-        # ---------------------------------------------------------
-        # JPEG
-        # ---------------------------------------------------------
-
-        output = io.BytesIO()
-
-
-        image.save(
-
-            output,
-
-            format="JPEG",
-
-            quality=95,
-
-            optimize=True
-
-        )
-
-
-        return output.getvalue()
+        return image
 
 
     except Exception as e:
@@ -482,43 +469,36 @@ def get_image_hash(
 ):
 
     return hashlib.sha256(
+
         image_bytes
+
     ).hexdigest()
 
 
 # =====================================================================
 # 14. L2 NORMALIZATION
 # =====================================================================
-#
-# CLIP similarity thường sử dụng cosine similarity.
-#
-# Normalize vector giúp:
-#
-# cosine_similarity(A,B)
-#
-# tương đương:
-#
-# dot(normalize(A), normalize(B))
-# =====================================================================
 
 def normalize_embedding(
     embedding
 ):
 
-    if not embedding:
+    values = [
 
-        raise Exception(
-            "Embedding rỗng."
-        )
+        float(x)
+
+        for x in embedding
+
+    ]
 
 
     norm = math.sqrt(
 
         sum(
 
-            float(x) * float(x)
+            x * x
 
-            for x in embedding
+            for x in values
 
         )
 
@@ -528,457 +508,212 @@ def normalize_embedding(
     if norm <= 0:
 
         raise Exception(
-            "Embedding có norm = 0."
+
+            "Embedding norm = 0."
+
         )
 
 
     return [
 
-        float(x) / norm
+        x / norm
 
-        for x in embedding
+        for x in values
 
     ]
 
 
 # =====================================================================
-# 15. FLATTEN VECTOR
+# 15. CLIP IMAGE EMBEDDING
 # =====================================================================
 #
-# HF có thể trả:
+# Đây là phần QUAN TRỌNG NHẤT.
 #
-# [vector]
+# Không có requests.post()
+# Không có HF API
+# Không có HF_TOKEN
 #
-# hoặc:
+# Chạy trực tiếp:
 #
-# [[token1], [token2], ...]
-#
-# hoặc:
-#
-# [[[...]]]
-#
-# Ta phải gom thành một vector duy nhất.
-# =====================================================================
-
-def flatten_numeric_vector(
-    data
-):
-
-    # ---------------------------------------------------------
-    # Nếu data là số
-    # ---------------------------------------------------------
-
-    if isinstance(
-        data,
-        (int, float)
-    ):
-
-        return [
-            float(data)
-        ]
-
-
-    # ---------------------------------------------------------
-    # Nếu data là list
-    # ---------------------------------------------------------
-
-    if isinstance(
-        data,
-        list
-    ):
-
-        # -----------------------------------------------------
-        # list rỗng
-        # -----------------------------------------------------
-
-        if not data:
-
-            return []
-
-
-        # -----------------------------------------------------
-        # toàn số
-        # -----------------------------------------------------
-
-        if all(
-
-            isinstance(
-                x,
-                (int, float)
-            )
-
-            for x in data
-
-        ):
-
-            return [
-
-                float(x)
-
-                for x in data
-
-            ]
-
-
-        # -----------------------------------------------------
-        # nested list
-        # -----------------------------------------------------
-
-        vectors = []
-
-
-        for item in data:
-
-            sub_vector = (
-                flatten_numeric_vector(
-                    item
-                )
-            )
-
-
-            if sub_vector:
-
-                vectors.append(
-                    sub_vector
-                )
-
-
-        if not vectors:
-
-            return []
-
-
-        # -----------------------------------------------------
-        # Nếu chỉ có một vector
-        # -----------------------------------------------------
-
-        if len(vectors) == 1:
-
-            return vectors[0]
-
-
-        # -----------------------------------------------------
-        # Mean pooling
-        #
-        # Ví dụ:
-        #
-        # token vectors:
-        #
-        # [512]
-        # [512]
-        # [512]
-        #
-        # → một image vector [512]
-        # -----------------------------------------------------
-
-        dimension = len(
-            vectors[0]
-        )
-
-
-        valid_vectors = [
-
-            v
-
-            for v in vectors
-
-            if len(v) == dimension
-
-        ]
-
-
-        if not valid_vectors:
-
-            return []
-
-
-        pooled = [
-
-            sum(
-
-                v[i]
-
-                for v in valid_vectors
-
-            )
-
-            /
-
-            len(valid_vectors)
-
-            for i in range(
-                dimension
-            )
-
-        ]
-
-
-        return pooled
-
-
-    return []
-
-
-# =====================================================================
-# 16. CALL CLIP IMAGE EMBEDDING
+# image
+# ↓
+# processor
+# ↓
+# CLIP vision encoder
+# ↓
+# visual projection
+# ↓
+# 512D
 # =====================================================================
 
 def get_clip_image_embedding(
-    image_bytes
+    image
 ):
 
-    # ---------------------------------------------------------
-    # Gửi image tới Hugging Face
-    # ---------------------------------------------------------
-
     try:
 
-        response = requests.post(
+        # ---------------------------------------------------------
+        # PROCESS IMAGE
+        # ---------------------------------------------------------
 
-            HF_API_URL,
+        inputs = clip_processor(
 
-            headers=HF_HEADERS,
+            images=image,
 
-            data=image_bytes,
-
-            timeout=180
-
-        )
-
-
-    except requests.exceptions.Timeout:
-
-        raise Exception(
-
-            "Hugging Face timeout "
-            "sau 180 giây."
+            return_tensors="pt"
 
         )
 
 
-    except requests.exceptions.RequestException as e:
+        # ---------------------------------------------------------
+        # MOVE TO DEVICE
+        # ---------------------------------------------------------
 
-        raise Exception(
+        inputs = {
 
-            f"Lỗi kết nối Hugging Face: {e}"
+            key: value.to(DEVICE)
 
-        )
+            for key, value in inputs.items()
 
-
-    # ---------------------------------------------------------
-    # HTTP ERROR
-    # ---------------------------------------------------------
-
-    if response.status_code != 200:
-
-        error_text = response.text
+        }
 
 
-        try:
+        # ---------------------------------------------------------
+        # CLIP IMAGE FEATURES
+        # ---------------------------------------------------------
 
-            error_json = (
-                response.json()
+        with torch.inference_mode():
+
+            image_features = (
+                clip_model.get_image_features(
+                    **inputs
+                )
             )
 
 
-            if isinstance(
-                error_json,
-                dict
-            ):
+        # ---------------------------------------------------------
+        # EXPECTED SHAPE:
+        #
+        # [1, 512]
+        # ---------------------------------------------------------
 
-                error_text = (
+        if image_features.ndim != 2:
 
-                    error_json.get(
-                        "error"
+            raise Exception(
+
+                "CLIP output shape không hợp lệ: "
+
+                +
+
+                str(
+                    tuple(
+                        image_features.shape
                     )
-
-                    or
-
-                    error_json.get(
-                        "message"
-                    )
-
-                    or
-
-                    error_text
-
                 )
 
-        except Exception:
-
-            pass
+            )
 
 
-        raise Exception(
+        # ---------------------------------------------------------
+        # CHECK DIMENSION
+        # ---------------------------------------------------------
 
-            "Hugging Face HTTP "
-            f"{response.status_code}: "
-            f"{error_text}"
+        dimension = (
+            image_features.shape[-1]
+        )
+
+
+        if dimension != CLIP_DIMENSION:
+
+            raise Exception(
+
+                f"CLIP dimension sai: "
+                f"{dimension}. "
+                f"Expected: "
+                f"{CLIP_DIMENSION}."
+
+            )
+
+
+        # ---------------------------------------------------------
+        # L2 NORMALIZE
+        # ---------------------------------------------------------
+
+        image_features = (
+
+            image_features
+
+            /
+
+            image_features.norm(
+
+                p=2,
+
+                dim=-1,
+
+                keepdim=True
+
+            )
 
         )
 
 
-    # ---------------------------------------------------------
-    # PARSE RESPONSE
-    # ---------------------------------------------------------
-
-    try:
-
-        result = response.json()
-
-    except Exception:
-
-        raise Exception(
-
-            "Hugging Face trả về "
-            "response không phải JSON."
-
-        )
-
-
-    # ---------------------------------------------------------
-    # DEBUG RESPONSE SHAPE
-    # ---------------------------------------------------------
-
-    embedding = None
-
-
-    # ---------------------------------------------------------
-    # DẠNG 1
-    #
-    # [0.1, 0.2, ...]
-    # ---------------------------------------------------------
-
-    if isinstance(
-        result,
-        list
-    ):
+        # ---------------------------------------------------------
+        # CPU
+        # ---------------------------------------------------------
 
         embedding = (
-            flatten_numeric_vector(
-                result
+
+            image_features[0]
+
+            .detach()
+
+            .cpu()
+
+            .float()
+
+            .tolist()
+
+        )
+
+
+        # ---------------------------------------------------------
+        # FINAL CHECK
+        # ---------------------------------------------------------
+
+        if len(embedding) != 512:
+
+            raise Exception(
+
+                f"Embedding cuối cùng "
+                f"không phải 512D: "
+                f"{len(embedding)}"
+
             )
-        )
 
 
-    # ---------------------------------------------------------
-    # DẠNG 2
-    #
-    # {"embedding": [...]}
-    # ---------------------------------------------------------
-
-    elif isinstance(
-        result,
-        dict
-    ):
-
-        possible_keys = [
-
-            "embedding",
-
-            "embeddings",
-
-            "vector",
-
-            "feature",
-
-            "features"
-
-        ]
+        return embedding
 
 
-        for key in possible_keys:
-
-            if key in result:
-
-                embedding = (
-                    flatten_numeric_vector(
-                        result[key]
-                    )
-                )
-
-                if embedding:
-
-                    break
-
-
-    # ---------------------------------------------------------
-    # CHECK
-    # ---------------------------------------------------------
-
-    if not embedding:
+    except Exception as e:
 
         raise Exception(
 
-            "Không lấy được CLIP image embedding.\n\n"
-
-            f"Response type: "
-            f"{type(result).__name__}\n\n"
-
-            f"Response: {str(result)[:1000]}"
+            f"Lỗi CLIP image embedding: {e}"
 
         )
-
-
-    # ---------------------------------------------------------
-    # FLOAT
-    # ---------------------------------------------------------
-
-    try:
-
-        embedding = [
-
-            float(x)
-
-            for x in embedding
-
-        ]
-
-    except Exception:
-
-        raise Exception(
-
-            "CLIP embedding chứa "
-            "giá trị không phải số."
-
-        )
-
-
-    # ---------------------------------------------------------
-    # NORMALIZE
-    # ---------------------------------------------------------
-
-    embedding = (
-        normalize_embedding(
-            embedding
-        )
-    )
-
-
-    # ---------------------------------------------------------
-    # FINAL CHECK
-    # ---------------------------------------------------------
-
-    if len(embedding) < 2:
-
-        raise Exception(
-
-            "CLIP embedding dimension "
-            "không hợp lệ."
-
-        )
-
-
-    return embedding
 
 
 # =====================================================================
-# 17. CACHE CLIP EMBEDDING
+# 16. CACHE EMBEDDING
 # =====================================================================
 
 @st.cache_data(
+
     ttl=86400,
+
     show_spinner=False
+
 )
 def get_cached_clip_embedding(
 
@@ -988,58 +723,31 @@ def get_cached_clip_embedding(
 
 ):
 
-    return get_clip_image_embedding(
+    image = normalize_image(
+
         image_bytes
-    )
-
-
-# =====================================================================
-# 18. CONTENT TYPE
-# =====================================================================
-
-def get_content_type(
-    filename
-):
-
-    extension = (
-
-        filename
-        .lower()
-        .rsplit(
-            ".",
-            1
-        )[-1]
 
     )
 
 
-    if extension == "png":
+    return get_clip_image_embedding(
 
-        return "image/png"
+        image
 
-
-    if extension in [
-        "jpg",
-        "jpeg"
-    ]:
-
-        return "image/jpeg"
-
-
-    return (
-        "application/octet-stream"
     )
 
 
 # =====================================================================
-# 19. SANITIZE FILENAME
+# 17. SANITIZE FILENAME
 # =====================================================================
 
 def sanitize_filename(
     filename
 ):
 
-    filename = filename.strip()
+    filename = (
+        filename.strip()
+    )
 
 
     filename = re.sub(
@@ -1057,7 +765,7 @@ def sanitize_filename(
 
 
 # =====================================================================
-# 20. EXTRACT PRODUCT CODE
+# 18. EXTRACT PRODUCT CODE
 # =====================================================================
 
 def extract_product_code(
@@ -1065,10 +773,14 @@ def extract_product_code(
 ):
 
     filename_only = (
-        filename.rsplit(
+
+        filename
+
+        .rsplit(
             ".",
             1
         )[0]
+
     )
 
 
@@ -1084,7 +796,48 @@ def extract_product_code(
 
 
 # =====================================================================
-# 21. UPLOAD IMAGE
+# 19. CONTENT TYPE
+# =====================================================================
+
+def get_content_type(
+    filename
+):
+
+    extension = (
+
+        filename
+
+        .lower()
+
+        .rsplit(
+            ".",
+            1
+        )[-1]
+
+    )
+
+
+    if extension == "png":
+
+        return "image/png"
+
+
+    if extension in [
+
+        "jpg",
+
+        "jpeg"
+
+    ]:
+
+        return "image/jpeg"
+
+
+    return "application/octet-stream"
+
+
+# =====================================================================
+# 20. UPLOAD IMAGE TO SUPABASE STORAGE
 # =====================================================================
 
 def upload_image_to_storage(
@@ -1109,19 +862,16 @@ def upload_image_to_storage(
 
     try:
 
-        content_type = (
-            get_content_type(
-                safe_filename
-            )
-        )
-
-
         storage = (
+
             supabase
+
             .storage
+
             .from_(
                 bucket_name
             )
+
         )
 
 
@@ -1134,7 +884,9 @@ def upload_image_to_storage(
             file_options={
 
                 "content-type":
-                    content_type,
+                    get_content_type(
+                        safe_filename
+                    ),
 
                 "upsert":
                     "true"
@@ -1145,10 +897,15 @@ def upload_image_to_storage(
 
 
         public_url = (
+
             storage
+
             .get_public_url(
+
                 safe_filename
+
             )
+
         )
 
 
@@ -1159,14 +916,13 @@ def upload_image_to_storage(
 
         raise Exception(
 
-            f"Lỗi upload Storage: "
-            f"{e}"
+            f"Storage upload lỗi: {e}"
 
         )
 
 
 # =====================================================================
-# 22. SAVE PRODUCT
+# 21. SAVE PRODUCT
 # =====================================================================
 
 def save_product(
@@ -1180,6 +936,21 @@ def save_product(
     embedding
 
 ):
+
+    # ---------------------------------------------------------
+    # HARD CHECK
+    # ---------------------------------------------------------
+
+    if len(embedding) != 512:
+
+        raise Exception(
+
+            "Không ghi DB vì embedding "
+            f"không phải 512D: "
+            f"{len(embedding)}"
+
+        )
+
 
     try:
 
@@ -1226,35 +997,13 @@ def save_product(
 
         raise Exception(
 
-            f"Lỗi lưu product "
-            f"{product_code}: {e}"
+            f"Database save lỗi: {e}"
 
         )
 
 
 # =====================================================================
-# 23. CATEGORY
-# =====================================================================
-
-CATEGORY_OPTIONS = [
-
-    "Quần dài",
-
-    "Quần short",
-
-    "Áo",
-
-    "Quần jogger",
-
-    "Quần jean",
-
-    "Quần túi hộp"
-
-]
-
-
-# =====================================================================
-# 24. TABS
+# 22. TAB
 # =====================================================================
 
 tab1, tab2 = st.tabs(
@@ -1279,8 +1028,29 @@ with tab1:
 
     st.header(
 
-        "🔍 Tìm Kiếm Mã Hàng "
-        "Qua Ảnh Sketch"
+        "🔍 Tìm Kiếm Mã Hàng Qua Ảnh Sketch"
+
+    )
+
+
+    # ---------------------------------------------------------
+    # SYSTEM STATUS
+    # ---------------------------------------------------------
+
+    st.success(
+
+        "🤖 CLIP LOCAL READY"
+
+    )
+
+
+    st.caption(
+
+        f"Model: {CLIP_MODEL_NAME} | "
+
+        f"Vector: {CLIP_DIMENSION}D | "
+
+        f"Device: {DEVICE_NAME}"
 
     )
 
@@ -1290,9 +1060,9 @@ with tab1:
     )
 
 
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
     # INPUT
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
 
     with col_search_1:
 
@@ -1330,9 +1100,9 @@ with tab1:
         )
 
 
-    # -----------------------------------------------------------------
-    # PREVIEW
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
+    # SEARCH
+    # ---------------------------------------------------------
 
     if uploaded_sketch is not None:
 
@@ -1369,7 +1139,7 @@ with tab1:
                     try:
 
                         # -------------------------------------------------
-                        # READ IMAGE
+                        # READ
                         # -------------------------------------------------
 
                         raw_bytes = (
@@ -1378,15 +1148,13 @@ with tab1:
                         )
 
 
-                        # -------------------------------------------------
-                        # NORMALIZE
-                        # -------------------------------------------------
+                        if not raw_bytes:
 
-                        sketch_bytes = (
-                            normalize_image_bytes(
-                                raw_bytes
+                            raise Exception(
+
+                                "Ảnh rỗng."
+
                             )
-                        )
 
 
                         # -------------------------------------------------
@@ -1395,13 +1163,13 @@ with tab1:
 
                         image_hash = (
                             get_image_hash(
-                                sketch_bytes
+                                raw_bytes
                             )
                         )
 
 
                         # -------------------------------------------------
-                        # CLIP EMBEDDING
+                        # EMBEDDING
                         # -------------------------------------------------
 
                         sketch_embedding = (
@@ -1410,7 +1178,7 @@ with tab1:
 
                                 image_hash,
 
-                                sketch_bytes
+                                raw_bytes
 
                             )
 
@@ -1418,26 +1186,39 @@ with tab1:
 
 
                         # -------------------------------------------------
-                        # SHOW VECTOR INFO
+                        # VERIFY
                         # -------------------------------------------------
+
+                        if len(
+                            sketch_embedding
+                        ) != 512:
+
+                            raise Exception(
+
+                                "Vector CLIP "
+                                "không phải 512D."
+
+                            )
+
+
+                        st.success(
+
+                            "✅ CLIP embedding "
+                            "thành công."
+
+                        )
+
 
                         st.caption(
 
-                            "CLIP vector dimension: "
-
-                            +
-
-                            str(
-                                len(
-                                    sketch_embedding
-                                )
-                            )
+                            "Vector dimension: "
+                            f"{len(sketch_embedding)}"
 
                         )
 
 
                         # -------------------------------------------------
-                        # SUPABASE RPC
+                        # RPC
                         # -------------------------------------------------
 
                         response = (
@@ -1479,21 +1260,19 @@ with tab1:
 
                             st.success(
 
-                                "🎯 Tìm thấy "
+                                f"🎯 Tìm thấy "
                                 f"{len(response.data)} "
-                                "mã hàng tương đồng "
-                                f"trong nhóm "
-                                f"**{search_category}**."
+                                "mã tương đồng."
 
                             )
 
 
-                            cols = (
-                                st.columns(
-                                    len(
-                                        response.data
-                                    )
+                            cols = st.columns(
+
+                                len(
+                                    response.data
                                 )
+
                             )
 
 
@@ -1527,57 +1306,61 @@ with tab1:
                                     )
 
 
-                                    product_code = (
-
-                                        item.get(
-
-                                            "product_code",
-
-                                            "N/A"
-
-                                        )
-
-                                    )
-
-
                                     st.subheader(
 
-                                        f"Mã: "
-                                        f"{product_code}"
+                                        "Mã: "
 
-                                    )
+                                        +
 
+                                        str(
 
-                                    image_url = (
+                                            item.get(
 
-                                        item.get(
+                                                "product_code",
 
-                                            "image_url"
+                                                "N/A"
+
+                                            )
 
                                         )
 
                                     )
 
 
-                                    if image_url:
+                                    if item.get(
+                                        "image_url"
+                                    ):
 
                                         st.image(
 
-                                            image_url,
+                                            item[
+                                                "image_url"
+                                            ],
 
                                             use_container_width=True
 
                                         )
 
 
-                                    else:
+                                    st.caption(
 
-                                        st.warning(
+                                        "Category: "
 
-                                            "Không có "
-                                            "ảnh sản phẩm."
+                                        +
+
+                                        str(
+
+                                            item.get(
+
+                                                "category",
+
+                                                ""
+
+                                            )
 
                                         )
+
+                                    )
 
 
                         else:
@@ -1585,9 +1368,7 @@ with tab1:
                             st.warning(
 
                                 "⚠️ Không tìm thấy "
-                                "mã hàng tương đồng "
-                                f"trong nhóm "
-                                f"**{search_category}**."
+                                "mã tương đồng."
 
                             )
 
@@ -1596,7 +1377,7 @@ with tab1:
 
                         st.error(
 
-                            "❌ Lỗi khi tìm kiếm:"
+                            "❌ SEARCH ERROR"
 
                         )
 
@@ -1605,7 +1386,7 @@ with tab1:
 
 # =====================================================================
 # TAB 2
-# BULK STORAGE
+# BULK UPLOAD
 # =====================================================================
 
 with tab2:
@@ -1620,12 +1401,15 @@ with tab2:
 
     st.info(
 
-        "💡 Đặt tên ảnh bằng mã hàng.\n\n"
+        "💡 Tên file = mã hàng.\n\n"
 
         "Ví dụ:\n\n"
 
-        "`R09-490416.JPG` "
-        "→ mã hàng `R09-490416`"
+        "`R09-490416.JPG`"
+
+        " → "
+
+        "`R09-490416`"
 
     )
 
@@ -1635,9 +1419,9 @@ with tab2:
     )
 
 
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
     # INPUT
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
 
     with col_upload_1:
 
@@ -1657,8 +1441,7 @@ with tab2:
         uploaded_files = (
             st.file_uploader(
 
-                "Chọn nhiều ảnh sản phẩm "
-                "gốc / ảnh mẫu để lưu kho:",
+                "Chọn nhiều ảnh sản phẩm:",
 
                 type=[
 
@@ -1678,9 +1461,9 @@ with tab2:
         )
 
 
-    # -----------------------------------------------------------------
-    # FILE LIST
-    # -----------------------------------------------------------------
+    # ---------------------------------------------------------
+    # BULK
+    # ---------------------------------------------------------
 
     if uploaded_files:
 
@@ -1690,7 +1473,7 @@ with tab2:
 
                 f"📂 Đã chọn "
                 f"**{len(uploaded_files)}** "
-                f"file ảnh."
+                "file."
 
             )
 
@@ -1701,18 +1484,13 @@ with tab2:
 
                 type="primary",
 
-                key="btn_bulk_upload"
+                key="btn_bulk"
 
             ):
 
-                progress_bar = (
-                    st.progress(0)
-                )
+                progress = st.progress(0)
 
-
-                status_text = (
-                    st.empty()
-                )
+                status = st.empty()
 
 
                 success_count = 0
@@ -1722,9 +1500,9 @@ with tab2:
                 failed_items = []
 
 
-                # =====================================================
+                # =================================================
                 # LOOP
-                # =====================================================
+                # =================================================
 
                 for index, file in enumerate(
 
@@ -1743,11 +1521,11 @@ with tab2:
                     )
 
 
-                    status_text.text(
+                    status.text(
 
                         f"⏳ Đang xử lý "
-                        f"({index + 1}/"
-                        f"{len(uploaded_files)}): "
+                        f"{index + 1}/"
+                        f"{len(uploaded_files)}: "
                         f"{product_code}"
 
                     )
@@ -1755,9 +1533,9 @@ with tab2:
 
                     try:
 
-                        # -------------------------------------------------
+                        # ---------------------------------------------
                         # READ
-                        # -------------------------------------------------
+                        # ---------------------------------------------
 
                         raw_bytes = (
                             file.getvalue()
@@ -1767,51 +1545,66 @@ with tab2:
                         if not raw_bytes:
 
                             raise Exception(
-                                "File ảnh rỗng."
+
+                                "File rỗng."
+
                             )
 
 
-                        # -------------------------------------------------
-                        # NORMALIZE
-                        # -------------------------------------------------
+                        # ---------------------------------------------
+                        # NORMALIZE IMAGE
+                        # ---------------------------------------------
 
-                        image_bytes = (
-
-                            normalize_image_bytes(
-
+                        image = (
+                            normalize_image(
                                 raw_bytes
+                            )
+                        )
+
+
+                        # ---------------------------------------------
+                        # CLIP
+                        # ---------------------------------------------
+
+                        embedding = (
+
+                            get_clip_image_embedding(
+
+                                image
 
                             )
 
                         )
 
 
-                        # -------------------------------------------------
-                        # STORAGE FILENAME
-                        # -------------------------------------------------
+                        # ---------------------------------------------
+                        # VERIFY
+                        # ---------------------------------------------
 
-                        safe_filename = (
+                        if len(
+                            embedding
+                        ) != 512:
 
-                            sanitize_filename(
+                            raise Exception(
 
-                                file.name
+                                "CLIP vector "
+                                f"không phải 512D: "
+                                f"{len(embedding)}"
 
                             )
 
-                        )
 
-
-                        # -------------------------------------------------
-                        # UPLOAD STORAGE
-                        # -------------------------------------------------
+                        # ---------------------------------------------
+                        # STORAGE
+                        # ---------------------------------------------
 
                         image_url = (
 
                             upload_image_to_storage(
 
-                                image_bytes,
+                                raw_bytes,
 
-                                safe_filename
+                                file.name
 
                             )
 
@@ -1828,55 +1621,9 @@ with tab2:
                             )
 
 
-                        # -------------------------------------------------
-                        # HASH
-                        # -------------------------------------------------
-
-                        image_hash = (
-
-                            get_image_hash(
-
-                                image_bytes
-
-                            )
-
-                        )
-
-
-                        # -------------------------------------------------
-                        # CLIP IMAGE EMBEDDING
-                        # -------------------------------------------------
-
-                        embedding = (
-
-                            get_cached_clip_embedding(
-
-                                image_hash,
-
-                                image_bytes
-
-                            )
-
-                        )
-
-
-                        # -------------------------------------------------
-                        # VECTOR VALIDATION
-                        # -------------------------------------------------
-
-                        if not embedding:
-
-                            raise Exception(
-
-                                "CLIP không tạo "
-                                "được embedding."
-
-                            )
-
-
-                        # -------------------------------------------------
-                        # SAVE
-                        # -------------------------------------------------
+                        # ---------------------------------------------
+                        # DATABASE
+                        # ---------------------------------------------
 
                         save_product(
 
@@ -1921,24 +1668,24 @@ with tab2:
                         )
 
 
-                    # -------------------------------------------------
+                    # ---------------------------------------------
                     # PROGRESS
-                    # -------------------------------------------------
+                    # ---------------------------------------------
 
-                    progress_bar.progress(
+                    progress.progress(
 
                         int(
 
                             (
 
-                                (index + 1)
+                                index + 1
 
-                                /
+                            )
 
-                                len(
-                                    uploaded_files
-                                )
+                            /
 
+                            len(
+                                uploaded_files
                             )
 
                             *
@@ -1950,41 +1697,33 @@ with tab2:
                     )
 
 
-                # =====================================================
+                # =================================================
                 # COMPLETE
-                # =====================================================
+                # =================================================
 
-                status_text.empty()
+                status.empty()
 
 
-                if success_count > 0:
+                if success_count:
 
                     st.success(
 
-                        f"🎉 Hoàn thành!\n\n"
+                        "🎉 Hoàn thành!\n\n"
 
-                        f"Đã lưu thành công "
-                        f"**{success_count}/"
-                        f"{len(uploaded_files)}** "
-                        "mã hàng."
+                        f"✅ Thành công: "
+                        f"{success_count}\n\n"
 
-                    )
-
-
-                if failed_count > 0:
-
-                    st.warning(
-
-                        f"⚠️ Có "
-                        f"**{failed_count}** "
-                        "file chưa lưu được."
+                        f"❌ Lỗi: "
+                        f"{failed_count}"
 
                     )
 
+
+                if failed_items:
 
                     with st.expander(
 
-                        "🔎 Xem chi tiết file lỗi"
+                        "🔎 Chi tiết file lỗi"
 
                     ):
 
@@ -1992,7 +1731,8 @@ with tab2:
 
                             st.error(
 
-                                f"**{item['file']}**\n\n"
+                                f"File: "
+                                f"{item['file']}\n\n"
 
                                 f"Mã: "
                                 f"{item['product_code']}\n\n"
@@ -2003,14 +1743,6 @@ with tab2:
                             )
 
 
-                st.info(
-
-                    f"📊 Tổng kết: "
-
-                    f"✅ {success_count} thành công | "
-
-                    f"❌ {failed_count} lỗi | "
-
-                    f"📦 {len(uploaded_files)} file"
-
-                )
+# =====================================================================
+# END
+# =====================================================================
