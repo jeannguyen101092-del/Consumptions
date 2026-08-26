@@ -2206,47 +2206,401 @@ with tab2:
 
 
 # =====================================================================
-# 🗑️ XÓA FILE HIỆN TẠI KHỎI MÀN HÌNH
-# KHÔNG XÓA SUPABASE
-# KHÔNG XÓA DATABASE
-# KHÔNG XÓA ẢNH TRONG STORAGE
+# 📦 TAB 2 - LƯU KHO HÀNG LOẠT
+# VERSION V3.6
+#
+# 🗑️ XÓA FILE HIỆN TẠI = CHỈ XÓA FILE ĐANG CHỜ TRÊN MÀN HÌNH
+#
+# ❌ KHÔNG XÓA SUPABASE
+# ❌ KHÔNG XÓA DATABASE
+# ❌ KHÔNG XÓA STORAGE
 # =====================================================================
 
-if uploaded_files:
+with tab2:
+
+    st.header(
+        "📦 ĐẨY DỮ LIỆU MÃ HÀNG HÀNG LOẠT"
+    )
+
+    st.info(
+        "AI tự nhận diện category. "
+        "Sau khi lưu, dữ liệu trong Supabase vẫn được giữ nguyên."
+    )
+
+
+    # =================================================================
+    # 1. TẠO VERSION CHO FILE UPLOADER
+    # =================================================================
+
+    if "warehouse_uploader_version" not in st.session_state:
+
+        st.session_state[
+            "warehouse_uploader_version"
+        ] = 0
+
+
+    uploader_key = (
+        "warehouse_files_"
+        +
+        str(
+            st.session_state[
+                "warehouse_uploader_version"
+            ]
+        )
+    )
+
+
+    # =================================================================
+    # 2. FILE UPLOADER
+    # =================================================================
+
+    uploaded_files = st.file_uploader(
+
+        "📂 Chọn nhiều ảnh sản phẩm",
+
+        type=[
+            "png",
+            "jpg",
+            "jpeg"
+        ],
+
+        accept_multiple_files=True,
+
+        key=uploader_key
+
+    )
+
+
+    # =================================================================
+    # 3. NẾU CÓ FILE ĐANG CHỜ
+    # =================================================================
+
+    if uploaded_files:
+
+        st.write(
+            f"📂 Đang có **{len(uploaded_files)}** file chờ xử lý."
+        )
+
+
+        # -------------------------------------------------------------
+        # HIỂN THỊ DANH SÁCH FILE
+        # -------------------------------------------------------------
+
+        with st.expander(
+            "📋 Xem danh sách file đang chờ",
+            expanded=True
+        ):
+
+            for i, file in enumerate(
+                uploaded_files,
+                start=1
+            ):
+
+                st.write(
+                    f"{i}. `{file.name}`"
+                )
+
+
+        st.divider()
+
+
+        # =============================================================
+        # 4. NÚT LƯU KHO
+        # =============================================================
+
+        if st.button(
+
+            "📤 AI NHẬN DIỆN & LƯU TOÀN BỘ",
+
+            type="primary",
+
+            key="save_all_button_v36"
+
+        ):
+
+            progress = st.progress(
+                0
+            )
+
+            status = st.empty()
+
+            success = 0
+            errors = 0
+
+            total = len(
+                uploaded_files
+            )
+
+            results = []
+
+
+            # ---------------------------------------------------------
+            # XỬ LÝ TỪNG FILE
+            # ---------------------------------------------------------
+
+            for index, file in enumerate(
+                uploaded_files
+            ):
+
+                product_code = clean_product_code(
+                    file.name
+                )
+
+
+                status.write(
+
+                    f"⏳ Đang xử lý "
+                    f"{index + 1}/{total}: "
+                    f"**{product_code}**"
+
+                )
+
+
+                try:
+
+                    image_bytes = (
+                        file.getvalue()
+                    )
+
+
+                    # =================================================
+                    # AI NHẬN DIỆN
+                    # =================================================
+
+                    ai_result = (
+                        analyze_garment_with_vision(
+                            image_bytes
+                        )
+                    )
+
+
+                    category = ai_result[
+                        "category"
+                    ]
+
+
+                    # =================================================
+                    # CLIP
+                    # =================================================
+
+                    embedding = (
+                        get_clip_embedding(
+                            image_bytes
+                        )
+                    )
+
+
+                    # =================================================
+                    # STORAGE
+                    # =================================================
+
+                    storage_name = (
+                        product_code
+                        +
+                        ".jpg"
+                    )
+
+
+                    image_url = (
+                        upload_image_to_storage(
+
+                            image_bytes,
+
+                            storage_name
+
+                        )
+                    )
+
+
+                    # =================================================
+                    # DATABASE
+                    # =================================================
+
+                    save_product(
+
+                        product_code,
+
+                        image_url,
+
+                        category,
+
+                        embedding
+
+                    )
+
+
+                    success += 1
+
+
+                    results.append({
+
+                        "Mã hàng":
+                            product_code,
+
+                        "Category":
+                            category,
+
+                        "Confidence":
+                            round(
+                                ai_result[
+                                    "confidence"
+                                ],
+                                1
+                            ),
+
+                        "Status":
+                            "✅ SUCCESS"
+
+                    })
+
+
+                except Exception as e:
+
+                    errors += 1
+
+
+                    results.append({
+
+                        "Mã hàng":
+                            product_code,
+
+                        "Category":
+                            "ERROR",
+
+                        "Confidence":
+                            0,
+
+                        "Status":
+                            "❌ "
+                            +
+                            str(e)
+
+                    })
+
+
+                progress.progress(
+                    (index + 1) / total
+                )
+
+
+            status.empty()
+
+
+            # ---------------------------------------------------------
+            # LƯU KẾT QUẢ VÀO SESSION
+            # ---------------------------------------------------------
+
+            st.session_state[
+                "warehouse_results"
+            ] = results
+
+
+            # ---------------------------------------------------------
+            # THỐNG KÊ
+            # ---------------------------------------------------------
+
+            st.success(
+
+                f"🎉 Hoàn thành: "
+                f"**{success}/{total}** mã hàng."
+
+            )
+
+
+            if errors:
+
+                st.warning(
+
+                    f"⚠️ Có {errors} file lỗi."
+
+                )
+
+
+    # =================================================================
+    # 5. HIỂN THỊ KẾT QUẢ LƯU
+    # =================================================================
+
+    if (
+        "warehouse_results"
+        in st.session_state
+    ):
+
+        results = st.session_state[
+            "warehouse_results"
+        ]
+
+
+        if results:
+
+            st.markdown(
+                "### 🤖 KẾT QUẢ AI"
+            )
+
+
+            st.dataframe(
+
+                results,
+
+                use_container_width=True
+
+            )
+
+
+    # =================================================================
+    # 6. 🗑️ XÓA FILE ĐANG CHỜ TRÊN MÀN HÌNH
+    # =================================================================
+    #
+    # QUAN TRỌNG:
+    #
+    # NÚT NÀY KHÔNG XÓA DATABASE
+    # NÚT NÀY KHÔNG XÓA STORAGE
+    # NÚT NÀY KHÔNG XÓA PRODUCTS
+    #
+    # Nó chỉ reset widget file_uploader.
+    # =================================================================
 
     st.divider()
 
+
     if st.button(
-        "🗑️ XÓA FILE HIỆN TẠI",
-        key="clear_current_upload"
+
+        "🗑️ XÓA FILE ĐANG CHỜ",
+
+        key="clear_pending_files_v36"
+
     ):
 
         # -------------------------------------------------------------
-        # Xóa trạng thái file upload hiện tại
-        # -------------------------------------------------------------
-
-        if "warehouse_files" in st.session_state:
-            del st.session_state["warehouse_files"]
-
-        if "warehouse_results" in st.session_state:
-            del st.session_state["warehouse_results"]
-
-        if "warehouse_processing" in st.session_state:
-            del st.session_state["warehouse_processing"]
-
-        # -------------------------------------------------------------
-        # KHÔNG đụng vào:
+        # TĂNG VERSION
         #
-        # Supabase database
-        # products
-        # product-images
-        # embedding
-        # category
+        # Streamlit sẽ tạo một file_uploader mới hoàn toàn.
+        # File cũ trong mục "chờ" sẽ biến mất.
         # -------------------------------------------------------------
 
-        st.success(
-            "✅ Đã xóa file hiện tại khỏi màn hình. "
-            "Dữ liệu đã lưu trong kho vẫn được giữ nguyên."
-        )
+        st.session_state[
+            "warehouse_uploader_version"
+        ] += 1
+
+
+        # -------------------------------------------------------------
+        # XÓA KẾT QUẢ HIỂN THỊ TẠM
+        # -------------------------------------------------------------
+
+        for key in [
+
+            "warehouse_results",
+            "warehouse_processing",
+            "warehouse_current_result"
+
+        ]:
+
+            if key in st.session_state:
+
+                del st.session_state[key]
+
+
+        # -------------------------------------------------------------
+        # RERUN
+        # -------------------------------------------------------------
 
         st.rerun()
