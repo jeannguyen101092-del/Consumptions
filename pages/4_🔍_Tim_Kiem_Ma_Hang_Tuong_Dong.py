@@ -39,8 +39,8 @@ def get_secret(name, default=None):
         return default
 
 
-SUPABASE_URL = get_secret("https://ewqqodsfvlvnrzsylawy.supabase.co")
-SUPABASE_KEY = get_secret("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc")
+SUPABASE_URL = get_secret("SUPABASE_URL")
+SUPABASE_KEY = get_secret("SUPABASE_KEY")
 
 HF_TOKEN = get_secret("HF_TOKEN")
 
