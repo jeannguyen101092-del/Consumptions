@@ -5498,7 +5498,7 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
 
     "SHORT":     0.83,
 
-    "JACKET":    0.60,
+    "JACKET":    0.50,
     "COAT":      0.82,
     "BLAZER":    0.80,
 
