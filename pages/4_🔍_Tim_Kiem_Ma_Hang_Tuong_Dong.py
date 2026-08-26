@@ -1,34 +1,205 @@
 # =====================================================================
-# 🤖 HUGGING FACE VISION ENGINE
-# VERSION V3.1
+# 🤖 AI GARMENT VISION ENGINE
+# VERSION V3.1.1
 # MODEL: GLM-4.5V
 # PROVIDER: NOVITA
+#
+# FIX:
+# - NameError: st
+# - HF_TOKEN đọc từ Streamlit Secrets
+# - Không hard-code token
+# - Không gọi hf-inference
+# - Garment rule engine
+# - Jumpsuit != Cargo
+# - Overall != Cargo
 # =====================================================================
 
-from huggingface_hub import InferenceClient
+
+# =====================================================================
+# 1. STREAMLIT - PHẢI ĐẶT TRƯỚC TẤT CẢ
+# =====================================================================
+
+import streamlit as st
+
+st.set_page_config(
+    page_title="AI Garment Vision",
+    page_icon="🤖",
+    layout="wide"
+)
+
+
+# =====================================================================
+# 2. IMPORT
+# =====================================================================
+
 import base64
 import json
 import re
 
 
 # =====================================================================
-# 1. MODEL + PROVIDER
+# 3. HUGGING FACE
 # =====================================================================
 
-VISION_MODEL = "zai-org/GLM-4.5V"
+try:
 
-VISION_PROVIDER = "novita"
+    from huggingface_hub import InferenceClient
+
+except Exception as e:
+
+    st.error(
+        "❌ Chưa cài huggingface_hub."
+    )
+
+    st.code(
+        "huggingface_hub>=0.33.0"
+    )
+
+    st.exception(e)
+
+    st.stop()
 
 
 # =====================================================================
-# 2. HF CLIENT
+# 4. ĐỌC HF TOKEN TỪ STREAMLIT SECRETS / TOMY
+# =====================================================================
+
+def get_hf_token():
+
+    # ---------------------------------------------------------
+    # DIRECT SECRETS
+    # ---------------------------------------------------------
+
+    possible_keys = [
+
+        "HF_TOKEN",
+        "HUGGINGFACE_TOKEN",
+        "HUGGING_FACE_TOKEN"
+
+    ]
+
+
+    for key in possible_keys:
+
+        try:
+
+            value = st.secrets.get(
+                key
+            )
+
+            if value:
+
+                value = str(
+                    value
+                ).strip()
+
+                if value:
+
+                    return value
+
+        except Exception:
+
+            pass
+
+
+    # ---------------------------------------------------------
+    # GROUP SECRETS
+    # ---------------------------------------------------------
+
+    for group_name in [
+
+        "huggingface",
+        "HUGGINGFACE"
+
+    ]:
+
+        try:
+
+            group = st.secrets.get(
+                group_name
+            )
+
+            if group:
+
+                for key in possible_keys:
+
+                    try:
+
+                        value = group.get(
+                            key
+                        )
+
+                        if value:
+
+                            value = str(
+                                value
+                            ).strip()
+
+                            if value:
+
+                                return value
+
+                    except Exception:
+
+                        pass
+
+        except Exception:
+
+            pass
+
+
+    return None
+
+
+# =====================================================================
+# 5. HF TOKEN
+# =====================================================================
+
+HF_TOKEN = get_hf_token()
+
+
+if not HF_TOKEN:
+
+    st.error(
+        "❌ Không đọc được HF_TOKEN từ Streamlit Secrets."
+    )
+
+    st.info(
+        "Hãy kiểm tra Secrets/Tomy có:"
+    )
+
+    st.code(
+        'HF_TOKEN = "hf_xxxxxxxxxxxxxxxxx"'
+    )
+
+    st.stop()
+
+
+# =====================================================================
+# 6. MODEL + PROVIDER
+# =====================================================================
+
+VISION_MODEL = (
+    "zai-org/GLM-4.5V"
+)
+
+VISION_PROVIDER = (
+    "novita"
+)
+
+
+# =====================================================================
+# 7. HUGGING FACE CLIENT
 # =====================================================================
 
 try:
 
     hf_client = InferenceClient(
+
         api_key=HF_TOKEN,
+
         provider=VISION_PROVIDER
+
     )
 
 except Exception as e:
@@ -43,26 +214,53 @@ except Exception as e:
 
 
 # =====================================================================
-# 3. IMAGE → DATA URL
+# 8. AI STATUS
 # =====================================================================
 
-def image_to_data_url(image_bytes):
+with st.sidebar:
 
-    encoded = base64.b64encode(
-        image_bytes
-    ).decode("utf-8")
+    st.success(
+        "🤖 AI Vision: ONLINE"
+    )
 
-    return (
-        "data:image/jpeg;base64,"
-        + encoded
+    st.caption(
+        f"Model: {VISION_MODEL}"
+    )
+
+    st.caption(
+        f"Provider: {VISION_PROVIDER}"
     )
 
 
 # =====================================================================
-# 4. CLEAN JSON
+# 9. IMAGE → DATA URL
 # =====================================================================
 
-def extract_json_from_ai(text):
+def image_to_data_url(
+    image_bytes
+):
+
+    encoded = base64.b64encode(
+        image_bytes
+    ).decode(
+        "utf-8"
+    )
+
+
+    return (
+        "data:image/jpeg;base64,"
+        +
+        encoded
+    )
+
+
+# =====================================================================
+# 10. CLEAN AI JSON
+# =====================================================================
+
+def extract_json_from_ai(
+    text
+):
 
     if not text:
 
@@ -70,46 +268,68 @@ def extract_json_from_ai(text):
             "AI không trả về dữ liệu."
         )
 
+
     text = str(
         text
     ).strip()
 
+
     # ---------------------------------------------------------
-    # REMOVE MARKDOWN
+    # REMOVE MARKDOWN CODE FENCE
     # ---------------------------------------------------------
 
     text = re.sub(
+
         r"```json",
+
         "",
+
         text,
+
         flags=re.I
+
     )
 
+
     text = re.sub(
+
         r"```",
+
         "",
+
         text
+
     )
+
 
     text = text.strip()
 
 
     # ---------------------------------------------------------
-    # FIND JSON
+    # FIND JSON OBJECT
     # ---------------------------------------------------------
 
     match = re.search(
+
         r"\{.*\}",
+
         text,
+
         flags=re.S
+
     )
+
 
     if not match:
 
         raise Exception(
+
             "AI không trả về JSON hợp lệ:\n"
-            + text[:1500]
+            +
+            text[:2000]
+
         )
+
 
     json_text = (
         match.group(0)
@@ -125,73 +345,111 @@ def extract_json_from_ai(text):
     except Exception as e:
 
         raise Exception(
+
             "JSON AI lỗi: "
-            + str(e)
-            + "\n"
-            + json_text[:1500]
+            +
+            str(e)
+            +
+            "\n\n"
+            +
+            json_text[:2000]
+
         )
 
 
 # =====================================================================
-# 5. GARMENT VISION
+# 11. GARMENT VISION PROMPT
 # =====================================================================
 
-def analyze_garment_with_vision(
-    image_bytes
-):
+GARMENT_VISION_PROMPT = """
 
-    image_url = (
-        image_to_data_url(
-            image_bytes
-        )
-    )
+You are a senior apparel technical designer and garment
+recognition specialist.
 
+Analyze the garment image extremely carefully.
 
-    prompt = """
-You are an expert apparel product recognition AI.
+This image will be used to search a commercial garment
+database, therefore construction accuracy is more important
+than generic visual similarity.
 
-Analyze this garment image/sketch for commercial
-garment similarity search.
+============================================================
+CRITICAL GARMENT CLASSIFICATION
+============================================================
 
-This is NOT a generic image classification task.
+FIRST determine:
 
-You must identify the actual garment construction.
+A. ONE PIECE
+B. SEPARATE GARMENT
 
-CRITICAL:
+------------------------------------------------------------
+JUMPSUIT
+------------------------------------------------------------
 
-1. Determine if it is ONE PIECE or a SEPARATE GARMENT.
+If the upper body and lower body are physically connected
+into ONE garment:
 
-2. JUMPSUIT:
-   Upper body and lower body are physically connected.
-   Classify as "Áo liền quần".
+category = "Áo liền quần"
 
-3. BIB OVERALL:
-   Has bib front and shoulder straps.
-   Classify as "Quần yếm".
+NEVER classify a jumpsuit as Cargo Pants.
 
-4. CARGO PANTS:
-   Must be a SEPARATE PANTS garment AND have obvious
-   external cargo/patch pockets on the side legs.
+------------------------------------------------------------
+BIB OVERALL
+------------------------------------------------------------
 
-5. NEVER classify a jumpsuit as cargo pants simply because
-   the lower half looks like cargo pants.
+If there is:
 
-6. NEVER classify bib overalls as cargo pants.
+- bib front
+- shoulder straps
+- overall construction
 
-7. DENIM JEANS:
-   Separate denim pants.
+category = "Quần yếm"
 
-8. JOGGER:
-   Separate pants with jogger construction,
-   especially elastic/rib cuffs.
+NEVER classify a bib overall as Cargo Pants.
 
-9. JACKET:
-   Separate outerwear upper-body garment.
+------------------------------------------------------------
+CARGO PANTS
+------------------------------------------------------------
 
-10. DRESS:
-    One-piece dress silhouette, NOT pants-based jumpsuit.
+Cargo Pants must satisfy BOTH:
 
-Available categories:
+1. It is a SEPARATE pants garment.
+2. It has obvious external cargo/patch pockets on side legs.
+
+If the garment is one-piece, it is NOT Cargo Pants.
+
+If there are no clear cargo pockets, do NOT classify it as
+Cargo Pants.
+
+------------------------------------------------------------
+JEANS
+------------------------------------------------------------
+
+Separate denim pants with denim construction.
+
+------------------------------------------------------------
+JOGGER
+------------------------------------------------------------
+
+Separate pants with jogger construction, especially
+elastic/rib ankle cuffs.
+
+------------------------------------------------------------
+JACKET
+------------------------------------------------------------
+
+Separate upper-body outerwear garment.
+
+------------------------------------------------------------
+DRESS
+------------------------------------------------------------
+
+One-piece dress silhouette.
+
+Do NOT confuse a dress with a pants-based jumpsuit.
+
+============================================================
+AVAILABLE CATEGORIES
+============================================================
 
 - Áo liền quần
 - Quần yếm
@@ -208,8 +466,11 @@ Available categories:
 - Skirt
 - Dress
 
+============================================================
+ANALYZE
+============================================================
 
-Analyze these attributes:
+Return:
 
 category
 confidence
@@ -224,10 +485,15 @@ collar
 hood
 silhouette
 length
+reason
+
+============================================================
+OUTPUT
+============================================================
 
 Return ONLY valid JSON.
 
-Use this exact format:
+Example:
 
 {
   "category": "Áo liền quần",
@@ -243,62 +509,99 @@ Use this exact format:
   "hood": false,
   "silhouette": "straight",
   "length": "full",
-  "reason": "..."
+  "reason": "Upper and lower body are physically connected."
 }
+
 """
 
 
-    # =================================================================
-    # CALL GLM-4.5V
-    # =================================================================
+# =====================================================================
+# 12. CALL GLM-4.5V
+# =====================================================================
+
+def analyze_garment_with_vision(
+    image_bytes
+):
+
+    image_url = (
+        image_to_data_url(
+            image_bytes
+        )
+    )
+
 
     try:
 
-        response = hf_client.chat.completions.create(
+        response = (
 
-            model=VISION_MODEL,
+            hf_client
+            .chat
+            .completions
+            .create(
 
-            messages=[
+                model=VISION_MODEL,
 
-                {
-                    "role": "user",
+                messages=[
 
-                    "content": [
+                    {
 
-                        {
-                            "type": "image_url",
+                        "role":
+                            "user",
 
-                            "image_url": {
-                                "url": image_url
-                            }
-                        },
+                        "content":
 
-                        {
-                            "type": "text",
+                            [
 
-                            "text": prompt
-                        }
+                                {
 
-                    ]
-                }
+                                    "type":
+                                        "image_url",
 
-            ],
+                                    "image_url":
+                                        {
 
-            max_tokens=1000,
+                                            "url":
+                                                image_url
 
-            temperature=0.0
+                                        }
+
+                                },
+
+                                {
+
+                                    "type":
+                                        "text",
+
+                                    "text":
+                                        GARMENT_VISION_PROMPT
+
+                                }
+
+                            ]
+
+                    }
+
+                ],
+
+                max_tokens=1000,
+
+                temperature=0.0
+
+            )
 
         )
 
 
     except Exception as e:
 
-        error_text = str(e)
+        error_text = str(
+            e
+        )
 
 
-        # ---------------------------------------------------------
-        # PROVIDER ERROR
-        # ---------------------------------------------------------
+        # =====================================================
+        # PROVIDER NOT SUPPORTED
+        # =====================================================
 
         if (
             "model_not_supported"
@@ -307,22 +610,45 @@ Use this exact format:
 
             raise Exception(
 
-                "Hugging Face không cho phép "
-                "provider Novita cho token hiện tại.\n\n"
+                "❌ MODEL KHÔNG ĐƯỢC PROVIDER HỖ TRỢ.\n\n"
 
-                "Model: zai-org/GLM-4.5V\n"
+                f"Model: {VISION_MODEL}\n"
 
-                "Provider: Novita\n\n"
+                f"Provider: {VISION_PROVIDER}\n\n"
 
-                "Hãy kiểm tra Inference Providers "
-                "trong Hugging Face account."
+                "HF_TOKEN hiện tại không có quyền "
+                "sử dụng model/provider này.\n\n"
+
+                "Đây là lỗi Hugging Face provider, "
+                "không phải lỗi ảnh."
+
+            )
+
+
+        # =====================================================
+        # BAD REQUEST
+        # =====================================================
+
+        if (
+            "bad request"
+            in error_text.lower()
+        ):
+
+            raise Exception(
+
+                "❌ Hugging Face từ chối request.\n\n"
+                +
+                error_text
 
             )
 
 
         raise Exception(
-            "Hugging Face GLM-4.5V lỗi: "
-            + error_text
+
+            "❌ Hugging Face GLM-4.5V lỗi:\n"
+            +
+            error_text
+
         )
 
 
@@ -333,17 +659,23 @@ Use this exact format:
     try:
 
         content = (
+
             response
             .choices[0]
             .message
             .content
+
         )
 
     except Exception as e:
 
         raise Exception(
-            "Không đọc được kết quả GLM-4.5V: "
-            + str(e)
+
+            "❌ Không đọc được response "
+            "từ GLM-4.5V:\n"
+            +
+            str(e)
+
         )
 
 
@@ -351,8 +683,10 @@ Use this exact format:
     # JSON
     # =================================================================
 
-    result = extract_json_from_ai(
-        content
+    result = (
+        extract_json_from_ai(
+            content
+        )
     )
 
 
@@ -360,8 +694,10 @@ Use this exact format:
     # NORMALIZE
     # =================================================================
 
-    result = normalize_garment_result(
-        result
+    result = (
+        normalize_garment_result(
+            result
+        )
     )
 
 
@@ -369,7 +705,7 @@ Use this exact format:
 
 
 # =====================================================================
-# 6. GARMENT RULE ENGINE
+# 13. GARMENT NORMALIZATION
 # =====================================================================
 
 def normalize_garment_result(
@@ -387,10 +723,12 @@ def normalize_garment_result(
 
 
     category = str(
+
         result.get(
             "category",
             ""
         )
+
     ).strip()
 
 
@@ -407,6 +745,9 @@ def normalize_garment_result(
             "Áo liền quần",
 
         "ONE-PIECE":
+            "Áo liền quần",
+
+        "ROMPER":
             "Áo liền quần",
 
         "OVERALL":
@@ -460,6 +801,9 @@ def normalize_garment_result(
         "POLO SHIRT":
             "Polo",
 
+        "POLO":
+            "Polo",
+
         "HOODIE":
             "Hoodie",
 
@@ -471,13 +815,16 @@ def normalize_garment_result(
 
         "SKIRT":
             "Skirt"
+
     }
 
 
     category_upper = (
+
         category
         .upper()
         .strip()
+
     )
 
 
@@ -489,7 +836,7 @@ def normalize_garment_result(
 
 
     # =================================================================
-    # VALID CATEGORY
+    # VALID CATEGORIES
     # =================================================================
 
     valid_categories = [
@@ -523,10 +870,10 @@ def normalize_garment_result(
 
 
     # =================================================================
-    # BOOLEAN
+    # BOOLEAN NORMALIZATION
     # =================================================================
 
-    bool_fields = [
+    boolean_fields = [
 
         "one_piece",
         "bib",
@@ -539,7 +886,7 @@ def normalize_garment_result(
     ]
 
 
-    for field in bool_fields:
+    for field in boolean_fields:
 
         value = result.get(
             field,
@@ -553,18 +900,26 @@ def normalize_garment_result(
         ):
 
             value = (
+
                 value
                 .strip()
                 .lower()
+
                 in [
+
                     "true",
                     "yes",
-                    "1"
+                    "1",
+                    "y"
+
                 ]
+
             )
 
 
-        result[field] = bool(
+        result[
+            field
+        ] = bool(
             value
         )
 
@@ -576,10 +931,12 @@ def normalize_garment_result(
     try:
 
         confidence = float(
+
             result.get(
                 "confidence",
                 0
             )
+
         )
 
     except Exception:
@@ -590,32 +947,51 @@ def normalize_garment_result(
     result[
         "confidence"
     ] = max(
+
         0,
+
         min(
+
             100,
+
             confidence
+
         )
+
     )
 
 
     # =================================================================
     # 🔒 HARD RULE 1
-    # ONE PIECE → NEVER CARGO
+    # ONE PIECE
     # =================================================================
 
     if result[
         "one_piece"
     ]:
 
+        # -------------------------------------------------------------
+        # BIB + STRAPS
+        # -------------------------------------------------------------
+
         if (
-            result["bib"]
+
+            result[
+                "bib"
+            ]
+
             and
-            result["shoulder_straps"]
+
+            result[
+                "shoulder_straps"
+            ]
+
         ):
 
             result[
                 "category"
             ] = "Quần yếm"
+
 
         else:
 
@@ -626,16 +1002,20 @@ def normalize_garment_result(
 
     # =================================================================
     # 🔒 HARD RULE 2
-    # BIB → OVERALL
+    # BIB OVERALL
     # =================================================================
 
     elif (
 
-        result["bib"]
+        result[
+            "bib"
+        ]
 
         and
 
-        result["shoulder_straps"]
+        result[
+            "shoulder_straps"
+        ]
 
     ):
 
@@ -646,7 +1026,7 @@ def normalize_garment_result(
 
     # =================================================================
     # 🔒 HARD RULE 3
-    # CARGO REQUIRES CARGO POCKET
+    # CARGO MUST HAVE CARGO POCKET
     # =================================================================
 
     elif (
@@ -723,3 +1103,245 @@ def normalize_garment_result(
 
 
     return result
+
+
+# =====================================================================
+# 14. DISPLAY RESULT
+# =====================================================================
+
+def display_garment_result(
+    result
+):
+
+    st.subheader(
+        "🤖 AI GARMENT ANALYSIS"
+    )
+
+
+    col1, col2, col3 = st.columns(
+        3
+    )
+
+
+    with col1:
+
+        st.metric(
+
+            "🏷️ Category",
+
+            result[
+                "category"
+            ]
+
+        )
+
+
+    with col2:
+
+        st.metric(
+
+            "🎯 Confidence",
+
+            f"{result['confidence']:.1f}%"
+
+        )
+
+
+    with col3:
+
+        st.metric(
+
+            "👕 One Piece",
+
+            "YES"
+            if result[
+                "one_piece"
+            ]
+            else
+            "NO"
+
+        )
+
+
+    # =================================================================
+    # DETAILS
+    # =================================================================
+
+    with st.expander(
+        "🔎 Chi tiết AI nhận diện"
+    ):
+
+        c1, c2 = st.columns(
+            2
+        )
+
+
+        with c1:
+
+            st.write(
+                "Bib:",
+                result[
+                    "bib"
+                ]
+            )
+
+            st.write(
+                "Shoulder Straps:",
+                result[
+                    "shoulder_straps"
+                ]
+            )
+
+            st.write(
+                "Cargo Pockets:",
+                result[
+                    "cargo_pockets"
+                ]
+            )
+
+            st.write(
+                "Denim:",
+                result[
+                    "denim"
+                ]
+            )
+
+
+        with c2:
+
+            st.write(
+                "Jogger Cuffs:",
+                result[
+                    "jogger_cuffs"
+                ]
+            )
+
+            st.write(
+                "Sleeve:",
+                result.get(
+                    "sleeve",
+                    ""
+                )
+            )
+
+            st.write(
+                "Collar:",
+                result.get(
+                    "collar",
+                    ""
+                )
+            )
+
+            st.write(
+                "Silhouette:",
+                result.get(
+                    "silhouette",
+                    ""
+                )
+            )
+
+
+        st.write(
+            "📝 AI Reason:"
+        )
+
+        st.write(
+            result.get(
+                "reason",
+                ""
+            )
+        )
+
+
+# =====================================================================
+# 15. TEST UI
+# =====================================================================
+
+st.title(
+    "🤖 AI Garment Vision Engine V3.1.1"
+)
+
+
+st.info(
+
+    "AI tự nhận diện garment. "
+    "Không cần chọn category."
+
+)
+
+
+uploaded_file = st.file_uploader(
+
+    "📂 Tải ảnh Sketch / ảnh sản phẩm",
+
+    type=[
+        "jpg",
+        "jpeg",
+        "png"
+    ]
+
+)
+
+
+if uploaded_file:
+
+    st.image(
+
+        uploaded_file,
+
+        caption=uploaded_file.name,
+
+        width=350
+
+    )
+
+
+    if st.button(
+
+        "🤖 NHẬN DIỆN GARMENT",
+
+        type="primary"
+
+    ):
+
+        try:
+
+            image_bytes = (
+                uploaded_file
+                .getvalue()
+            )
+
+
+            with st.spinner(
+                "🧠 GLM-4.5V đang phân tích..."
+            ):
+
+                result = (
+                    analyze_garment_with_vision(
+                        image_bytes
+                    )
+                )
+
+
+            display_garment_result(
+                result
+            )
+
+
+            st.success(
+                "✅ Nhận diện hoàn tất."
+            )
+
+
+        except Exception as e:
+
+            st.error(
+                "❌ AI nhận diện thất bại."
+            )
+
+            st.exception(e)
+
+
+# =====================================================================
+# END
+# =====================================================================
