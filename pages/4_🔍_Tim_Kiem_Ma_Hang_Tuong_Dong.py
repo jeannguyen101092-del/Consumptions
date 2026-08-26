@@ -1513,24 +1513,28 @@ tab1, tab2 = st.tabs(
 
 
 # =====================================================================
-# 30. TAB 1 - AI AUTO SEARCH
-# VERSION V2.5
+# TAB 1 - AI AUTO SEARCH
+# VERSION V2.6
 #
-# ❌ KHÔNG CHO NGƯỜI DÙNG CHỌN CATEGORY
+# 🔒 CATEGORY LOCK SEARCH
 #
 # FLOW:
 #
-# UPLOAD SKETCH
-#       ↓
-# CLIP IMAGE EMBEDDING
-#       ↓
-# AI NHẬN DIỆN CATEGORY
-#       ↓
-# TÌM TOÀN BỘ PRODUCTS
-#       ↓
-# ƯU TIÊN ĐÚNG CATEGORY AI
-#       ↓
-# HIỂN THỊ MÃ TƯƠNG ĐỒNG
+# ẢNH SKETCH
+#     ↓
+# CLIP IMAGE EMBEDDING 512D
+#     ↓
+# AI NHẬN DIỆN CHỦNG LOẠI
+#     ↓
+# CATEGORY LOCK
+#     ↓
+# SUPABASE RPC
+#     ↓
+# CHỈ SEARCH ĐÚNG CATEGORY
+#
+# ❌ KHÔNG CHO USER CHỌN CATEGORY
+# ❌ KHÔNG SEARCH TOÀN BỘ KHO
+# ❌ KHÔNG ĐỂ QUẦN LỌT VÀO KẾT QUẢ ÁO
 #
 # =====================================================================
 
@@ -1541,9 +1545,9 @@ with tab1:
     )
 
     st.info(
-        "🤖 Không cần chọn dòng hàng. "
-        "AI sẽ tự nhận diện chủng loại từ ảnh "
-        "và tự động tìm mã tương đồng trong kho."
+        "🤖 AI sẽ tự nhận diện chủng loại từ ảnh "
+        "→ khóa đúng nhóm hàng → chỉ tìm mã tương đồng "
+        "trong đúng nhóm đó."
     )
 
     st.caption(
@@ -1552,9 +1556,10 @@ with tab1:
         f"Device: {DEVICE_NAME}"
     )
 
-    # ================================================================
-    # UPLOAD
-    # ================================================================
+
+    # =================================================================
+    # 1. UPLOAD IMAGE
+    # =================================================================
 
     uploaded_sketch = st.file_uploader(
 
@@ -1566,20 +1571,25 @@ with tab1:
             "jpeg"
         ],
 
-        key="fu_search_v25"
+        key="fu_search_v26"
+
     )
 
 
+    # =================================================================
+    # 2. IMAGE PREVIEW
+    # =================================================================
+
     if uploaded_sketch is not None:
 
-        col_img, col_result = st.columns(
+        col_img, col_ai = st.columns(
             [1, 2]
         )
 
 
-        # ============================================================
+        # =============================================================
         # IMAGE
-        # ============================================================
+        # =============================================================
 
         with col_img:
 
@@ -1594,27 +1604,41 @@ with tab1:
             )
 
 
-        # ============================================================
-        # SEARCH BUTTON
-        # ============================================================
+        # =============================================================
+        # BUTTON
+        # =============================================================
 
-        with col_result:
+        with col_ai:
+
+            st.write(
+                "### 🤖 AI SEARCH"
+            )
+
+            st.write(
+                "AI sẽ tự quyết định chủng loại. "
+                "Không cần chọn thủ công."
+            )
+
 
             if st.button(
 
-                "🤖 AI NHẬN DIỆN & TỰ ĐỘNG TÌM",
+                "🚀 AI NHẬN DIỆN & TÌM MÃ",
 
                 type="primary",
 
-                key="btn_ai_search_v25"
+                key="btn_ai_search_v26"
 
             ):
 
                 try:
 
+                    # =================================================
+                    # STEP 1
+                    # READ IMAGE
+                    # =================================================
+
                     raw_bytes = (
-                        uploaded_sketch
-                        .getvalue()
+                        uploaded_sketch.getvalue()
                     )
 
 
@@ -1626,12 +1650,12 @@ with tab1:
 
 
                     # =================================================
-                    # STEP 1
+                    # STEP 2
                     # IMAGE EMBEDDING
                     # =================================================
 
                     with st.spinner(
-                        "🤖 AI đang phân tích hình dáng sản phẩm..."
+                        "🤖 CLIP đang phân tích hình ảnh..."
                     ):
 
                         image_hash = (
@@ -1653,8 +1677,32 @@ with tab1:
 
 
                     # =================================================
-                    # STEP 2
-                    # AUTO CATEGORY
+                    # VALIDATE VECTOR
+                    # =================================================
+
+                    if not query_embedding:
+
+                        raise Exception(
+                            "Không tạo được image embedding."
+                        )
+
+
+                    if len(
+                        query_embedding
+                    ) != 512:
+
+                        raise Exception(
+
+                            "CLIP embedding phải "
+                            f"512D nhưng nhận được "
+                            f"{len(query_embedding)}D."
+
+                        )
+
+
+                    # =================================================
+                    # STEP 3
+                    # AI CATEGORY
                     # =================================================
 
                     with st.spinner(
@@ -1668,54 +1716,97 @@ with tab1:
                         )
 
 
-                    ai_category = (
-                        classification[
-                            "category"
-                        ]
+                    ai_category = str(
+
+                        classification.get(
+                            "category",
+                            ""
+                        )
+
+                    ).strip()
+
+
+                    ai_confidence = float(
+
+                        classification.get(
+                            "confidence",
+                            0
+                        )
+
                     )
 
 
-                    ai_confidence = (
-                        classification[
-                            "confidence"
-                        ]
+                    ai_similarity = float(
+
+                        classification.get(
+                            "similarity",
+                            0
+                        )
+
                     )
 
 
-                    ai_similarity = (
-                        classification[
-                            "similarity"
-                        ]
+                    ai_margin = float(
+
+                        classification.get(
+                            "margin",
+                            0
+                        )
+
                     )
 
 
                     # =================================================
-                    # AI CATEGORY RESULT
+                    # CATEGORY VALIDATION
                     # =================================================
 
-                    st.success(
+                    if not ai_category:
 
-                        f"🤖 AI nhận diện: "
-                        f"**{ai_category}**"
+                        raise Exception(
+                            "AI không xác định được category."
+                        )
 
+
+                    if ai_category not in CATEGORY_OPTIONS:
+
+                        raise Exception(
+
+                            f"AI trả về category "
+                            f"không hợp lệ: "
+                            f"{ai_category}"
+
+                        )
+
+
+                    # =================================================
+                    # STEP 4
+                    # CATEGORY LOCK
+                    # =================================================
+
+                    st.divider()
+
+                    st.subheader(
+                        "🤖 AI CATEGORY LOCK"
                     )
 
 
-                    c1, c2, c3 = st.columns(3)
+                    lock_col1, lock_col2, lock_col3 = (
+                        st.columns(3)
+                    )
 
 
-                    with c1:
+                    with lock_col1:
 
                         st.metric(
 
-                            "AI chủng loại",
+                            "AI nhận diện",
 
                             ai_category
 
                         )
 
 
-                    with c2:
+                    with lock_col2:
 
                         st.metric(
 
@@ -1726,7 +1817,7 @@ with tab1:
                         )
 
 
-                    with c3:
+                    with lock_col3:
 
                         st.metric(
 
@@ -1737,21 +1828,112 @@ with tab1:
                         )
 
 
+                    st.success(
+
+                        f"🔒 CATEGORY ĐÃ KHÓA: "
+                        f"**{ai_category}**"
+
+                    )
+
+
+                    st.caption(
+
+                        f"Category margin: "
+                        f"{ai_margin * 100:.2f}%"
+
+                    )
+
+
                     # =================================================
-                    # STEP 3
-                    # SEARCH ALL PRODUCTS
+                    # STEP 5
+                    # SHOW TOP CATEGORY ANALYSIS
+                    # =================================================
+
+                    with st.expander(
+                        "🔎 Xem AI phân tích category"
+                    ):
+
+                        ranking = (
+                            classification.get(
+                                "ranking",
+                                []
+                            )
+                        )
+
+
+                        for rank_index, item in enumerate(
+                            ranking[:6]
+                        ):
+
+                            category_name = str(
+
+                                item.get(
+                                    "category",
+                                    ""
+                                )
+
+                            )
+
+
+                            score = float(
+
+                                item.get(
+                                    "similarity",
+                                    0
+                                )
+
+                            )
+
+
+                            if category_name == ai_category:
+
+                                st.success(
+
+                                    f"{rank_index + 1}. "
+                                    f"**{category_name}** "
+                                    f"— "
+                                    f"{score * 100:.2f}%"
+
+                                )
+
+                            else:
+
+                                st.write(
+
+                                    f"{rank_index + 1}. "
+                                    f"{category_name} "
+                                    f"— "
+                                    f"{score * 100:.2f}%"
+
+                                )
+
+
+                    # =================================================
+                    # STEP 6
+                    # SEARCH ONLY LOCKED CATEGORY
+                    # =================================================
                     #
-                    # KHÔNG filter_category
+                    # 🔒 QUAN TRỌNG:
                     #
-                    # AI tự quyết định category.
+                    # filter_category = ai_category
+                    #
+                    # KHÔNG dùng None
+                    # KHÔNG search toàn bộ products
+                    #
                     # =================================================
 
                     with st.spinner(
-                        "🔎 Đang tìm mã hàng tương đồng trong toàn bộ kho..."
+
+                        f"🔎 Đang tìm mã "
+                        f"{ai_category} "
+                        f"trong kho..."
+
                     ):
 
                         response = (
+
                             supabase
+
                             .rpc(
 
                                 "match_products_v2",
@@ -1767,38 +1949,58 @@ with tab1:
                                     "match_count":
                                         12,
 
-                                    # ---------------------------------
-                                    # QUAN TRỌNG:
-                                    #
-                                    # Không còn:
-                                    #
-                                    # "filter_category":
-                                    #     search_category
-                                    #
-                                    # ---------------------------------
+                                    # =================================
+                                    # 🔒 CATEGORY LOCK
+                                    # =================================
 
                                     "filter_category":
-                                        None
+                                        ai_category
 
                                 }
 
                             )
+
                             .execute()
+
                         )
 
 
-                    data = response.data or []
+                    # =================================================
+                    # STEP 7
+                    # GET RESULTS
+                    # =================================================
+
+                    data = (
+                        response.data
+                        or []
+                    )
 
 
                     # =================================================
-                    # STEP 4
-                    # AI CATEGORY PRIORITY
+                    # STEP 8
+                    # HARD CATEGORY FILTER
+                    # =================================================
                     #
-                    # Nếu database có category,
-                    # mã cùng category AI được ưu tiên.
+                    # Ngoài filter SQL,
+                    # Python tiếp tục khóa category.
+                    #
+                    # Đây là lớp bảo vệ thứ 2.
+                    #
                     # =================================================
 
-                    def result_sort_key(item):
+                    locked_results = []
+
+
+                    ai_category_normalized = (
+
+                        ai_category
+                        .strip()
+                        .lower()
+
+                    )
+
+
+                    for item in data:
 
                         item_category = str(
 
@@ -1810,45 +2012,34 @@ with tab1:
                         ).strip().lower()
 
 
-                        target_category = (
-                            ai_category
-                            .strip()
-                            .lower()
-                        )
-
-
-                        same_category = (
+                        if (
 
                             item_category
                             ==
-                            target_category
+                            ai_category_normalized
 
-                        )
+                        ):
+
+                            locked_results.append(
+                                item
+                            )
 
 
-                        similarity = float(
+                    # =================================================
+                    # STEP 9
+                    # SORT BY SIMILARITY
+                    # =================================================
 
-                            item.get(
+                    locked_results.sort(
+
+                        key=lambda x: float(
+
+                            x.get(
                                 "similarity",
                                 0
                             )
 
-                        )
-
-
-                        return (
-
-                            1 if same_category
-                            else 0,
-
-                            similarity
-
-                        )
-
-
-                    data.sort(
-
-                        key=result_sort_key,
+                        ),
 
                         reverse=True
 
@@ -1856,38 +2047,52 @@ with tab1:
 
 
                     # =================================================
-                    # STEP 5
-                    # DISPLAY
+                    # STEP 10
+                    # DISPLAY RESULT
                     # =================================================
 
-                    if data:
+                    st.divider()
 
-                        st.divider()
+                    st.subheader(
 
-                        st.subheader(
+                        "🎯 KẾT QUẢ TÌM KIẾM"
 
-                            "🎯 MÃ HÀNG AI TÌM ĐƯỢC"
+                    )
+
+
+                    if locked_results:
+
+                        st.success(
+
+                            f"Đã tìm thấy "
+                            f"**{len(locked_results)}** "
+                            f"mã thuộc nhóm "
+                            f"**{ai_category}**."
 
                         )
 
 
                         st.caption(
 
-                            f"AI đã tự nhận diện "
-                            f"**{ai_category}** "
-                            f"và tìm trong toàn bộ kho. "
-                            f"Hiển thị {len(data)} kết quả tốt nhất."
+                            "🔒 Tất cả kết quả bên dưới "
+                            "đã được khóa theo category AI. "
+                            "Các category khác bị loại."
 
                         )
 
 
                         # =================================================
-                        # DISPLAY 4 RESULTS PER ROW
+                        # DISPLAY 4 COLUMNS
                         # =================================================
 
                         display_count = min(
-                            len(data),
+
+                            len(
+                                locked_results
+                            ),
+
                             12
+
                         )
 
 
@@ -1898,34 +2103,25 @@ with tab1:
                             display_count
                         ):
 
-                            item = data[idx]
+                            item = (
+                                locked_results[idx]
+                            )
 
 
                             with cols[
                                 idx % 4
                             ]:
 
-                                item_similarity = float(
-
-                                    item.get(
-                                        "similarity",
-                                        0
-                                    )
-
+                                st.markdown(
+                                    "---"
                                 )
 
 
-                                item_category = (
+                                # -----------------------------------------
+                                # PRODUCT CODE
+                                # -----------------------------------------
 
-                                    item.get(
-                                        "category",
-                                        "N/A"
-                                    )
-
-                                )
-
-
-                                product_code = (
+                                product_code = str(
 
                                     item.get(
                                         "product_code",
@@ -1935,25 +2131,14 @@ with tab1:
                                 )
 
 
-                                st.markdown(
-                                    "---"
-                                )
-
-
-                                # ------------------------------------------------
-                                # PRODUCT CODE
-                                # ------------------------------------------------
-
                                 st.subheader(
-                                    str(
-                                        product_code
-                                    )
+                                    product_code
                                 )
 
 
-                                # ------------------------------------------------
+                                # -----------------------------------------
                                 # IMAGE
-                                # ------------------------------------------------
+                                # -----------------------------------------
 
                                 image_url = (
 
@@ -1974,63 +2159,112 @@ with tab1:
 
                                     )
 
-
-                                # ------------------------------------------------
-                                # CATEGORY
-                                # ------------------------------------------------
-
-                                if (
-
-                                    str(
-                                        item_category
-                                    ).strip().lower()
-
-                                    ==
-
-                                    ai_category
-                                    .strip().lower()
-
-                                ):
-
-                                    st.success(
-
-                                        f"🤖 "
-                                        f"{item_category}"
-
-                                    )
-
                                 else:
 
                                     st.caption(
-
-                                        f"Category: "
-                                        f"{item_category}"
-
+                                        "Không có ảnh."
                                     )
 
 
-                                # ------------------------------------------------
+                                # -----------------------------------------
+                                # CATEGORY
+                                # -----------------------------------------
+
+                                result_category = str(
+
+                                    item.get(
+                                        "category",
+                                        ""
+                                    )
+
+                                )
+
+
+                                st.success(
+
+                                    f"🏷️ "
+                                    f"{result_category}"
+
+                                )
+
+
+                                # -----------------------------------------
                                 # SIMILARITY
-                                # ------------------------------------------------
+                                # -----------------------------------------
+
+                                result_similarity = float(
+
+                                    item.get(
+                                        "similarity",
+                                        0
+                                    )
+
+                                )
+
 
                                 st.metric(
 
                                     "Độ tương đồng",
 
-                                    f"{item_similarity * 100:.2f}%"
+                                    f"{result_similarity * 100:.2f}%"
 
                                 )
 
 
                     else:
 
+                        # =================================================
+                        # NO RESULT
+                        # =================================================
+
                         st.warning(
 
-                            "⚠️ AI chưa tìm thấy "
-                            "mã hàng tương đồng "
-                            "trong kho."
+                            f"⚠️ Không tìm thấy mã "
+                            f"**{ai_category}** "
+                            "đủ tương đồng trong kho."
 
                         )
+
+
+                        st.info(
+
+                            "💡 AI đã khóa đúng chủng loại "
+                            f"**{ai_category}**, "
+                            "nhưng database hiện chưa có "
+                            "mẫu đủ giống trong nhóm này."
+
+                        )
+
+
+                        # =================================================
+                        # DEBUG CATEGORY
+                        # =================================================
+
+                        with st.expander(
+                            "🔧 Thông tin AI"
+                        ):
+
+                            st.write(
+                                "AI Category:",
+                                ai_category
+                            )
+
+                            st.write(
+                                "Confidence:",
+                                f"{ai_confidence:.2f}%"
+                            )
+
+                            st.write(
+                                "Similarity:",
+                                f"{ai_similarity:.4f}"
+                            )
+
+                            st.write(
+                                "Vector dimension:",
+                                len(
+                                    query_embedding
+                                )
+                            )
 
 
                 except Exception as e:
