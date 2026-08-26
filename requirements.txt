@@ -30,3 +30,7 @@ opencv-python-headless
 openpyxl
 pandas
 pymupdf
+supabase==2.4.0
+transformers==4.38.0
+torch==2.2.0 --extra-index-url https://pytorch.org
+Pillow==10.2.0
