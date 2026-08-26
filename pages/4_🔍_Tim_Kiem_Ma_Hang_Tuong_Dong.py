@@ -2870,7 +2870,354 @@ with tab2:
                     f"{success_count}/{total} mã."
 
                 )
+# =====================================================================
+# 🗑️ DELETE ALL PRODUCT DATA
+# =====================================================================
 
+st.divider()
+
+st.subheader("🗑️ QUẢN LÝ KHO HÀNG")
+
+st.warning(
+    "⚠️ Chức năng này sẽ xóa TOÀN BỘ mã hàng và ảnh "
+    "đã lưu trong kho sản phẩm. Không thể hoàn tác."
+)
+
+if "confirm_delete_all_products" not in st.session_state:
+    st.session_state[
+        "confirm_delete_all_products"
+    ] = False
+
+
+# =====================================================================
+# BUTTON 1 - SHOW CONFIRMATION
+# =====================================================================
+
+if st.button(
+    "🗑️ XÓA TẤT CẢ DỮ LIỆU KHO",
+    type="secondary",
+    key="delete_all_products_button"
+):
+
+    st.session_state[
+        "confirm_delete_all_products"
+    ] = True
+
+
+# =====================================================================
+# CONFIRMATION
+# =====================================================================
+
+if st.session_state[
+    "confirm_delete_all_products"
+]:
+
+    st.error(
+        "🚨 BẠN ĐANG YÊU CẦU XÓA TOÀN BỘ KHO HÀNG!"
+    )
+
+    st.write(
+        "Thao tác này sẽ xóa:"
+    )
+
+    st.write(
+        "• Toàn bộ records trong bảng `products`"
+    )
+
+    st.write(
+        "• Toàn bộ ảnh trong bucket `product-images`"
+    )
+
+    st.write(
+        "• Dữ liệu sẽ không thể khôi phục bằng nút Undo."
+    )
+
+
+    confirm_text = st.text_input(
+        "Nhập chính xác DELETE để xác nhận:",
+        key="delete_confirmation_text"
+    )
+
+
+    col_delete_1, col_delete_2 = st.columns(2)
+
+
+    # =================================================================
+    # CONFIRM DELETE
+    # =================================================================
+
+    with col_delete_1:
+
+        if st.button(
+            "🔥 XÁC NHẬN XÓA TOÀN BỘ",
+            type="primary",
+            key="confirm_delete_all"
+        ):
+
+            if (
+                confirm_text.strip().upper()
+                !=
+                "DELETE"
+            ):
+
+                st.error(
+                    "❌ Bạn phải nhập chính xác: DELETE"
+                )
+
+            else:
+
+                try:
+
+                    # =================================================
+                    # 1. LẤY DANH SÁCH PRODUCTS
+                    # =================================================
+
+                    with st.spinner(
+                        "🔎 Đang lấy danh sách dữ liệu..."
+                    ):
+
+                        products_response = (
+                            supabase
+                            .table("products")
+                            .select(
+                                "id, product_code, image_url"
+                            )
+                            .execute()
+                        )
+
+
+                        products_data = (
+                            products_response.data
+                            or []
+                        )
+
+
+                    # =================================================
+                    # 2. XÓA DATABASE RECORDS
+                    # =================================================
+
+                    with st.spinner(
+                        "🗑️ Đang xóa dữ liệu products..."
+                    ):
+
+                        # ------------------------------------------------
+                        # Xóa theo ID nếu có
+                        # ------------------------------------------------
+
+                        delete_errors = []
+
+
+                        for product in products_data:
+
+                            product_id = product.get(
+                                "id"
+                            )
+
+
+                            try:
+
+                                if product_id is not None:
+
+                                    (
+                                        supabase
+                                        .table("products")
+                                        .delete()
+                                        .eq(
+                                            "id",
+                                            product_id
+                                        )
+                                        .execute()
+                                    )
+
+                                else:
+
+                                    product_code = (
+                                        product.get(
+                                            "product_code"
+                                        )
+                                    )
+
+                                    if product_code:
+
+                                        (
+                                            supabase
+                                            .table("products")
+                                            .delete()
+                                            .eq(
+                                                "product_code",
+                                                product_code
+                                            )
+                                            .execute()
+                                        )
+
+                            except Exception as e:
+
+                                delete_errors.append(
+                                    str(e)
+                                )
+
+
+                    # =================================================
+                    # 3. XÓA STORAGE IMAGES
+                    # =================================================
+
+                    with st.spinner(
+                        "☁️ Đang xóa toàn bộ ảnh trong Storage..."
+                    ):
+
+                        bucket_name = (
+                            "product-images"
+                        )
+
+
+                        storage = (
+                            supabase
+                            .storage
+                            .from_(
+                                bucket_name
+                            )
+                        )
+
+
+                        # ------------------------------------------------
+                        # Lấy file list
+                        # ------------------------------------------------
+
+                        storage_files = (
+                            storage
+                            .list()
+                        )
+
+
+                        file_paths = []
+
+
+                        if storage_files:
+
+                            for item in storage_files:
+
+                                file_name = (
+                                    item.get(
+                                        "name"
+                                    )
+                                )
+
+
+                                if file_name:
+
+                                    file_paths.append(
+                                        file_name
+                                    )
+
+
+                        # ------------------------------------------------
+                        # Xóa theo batch
+                        # ------------------------------------------------
+
+                        if file_paths:
+
+                            batch_size = 100
+
+
+                            for start in range(
+                                0,
+                                len(file_paths),
+                                batch_size
+                            ):
+
+                                batch = file_paths[
+                                    start:
+                                    start + batch_size
+                                ]
+
+
+                                storage.remove(
+                                    batch
+                                )
+
+
+                    # =================================================
+                    # 4. RESET SESSION
+                    # =================================================
+
+                    st.session_state[
+                        "confirm_delete_all_products"
+                    ] = False
+
+
+                    st.session_state[
+                        "delete_confirmation_text"
+                    ] = ""
+
+
+                    # =================================================
+                    # 5. RESULT
+                    # =================================================
+
+                    if delete_errors:
+
+                        st.warning(
+                            "⚠️ Đã thực hiện xóa nhưng "
+                            "một số record có lỗi."
+                        )
+
+                        with st.expander(
+                            "Chi tiết lỗi"
+                        ):
+
+                            for error in delete_errors:
+
+                                st.error(
+                                    error
+                                )
+
+                    else:
+
+                        st.success(
+                            "🎉 ĐÃ XÓA TOÀN BỘ KHO HÀNG!"
+                        )
+
+                        st.info(
+                            "Bảng products và các ảnh "
+                            "trong bucket product-images "
+                            "đã được dọn."
+                        )
+
+
+                    st.rerun()
+
+
+                except Exception as e:
+
+                    st.error(
+                        "❌ Không thể xóa toàn bộ kho."
+                    )
+
+                    st.exception(e)
+
+
+    # =================================================================
+    # CANCEL
+    # =================================================================
+
+    with col_delete_2:
+
+        if st.button(
+            "↩️ HỦY",
+            key="cancel_delete_all"
+        ):
+
+            st.session_state[
+                "confirm_delete_all_products"
+            ] = False
+
+
+            st.session_state[
+                "delete_confirmation_text"
+            ] = ""
+
+
+            st.rerun()
 
 # =====================================================================
 # END V3.0
