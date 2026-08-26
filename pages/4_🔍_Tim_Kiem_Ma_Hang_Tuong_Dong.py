@@ -113,6 +113,7 @@ with tab2:
                 for index, file in enumerate(uploaded_files):
                     # Tự động lấy tên file (bỏ đuôi định dạng) làm Mã hàng luôn
                     product_code = file.name.split(".")[0].upper()
+
                     status_text.text(f"⏳ Đang xử lý file ({index+1}/{len(uploaded_files)}): Mã {product_code}...")
                     
                     try:
