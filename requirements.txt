@@ -33,3 +33,7 @@ pymupdf
 supabase
 Pillow
 requests
+torch
+transformers
+safetensors
+numpy
