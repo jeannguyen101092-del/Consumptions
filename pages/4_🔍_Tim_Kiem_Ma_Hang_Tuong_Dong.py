@@ -1,325 +1,30 @@
 # =====================================================================
-# 🤖🔍 AI GARMENT SEARCH & WAREHOUSE
-# VERSION V3.7
-#
-# VISION:
-#   Google Gemini 2.5 Flash
-#
-# IMAGE EMBEDDING:
-#   OpenAI CLIP ViT-B/32 - LOCAL
-#
-# DATABASE:
-#   Supabase
-#
-# TAB 1:
-#   Upload ảnh
-#   Gemini tự nhận diện category
-#   CLIP 512D
-#   Search Supabase
-#   Category Lock
-#
-# TAB 2:
-#   Upload nhiều ảnh
-#   Gemini tự nhận category
-#   CLIP 512D
-#   Lưu Supabase
-#
-# XÓA FILE:
-#   Chỉ xóa file đang chờ trên màn hình
-#   KHÔNG xóa database
-#   KHÔNG xóa storage
-#
-# SECURITY:
-#   Không hard-code API KEY
+# 🤖 GEMINI VISION ENGINE
+# VERSION V3.9
+# FIX:
+# - GARMENT_PROMPT undefined
+# - Gemini trả JSON bị cắt
+# - Áo liền quần không bị nhận thành Cargo
+# - Quần yếm không bị nhận thành Cargo
 # =====================================================================
 
-
-# =====================================================================
-# 1. STREAMLIT
-# =====================================================================
-
-import streamlit as st
-
-st.set_page_config(
-    page_title="AI Tìm Kiếm Mã Hàng",
-    page_icon="🔍",
-    layout="wide"
-)
-
-
-# =====================================================================
-# 2. IMPORT
-# =====================================================================
-
-import io
-import os
 import re
 import json
+import streamlit as st
 
-import numpy as np
-import torch
-
-from PIL import Image
-
-from supabase import create_client, Client
-
-from transformers import (
-    CLIPProcessor,
-    CLIPModel
-)
-
-try:
-
-    from google import genai
-    from google.genai import types
-
-except Exception:
-
-    genai = None
-    types = None
+from google import genai
+from google.genai import types
 
 
 # =====================================================================
-# 3. ĐỌC SECRET
+# 1. GEMINI MODEL
 # =====================================================================
 
-def read_secret(*names):
-
-    # ---------------------------------------------------------
-    # Streamlit Secrets
-    # ---------------------------------------------------------
-
-    for name in names:
-
-        try:
-
-            value = st.secrets.get(
-                name
-            )
-
-            if value:
-
-                return str(
-                    value
-                ).strip()
-
-        except Exception:
-
-            pass
-
-
-    # ---------------------------------------------------------
-    # Environment
-    # ---------------------------------------------------------
-
-    for name in names:
-
-        try:
-
-            value = os.getenv(
-                name
-            )
-
-            if value:
-
-                return str(
-                    value
-                ).strip()
-
-        except Exception:
-
-            pass
-
-
-    return None
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 # =====================================================================
-# 4. SUPABASE
-# =====================================================================
-
-SUPABASE_URL = read_secret(
-
-    "SUPABASE_URL",
-    "SUPABASE_PROJECT_URL",
-    "supabase_url"
-
-)
-
-
-SUPABASE_KEY = read_secret(
-
-    "SUPABASE_KEY",
-    "SUPABASE_ANON_KEY",
-    "SUPABASE_PUBLISHABLE_KEY",
-    "supabase_key",
-    "supabase_anon_key"
-
-)
-
-
-# =====================================================================
-# 5. GEMINI
-# =====================================================================
-
-GEMINI_API_KEY = read_secret(
-
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "GEMINI_KEY",
-    "gemini_api_key"
-
-)
-
-
-# =====================================================================
-# 6. CHECK CONFIG
-# =====================================================================
-
-missing = []
-
-
-if not SUPABASE_URL:
-
-    missing.append(
-        "SUPABASE_URL"
-    )
-
-
-if not SUPABASE_KEY:
-
-    missing.append(
-        "SUPABASE_KEY"
-    )
-
-
-if not GEMINI_API_KEY:
-
-    missing.append(
-        "GEMINI_API_KEY"
-    )
-
-
-if missing:
-
-    st.error(
-        "❌ Không đọc được cấu hình bảo mật."
-    )
-
-
-    st.write(
-        "Thiếu:"
-    )
-
-
-    for item in missing:
-
-        st.write(
-            f"- `{item}`"
-        )
-
-
-    st.info(
-        "Key phải nằm trong Streamlit Secrets/Tomy, "
-        "không ghi trực tiếp vào GitHub."
-    )
-
-
-    st.stop()
-
-
-# =====================================================================
-# 7. SUPABASE CLIENT
-# =====================================================================
-
-try:
-
-    supabase: Client = create_client(
-
-        SUPABASE_URL,
-
-        SUPABASE_KEY
-
-    )
-
-except Exception as e:
-
-    st.error(
-        "❌ Không kết nối được Supabase."
-    )
-
-    st.exception(e)
-
-    st.stop()
-
-
-# =====================================================================
-# 8. GEMINI CLIENT
-# =====================================================================
-
-if genai is None:
-
-    st.error(
-        "❌ Chưa cài google-genai."
-    )
-
-    st.code(
-        "google-genai"
-    )
-
-    st.stop()
-
-
-try:
-
-    gemini_client = genai.Client(
-
-        api_key=GEMINI_API_KEY
-
-    )
-
-except Exception as e:
-
-    st.error(
-        "❌ Không khởi tạo được Gemini."
-    )
-
-    st.exception(e)
-
-    st.stop()
-
-
-# =====================================================================
-# 9. MODELS
-# =====================================================================
-
-GEMINI_MODEL = (
-    "gemini-2.5-flash"
-)
-
-
-CLIP_MODEL_NAME = (
-    "openai/clip-vit-base-patch32"
-)
-
-
-PRODUCT_TABLE = (
-    "products"
-)
-
-
-PRODUCT_BUCKET = (
-    "product-images"
-)
-
-
-MATCH_RPC = (
-    "match_products_v2"
-)
-
-
-# =====================================================================
-# 10. CATEGORY
+# 2. CATEGORY MASTER
 # =====================================================================
 
 CATEGORY_LIST = [
@@ -343,7 +48,7 @@ CATEGORY_LIST = [
 
 
 # =====================================================================
-# 11. CATEGORY ALIAS
+# 3. CATEGORY ALIAS
 # =====================================================================
 
 CATEGORY_ALIASES = {
@@ -361,6 +66,9 @@ CATEGORY_ALIASES = {
         "Áo liền quần",
 
     "COVERALL":
+        "Áo liền quần",
+
+    "COVERALLS":
         "Áo liền quần",
 
     "OVERALL":
@@ -445,45 +153,216 @@ CATEGORY_ALIASES = {
 
 
 # =====================================================================
-# 12. CLIP MODEL
+# 4. GARMENT PROMPT
 # =====================================================================
 
-@st.cache_resource(
-    show_spinner=False
-)
-def load_clip_model():
+GARMENT_PROMPT = r"""
+You are a SENIOR APPAREL TECHNICAL DESIGNER and
+COMMERCIAL GARMENT RECOGNITION AI.
 
-    processor = (
-        CLIPProcessor
-        .from_pretrained(
-            CLIP_MODEL_NAME
-        )
-    )
+Analyze the uploaded garment image/sketch for a
+commercial apparel similarity database.
+
+Your primary job is to identify the TRUE garment
+construction, NOT merely the visual silhouette.
+
+===========================================================
+CRITICAL CLASSIFICATION RULES
+===========================================================
+
+RULE 1 — JUMPSUIT / ONE-PIECE
+-----------------------------------------------------------
+
+If the upper body and lower body are physically connected
+as one garment:
+
+category = "Áo liền quần"
+
+Examples:
+- jumpsuit
+- coverall
+- one-piece utility garment
+- one-piece workwear
+
+IMPORTANT:
+
+A one-piece garment MUST NEVER be classified as:
+
+"Quần túi hộp"
+
+even if the lower body has cargo pockets.
+
+Set:
+
+one_piece = true
 
 
-    model = (
-        CLIPModel
-        .from_pretrained(
-            CLIP_MODEL_NAME
-        )
-    )
+===========================================================
+RULE 2 — BIB OVERALL / QUẦN YẾM
+===========================================================
+
+If the garment has:
+
+- bib front
+- shoulder straps
+- pants bottom
+- separate overall construction
+
+category = "Quần yếm"
+
+Set:
+
+bib = true
+shoulder_straps = true
+
+A bib overall MUST NEVER be classified as cargo pants.
 
 
-    model.eval()
+===========================================================
+RULE 3 — CARGO PANTS
+===========================================================
+
+"Quần túi hộp" is ONLY allowed when ALL conditions
+are satisfied:
+
+1. It is a SEPARATE pants garment.
+2. Upper and lower body are NOT connected.
+3. There are clearly visible external cargo / patch pockets.
+4. The pockets are located on the side legs.
+
+Set:
+
+one_piece = false
+cargo_pockets = true
+
+If cargo pockets are NOT clearly visible:
+
+cargo_pockets = false
+
+DO NOT GUESS cargo pockets.
 
 
-    return (
-        processor,
-        model
-    )
+===========================================================
+RULE 4 — JEANS
+===========================================================
+
+Separate denim pants.
+
+category = "Quần jean"
+
+Set:
+
+denim = true
+
+
+===========================================================
+RULE 5 — JOGGER
+===========================================================
+
+Separate pants with clear jogger construction,
+especially elastic/rib ankle cuffs.
+
+category = "Quần jogger"
+
+Set:
+
+jogger_cuffs = true
+
+
+===========================================================
+RULE 6 — JACKET
+===========================================================
+
+Separate upper-body outerwear garment.
+
+category = "Jacket"
+
+
+===========================================================
+RULE 7 — DRESS
+===========================================================
+
+A one-piece dress silhouette is:
+
+category = "Dress"
+
+Do NOT confuse a dress with a jumpsuit.
+
+The lower section of a dress does NOT have separate
+pant legs.
+
+
+===========================================================
+AVAILABLE CATEGORIES
+===========================================================
+
+Only use one of:
+
+Áo liền quần
+Quần yếm
+Quần túi hộp
+Quần jean
+Quần jogger
+Quần short
+Quần dài
+Jacket
+Áo
+T-shirt
+Polo
+Hoodie
+Skirt
+Dress
+
+
+===========================================================
+IMPORTANT DECISION ORDER
+===========================================================
+
+Before selecting category, determine in this order:
+
+1. Is it one-piece?
+2. Is it bib overall?
+3. Is it a separate pants?
+4. If separate pants, does it have cargo pockets?
+5. Is it denim?
+6. Is it jogger?
+7. Otherwise determine the normal garment type.
+
+
+===========================================================
+OUTPUT
+===========================================================
+
+Return ONLY JSON.
+
+Do not return Markdown.
+
+Do not return explanation outside JSON.
+
+category and confidence are REQUIRED.
+
+Keep the JSON SHORT.
+
+Use this exact structure:
+
+{
+  "category": "Áo",
+  "confidence": 98,
+  "one_piece": false,
+  "bib": false,
+  "shoulder_straps": false,
+  "cargo_pockets": false,
+  "denim": false,
+  "jogger_cuffs": false,
+  "hood": false,
+  "reason": "..."
+}
+
+"""
 
 
 # =====================================================================
-# 13. JSON EXTRACT
-# =====================================================================
-# =====================================================================
-# 🔧 JSON PARSER - V3.8
-# FIX GEMINI TRUNCATED JSON
+# 5. JSON PARSER
 # =====================================================================
 
 def extract_json(text):
@@ -495,12 +374,14 @@ def extract_json(text):
         )
 
 
-    text = str(text).strip()
+    text = str(
+        text
+    ).strip()
 
 
-    # ================================================================
+    # ---------------------------------------------------------------
     # REMOVE MARKDOWN
-    # ================================================================
+    # ---------------------------------------------------------------
 
     text = re.sub(
         r"```json",
@@ -518,19 +399,18 @@ def extract_json(text):
     text = text.strip()
 
 
-    # ================================================================
-    # 1. TÌM JSON OBJECT
-    # ================================================================
+    # ---------------------------------------------------------------
+    # FIND {
+    # ---------------------------------------------------------------
 
     start = text.find("{")
 
-    if start == -1:
+    if start < 0:
 
         raise Exception(
 
             "Gemini không trả JSON.\n\n"
-            +
-            text[:2000]
+            + text[:2000]
 
         )
 
@@ -538,9 +418,9 @@ def extract_json(text):
     json_text = text[start:]
 
 
-    # ================================================================
-    # 2. THỬ JSON BÌNH THƯỜNG
-    # ================================================================
+    # ---------------------------------------------------------------
+    # FIRST TRY
+    # ---------------------------------------------------------------
 
     try:
 
@@ -553,29 +433,18 @@ def extract_json(text):
         pass
 
 
-    # ================================================================
-    # 3. GEMINI BỊ CẮT JSON
-    #
-    # Ví dụ:
-    #
-    # {
-    #   "category": "Áo",
-    #   "confidence": 98,
-    #   "one_piece": false,
-    #   "bib": false,
-    #   "shoulder_straps": false
-    #
-    # ================================================================
+    # ---------------------------------------------------------------
+    # GEMINI JSON BỊ CẮT
+    # ---------------------------------------------------------------
 
-    # Lấy từng field quan trọng
     result = {}
 
 
-    # ------------------------------------------------
+    # ---------------------------------------------------------------
     # CATEGORY
-    # ------------------------------------------------
+    # ---------------------------------------------------------------
 
-    category_match = re.search(
+    m = re.search(
 
         r'"category"\s*:\s*"([^"]+)"',
 
@@ -585,19 +454,18 @@ def extract_json(text):
 
     )
 
-
-    if category_match:
+    if m:
 
         result[
             "category"
-        ] = category_match.group(1)
+        ] = m.group(1)
 
 
-    # ------------------------------------------------
+    # ---------------------------------------------------------------
     # CONFIDENCE
-    # ------------------------------------------------
+    # ---------------------------------------------------------------
 
-    confidence_match = re.search(
+    m = re.search(
 
         r'"confidence"\s*:\s*([0-9]+(?:\.[0-9]+)?)',
 
@@ -607,15 +475,14 @@ def extract_json(text):
 
     )
 
-
-    if confidence_match:
+    if m:
 
         try:
 
             result[
                 "confidence"
             ] = float(
-                confidence_match.group(1)
+                m.group(1)
             )
 
         except Exception:
@@ -624,10 +491,16 @@ def extract_json(text):
                 "confidence"
             ] = 0
 
+    else:
 
-    # ------------------------------------------------
-    # BOOLEAN FIELDS
-    # ------------------------------------------------
+        result[
+            "confidence"
+        ] = 0
+
+
+    # ---------------------------------------------------------------
+    # BOOLEAN
+    # ---------------------------------------------------------------
 
     boolean_fields = [
 
@@ -644,7 +517,7 @@ def extract_json(text):
 
     for field in boolean_fields:
 
-        match = re.search(
+        m = re.search(
 
             rf'"{field}"\s*:\s*(true|false)',
 
@@ -655,67 +528,52 @@ def extract_json(text):
         )
 
 
-        if match:
+        if m:
 
             result[field] = (
 
-                match.group(1)
-                .lower()
+                m.group(1).lower()
                 ==
                 "true"
 
             )
 
-
         else:
-
-            # Không có field → mặc định False
 
             result[field] = False
 
 
-    # ------------------------------------------------
-    # STRING FIELDS
-    # ------------------------------------------------
+    # ---------------------------------------------------------------
+    # REASON
+    # ---------------------------------------------------------------
 
-    string_fields = [
+    m = re.search(
 
-        "sleeve",
-        "collar",
-        "silhouette",
-        "length",
-        "reason"
+        r'"reason"\s*:\s*"([^"]*)"', 
 
-    ]
+        json_text,
 
+        flags=re.I
 
-    for field in string_fields:
-
-        match = re.search(
-
-            rf'"{field}"\s*:\s*"([^"]*)"', 
-
-            json_text,
-
-            flags=re.I
-
-        )
+    )
 
 
-        if match:
+    if m:
 
-            result[field] = (
-                match.group(1)
-            )
+        result[
+            "reason"
+        ] = m.group(1)
 
-        else:
+    else:
 
-            result[field] = ""
+        result[
+            "reason"
+        ] = ""
 
 
-    # ================================================================
-    # 4. KIỂM TRA FIELD QUAN TRỌNG
-    # ================================================================
+    # ---------------------------------------------------------------
+    # REQUIRED CATEGORY
+    # ---------------------------------------------------------------
 
     if not result.get(
         "category"
@@ -730,14 +588,304 @@ def extract_json(text):
         )
 
 
+    return result
+
+
+# =====================================================================
+# 6. NORMALIZE RESULT
+# =====================================================================
+
+def normalize_garment_result(
+    result
+):
+
+    if not isinstance(
+        result,
+        dict
+    ):
+
+        raise Exception(
+            "Gemini result không phải dictionary."
+        )
+
+
+    category = str(
+
+        result.get(
+            "category",
+            ""
+        )
+
+    ).strip()
+
+
+    category_upper = (
+        category
+        .upper()
+        .strip()
+    )
+
+
+    # ---------------------------------------------------------------
+    # ALIAS
+    # ---------------------------------------------------------------
+
+    if category_upper in CATEGORY_ALIASES:
+
+        category = CATEGORY_ALIASES[
+            category_upper
+        ]
+
+
+    # ---------------------------------------------------------------
+    # INVALID CATEGORY
+    # ---------------------------------------------------------------
+
+    if category not in CATEGORY_LIST:
+
+        category = "Quần dài"
+
+
+    result[
+        "category"
+    ] = category
+
+
+    # ---------------------------------------------------------------
+    # BOOLEAN
+    # ---------------------------------------------------------------
+
+    boolean_fields = [
+
+        "one_piece",
+        "bib",
+        "shoulder_straps",
+        "cargo_pockets",
+        "denim",
+        "jogger_cuffs",
+        "hood"
+
+    ]
+
+
+    for field in boolean_fields:
+
+        value = result.get(
+            field,
+            False
+        )
+
+
+        if isinstance(
+            value,
+            str
+        ):
+
+            value = (
+
+                value
+                .strip()
+                .lower()
+
+                in [
+                    "true",
+                    "yes",
+                    "1"
+                ]
+
+            )
+
+
+        result[field] = bool(
+            value
+        )
+
+
     # ================================================================
-    # 5. TRẢ RESULT
+    # 🔒 HARD RULE 1
+    # ONE PIECE
     # ================================================================
+
+    if result[
+        "one_piece"
+    ]:
+
+        # ------------------------------------------------------------
+        # Bib + straps → Overall
+        # ------------------------------------------------------------
+
+        if (
+
+            result["bib"]
+
+            and
+
+            result["shoulder_straps"]
+
+        ):
+
+            result[
+                "category"
+            ] = "Quần yếm"
+
+        # ------------------------------------------------------------
+        # Normal jumpsuit
+        # ------------------------------------------------------------
+
+        else:
+
+            result[
+                "category"
+            ] = "Áo liền quần"
+
+
+        # ------------------------------------------------------------
+        # FORCE REMOVE CARGO
+        # ------------------------------------------------------------
+
+        result[
+            "cargo_pockets"
+        ] = False
+
+
+    # ================================================================
+    # 🔒 HARD RULE 2
+    # BIB
+    # ================================================================
+
+    elif (
+
+        result["bib"]
+
+        and
+
+        result["shoulder_straps"]
+
+    ):
+
+        result[
+            "category"
+        ] = "Quần yếm"
+
+
+        result[
+            "cargo_pockets"
+        ] = False
+
+
+    # ================================================================
+    # 🔒 HARD RULE 3
+    # CARGO
+    # ================================================================
+
+    elif (
+
+        result[
+            "category"
+        ]
+        ==
+        "Quần túi hộp"
+
+        and
+
+        not result[
+            "cargo_pockets"
+        ]
+
+    ):
+
+        result[
+            "category"
+        ] = "Quần dài"
+
+
+    # ================================================================
+    # 🔒 HARD RULE 4
+    # DENIM
+    # ================================================================
+
+    elif (
+
+        result["denim"]
+
+        and
+
+        result[
+            "category"
+        ]
+        ==
+        "Quần dài"
+
+    ):
+
+        result[
+            "category"
+        ] = "Quần jean"
+
+
+    # ================================================================
+    # 🔒 HARD RULE 5
+    # JOGGER
+    # ================================================================
+
+    elif (
+
+        result["jogger_cuffs"]
+
+        and
+
+        result[
+            "category"
+        ]
+        ==
+        "Quần dài"
+
+    ):
+
+        result[
+            "category"
+        ] = "Quần jogger"
+
+
+    # ================================================================
+    # CONFIDENCE
+    # ================================================================
+
+    try:
+
+        confidence = float(
+
+            result.get(
+                "confidence",
+                0
+            )
+
+        )
+
+    except Exception:
+
+        confidence = 0
+
+
+    result[
+        "confidence"
+    ] = max(
+
+        0,
+
+        min(
+            100,
+            confidence
+        )
+
+    )
+
 
     return result
 
+
 # =====================================================================
-# 16. GEMINI VISION
+# 7. GEMINI VISION FUNCTION
 # =====================================================================
 
 def analyze_garment_with_gemini(
@@ -745,6 +893,10 @@ def analyze_garment_with_gemini(
 ):
 
     try:
+
+        # ============================================================
+        # SEND IMAGE TO GEMINI
+        # ============================================================
 
         response = (
 
@@ -772,7 +924,7 @@ def analyze_garment_with_gemini(
 
                     temperature=0,
 
-                    max_output_tokens=1000
+                    max_output_tokens=350
 
                 )
 
@@ -792,1236 +944,48 @@ def analyze_garment_with_gemini(
         )
 
 
+    # ================================================================
+    # READ RESPONSE
+    # ================================================================
+
     try:
 
         text = response.text
 
-    except Exception:
+    except Exception as e:
 
-        text = None
+        raise Exception(
 
+            "Không đọc được Gemini response: "
+            +
+            str(e)
+
+        )
+
+
+    if not text:
+
+        raise Exception(
+            "Gemini trả response rỗng."
+        )
+
+
+    # ================================================================
+    # PARSE JSON
+    # ================================================================
 
     result = extract_json(
         text
     )
 
 
-    return normalize_garment_result(
+    # ================================================================
+    # NORMALIZE
+    # ================================================================
+
+    result = normalize_garment_result(
         result
     )
 
 
-# =====================================================================
-# 17. CLIP EMBEDDING
-# =====================================================================
-
-def get_clip_embedding(
-    image_bytes
-):
-
-    try:
-
-        processor, model = (
-            load_clip_model()
-        )
-
-
-        image = Image.open(
-            io.BytesIO(
-                image_bytes
-            )
-        ).convert(
-            "RGB"
-        )
-
-
-        inputs = processor(
-            images=image,
-            return_tensors="pt"
-        )
-
-
-        with torch.no_grad():
-
-            image_features = (
-                model.get_image_features(
-                    **inputs
-                )
-            )
-
-
-        # ---------------------------------------------------------
-        # Transformers compatibility
-        # ---------------------------------------------------------
-
-        if hasattr(
-            image_features,
-            "pooler_output"
-        ):
-
-            image_features = (
-                image_features
-                .pooler_output
-            )
-
-
-        if not torch.is_tensor(
-            image_features
-        ):
-
-            image_features = torch.tensor(
-                image_features
-            )
-
-
-        image_features = (
-            image_features
-            .detach()
-            .cpu()
-            .float()
-        )
-
-
-        if image_features.ndim == 1:
-
-            vector = image_features
-
-
-        elif image_features.ndim == 2:
-
-            vector = image_features[
-                0
-            ]
-
-
-        else:
-
-            vector = (
-                image_features
-                .reshape(-1)
-            )
-
-
-        vector = (
-            vector
-            .numpy()
-            .astype(
-                np.float32
-            )
-        )
-
-
-        if len(vector) != 512:
-
-            raise Exception(
-
-                "CLIP output không phải 512D. "
-                f"Nhận {len(vector)}D."
-
-            )
-
-
-        norm = np.linalg.norm(
-            vector
-        )
-
-
-        if norm <= 0:
-
-            raise Exception(
-                "CLIP vector norm = 0."
-            )
-
-
-        vector = (
-            vector / norm
-        )
-
-
-        return vector.tolist()
-
-
-    except Exception as e:
-
-        raise Exception(
-
-            "CLIP embedding lỗi: "
-            +
-            repr(e)
-
-        )
-
-
-# =====================================================================
-# 18. PRODUCT CODE
-# =====================================================================
-
-def clean_product_code(
-    filename
-):
-
-    filename = str(
-        filename
-    )
-
-
-    name = (
-        filename
-        .rsplit(
-            ".",
-            1
-        )[0]
-    )
-
-
-    name = re.sub(
-        r"[^A-Za-z0-9_\-]",
-        "",
-        name
-    )
-
-
-    return name.upper()
-
-
-# =====================================================================
-# 19. STORAGE
-# =====================================================================
-
-def upload_image_to_storage(
-    image_bytes,
-    filename
-):
-
-    bucket = (
-        supabase
-        .storage
-        .from_(
-            PRODUCT_BUCKET
-        )
-    )
-
-
-    bucket.upload(
-
-        path=filename,
-
-        file=image_bytes,
-
-        file_options={
-
-            "content-type":
-                "image/jpeg",
-
-            "upsert":
-                "true"
-
-        }
-
-    )
-
-
-    return bucket.get_public_url(
-        filename
-    )
-
-
-# =====================================================================
-# 20. SAVE PRODUCT
-# =====================================================================
-
-def save_product(
-    product_code,
-    image_url,
-    category,
-    embedding
-):
-
-    payload = {
-
-        "product_code":
-            product_code,
-
-        "image_url":
-            image_url,
-
-        "category":
-            category,
-
-        "embedding":
-            embedding
-
-    }
-
-
-    return (
-
-        supabase
-        .table(
-            PRODUCT_TABLE
-        )
-        .upsert(
-
-            payload,
-
-            on_conflict=
-                "product_code"
-
-        )
-        .execute()
-
-    )
-
-
-# =====================================================================
-# 21. SEARCH SUPABASE
-# =====================================================================
-
-def search_products(
-    embedding,
-    count=30,
-    threshold=0.15
-):
-
-    response = (
-
-        supabase
-        .rpc(
-
-            MATCH_RPC,
-
-            {
-
-                "query_embedding":
-                    embedding,
-
-                "match_threshold":
-                    threshold,
-
-                "match_count":
-                    count
-
-            }
-
-        )
-        .execute()
-
-    )
-
-
-    return (
-        response.data
-        or []
-    )
-
-
-# =====================================================================
-# 22. CATEGORY LOCK
-# =====================================================================
-
-def category_lock(
-    results,
-    category
-):
-
-    output = []
-
-
-    for item in results:
-
-        item_category = str(
-
-            item.get(
-                "category",
-                ""
-            )
-
-        ).strip()
-
-
-        if item_category == category:
-
-            output.append(
-                item
-            )
-
-
-    return output
-
-
-# =====================================================================
-# 23. SHOW AI RESULT
-# =====================================================================
-
-def show_ai_result(
-    result
-):
-
-    st.markdown(
-        "### 🤖 AI NHẬN DIỆN"
-    )
-
-
-    c1, c2, c3 = st.columns(
-        3
-    )
-
-
-    with c1:
-
-        st.metric(
-
-            "Category",
-
-            result[
-                "category"
-            ]
-
-        )
-
-
-    with c2:
-
-        st.metric(
-
-            "Confidence",
-
-            f"{result['confidence']:.1f}%"
-
-        )
-
-
-    with c3:
-
-        st.metric(
-
-            "One Piece",
-
-            "YES"
-            if result[
-                "one_piece"
-            ]
-            else
-            "NO"
-
-        )
-
-
-    with st.expander(
-        "🔎 Chi tiết AI"
-    ):
-
-        st.json(
-            result
-        )
-
-
-# =====================================================================
-# 24. SHOW SEARCH RESULTS
-# =====================================================================
-
-def show_results(
-    results
-):
-
-    if not results:
-
-        st.warning(
-
-            "Không tìm thấy mã tương đồng "
-            "trong cùng category."
-
-        )
-
-        return
-
-
-    cols = st.columns(
-        min(
-            len(results),
-            4
-        )
-    )
-
-
-    for i, item in enumerate(
-        results
-    ):
-
-        with cols[
-            i % len(cols)
-        ]:
-
-            try:
-
-                similarity = float(
-
-                    item.get(
-                        "similarity",
-                        0
-                    )
-
-                )
-
-            except Exception:
-
-                similarity = 0
-
-
-            st.metric(
-
-                "Độ tương đồng",
-
-                f"{similarity * 100:.2f}%"
-
-            )
-
-
-            st.subheader(
-
-                str(
-                    item.get(
-                        "product_code",
-                        "N/A"
-                    )
-                )
-
-            )
-
-
-            st.caption(
-
-                "Category: "
-                +
-                str(
-                    item.get(
-                        "category",
-                        ""
-                    )
-                )
-
-            )
-
-
-            image_url = item.get(
-                "image_url"
-            )
-
-
-            if image_url:
-
-                st.image(
-
-                    image_url,
-
-                    use_container_width=True
-
-                )
-
-
-# =====================================================================
-# 25. HEADER
-# =====================================================================
-
-st.title(
-    "🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG"
-)
-
-
-st.caption(
-    "Gemini Vision + Local CLIP + Supabase"
-)
-
-
-# =====================================================================
-# 26. TABS
-# =====================================================================
-
-tab1, tab2 = st.tabs(
-
-    [
-
-        "🔍 TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG",
-
-        "📦 LƯU KHO HÀNG LOẠT"
-
-    ]
-
-)
-
-
-# #####################################################################
-# TAB 1
-# #####################################################################
-
-with tab1:
-
-    st.header(
-        "🔍 Tìm mã hàng qua ảnh"
-    )
-
-
-    st.info(
-
-        "AI tự nhận diện category. "
-        "Không cần chọn dòng hàng."
-
-    )
-
-
-    uploaded_sketch = st.file_uploader(
-
-        "📂 Tải ảnh cần tìm",
-
-        type=[
-            "png",
-            "jpg",
-            "jpeg"
-        ],
-
-        key="search_image"
-
-    )
-
-
-    if uploaded_sketch:
-
-        c1, c2 = st.columns(
-            2
-        )
-
-
-        with c1:
-
-            st.image(
-
-                uploaded_sketch,
-
-                width=350
-
-            )
-
-
-        with c2:
-
-            st.write(
-
-                "**File:** "
-                +
-                uploaded_sketch.name
-
-            )
-
-
-            if st.button(
-
-                "🚀 AI NHẬN DIỆN & TÌM MÃ",
-
-                type="primary",
-
-                key="search_button"
-
-            ):
-
-                try:
-
-                    image_bytes = (
-                        uploaded_sketch
-                        .getvalue()
-                    )
-
-
-                    # ------------------------------------------------
-                    # GEMINI
-                    # ------------------------------------------------
-
-                    with st.spinner(
-                        "🤖 Gemini đang nhận diện..."
-                    ):
-
-                        ai_result = (
-                            analyze_garment_with_gemini(
-                                image_bytes
-                            )
-                        )
-
-
-                    show_ai_result(
-                        ai_result
-                    )
-
-
-                    # ------------------------------------------------
-                    # CLIP
-                    # ------------------------------------------------
-
-                    with st.spinner(
-                        "🧠 CLIP đang tạo vector 512D..."
-                    ):
-
-                        embedding = (
-                            get_clip_embedding(
-                                image_bytes
-                            )
-                        )
-
-
-                    st.caption(
-                        "CLIP: 512D"
-                    )
-
-
-                    # ------------------------------------------------
-                    # SUPABASE
-                    # ------------------------------------------------
-
-                    with st.spinner(
-                        "🔎 Đang tìm mã tương đồng..."
-                    ):
-
-                        results = (
-                            search_products(
-                                embedding,
-                                count=30,
-                                threshold=0.15
-                            )
-                        )
-
-
-                    # ------------------------------------------------
-                    # CATEGORY LOCK
-                    # ------------------------------------------------
-
-                    locked = (
-                        category_lock(
-
-                            results,
-
-                            ai_result[
-                                "category"
-                            ]
-
-                        )
-                    )
-
-
-                    st.markdown(
-                        "### 🔒 CATEGORY LOCK"
-                    )
-
-
-                    st.success(
-
-                        "AI nhận diện: "
-                        +
-                        ai_result[
-                            "category"
-                        ]
-
-                    )
-
-
-                    st.write(
-
-                        f"CLIP tìm thấy "
-                        f"**{len(results)}** mã."
-
-                    )
-
-
-                    st.write(
-
-                        f"Cùng category: "
-                        f"**{len(locked)}** mã."
-
-                    )
-
-
-                    show_results(
-                        locked[:8]
-                    )
-
-
-                except Exception as e:
-
-                    st.error(
-                        "❌ Lỗi tìm kiếm."
-                    )
-
-                    st.exception(e)
-
-
-# #####################################################################
-# TAB 2
-# #####################################################################
-
-with tab2:
-
-    st.header(
-        "📦 ĐẨY DỮ LIỆU MÃ HÀNG HÀNG LOẠT"
-    )
-
-
-    st.info(
-
-        "Gemini tự nhận diện category. "
-        "Không cần chọn dòng hàng."
-
-    )
-
-
-    # =================================================================
-    # UPLOADER VERSION
-    # =================================================================
-
-    if (
-        "warehouse_uploader_version"
-        not in st.session_state
-    ):
-
-        st.session_state[
-            "warehouse_uploader_version"
-        ] = 0
-
-
-    uploader_key = (
-
-        "warehouse_files_"
-        +
-        str(
-
-            st.session_state[
-                "warehouse_uploader_version"
-            ]
-
-        )
-
-    )
-
-
-    # =================================================================
-    # CHỈ 1 FILE UPLOADER
-    # =================================================================
-
-    uploaded_files = st.file_uploader(
-
-        "📂 Chọn nhiều ảnh sản phẩm",
-
-        type=[
-            "png",
-            "jpg",
-            "jpeg"
-        ],
-
-        accept_multiple_files=True,
-
-        key=uploader_key
-
-    )
-
-
-    # =================================================================
-    # FILE ĐANG CHỜ
-    # =================================================================
-
-    if uploaded_files:
-
-        st.write(
-
-            f"📂 Đang có "
-            f"**{len(uploaded_files)}** "
-            f"file chờ xử lý."
-
-        )
-
-
-        with st.expander(
-
-            "📋 Danh sách file đang chờ",
-
-            expanded=True
-
-        ):
-
-            for i, file in enumerate(
-
-                uploaded_files,
-
-                start=1
-
-            ):
-
-                st.write(
-
-                    f"{i}. `{file.name}`"
-
-                )
-
-
-        st.divider()
-
-
-        # =============================================================
-        # SAVE
-        # =============================================================
-
-        if st.button(
-
-            "📤 GEMINI + CLIP → LƯU KHO",
-
-            type="primary",
-
-            key="save_all_products"
-
-        ):
-
-            progress = st.progress(
-                0
-            )
-
-
-            status = st.empty()
-
-
-            total = len(
-                uploaded_files
-            )
-
-
-            success = 0
-
-            errors = 0
-
-
-            results = []
-
-
-            # ---------------------------------------------------------
-            # LOOP
-            # ---------------------------------------------------------
-
-            for index, file in enumerate(
-
-                uploaded_files
-
-            ):
-
-                product_code = (
-                    clean_product_code(
-                        file.name
-                    )
-                )
-
-
-                status.write(
-
-                    f"⏳ "
-                    f"{index + 1}/{total} "
-                    f"— {product_code}"
-
-                )
-
-
-                try:
-
-                    image_bytes = (
-                        file.getvalue()
-                    )
-
-
-                    # =================================================
-                    # GEMINI CATEGORY
-                    # =================================================
-
-                    ai_result = (
-
-                        analyze_garment_with_gemini(
-
-                            image_bytes
-
-                        )
-
-                    )
-
-
-                    category = ai_result[
-                        "category"
-                    ]
-
-
-                    # =================================================
-                    # CLIP
-                    # =================================================
-
-                    embedding = (
-
-                        get_clip_embedding(
-
-                            image_bytes
-
-                        )
-
-                    )
-
-
-                    # =================================================
-                    # STORAGE
-                    # =================================================
-
-                    storage_name = (
-
-                        product_code
-                        +
-                        ".jpg"
-
-                    )
-
-
-                    image_url = (
-
-                        upload_image_to_storage(
-
-                            image_bytes,
-
-                            storage_name
-
-                        )
-
-                    )
-
-
-                    # =================================================
-                    # DATABASE
-                    # =================================================
-
-                    save_product(
-
-                        product_code,
-
-                        image_url,
-
-                        category,
-
-                        embedding
-
-                    )
-
-
-                    success += 1
-
-
-                    results.append({
-
-                        "Mã hàng":
-                            product_code,
-
-                        "Category":
-                            category,
-
-                        "Confidence":
-                            round(
-
-                                ai_result[
-                                    "confidence"
-                                ],
-
-                                1
-
-                            ),
-
-                        "Status":
-                            "✅ SUCCESS"
-
-                    })
-
-
-                except Exception as e:
-
-                    errors += 1
-
-
-                    results.append({
-
-                        "Mã hàng":
-                            product_code,
-
-                        "Category":
-                            "ERROR",
-
-                        "Confidence":
-                            0,
-
-                        "Status":
-                            "❌ "
-                            +
-                            str(e)
-
-                    })
-
-
-                progress.progress(
-
-                    (index + 1)
-                    /
-                    total
-
-                )
-
-
-            status.empty()
-
-
-            st.session_state[
-                "warehouse_results"
-            ] = results
-
-
-            st.success(
-
-                f"🎉 Đã lưu "
-                f"**{success}/{total}** "
-                f"mã hàng."
-
-            )
-
-
-            if errors:
-
-                st.warning(
-
-                    f"⚠️ Có {errors} file lỗi."
-
-                )
-
-
-    # =================================================================
-    # RESULT
-    # =================================================================
-
-    if (
-
-        "warehouse_results"
-        in st.session_state
-
-    ):
-
-        results = (
-
-            st.session_state[
-                "warehouse_results"
-            ]
-
-        )
-
-
-        if results:
-
-            st.markdown(
-                "### 🤖 KẾT QUẢ GEMINI"
-            )
-
-
-            st.dataframe(
-
-                results,
-
-                use_container_width=True
-
-            )
-
-
-    # =================================================================
-    # 🗑️ XÓA FILE ĐANG CHỜ
-    # =================================================================
-    #
-    # CHỈ RESET FILE UPLOADER
-    #
-    # KHÔNG XÓA SUPABASE
-    #
-    # =================================================================
-
-    st.divider()
-
-
-    if st.button(
-
-        "🗑️ XÓA FILE ĐANG CHỜ",
-
-        key="clear_pending_upload"
-
-    ):
-
-        st.session_state[
-            "warehouse_uploader_version"
-        ] += 1
-
-
-        if (
-
-            "warehouse_results"
-            in st.session_state
-
-        ):
-
-            del st.session_state[
-                "warehouse_results"
-            ]
-
-
-        st.rerun()
-
-
-# =====================================================================
-# SIDEBAR
-# =====================================================================
-
-with st.sidebar:
-
-    st.header(
-        "⚙️ AI ENGINE"
-    )
-
-
-    st.success(
-        "Supabase Connected"
-    )
-
-
-    st.success(
-        "Gemini Connected"
-    )
-
-
-    st.caption(
-        "Vision:"
-    )
-
-
-    st.caption(
-        GEMINI_MODEL
-    )
-
-
-    st.caption(
-        "Embedding:"
-    )
-
-
-    st.caption(
-        "CLIP ViT-B/32 — 512D"
-    )
-
-
-    st.caption(
-        "Database:"
-    )
-
-
-    st.caption(
-        PRODUCT_TABLE
-    )
-
-
-# =====================================================================
-# END
-# =====================================================================
+    return result
