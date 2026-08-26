@@ -1059,179 +1059,183 @@ def analyze_garment_with_vision(
         result
     )
 
+# =====================================================================
+# 🧠 CLIP LOCAL IMAGE EMBEDDING
+# VERSION V3.5
+# KHÔNG DÙNG HUGGING FACE INFERENCE CHO CLIP
+# OUTPUT = 512D
+# =====================================================================
+
+import io
+import numpy as np
+import torch
+import streamlit as st
+
+from PIL import Image
+from transformers import CLIPProcessor, CLIPModel
+
 
 # =====================================================================
+# 1. LOAD CLIP MODEL
 # =====================================================================
-# 🧠 CLIP IMAGE EMBEDDING - FIX V3.4
+
+@st.cache_resource(show_spinner=False)
+def load_clip_model():
+
+    model_name = "openai/clip-vit-base-patch32"
+
+    processor = CLIPProcessor.from_pretrained(
+        model_name
+    )
+
+    model = CLIPModel.from_pretrained(
+        model_name
+    )
+
+    model.eval()
+
+    return processor, model
+
+
+# =====================================================================
+# 2. IMAGE → CLIP 512D
 # =====================================================================
 
 def get_clip_embedding(image_bytes):
 
     try:
-        from PIL import Image
-        import io
-        import numpy as np
 
-        # ---------------------------------------------------------
-        # 1. Đọc ảnh
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # LOAD MODEL
+        # -------------------------------------------------------------
+
+        processor, model = load_clip_model()
+
+
+        # -------------------------------------------------------------
+        # OPEN IMAGE
+        # -------------------------------------------------------------
 
         image = Image.open(
-            io.BytesIO(image_bytes)
-        ).convert("RGB")
-
-
-        # ---------------------------------------------------------
-        # 2. Gửi ảnh trực tiếp tới HF feature extraction
-        # ---------------------------------------------------------
-
-        result = hf_client.feature_extraction(
-            image,
-            model=CLIP_MODEL
+            io.BytesIO(
+                image_bytes
+            )
+        ).convert(
+            "RGB"
         )
 
 
-        # ---------------------------------------------------------
-        # 3. Chuyển output thành numpy
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # PROCESS IMAGE
+        # -------------------------------------------------------------
 
-        if result is None:
+        inputs = processor(
+            images=image,
+            return_tensors="pt"
+        )
 
-            raise Exception(
-                "Hugging Face không trả embedding."
+
+        # -------------------------------------------------------------
+        # CLIP IMAGE EMBEDDING
+        # -------------------------------------------------------------
+
+        with torch.no_grad():
+
+            image_features = (
+                model.get_image_features(
+                    **inputs
+                )
             )
 
+
+        # -------------------------------------------------------------
+        # FIX TRANSFORMERS OUTPUT
+        # -------------------------------------------------------------
 
         if hasattr(
-            result,
-            "detach"
+            image_features,
+            "pooler_output"
         ):
 
-            result = (
-                result
-                .detach()
-                .cpu()
-                .numpy()
+            image_features = (
+                image_features
+                .pooler_output
             )
 
 
-        elif hasattr(
-            result,
-            "numpy"
+        if not torch.is_tensor(
+            image_features
         ):
 
-            result = result.numpy()
+            image_features = torch.tensor(
+                image_features
+            )
+
+
+        # -------------------------------------------------------------
+        # FLATTEN
+        # -------------------------------------------------------------
+
+        image_features = (
+            image_features
+            .detach()
+            .cpu()
+            .float()
+        )
+
+
+        # -------------------------------------------------------------
+        # EXPECTED SHAPE
+        # -------------------------------------------------------------
+
+        if image_features.ndim == 1:
+
+            vector = image_features
+
+
+        elif image_features.ndim == 2:
+
+            vector = image_features[0]
 
 
         else:
 
-            result = np.asarray(
-                result,
-                dtype=np.float32
-            )
-
-
-        # ---------------------------------------------------------
-        # 4. DEBUG SHAPE
-        # ---------------------------------------------------------
-
-        shape = result.shape
-
-
-        # ---------------------------------------------------------
-        # 5. XỬ LÝ OUTPUT
-        # ---------------------------------------------------------
-
-        # Trường hợp:
-        # (512,)
-        if len(shape) == 1:
-
-            vector = result
-
-
-        # Trường hợp:
-        # (1,512)
-        elif len(shape) == 2:
-
-            # Nếu đã đúng 512D
-            if shape[-1] == 512:
-
-                vector = result[0]
-
-            else:
-
-                # Mean pooling
-                vector = result.mean(
-                    axis=0
-                )
-
-
-        # Trường hợp:
-        # (1, N, 512)
-        elif len(shape) == 3:
-
-            if shape[-1] == 512:
-
-                vector = result.mean(
-                    axis=1
-                )[0]
-
-            elif shape[1] == 512:
-
-                vector = result.mean(
-                    axis=2
-                )[0]
-
-            else:
-
-                vector = result.reshape(
-                    -1
-                )
-
-
-        else:
-
-            vector = result.reshape(
+            vector = image_features.reshape(
                 -1
             )
 
 
-        # ---------------------------------------------------------
-        # 6. FLATTEN
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # CHECK 512D
+        # -------------------------------------------------------------
 
-        vector = np.asarray(
-            vector,
-            dtype=np.float32
-        ).reshape(
-            -1
-        )
+        vector = vector.numpy()
 
 
-        # ---------------------------------------------------------
-        # 7. KIỂM TRA
-        # ---------------------------------------------------------
-
-        if len(vector) == 0:
+        if len(vector) != 512:
 
             raise Exception(
-                "Embedding rỗng."
+
+                "CLIP output không phải 512D. "
+                f"Shape={tuple(image_features.shape)}, "
+                f"Length={len(vector)}"
+
             )
 
 
-        # ---------------------------------------------------------
-        # 8. CHUẨN HÓA
-        # ---------------------------------------------------------
+        # -------------------------------------------------------------
+        # L2 NORMALIZATION
+        # -------------------------------------------------------------
 
         norm = np.linalg.norm(
             vector
         )
 
 
-        if norm <= 0:
+        if norm == 0:
 
             raise Exception(
-                "Embedding có norm = 0."
+                "CLIP vector có norm = 0."
             )
 
 
@@ -1240,42 +1244,23 @@ def get_clip_embedding(image_bytes):
         )
 
 
-        # ---------------------------------------------------------
-        # 9. QUAN TRỌNG
-        # ---------------------------------------------------------
-        # Database hiện tại của bạn dùng vector CLIP 512D.
-        #
-        # Nếu HF trả đúng 512D -> dùng trực tiếp.
-        #
+        # -------------------------------------------------------------
+        # PYTHON LIST
+        # -------------------------------------------------------------
 
-        if len(vector) != 512:
-
-            raise Exception(
-
-                "CLIP trả vector "
-                f"{len(vector)}D, "
-                "nhưng database yêu cầu 512D. "
-                f"Raw shape = {shape}"
-
-            )
-
-
-        # ---------------------------------------------------------
-        # 10. RETURN PYTHON LIST
-        # ---------------------------------------------------------
-
-        return vector.tolist()
+        return vector.astype(
+            np.float32
+        ).tolist()
 
 
     except Exception as e:
 
         raise Exception(
 
-            "CLIP embedding lỗi: "
-            + str(e)
+            "CLIP LOCAL embedding lỗi: "
+            + repr(e)
 
         )
-
 
 # =====================================================================
 # 19. PRODUCT CODE
