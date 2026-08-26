@@ -1061,155 +1061,220 @@ def analyze_garment_with_vision(
 
 
 # =====================================================================
-# 18. CLIP
+# =====================================================================
+# 🧠 CLIP IMAGE EMBEDDING - FIX V3.4
 # =====================================================================
 
-def get_clip_embedding(
-    image_bytes
-):
+def get_clip_embedding(image_bytes):
 
     try:
+        from PIL import Image
+        import io
+        import numpy as np
 
-        result = (
-            hf_client
-            .feature_extraction(
+        # ---------------------------------------------------------
+        # 1. Đọc ảnh
+        # ---------------------------------------------------------
 
-                image_bytes,
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        ).convert("RGB")
 
-                model=CLIP_MODEL
+
+        # ---------------------------------------------------------
+        # 2. Gửi ảnh trực tiếp tới HF feature extraction
+        # ---------------------------------------------------------
+
+        result = hf_client.feature_extraction(
+            image,
+            model=CLIP_MODEL
+        )
+
+
+        # ---------------------------------------------------------
+        # 3. Chuyển output thành numpy
+        # ---------------------------------------------------------
+
+        if result is None:
+
+            raise Exception(
+                "Hugging Face không trả embedding."
+            )
+
+
+        if hasattr(
+            result,
+            "detach"
+        ):
+
+            result = (
+                result
+                .detach()
+                .cpu()
+                .numpy()
+            )
+
+
+        elif hasattr(
+            result,
+            "numpy"
+        ):
+
+            result = result.numpy()
+
+
+        else:
+
+            result = np.asarray(
+                result,
+                dtype=np.float32
+            )
+
+
+        # ---------------------------------------------------------
+        # 4. DEBUG SHAPE
+        # ---------------------------------------------------------
+
+        shape = result.shape
+
+
+        # ---------------------------------------------------------
+        # 5. XỬ LÝ OUTPUT
+        # ---------------------------------------------------------
+
+        # Trường hợp:
+        # (512,)
+        if len(shape) == 1:
+
+            vector = result
+
+
+        # Trường hợp:
+        # (1,512)
+        elif len(shape) == 2:
+
+            # Nếu đã đúng 512D
+            if shape[-1] == 512:
+
+                vector = result[0]
+
+            else:
+
+                # Mean pooling
+                vector = result.mean(
+                    axis=0
+                )
+
+
+        # Trường hợp:
+        # (1, N, 512)
+        elif len(shape) == 3:
+
+            if shape[-1] == 512:
+
+                vector = result.mean(
+                    axis=1
+                )[0]
+
+            elif shape[1] == 512:
+
+                vector = result.mean(
+                    axis=2
+                )[0]
+
+            else:
+
+                vector = result.reshape(
+                    -1
+                )
+
+
+        else:
+
+            vector = result.reshape(
+                -1
+            )
+
+
+        # ---------------------------------------------------------
+        # 6. FLATTEN
+        # ---------------------------------------------------------
+
+        vector = np.asarray(
+            vector,
+            dtype=np.float32
+        ).reshape(
+            -1
+        )
+
+
+        # ---------------------------------------------------------
+        # 7. KIỂM TRA
+        # ---------------------------------------------------------
+
+        if len(vector) == 0:
+
+            raise Exception(
+                "Embedding rỗng."
+            )
+
+
+        # ---------------------------------------------------------
+        # 8. CHUẨN HÓA
+        # ---------------------------------------------------------
+
+        norm = np.linalg.norm(
+            vector
+        )
+
+
+        if norm <= 0:
+
+            raise Exception(
+                "Embedding có norm = 0."
+            )
+
+
+        vector = (
+            vector / norm
+        )
+
+
+        # ---------------------------------------------------------
+        # 9. QUAN TRỌNG
+        # ---------------------------------------------------------
+        # Database hiện tại của bạn dùng vector CLIP 512D.
+        #
+        # Nếu HF trả đúng 512D -> dùng trực tiếp.
+        #
+
+        if len(vector) != 512:
+
+            raise Exception(
+
+                "CLIP trả vector "
+                f"{len(vector)}D, "
+                "nhưng database yêu cầu 512D. "
+                f"Raw shape = {shape}"
 
             )
-        )
+
+
+        # ---------------------------------------------------------
+        # 10. RETURN PYTHON LIST
+        # ---------------------------------------------------------
+
+        return vector.tolist()
+
 
     except Exception as e:
 
         raise Exception(
+
             "CLIP embedding lỗi: "
             + str(e)
-        )
-
-
-    # ---------------------------------------------------------
-    # Recursive flatten
-    # ---------------------------------------------------------
-
-    def flatten(
-        x
-    ):
-
-        if isinstance(
-            x,
-            (list, tuple)
-        ):
-
-            output = []
-
-            for item in x:
-
-                output.extend(
-                    flatten(item)
-                )
-
-            return output
-
-
-        try:
-
-            return [
-                float(x)
-            ]
-
-        except Exception:
-
-            return []
-
-
-    vector = flatten(
-        result
-    )
-
-
-    if not vector:
-
-        raise Exception(
-            "CLIP không trả vector."
-        )
-
-
-    # ---------------------------------------------------------
-    # 512D
-    # ---------------------------------------------------------
-
-    if len(vector) == 512:
-
-        final_vector = vector
-
-
-    elif len(vector) % 512 == 0:
-
-        rows = (
-            len(vector)
-            //
-            512
-        )
-
-
-        final_vector = []
-
-
-        for col in range(
-            512
-        ):
-
-            total = 0.0
-
-
-            for row in range(
-                rows
-            ):
-
-                total += vector[
-                    row * 512 + col
-                ]
-
-
-            final_vector.append(
-                total / rows
-            )
-
-
-    else:
-
-        raise Exception(
-
-            "CLIP vector sai kích thước: "
-            f"{len(vector)}. "
-            "Cần vector 512D."
 
         )
-
-
-    # ---------------------------------------------------------
-    # Normalize
-    # ---------------------------------------------------------
-
-    norm = sum(
-        x * x
-        for x in final_vector
-    ) ** 0.5
-
-
-    if norm > 0:
-
-        final_vector = [
-
-            x / norm
-            for x in final_vector
-
-        ]
-
-
-    return final_vector
 
 
 # =====================================================================
