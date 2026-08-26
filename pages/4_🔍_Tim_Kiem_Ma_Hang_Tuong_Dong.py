@@ -12,8 +12,13 @@ SUPABASE_URL = "https://supabase.co"  # Thay bằng URL dự án của bạn
 SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"          # Thay bằng Anon Key của bạn
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Cấu hình Hugging Face API (Xử lý Vector)
-HF_TOKEN = "YOUR_HUGGINGFACE_API_TOKEN" 
+# --- THAY ĐỔI QUAN TRỌNG: Lấy Token từ cấu hình bảo mật ẩn của Streamlit ---
+if "HF_TOKEN" in st.secrets:
+    HF_TOKEN = st.secrets["HF_TOKEN"]
+else:
+    st.error("⚠️ Chưa cấu hình HF_TOKEN trong cài đặt Secrets của Streamlit!")
+    st.stop()
+
 API_URL = "https://huggingface.co"
 
 headers = {
@@ -21,11 +26,9 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-# Danh sách dòng hàng cố định để chọn lựa
 CATEGORY_OPTIONS = ["Quần dài", "Quần short", "Áo", "Quần jogger", "Quần jean", "Quần túi hộp"]
 
 def get_image_embedding_via_api(image_bytes):
-    """Hàm lấy định dạng Vector từ AI"""
     response = requests.post(API_URL, headers=headers, data=image_bytes)
     if response.status_code == 200:
         return response.json()
@@ -33,7 +36,6 @@ def get_image_embedding_via_api(image_bytes):
         raise Exception(f"Lỗi kết nối AI API: {response.text}")
 
 def upload_image_to_storage(file_bytes, filename):
-    """Hàm upload ảnh lên Supabase Storage"""
     bucket_name = "product-images"
     try:
         supabase.storage.from_(bucket_name).upload(
@@ -46,15 +48,10 @@ def upload_image_to_storage(file_bytes, filename):
         st.error(f"Lỗi lưu trữ ảnh {filename}: {e}")
         return None
 
-# --- CHIA GIAO DIỆN THÀNH 2 TAB CHỨC NĂNG ---
 tab1, tab2 = st.tabs(["🔍 TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG", "📦 LƯU KHO HÀNG LOẠT"])
 
-# ==========================================
-# TAB 1: TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG
-# ==========================================
 with tab1:
     st.header("🔍 Tìm Kiếm Mã Hàng Qua Ảnh Sketch")
-    
     col_search_1, col_search_2 = st.columns()
     with col_search_1:
         search_category = st.selectbox("Chọn dòng hàng cần tìm kiếm:", CATEGORY_OPTIONS, key="sb_search")
@@ -63,13 +60,11 @@ with tab1:
     if uploaded_sketch is not None:
         with col_search_2:
             st.image(uploaded_sketch, caption="Ảnh Sketch của bạn", width=250)
-            
             if st.button("🚀 Bắt đầu quét mã tương đồng", type="primary"):
-                with st.spinner("Hệ thống đang đối chiếu dữ liệu trong dòng hàng..."):
+                with st.spinner("Hệ thống đang đối chiếu dữ liệu..."):
                     try:
                         sketch_bytes = uploaded_sketch.getvalue()
                         sketch_embedding = get_image_embedding_via_api(sketch_bytes)
-                        
                         response = supabase.rpc("match_products_v2", {
                             "query_embedding": sketch_embedding,
                             "match_threshold": 0.4,
@@ -82,60 +77,47 @@ with tab1:
                             cols = st.columns(len(response.data))
                             for idx, item in enumerate(response.data):
                                 with cols[idx]:
-                                    st.metric(label="Độ tương đồng", value=f"{item['similarity']*100:.2f}%")
+                                    st.metric(label="Độ giống nhau", value=f"{item['similarity']*100:.2f}%")
                                     st.subheader(f"Mã: {item['product_code']}")
                                     if item.get('image_url'):
                                         st.image(item['image_url'], use_container_width=True)
                         else:
-                            st.warning(f"Không tìm thấy sản phẩm nào tương đồng trong nhóm [{search_category}].")
+                            st.warning(f"Không tìm thấy sản phẩm tương đồng trong nhóm [{search_category}].")
                     except Exception as e:
                         st.error(f"Lỗi hệ thống: {e}")
 
-# ==========================================
-# TAB 2: LƯU KHO HÀNG LOẠT (UPLOADER)
-# ==========================================
 with tab2:
     st.header("📦 Đẩy Dữ Liệu Mã Hàng Hàng Loạt Lên Hệ Thống")
-    st.info("💡 Cách đặt tên file để hệ thống tự động nhận diện: Tên_file_ảnh = Mã_hàng (Ví dụ: MS-1024.jpg)")
-    
+    st.info("💡 Cách đặt tên file: Tên_file_ảnh = Mã_hàng (Ví dụ: MS-1024.jpg)")
     col_upload_1, col_upload_2 = st.columns()
     with col_upload_1:
         upload_category = st.selectbox("Phân loại dòng hàng khi lưu kho:", CATEGORY_OPTIONS, key="sb_upload")
-        uploaded_files = st.file_uploader("Chọn nhiều ảnh sản phẩm gốc / ảnh mẫu để lưu kho:", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Chọn nhiều ảnh sản phẩm để lưu kho:", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
     
     if uploaded_files:
         with col_upload_2:
             st.write(f"📂 Đã chọn **{len(uploaded_files)}** file ảnh sẵn sàng đẩy vào kho.")
-            
             if st.button("📤 Tiến hành lưu toàn bộ vào kho"):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
-                
                 success_count = 0
                 for index, file in enumerate(uploaded_files):
-                    # Tách chuỗi chính xác để lấy mã hàng đứng trước dấu chấm
-                    product_code = file.name.split(".")[0].upper()
-                    status_text.text(f"⏳ Đang xử lý file ({index+1}/{len(uploaded_files)}): Mã {product_code}...")
-                    
                     try:
+                        product_code = file.name.split(".")[0].upper()
+                        status_text.text(f"⏳ Đang xử lý file ({index+1}/{len(uploaded_files)}): Mã {product_code}...")
                         file_bytes = file.getvalue()
                         img_url = upload_image_to_storage(file_bytes, file.name)
-                        
                         if img_url:
                             embedding_data = get_image_embedding_via_api(file_bytes)
-                            
                             supabase.table("products").upsert({
                                 "product_code": product_code,
                                 "image_url": img_url,
                                 "category": upload_category,
                                 "embedding": embedding_data
                             }).execute()
-                            
                             success_count += 1
                     except Exception as e:
                         st.error(f"Lỗi khi xử lý mã hàng {product_code}: {e}")
-                    
                     progress_bar.progress((index + 1) / len(uploaded_files))
-                
                 status_text.empty()
-                st.success(f"🎉 Hoàn thành! Đã lưu thành công **{success_count}/{len(uploaded_files)}** mã hàng vào phân loại nhóm **{upload_category}**.")
+                st.success(f"🎉 Hoàn thành! Đã lưu thành công **{success_count}/{len(uploaded_files)}** mã hàng vào nhóm **{upload_category}**.")
