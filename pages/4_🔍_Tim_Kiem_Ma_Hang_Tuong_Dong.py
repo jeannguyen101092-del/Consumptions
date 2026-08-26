@@ -19,6 +19,7 @@ else:
     st.error("⚠️ Chưa cấu hình HF_TOKEN trong cài đặt Secrets của Streamlit!")
     st.stop()
 
+# ĐÃ THAY ĐỔI: Chuyển sang mô hình được hỗ trợ Serverless API (Giữ nguyên 512 chiều)
 API_URL = "https://huggingface.co"
 
 headers = {
@@ -60,7 +61,6 @@ tab1, tab2 = st.tabs(["🔍 TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG", "📦 LƯU K
 with tab1:
     st.header("🔍 Tìm Kiếm Mã Hàng Qua Ảnh Sketch")
     
-    # Đã sửa lỗi: Thêm số 2 vào trong ngoặc để chia thành 2 cột đều nhau
     col_search_1, col_search_2 = st.columns(2)
     with col_search_1:
         search_category = st.selectbox("Chọn dòng hàng cần tìm kiếm:", CATEGORY_OPTIONS, key="sb_search")
@@ -104,7 +104,6 @@ with tab2:
     st.header("📦 Đẩy Dữ Liệu Mã Hàng Hàng Loạt Lên Hệ Thống")
     st.info("💡 Cách đặt tên file để hệ thống tự động nhận diện: Tên_file_ảnh = Mã_hàng (Ví dụ: MS-1024.jpg)")
     
-    # Đã sửa lỗi: Thêm số 2 vào trong ngoặc để chia cột hợp lệ
     col_upload_1, col_upload_2 = st.columns(2)
     with col_upload_1:
         upload_category = st.selectbox("Phân loại dòng hàng khi lưu kho:", CATEGORY_OPTIONS, key="sb_upload")
@@ -121,8 +120,10 @@ with tab2:
                 success_count = 0
                 for index, file in enumerate(uploaded_files):
                     try:
-                        # Đã sửa lỗi: Lấy phần tên đứng trước dấu chấm và viết hoa làm Mã Hàng chuẩn xác
-                        product_code = file.name.split(".")[0].upper()
+                        # Tách chuỗi chuẩn xác lấy phần tên trước dấu chấm và viết hoa làm Mã Hàng
+                        raw_name = file.name.split(".")[0]
+                        product_code = str(raw_name).upper()
+                        
                         status_text.text(f"⏳ Đang xử lý file ({index+1}/{len(uploaded_files)}): Mã {product_code}...")
                         
                         file_bytes = file.getvalue()
