@@ -2205,198 +2205,48 @@ with tab2:
                 )
 
 
-# #####################################################################
-# DELETE ALL
-# #####################################################################
+# =====================================================================
+# 🗑️ XÓA FILE HIỆN TẠI KHỎI MÀN HÌNH
+# KHÔNG XÓA SUPABASE
+# KHÔNG XÓA DATABASE
+# KHÔNG XÓA ẢNH TRONG STORAGE
+# =====================================================================
 
-with tab2:
+if uploaded_files:
 
     st.divider()
 
-    st.subheader(
-        "🗑️ Xóa kho"
-    )
-
-
-    st.warning(
-
-        "⚠️ Chức năng này sẽ xóa toàn bộ "
-        "records trong bảng products và "
-        "ảnh trong bucket product-images."
-
-    )
-
-
     if st.button(
-
-        "🗑️ XÓA TẤT CẢ KHO",
-
-        key="delete_all_start"
-
+        "🗑️ XÓA FILE HIỆN TẠI",
+        key="clear_current_upload"
     ):
 
-        st.session_state[
-            "delete_confirm"
-        ] = True
+        # -------------------------------------------------------------
+        # Xóa trạng thái file upload hiện tại
+        # -------------------------------------------------------------
 
+        if "warehouse_files" in st.session_state:
+            del st.session_state["warehouse_files"]
 
-    if st.session_state.get(
-        "delete_confirm",
-        False
-    ):
+        if "warehouse_results" in st.session_state:
+            del st.session_state["warehouse_results"]
 
-        st.error(
-            "🚨 XÁC NHẬN XÓA TOÀN BỘ KHO"
+        if "warehouse_processing" in st.session_state:
+            del st.session_state["warehouse_processing"]
+
+        # -------------------------------------------------------------
+        # KHÔNG đụng vào:
+        #
+        # Supabase database
+        # products
+        # product-images
+        # embedding
+        # category
+        # -------------------------------------------------------------
+
+        st.success(
+            "✅ Đã xóa file hiện tại khỏi màn hình. "
+            "Dữ liệu đã lưu trong kho vẫn được giữ nguyên."
         )
 
-
-        confirm = st.text_input(
-            "Nhập DELETE để xác nhận:",
-            key="delete_confirm_input"
-        )
-
-
-        c1, c2 = st.columns(
-            2
-        )
-
-
-        with c1:
-
-            if st.button(
-
-                "🔥 XÁC NHẬN XÓA",
-
-                type="primary",
-
-                key="delete_confirm_button"
-
-            ):
-
-                if (
-                    confirm
-                    .strip()
-                    .upper()
-                    !=
-                    "DELETE"
-                ):
-
-                    st.error(
-                        "Bạn phải nhập DELETE."
-                    )
-
-                else:
-
-                    try:
-
-                        with st.spinner(
-                            "🗑️ Đang xóa database..."
-                        ):
-
-                            delete_all_products()
-
-
-                        with st.spinner(
-                            "☁️ Đang xóa ảnh..."
-                        ):
-
-                            deleted = (
-                                delete_all_storage()
-                            )
-
-
-                        st.session_state[
-                            "delete_confirm"
-                        ] = False
-
-
-                        st.success(
-
-                            "🎉 Đã xóa toàn bộ kho.\n\n"
-                            f"Đã xử lý {deleted} ảnh."
-
-                        )
-
-
-                        st.rerun()
-
-
-                    except Exception as e:
-
-                        st.error(
-                            "❌ Xóa kho thất bại."
-                        )
-
-                        st.exception(e)
-
-
-        with c2:
-
-            if st.button(
-                "↩️ HỦY",
-                key="delete_cancel"
-            ):
-
-                st.session_state[
-                    "delete_confirm"
-                ] = False
-
-                st.rerun()
-
-
-# =====================================================================
-# SIDEBAR
-# =====================================================================
-
-with st.sidebar:
-
-    st.header(
-        "⚙️ AI SYSTEM"
-    )
-
-
-    st.success(
-        "Supabase Connected"
-    )
-
-
-    st.success(
-        "Hugging Face Connected"
-    )
-
-
-    st.caption(
-        "Vision AI:"
-    )
-
-    st.caption(
-        VISION_MODEL
-    )
-
-
-    st.caption(
-        "CLIP:"
-    )
-
-    st.caption(
-        CLIP_MODEL
-    )
-
-
-    st.caption(
-        "Embedding: 512D"
-    )
-
-
-    st.caption(
-        "RPC:"
-    )
-
-    st.caption(
-        MATCH_RPC
-    )
-
-
-# =====================================================================
-# END
-# =====================================================================
+        st.rerun()
