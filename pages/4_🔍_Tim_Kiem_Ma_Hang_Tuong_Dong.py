@@ -1513,97 +1513,126 @@ tab1, tab2 = st.tabs(
 
 
 # =====================================================================
-# 30. TAB 1 - SEARCH
+# 30. TAB 1 - AI AUTO SEARCH
+# VERSION V2.5
+#
+# ❌ KHÔNG CHO NGƯỜI DÙNG CHỌN CATEGORY
+#
+# FLOW:
+#
+# UPLOAD SKETCH
+#       ↓
+# CLIP IMAGE EMBEDDING
+#       ↓
+# AI NHẬN DIỆN CATEGORY
+#       ↓
+# TÌM TOÀN BỘ PRODUCTS
+#       ↓
+# ƯU TIÊN ĐÚNG CATEGORY AI
+#       ↓
+# HIỂN THỊ MÃ TƯƠNG ĐỒNG
+#
 # =====================================================================
 
 with tab1:
 
     st.header(
-        "🔍 Tìm Kiếm Mã Hàng Qua Ảnh Sketch"
+        "🔍 AI TỰ NHẬN DIỆN & TÌM MÃ HÀNG TƯƠNG ĐỒNG"
     )
 
-
-    st.success(
-        "🤖 CLIP LOCAL READY"
+    st.info(
+        "🤖 Không cần chọn dòng hàng. "
+        "AI sẽ tự nhận diện chủng loại từ ảnh "
+        "và tự động tìm mã tương đồng trong kho."
     )
-
 
     st.caption(
-        f"Model: {CLIP_MODEL_NAME} | "
+        f"CLIP: {CLIP_MODEL_NAME} | "
         f"Vector: 512D | "
         f"Device: {DEVICE_NAME}"
     )
 
+    # ================================================================
+    # UPLOAD
+    # ================================================================
 
-    col_search_1, col_search_2 = (
-        st.columns(2)
+    uploaded_sketch = st.file_uploader(
+
+        "📂 Tải lên ảnh Sketch / ảnh mẫu cần tìm:",
+
+        type=[
+            "png",
+            "jpg",
+            "jpeg"
+        ],
+
+        key="fu_search_v25"
     )
-
-
-    with col_search_1:
-
-        search_category = st.selectbox(
-
-            "Chọn dòng hàng cần tìm kiếm:",
-
-            CATEGORY_OPTIONS,
-
-            key="sb_search"
-
-        )
-
-
-        uploaded_sketch = st.file_uploader(
-
-            "Tải lên ảnh Sketch cần tìm:",
-
-            type=[
-                "png",
-                "jpg",
-                "jpeg"
-            ],
-
-            key="fu_search"
-
-        )
 
 
     if uploaded_sketch is not None:
 
-        with col_search_2:
+        col_img, col_result = st.columns(
+            [1, 2]
+        )
+
+
+        # ============================================================
+        # IMAGE
+        # ============================================================
+
+        with col_img:
 
             st.image(
 
                 uploaded_sketch,
 
-                caption="Ảnh Sketch của bạn",
+                caption="Ảnh cần tìm",
 
-                width=250
+                use_container_width=True
 
             )
 
 
+        # ============================================================
+        # SEARCH BUTTON
+        # ============================================================
+
+        with col_result:
+
             if st.button(
 
-                "🚀 Bắt đầu quét mã tương đồng",
+                "🤖 AI NHẬN DIỆN & TỰ ĐỘNG TÌM",
 
                 type="primary",
 
-                key="btn_search"
+                key="btn_ai_search_v25"
 
             ):
 
-                with st.spinner(
-                    "🤖 CLIP đang phân tích ảnh..."
-                ):
+                try:
 
-                    try:
+                    raw_bytes = (
+                        uploaded_sketch
+                        .getvalue()
+                    )
 
-                        raw_bytes = (
-                            uploaded_sketch
-                            .getvalue()
+
+                    if not raw_bytes:
+
+                        raise Exception(
+                            "File ảnh rỗng."
                         )
 
+
+                    # =================================================
+                    # STEP 1
+                    # IMAGE EMBEDDING
+                    # =================================================
+
+                    with st.spinner(
+                        "🤖 AI đang phân tích hình dáng sản phẩm..."
+                    ):
 
                         image_hash = (
                             get_image_hash(
@@ -1612,13 +1641,114 @@ with tab1:
                         )
 
 
-                        sketch_embedding = (
+                        query_embedding = (
                             get_cached_clip_embedding(
+
                                 image_hash,
+
                                 raw_bytes
+
                             )
                         )
 
+
+                    # =================================================
+                    # STEP 2
+                    # AUTO CATEGORY
+                    # =================================================
+
+                    with st.spinner(
+                        "🧠 AI đang nhận diện chủng loại..."
+                    ):
+
+                        classification = (
+                            classify_product_category(
+                                query_embedding
+                            )
+                        )
+
+
+                    ai_category = (
+                        classification[
+                            "category"
+                        ]
+                    )
+
+
+                    ai_confidence = (
+                        classification[
+                            "confidence"
+                        ]
+                    )
+
+
+                    ai_similarity = (
+                        classification[
+                            "similarity"
+                        ]
+                    )
+
+
+                    # =================================================
+                    # AI CATEGORY RESULT
+                    # =================================================
+
+                    st.success(
+
+                        f"🤖 AI nhận diện: "
+                        f"**{ai_category}**"
+
+                    )
+
+
+                    c1, c2, c3 = st.columns(3)
+
+
+                    with c1:
+
+                        st.metric(
+
+                            "AI chủng loại",
+
+                            ai_category
+
+                        )
+
+
+                    with c2:
+
+                        st.metric(
+
+                            "Similarity",
+
+                            f"{ai_similarity * 100:.2f}%"
+
+                        )
+
+
+                    with c3:
+
+                        st.metric(
+
+                            "Confidence",
+
+                            f"{ai_confidence:.1f}%"
+
+                        )
+
+
+                    # =================================================
+                    # STEP 3
+                    # SEARCH ALL PRODUCTS
+                    #
+                    # KHÔNG filter_category
+                    #
+                    # AI tự quyết định category.
+                    # =================================================
+
+                    with st.spinner(
+                        "🔎 Đang tìm mã hàng tương đồng trong toàn bộ kho..."
+                    ):
 
                         response = (
                             supabase
@@ -1629,16 +1759,26 @@ with tab1:
                                 {
 
                                     "query_embedding":
-                                        sketch_embedding,
+                                        query_embedding,
 
                                     "match_threshold":
-                                        0.40,
+                                        0.30,
 
                                     "match_count":
-                                        4,
+                                        12,
+
+                                    # ---------------------------------
+                                    # QUAN TRỌNG:
+                                    #
+                                    # Không còn:
+                                    #
+                                    # "filter_category":
+                                    #     search_category
+                                    #
+                                    # ---------------------------------
 
                                     "filter_category":
-                                        search_category
+                                        None
 
                                 }
 
@@ -1647,95 +1787,259 @@ with tab1:
                         )
 
 
-                        if response.data:
+                    data = response.data or []
 
-                            st.success(
-                                f"🎯 Tìm thấy "
-                                f"{len(response.data)} "
-                                "mã tương đồng."
+
+                    # =================================================
+                    # STEP 4
+                    # AI CATEGORY PRIORITY
+                    #
+                    # Nếu database có category,
+                    # mã cùng category AI được ưu tiên.
+                    # =================================================
+
+                    def result_sort_key(item):
+
+                        item_category = str(
+
+                            item.get(
+                                "category",
+                                ""
                             )
 
-
-                            cols = st.columns(
-                                len(response.data)
-                            )
+                        ).strip().lower()
 
 
-                            for idx, item in enumerate(
-                                response.data
-                            ):
-
-                                with cols[idx]:
-
-                                    similarity = float(
-                                        item.get(
-                                            "similarity",
-                                            0
-                                        )
-                                    )
-
-
-                                    st.metric(
-                                        "Độ giống nhau",
-                                        f"{similarity * 100:.2f}%"
-                                    )
-
-
-                                    st.subheader(
-                                        "Mã: "
-                                        +
-                                        str(
-                                            item.get(
-                                                "product_code",
-                                                "N/A"
-                                            )
-                                        )
-                                    )
-
-
-                                    image_url = (
-                                        item.get(
-                                            "image_url"
-                                        )
-                                    )
-
-
-                                    if image_url:
-
-                                        st.image(
-                                            image_url,
-                                            use_container_width=True
-                                        )
-
-
-                                    st.caption(
-                                        "Category: "
-                                        +
-                                        str(
-                                            item.get(
-                                                "category",
-                                                ""
-                                            )
-                                        )
-                                    )
-
-
-                        else:
-
-                            st.warning(
-                                "⚠️ Không tìm thấy "
-                                "sản phẩm tương đồng."
-                            )
-
-
-                    except Exception as e:
-
-                        st.error(
-                            "❌ LỖI TÌM KIẾM"
+                        target_category = (
+                            ai_category
+                            .strip()
+                            .lower()
                         )
 
-                        st.exception(e)
 
+                        same_category = (
+
+                            item_category
+                            ==
+                            target_category
+
+                        )
+
+
+                        similarity = float(
+
+                            item.get(
+                                "similarity",
+                                0
+                            )
+
+                        )
+
+
+                        return (
+
+                            1 if same_category
+                            else 0,
+
+                            similarity
+
+                        )
+
+
+                    data.sort(
+
+                        key=result_sort_key,
+
+                        reverse=True
+
+                    )
+
+
+                    # =================================================
+                    # STEP 5
+                    # DISPLAY
+                    # =================================================
+
+                    if data:
+
+                        st.divider()
+
+                        st.subheader(
+
+                            "🎯 MÃ HÀNG AI TÌM ĐƯỢC"
+
+                        )
+
+
+                        st.caption(
+
+                            f"AI đã tự nhận diện "
+                            f"**{ai_category}** "
+                            f"và tìm trong toàn bộ kho. "
+                            f"Hiển thị {len(data)} kết quả tốt nhất."
+
+                        )
+
+
+                        # =================================================
+                        # DISPLAY 4 RESULTS PER ROW
+                        # =================================================
+
+                        display_count = min(
+                            len(data),
+                            12
+                        )
+
+
+                        cols = st.columns(4)
+
+
+                        for idx in range(
+                            display_count
+                        ):
+
+                            item = data[idx]
+
+
+                            with cols[
+                                idx % 4
+                            ]:
+
+                                item_similarity = float(
+
+                                    item.get(
+                                        "similarity",
+                                        0
+                                    )
+
+                                )
+
+
+                                item_category = (
+
+                                    item.get(
+                                        "category",
+                                        "N/A"
+                                    )
+
+                                )
+
+
+                                product_code = (
+
+                                    item.get(
+                                        "product_code",
+                                        "N/A"
+                                    )
+
+                                )
+
+
+                                st.markdown(
+                                    "---"
+                                )
+
+
+                                # ------------------------------------------------
+                                # PRODUCT CODE
+                                # ------------------------------------------------
+
+                                st.subheader(
+                                    str(
+                                        product_code
+                                    )
+                                )
+
+
+                                # ------------------------------------------------
+                                # IMAGE
+                                # ------------------------------------------------
+
+                                image_url = (
+
+                                    item.get(
+                                        "image_url"
+                                    )
+
+                                )
+
+
+                                if image_url:
+
+                                    st.image(
+
+                                        image_url,
+
+                                        use_container_width=True
+
+                                    )
+
+
+                                # ------------------------------------------------
+                                # CATEGORY
+                                # ------------------------------------------------
+
+                                if (
+
+                                    str(
+                                        item_category
+                                    ).strip().lower()
+
+                                    ==
+
+                                    ai_category
+                                    .strip().lower()
+
+                                ):
+
+                                    st.success(
+
+                                        f"🤖 "
+                                        f"{item_category}"
+
+                                    )
+
+                                else:
+
+                                    st.caption(
+
+                                        f"Category: "
+                                        f"{item_category}"
+
+                                    )
+
+
+                                # ------------------------------------------------
+                                # SIMILARITY
+                                # ------------------------------------------------
+
+                                st.metric(
+
+                                    "Độ tương đồng",
+
+                                    f"{item_similarity * 100:.2f}%"
+
+                                )
+
+
+                    else:
+
+                        st.warning(
+
+                            "⚠️ AI chưa tìm thấy "
+                            "mã hàng tương đồng "
+                            "trong kho."
+
+                        )
+
+
+                except Exception as e:
+
+                    st.error(
+                        "❌ AI SEARCH LỖI"
+                    )
+
+                    st.exception(e)
 
 # =====================================================================
 # 31. TAB 2 - AI AUTO CLASSIFICATION + BULK UPLOAD
