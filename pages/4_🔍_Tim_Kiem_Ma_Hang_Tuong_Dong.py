@@ -8,8 +8,8 @@ import io
 st.set_page_config(page_title="Quản lý & Tìm kiếm mã hàng", page_icon="🔍", layout="wide")
 
 # Kết nối tới cơ sở dữ liệu Supabase
-SUPABASE_URL = "https://supabase.co"  # Thay bằng URL dự án của bạn
-SUPABASE_KEY = "YOUR_SUPABASE_ANON_KEY"          # Thay bằng Anon Key của bạn
+SUPABASE_URL = "https://ewqqodsfvlvnrzsylawy.supabase.co"  # Thay bằng URL dự án của bạn
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3cXFvZHNmdmx2bnJ6c3lsYXd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTkyOTAsImV4cCI6MjA5MDY5NTI5MH0.BWPxOsyswBT5CLrZgluRC1F2x5EpU06oexUFyakGhyc"          # Thay bằng Anon Key của bạn
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Lấy Token từ cấu hình bảo mật ẩn Secrets của Streamlit ---
