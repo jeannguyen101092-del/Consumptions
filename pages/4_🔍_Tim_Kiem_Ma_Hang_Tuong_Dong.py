@@ -481,10 +481,12 @@ def load_clip_model():
 # =====================================================================
 # 13. JSON EXTRACT
 # =====================================================================
+# =====================================================================
+# 🔧 JSON PARSER - V3.8
+# FIX GEMINI TRUNCATED JSON
+# =====================================================================
 
-def extract_json(
-    text
-):
+def extract_json(text):
 
     if not text:
 
@@ -493,10 +495,12 @@ def extract_json(
         )
 
 
-    text = str(
-        text
-    ).strip()
+    text = str(text).strip()
 
+
+    # ================================================================
+    # REMOVE MARKDOWN
+    # ================================================================
 
     text = re.sub(
         r"```json",
@@ -505,229 +509,125 @@ def extract_json(
         flags=re.I
     )
 
-
     text = re.sub(
         r"```",
         "",
         text
     )
 
-
-    match = re.search(
-        r"\{.*\}",
-        text,
-        flags=re.S
-    )
+    text = text.strip()
 
 
-    if not match:
+    # ================================================================
+    # 1. TÌM JSON OBJECT
+    # ================================================================
+
+    start = text.find("{")
+
+    if start == -1:
 
         raise Exception(
 
-            "Gemini không trả JSON hợp lệ:\n"
+            "Gemini không trả JSON.\n\n"
             +
             text[:2000]
 
         )
 
 
+    json_text = text[start:]
+
+
+    # ================================================================
+    # 2. THỬ JSON BÌNH THƯỜNG
+    # ================================================================
+
     try:
 
         return json.loads(
-            match.group(0)
+            json_text
         )
 
-    except Exception as e:
+    except Exception:
 
-        raise Exception(
-
-            "JSON Gemini lỗi: "
-            +
-            str(e)
-
-        )
+        pass
 
 
-# =====================================================================
-# 14. GEMINI PROMPT
-# =====================================================================
+    # ================================================================
+    # 3. GEMINI BỊ CẮT JSON
+    #
+    # Ví dụ:
+    #
+    # {
+    #   "category": "Áo",
+    #   "confidence": 98,
+    #   "one_piece": false,
+    #   "bib": false,
+    #   "shoulder_straps": false
+    #
+    # ================================================================
 
-GARMENT_PROMPT = """
-
-You are a senior apparel product recognition specialist.
-
-Analyze this garment image carefully for commercial
-garment similarity search.
-
-Do NOT classify only from visual silhouette.
-
-Determine garment construction.
-
-=========================================================
-CRITICAL RULES
-=========================================================
-
-1. JUMPSUIT
-
-If upper body and lower body are physically connected:
-
-category = "Áo liền quần"
-
-NEVER classify a jumpsuit as cargo pants.
-
----------------------------------------------------------
-
-2. BIB OVERALL
-
-If the garment has:
-
-- bib front
-- shoulder straps
-
-category = "Quần yếm"
-
-NEVER classify it as cargo pants.
-
----------------------------------------------------------
-
-3. CARGO PANTS
-
-Cargo pants require:
-
-- separate pants
-- external cargo / patch pockets
-- pockets clearly located on side legs
-
-If cargo pockets are not clearly visible:
-
-cargo_pockets = false
-
-Do NOT guess cargo.
-
----------------------------------------------------------
-
-4. JEANS
-
-Separate denim pants.
-
----------------------------------------------------------
-
-5. JOGGER
-
-Separate pants with elastic or rib ankle cuffs.
-
----------------------------------------------------------
-
-6. JACKET
-
-Separate upper-body outerwear garment.
-
----------------------------------------------------------
-
-7. DRESS
-
-One-piece dress silhouette.
-
-Do NOT confuse a dress with a jumpsuit.
-
-=========================================================
-AVAILABLE CATEGORIES
-=========================================================
-
-Áo liền quần
-Quần yếm
-Quần túi hộp
-Quần jean
-Quần jogger
-Quần short
-Quần dài
-Jacket
-Áo
-T-shirt
-Polo
-Hoodie
-Skirt
-Dress
-
-=========================================================
-RETURN ONLY JSON
-=========================================================
-
-{
-  "category": "Quần dài",
-  "confidence": 95,
-  "one_piece": false,
-  "bib": false,
-  "shoulder_straps": false,
-  "cargo_pockets": false,
-  "denim": false,
-  "jogger_cuffs": false,
-  "sleeve": "none",
-  "collar": "none",
-  "hood": false,
-  "silhouette": "straight",
-  "length": "full",
-  "reason": "..."
-}
-
-"""
+    # Lấy từng field quan trọng
+    result = {}
 
 
-# =====================================================================
-# 15. NORMALIZE CATEGORY
-# =====================================================================
+    # ------------------------------------------------
+    # CATEGORY
+    # ------------------------------------------------
 
-def normalize_garment_result(
-    result
-):
+    category_match = re.search(
 
-    if not isinstance(
-        result,
-        dict
-    ):
+        r'"category"\s*:\s*"([^"]+)"',
 
-        raise Exception(
-            "Gemini result không hợp lệ."
-        )
+        json_text,
 
+        flags=re.I
 
-    category = str(
-
-        result.get(
-            "category",
-            ""
-        )
-
-    ).strip()
-
-
-    upper = (
-        category
-        .upper()
-        .strip()
     )
 
 
-    if upper in CATEGORY_ALIASES:
+    if category_match:
 
-        category = CATEGORY_ALIASES[
-            upper
-        ]
-
-
-    if category not in CATEGORY_LIST:
-
-        category = "Quần dài"
+        result[
+            "category"
+        ] = category_match.group(1)
 
 
-    result[
-        "category"
-    ] = category
+    # ------------------------------------------------
+    # CONFIDENCE
+    # ------------------------------------------------
+
+    confidence_match = re.search(
+
+        r'"confidence"\s*:\s*([0-9]+(?:\.[0-9]+)?)',
+
+        json_text,
+
+        flags=re.I
+
+    )
 
 
-    # ---------------------------------------------------------
-    # Boolean
-    # ---------------------------------------------------------
+    if confidence_match:
+
+        try:
+
+            result[
+                "confidence"
+            ] = float(
+                confidence_match.group(1)
+            )
+
+        except Exception:
+
+            result[
+                "confidence"
+            ] = 0
+
+
+    # ------------------------------------------------
+    # BOOLEAN FIELDS
+    # ------------------------------------------------
 
     boolean_fields = [
 
@@ -744,187 +644,97 @@ def normalize_garment_result(
 
     for field in boolean_fields:
 
-        value = result.get(
-            field,
-            False
+        match = re.search(
+
+            rf'"{field}"\s*:\s*(true|false)',
+
+            json_text,
+
+            flags=re.I
+
         )
 
 
-        if isinstance(
-            value,
-            str
-        ):
+        if match:
 
-            value = (
+            result[field] = (
 
-                value
+                match.group(1)
                 .lower()
-                .strip()
-
-                in [
-                    "true",
-                    "yes",
-                    "1"
-                ]
+                ==
+                "true"
 
             )
 
-
-        result[field] = bool(
-            value
-        )
-
-
-    # ---------------------------------------------------------
-    # Confidence
-    # ---------------------------------------------------------
-
-    try:
-
-        confidence = float(
-            result.get(
-                "confidence",
-                0
-            )
-        )
-
-    except Exception:
-
-        confidence = 0
-
-
-    result[
-        "confidence"
-    ] = max(
-        0,
-        min(
-            100,
-            confidence
-        )
-    )
-
-
-    # =========================================================
-    # HARD RULE 1
-    # =========================================================
-
-    if result[
-        "one_piece"
-    ]:
-
-        if (
-
-            result["bib"]
-
-            and
-
-            result["shoulder_straps"]
-
-        ):
-
-            result[
-                "category"
-            ] = "Quần yếm"
 
         else:
 
-            result[
-                "category"
-            ] = "Áo liền quần"
+            # Không có field → mặc định False
+
+            result[field] = False
 
 
-    # =========================================================
-    # HARD RULE 2
-    # =========================================================
+    # ------------------------------------------------
+    # STRING FIELDS
+    # ------------------------------------------------
 
-    elif (
+    string_fields = [
 
-        result["bib"]
+        "sleeve",
+        "collar",
+        "silhouette",
+        "length",
+        "reason"
 
-        and
+    ]
 
-        result["shoulder_straps"]
 
+    for field in string_fields:
+
+        match = re.search(
+
+            rf'"{field}"\s*:\s*"([^"]*)"', 
+
+            json_text,
+
+            flags=re.I
+
+        )
+
+
+        if match:
+
+            result[field] = (
+                match.group(1)
+            )
+
+        else:
+
+            result[field] = ""
+
+
+    # ================================================================
+    # 4. KIỂM TRA FIELD QUAN TRỌNG
+    # ================================================================
+
+    if not result.get(
+        "category"
     ):
 
-        result[
-            "category"
-        ] = "Quần yếm"
+        raise Exception(
+
+            "Gemini không trả category.\n\n"
+            +
+            text[:2000]
+
+        )
 
 
-    # =========================================================
-    # HARD RULE 3
-    # =========================================================
-
-    elif (
-
-        result[
-            "category"
-        ]
-        ==
-        "Quần túi hộp"
-
-        and
-
-        not result[
-            "cargo_pockets"
-        ]
-
-    ):
-
-        result[
-            "category"
-        ] = "Quần dài"
-
-
-    # =========================================================
-    # HARD RULE 4
-    # =========================================================
-
-    elif (
-
-        result["denim"]
-
-        and
-
-        result[
-            "category"
-        ]
-        ==
-        "Quần dài"
-
-    ):
-
-        result[
-            "category"
-        ] = "Quần jean"
-
-
-    # =========================================================
-    # HARD RULE 5
-    # =========================================================
-
-    elif (
-
-        result["jogger_cuffs"]
-
-        and
-
-        result[
-            "category"
-        ]
-        ==
-        "Quần dài"
-
-    ):
-
-        result[
-            "category"
-        ] = "Quần jogger"
-
+    # ================================================================
+    # 5. TRẢ RESULT
+    # ================================================================
 
     return result
-
 
 # =====================================================================
 # 16. GEMINI VISION
