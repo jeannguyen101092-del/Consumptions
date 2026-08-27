@@ -1,54 +1,33 @@
 # =====================================================================
 # 🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG
-# VERSION V4.4
+# VERSION V4.5
 #
-# ================================================================
-# MASTER IMAGE SIMILARITY SEARCH ENGINE
-# ================================================================
+# MASTER VERSION
 #
 # ENGINE:
 #   - Gemini Vision
 #   - Gemini Embedding 2
-#   - Supabase Storage
-#   - Supabase PostgreSQL + pgvector
+#   - Supabase
+#   - pgvector
 #
-# EMBEDDING:
-#   IMAGE -> GEMINI EMBEDDING 2 -> 3072 DIMENSIONS
-#
-# QUAN TRỌNG:
-#   NẠP KHO và TÌM KIẾM phải dùng cùng một image embedding 3072.
-#
-# KHÔNG DÙNG:
-#   - Hugging Face
-#   - CLIP API
-#   - torch
-#   - torchvision
-#   - text reason làm image embedding
-#   - vector giả 0.0 khi embedding lỗi
-#
-# CHỨC NĂNG:
-#   1. AI tự nhận dạng garment
-#   2. AI tự xác định category
-#   3. Upload kho hàng loạt
-#   4. Lưu image embedding 3072
-#   5. Tìm mã tương đồng bằng image embedding
-#   6. Category chỉ BOOST / RANK, KHÔNG khóa cứng search
-#   7. Không cần chọn dòng hàng thủ công
-#   8. Retry chống 429 / 503
-#   9. Delay giữa các file khi upload hàng loạt
-#  10. Xóa file chờ chỉ xóa khỏi session
-#
-# DATABASE EXPECTATION:
-#
-#   products.embedding = vector(3072)
-#
-#   RPC:
-#       match_products_v4(
-#           query_embedding vector(3072),
-#           match_threshold float,
-#           match_count int
-#       )
-#
+# FIX V4.5:
+#   1. FORCE EMBEDDING = 768 DIMENSIONS
+#   2. KHÔNG BAO GIỜ tạo vector 3072 fallback
+#   3. IMAGE UPLOAD -> IMAGE EMBEDDING 768
+#   4. IMAGE SEARCH -> IMAGE EMBEDDING 768
+#   5. DATABASE -> 768
+#   6. RPC SEARCH -> 768
+#   7. AI TỰ NHẬN DIỆN CATEGORY
+#   8. KHÔNG CÒN SELECTBOX CHỌN DÒNG HÀNG
+#   9. CATEGORY CHỈ BOOST, KHÔNG KHÓA SEARCH
+#  10. RETRY GEMINI 429 / 503
+#  11. DELAY GIỮA CÁC FILE
+#  12. KIỂM TRA DIMENSION TRƯỚC DATABASE
+#  13. KIỂM TRA DIMENSION TRƯỚC VECTOR SEARCH
+#  14. KHÔNG DÙNG HUGGING FACE
+#  15. KHÔNG DÙNG CLIP
+#  16. KHÔNG DÙNG TORCH
+#  17. KHÔNG DÙNG TORCHVISION
 # =====================================================================
 
 
@@ -90,12 +69,13 @@ try:
 except Exception as e:
 
     st.error(
-        "❌ Chưa cài thư viện supabase.\n\n"
+        "❌ Chưa cài thư viện Supabase.\n\n"
         "Thêm vào requirements.txt:\n\n"
         "supabase"
     )
 
     st.exception(e)
+
     st.stop()
 
 
@@ -113,6 +93,7 @@ except Exception as e:
     )
 
     st.exception(e)
+
     st.stop()
 
 
@@ -120,55 +101,49 @@ except Exception as e:
 # 3. CONSTANTS
 # =====================================================================
 
-APP_VERSION = "V4.4"
+APP_VERSION = "V4.5"
 
 BUCKET_NAME = "product-images"
 
 PRODUCT_TABLE = "products"
 
 # ---------------------------------------------------------
-# GEMINI VISION
+# Gemini Vision
 # ---------------------------------------------------------
 
 VISION_MODEL = "gemini-3.6-flash"
 
 # ---------------------------------------------------------
-# GEMINI MULTIMODAL EMBEDDING
+# Gemini Embedding 2
 # ---------------------------------------------------------
-#
-# Gemini Embedding 2 hỗ trợ image input.
-#
-# Database hiện tại của bạn đang là vector(3072).
-# Vì vậy toàn bộ hệ thống khóa 3072.
-#
 
 EMBEDDING_MODEL = "gemini-embedding-2"
 
-EMBEDDING_DIMENSION = 3072
+# ---------------------------------------------------------
+# CRITICAL:
+# DATABASE HIỆN TẠI CỦA USER = 768
+# ---------------------------------------------------------
 
+EMBEDDING_DIMENSION = 768
 
 # ---------------------------------------------------------
-# SEARCH
+# Search
 # ---------------------------------------------------------
 
 SEARCH_COUNT = 12
 
-MIN_SIMILARITY = 0.35
-
-DISPLAY_COUNT = 8
-
+MIN_SIMILARITY = 0.20
 
 # ---------------------------------------------------------
-# API RETRY
+# Retry
 # ---------------------------------------------------------
 
-MAX_API_RETRIES = 3
+MAX_GEMINI_RETRIES = 3
 
 RETRY_DELAY_SECONDS = 5
 
-
 # ---------------------------------------------------------
-# BULK UPLOAD DELAY
+# Bulk upload delay
 # ---------------------------------------------------------
 
 BULK_DELAY_SECONDS = 4.5
@@ -231,6 +206,7 @@ CATEGORY_ALIAS = {
     "CARGO": "Quần túi hộp",
     "CARGO PANTS": "Quần túi hộp",
     "CARGO TROUSERS": "Quần túi hộp",
+    "CARGO TROUSER": "Quần túi hộp",
 
     "JEANS": "Quần jean",
     "DENIM JEANS": "Quần jean",
@@ -272,7 +248,7 @@ CATEGORY_ALIAS = {
 
 
 # =====================================================================
-# 6. SECRET READER
+# 6. SECRET HELPERS
 # =====================================================================
 
 def _safe_secret_get(container, key):
@@ -291,7 +267,6 @@ def _safe_secret_get(container, key):
                 value = str(value).strip()
 
                 if value:
-
                     return value
 
     except Exception:
@@ -307,7 +282,6 @@ def _recursive_find_secret(
 ):
 
     if obj is None:
-
         return None
 
     try:
@@ -329,7 +303,6 @@ def _recursive_find_secret(
                         value = str(value).strip()
 
                         if value:
-
                             return value
 
                 result = _recursive_find_secret(
@@ -338,7 +311,6 @@ def _recursive_find_secret(
                 )
 
                 if result:
-
                     return result
 
     except Exception:
@@ -351,8 +323,13 @@ def _recursive_find_secret(
 def get_secret(*names):
 
     normalized = {
-        str(x).upper().strip()
+
+        str(x)
+        .upper()
+        .strip()
+
         for x in names
+
     }
 
     # ---------------------------------------------------------
@@ -369,7 +346,6 @@ def get_secret(*names):
             )
 
             if value:
-
                 return value
 
         value = _recursive_find_secret(
@@ -378,7 +354,6 @@ def get_secret(*names):
         )
 
         if value:
-
             return value
 
     except Exception:
@@ -395,7 +370,10 @@ def get_secret(*names):
 
         if value:
 
-            return value.strip()
+            value = value.strip()
+
+            if value:
+                return value
 
     return None
 
@@ -457,14 +435,13 @@ if missing_secrets:
     )
 
     st.markdown(
-        "### Các key còn thiếu:"
+        "### Key còn thiếu:"
     )
 
     for key in missing_secrets:
 
         st.code(
-            key,
-            language="text"
+            key
         )
 
     st.info(
@@ -490,7 +467,7 @@ api_key = "..."
 
 
 # =====================================================================
-# 9. CREATE CLIENTS
+# 9. CREATE SUPABASE CLIENT
 # =====================================================================
 
 try:
@@ -511,6 +488,10 @@ except Exception as e:
     st.stop()
 
 
+# =====================================================================
+# 10. CREATE GEMINI CLIENT
+# =====================================================================
+
 try:
 
     gemini_client = genai.Client(
@@ -529,42 +510,36 @@ except Exception as e:
 
 
 # =====================================================================
-# 10. SESSION STATE
+# 11. SESSION STATE
 # =====================================================================
 
-SESSION_DEFAULTS = {
+if "search_file" not in st.session_state:
 
-    "search_file": None,
-
-    "search_result": None,
-
-    "search_ai_result": None,
-
-    "pending_upload_files": [],
-
-    "last_upload_result": None
-
-}
+    st.session_state.search_file = None
 
 
-for key, default_value in SESSION_DEFAULTS.items():
+if "search_result" not in st.session_state:
 
-    if key not in st.session_state:
+    st.session_state.search_result = None
 
-        if isinstance(
-            default_value,
-            list
-        ):
 
-            st.session_state[key] = []
+if "search_ai_result" not in st.session_state:
 
-        else:
+    st.session_state.search_ai_result = None
 
-            st.session_state[key] = default_value
+
+if "pending_upload_files" not in st.session_state:
+
+    st.session_state.pending_upload_files = []
+
+
+if "last_upload_result" not in st.session_state:
+
+    st.session_state.last_upload_result = None
 
 
 # =====================================================================
-# 11. IMAGE HELPERS
+# 12. IMAGE MIME
 # =====================================================================
 
 def get_mime_type(filename):
@@ -576,19 +551,20 @@ def get_mime_type(filename):
     )
 
     if ext == "png":
-
         return "image/png"
 
     if ext in ["jpg", "jpeg"]:
-
         return "image/jpeg"
 
     if ext == "webp":
-
         return "image/webp"
 
     return "image/jpeg"
 
+
+# =====================================================================
+# 13. NORMALIZE IMAGE
+# =====================================================================
 
 def normalize_image_bytes(
     image_bytes
@@ -602,7 +578,9 @@ def normalize_image_bytes(
             io.BytesIO(image_bytes)
         )
 
-        image = image.convert("RGB")
+        image = image.convert(
+            "RGB"
+        )
 
         output = io.BytesIO()
 
@@ -620,7 +598,7 @@ def normalize_image_bytes(
 
 
 # =====================================================================
-# 12. FILE HASH
+# 14. FILE HASH
 # =====================================================================
 
 def calculate_file_hash(
@@ -633,7 +611,7 @@ def calculate_file_hash(
 
 
 # =====================================================================
-# 13. CATEGORY NORMALIZER
+# 15. CATEGORY NORMALIZER
 # =====================================================================
 
 def normalize_category(
@@ -641,14 +619,17 @@ def normalize_category(
 ):
 
     if category is None:
-
         return "Quần dài"
 
     value = str(
         category
     ).strip()
 
-    upper = value.upper()
+    upper = (
+        value
+        .upper()
+        .strip()
+    )
 
     if upper in CATEGORY_ALIAS:
 
@@ -658,10 +639,7 @@ def normalize_category(
 
     for valid in CATEGORY_OPTIONS:
 
-        if (
-            value.lower()
-            == valid.lower()
-        ):
+        if value.lower() == valid.lower():
 
             return valid
 
@@ -669,24 +647,24 @@ def normalize_category(
 
 
 # =====================================================================
-# 14. GEMINI GARMENT PROMPT
+# 16. GARMENT PROMPT
 # =====================================================================
 
 GARMENT_PROMPT = """
 
 You are an expert apparel technical designer and garment recognition AI.
 
-Analyze the garment in the image.
+Analyze the garment shown in the image.
 
-This is a COMMERCIAL APPAREL SIMILARITY SEARCH SYSTEM.
+This system is used for commercial apparel similarity search.
 
-Identify actual garment construction, not only superficial appearance.
+Identify the actual garment construction, not only superficial appearance.
 
 =========================================================
-CRITICAL GARMENT RULES
+CRITICAL CATEGORY RULES
 =========================================================
 
-1. ONE PIECE / JUMPSUIT
+1. JUMPSUIT / ONE PIECE
 
 If upper body and lower body are physically connected:
 
@@ -698,7 +676,7 @@ Do NOT classify it as cargo pants.
 
 2. BIB OVERALL
 
-If garment has:
+If the garment has:
 
 - bib front
 - shoulder straps
@@ -710,19 +688,19 @@ category = "Quần yếm"
 
 3. CARGO PANTS
 
-Only classify:
+Only classify as:
 
 "Quần túi hộp"
 
 when it is a separate pants garment AND
 there are obvious external cargo / patch pockets
-on side legs.
+on the side legs.
+
+Do NOT classify ordinary pants as cargo.
 
 Do NOT classify jumpsuits as cargo.
 
 Do NOT classify overalls as cargo.
-
-Do NOT classify normal pants with ordinary pockets as cargo.
 
 ---------------------------------------------------------
 
@@ -736,8 +714,8 @@ category = "Quần jean"
 
 5. JOGGER
 
-Separate pants with jogger construction,
-especially elastic or rib ankle cuffs:
+Separate pants with strong jogger construction,
+especially elastic / rib ankle cuffs:
 
 category = "Quần jogger"
 
@@ -745,7 +723,7 @@ category = "Quần jogger"
 
 6. SHORTS
 
-Separate pants with short leg length:
+Separate pants with short leg:
 
 category = "Quần short"
 
@@ -770,23 +748,43 @@ category = "Jacket"
 
 9. DRESS
 
-One-piece dress silhouette.
-
-A dress is NOT a jumpsuit.
+One-piece dress silhouette:
 
 category = "Dress"
 
+A dress is NOT a jumpsuit.
+
 ---------------------------------------------------------
 
-10. SHIRT / TOP
+10. UPPER BODY
 
-Upper-body garment:
+Shirt / top:
 
 category = "Áo"
 
+T-shirt:
+
+category = "T-shirt"
+
+Polo:
+
+category = "Polo"
+
+Hoodie:
+
+category = "Hoodie"
+
 ---------------------------------------------------------
 
+11. SKIRT
+
+Skirt:
+
+category = "Skirt"
+
+=========================================================
 AVAILABLE CATEGORIES
+=========================================================
 
 - Áo liền quần
 - Quần yếm
@@ -804,17 +802,19 @@ AVAILABLE CATEGORIES
 - Dress
 
 =========================================================
-LOOK CAREFULLY AT
+ANALYZE
 =========================================================
 
-- garment boundaries
+Look carefully at:
+
+- garment boundary
 - upper/lower connection
 - waistband
 - leg construction
-- pockets
+- pocket construction
 - cargo pockets
 - bib
-- shoulder straps
+- straps
 - sleeves
 - collar
 - hood
@@ -828,240 +828,47 @@ Return ONLY JSON.
 
 
 # =====================================================================
-# 15. GEMINI GARMENT ANALYSIS
+# 17. BOOLEAN HELPER
 # =====================================================================
 
-def analyze_garment_with_gemini(
-    image_bytes
-):
+def bool_value(value):
 
-    image_bytes = normalize_image_bytes(
-        image_bytes
-    )
-
-    last_error = None
-
-    for attempt in range(
-        MAX_API_RETRIES
+    if isinstance(
+        value,
+        bool
     ):
 
-        try:
-
-            response = (
-                gemini_client
-                .models
-                .generate_content(
-
-                    model=VISION_MODEL,
-
-                    contents=[
-
-                        types.Part.from_bytes(
-
-                            data=image_bytes,
-
-                            mime_type="image/jpeg"
-
-                        ),
-
-                        GARMENT_PROMPT
-
-                    ],
-
-                    config=(
-                        types.GenerateContentConfig(
-
-                            response_mime_type=(
-                                "application/json"
-                            ),
-
-                            response_schema={
-
-                                "type": "object",
-
-                                "properties": {
-
-                                    "category": {
-                                        "type": "string"
-                                    },
-
-                                    "confidence": {
-                                        "type": "number"
-                                    },
-
-                                    "one_piece": {
-                                        "type": "boolean"
-                                    },
-
-                                    "bib": {
-                                        "type": "boolean"
-                                    },
-
-                                    "shoulder_straps": {
-                                        "type": "boolean"
-                                    },
-
-                                    "cargo_pockets": {
-                                        "type": "boolean"
-                                    },
-
-                                    "denim": {
-                                        "type": "boolean"
-                                    },
-
-                                    "jogger_cuffs": {
-                                        "type": "boolean"
-                                    },
-
-                                    "sleeve": {
-                                        "type": "string"
-                                    },
-
-                                    "collar": {
-                                        "type": "string"
-                                    },
-
-                                    "hood": {
-                                        "type": "boolean"
-                                    },
-
-                                    "silhouette": {
-                                        "type": "string"
-                                    },
-
-                                    "length": {
-                                        "type": "string"
-                                    },
-
-                                    "reason": {
-                                        "type": "string"
-                                    }
-
-                                },
-
-                                "required": [
-
-                                    "category",
-
-                                    "confidence",
-
-                                    "one_piece",
-
-                                    "bib",
-
-                                    "shoulder_straps",
-
-                                    "cargo_pockets",
-
-                                    "denim",
-
-                                    "jogger_cuffs",
-
-                                    "hood",
-
-                                    "reason"
-
-                                ]
-
-                            },
-
-                            temperature=0.0
-
-                        )
-                    )
-
-                )
-            )
-
-            text = getattr(
-                response,
-                "text",
-                None
-            )
-
-            if not text:
-
-                raise Exception(
-                    "Gemini không trả về kết quả."
-                )
-
-            try:
-
-                result = json.loads(
-                    text
-                )
-
-            except Exception:
-
-                cleaned = re.sub(
-                    r"```json|```",
-                    "",
-                    text,
-                    flags=re.I
-                ).strip()
-
-                match = re.search(
-                    r"\{.*\}",
-                    cleaned,
-                    flags=re.S
-                )
-
-                if not match:
-
-                    raise Exception(
-                        "Gemini không trả JSON hợp lệ."
-                    )
-
-                result = json.loads(
-                    match.group(0)
-                )
-
-            return normalize_garment_result(
-                result
-            )
-
-        except Exception as e:
-
-            last_error = e
-
-            error_text = str(e).lower()
-
-            retryable = any(
-                keyword in error_text
-                for keyword in [
-                    "429",
-                    "503",
-                    "500",
-                    "overloaded",
-                    "resource exhausted",
-                    "unavailable",
-                    "timeout",
-                    "temporarily"
-                ]
-            )
-
-            if (
-                retryable
-                and attempt
-                < MAX_API_RETRIES - 1
-            ):
-
-                time.sleep(
-                    RETRY_DELAY_SECONDS
-                )
-
-                continue
-
-            break
-
-    raise Exception(
-        "Gemini Vision lỗi: "
-        + str(last_error)
-    )
+        return value
+
+    if isinstance(
+        value,
+        str
+    ):
+
+        return (
+            value
+            .lower()
+            .strip()
+            in [
+                "true",
+                "yes",
+                "1",
+                "y"
+            ]
+        )
+
+    if isinstance(
+        value,
+        (int, float)
+    ):
+
+        return bool(value)
+
+    return False
 
 
 # =====================================================================
-# 16. GARMENT RESULT NORMALIZER
+# 18. NORMALIZE GARMENT RESULT
 # =====================================================================
 
 def normalize_garment_result(
@@ -1075,49 +882,12 @@ def normalize_garment_result(
 
         result = {}
 
-
-    def bool_value(value):
-
-        if isinstance(
-            value,
-            bool
-        ):
-
-            return value
-
-        if isinstance(
-            value,
-            str
-        ):
-
-            return (
-                value
-                .lower()
-                .strip()
-                in [
-                    "true",
-                    "yes",
-                    "1"
-                ]
-            )
-
-        if isinstance(
-            value,
-            (int, float)
-        ):
-
-            return bool(value)
-
-        return False
-
-
     category = normalize_category(
         result.get(
             "category",
             "Quần dài"
         )
     )
-
 
     one_piece = bool_value(
         result.get(
@@ -1126,14 +896,12 @@ def normalize_garment_result(
         )
     )
 
-
     bib = bool_value(
         result.get(
             "bib",
             False
         )
     )
-
 
     shoulder_straps = bool_value(
         result.get(
@@ -1142,14 +910,12 @@ def normalize_garment_result(
         )
     )
 
-
     cargo_pockets = bool_value(
         result.get(
             "cargo_pockets",
             False
         )
     )
-
 
     denim = bool_value(
         result.get(
@@ -1158,14 +924,12 @@ def normalize_garment_result(
         )
     )
 
-
     jogger_cuffs = bool_value(
         result.get(
             "jogger_cuffs",
             False
         )
     )
-
 
     hood = bool_value(
         result.get(
@@ -1174,18 +938,13 @@ def normalize_garment_result(
         )
     )
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # HARD RULE 1
-    # ONE PIECE
-    # ---------------------------------------------------------
+    # =========================================================
 
     if one_piece:
 
-        if (
-            bib
-            and shoulder_straps
-        ):
+        if bib and shoulder_straps:
 
             category = "Quần yếm"
 
@@ -1193,24 +952,17 @@ def normalize_garment_result(
 
             category = "Áo liền quần"
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # HARD RULE 2
-    # BIB
-    # ---------------------------------------------------------
+    # =========================================================
 
-    elif (
-        bib
-        and shoulder_straps
-    ):
+    elif bib and shoulder_straps:
 
         category = "Quần yếm"
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # HARD RULE 3
-    # CARGO
-    # ---------------------------------------------------------
+    # =========================================================
 
     elif category == "Quần túi hộp":
 
@@ -1218,11 +970,9 @@ def normalize_garment_result(
 
             category = "Quần dài"
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # HARD RULE 4
-    # DENIM
-    # ---------------------------------------------------------
+    # =========================================================
 
     if (
 
@@ -1233,22 +983,17 @@ def normalize_garment_result(
         and denim
 
         and category in [
-
             "Quần dài",
-
             "Quần short"
-
         ]
 
     ):
 
         category = "Quần jean"
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # HARD RULE 5
-    # JOGGER
-    # ---------------------------------------------------------
+    # =========================================================
 
     if (
 
@@ -1264,10 +1009,9 @@ def normalize_garment_result(
 
         category = "Quần jogger"
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # CONFIDENCE
-    # ---------------------------------------------------------
+    # =========================================================
 
     try:
 
@@ -1282,7 +1026,6 @@ def normalize_garment_result(
 
         confidence = 0
 
-
     confidence = max(
         0,
         min(
@@ -1290,11 +1033,6 @@ def normalize_garment_result(
             confidence
         )
     )
-
-
-    # ---------------------------------------------------------
-    # FINAL
-    # ---------------------------------------------------------
 
     return {
 
@@ -1306,19 +1044,16 @@ def normalize_garment_result(
 
         "bib": bib,
 
-        "shoulder_straps": (
-            shoulder_straps
-        ),
+        "shoulder_straps":
+            shoulder_straps,
 
-        "cargo_pockets": (
-            cargo_pockets
-        ),
+        "cargo_pockets":
+            cargo_pockets,
 
         "denim": denim,
 
-        "jogger_cuffs": (
-            jogger_cuffs
-        ),
+        "jogger_cuffs":
+            jogger_cuffs,
 
         "hood": hood,
 
@@ -1361,23 +1096,207 @@ def normalize_garment_result(
 
 
 # =====================================================================
-# 17. IMAGE EMBEDDING 3072
+# 19. GEMINI VISION
 # =====================================================================
+
+def analyze_garment_with_gemini(
+    image_bytes
+):
+
+    image_bytes = normalize_image_bytes(
+        image_bytes
+    )
+
+    last_error = None
+
+    for attempt in range(
+        MAX_GEMINI_RETRIES
+    ):
+
+        try:
+
+            response = gemini_client.models.generate_content(
+
+                model=VISION_MODEL,
+
+                contents=[
+
+                    types.Part.from_bytes(
+
+                        data=image_bytes,
+
+                        mime_type="image/jpeg"
+
+                    ),
+
+                    GARMENT_PROMPT
+
+                ],
+
+                config=types.GenerateContentConfig(
+
+                    response_mime_type="application/json",
+
+                    response_schema={
+
+                        "type": "object",
+
+                        "properties": {
+
+                            "category": {
+                                "type": "string"
+                            },
+
+                            "confidence": {
+                                "type": "number"
+                            },
+
+                            "one_piece": {
+                                "type": "boolean"
+                            },
+
+                            "bib": {
+                                "type": "boolean"
+                            },
+
+                            "shoulder_straps": {
+                                "type": "boolean"
+                            },
+
+                            "cargo_pockets": {
+                                "type": "boolean"
+                            },
+
+                            "denim": {
+                                "type": "boolean"
+                            },
+
+                            "jogger_cuffs": {
+                                "type": "boolean"
+                            },
+
+                            "sleeve": {
+                                "type": "string"
+                            },
+
+                            "collar": {
+                                "type": "string"
+                            },
+
+                            "hood": {
+                                "type": "boolean"
+                            },
+
+                            "silhouette": {
+                                "type": "string"
+                            },
+
+                            "length": {
+                                "type": "string"
+                            },
+
+                            "reason": {
+                                "type": "string"
+                            }
+
+                        },
+
+                        "required": [
+
+                            "category",
+                            "confidence",
+                            "one_piece",
+                            "bib",
+                            "shoulder_straps",
+                            "cargo_pockets",
+                            "denim",
+                            "jogger_cuffs",
+                            "hood",
+                            "reason"
+
+                        ]
+
+                    },
+
+                    temperature=0.0
+
+                )
+
+            )
+
+            text = getattr(
+                response,
+                "text",
+                None
+            )
+
+            if not text:
+
+                raise Exception(
+                    "Gemini không trả về text."
+                )
+
+            try:
+
+                result = json.loads(
+                    text
+                )
+
+            except Exception:
+
+                cleaned = re.sub(
+                    r"```json|```",
+                    "",
+                    text,
+                    flags=re.I
+                ).strip()
+
+                match = re.search(
+                    r"\{.*\}",
+                    cleaned,
+                    flags=re.S
+                )
+
+                if not match:
+
+                    raise Exception(
+                        "Gemini không trả JSON hợp lệ."
+                    )
+
+                result = json.loads(
+                    match.group(0)
+                )
+
+            return normalize_garment_result(
+                result
+            )
+
+        except Exception as e:
+
+            last_error = e
+
+            if attempt < MAX_GEMINI_RETRIES - 1:
+
+                time.sleep(
+                    RETRY_DELAY_SECONDS
+                )
+
+    raise Exception(
+        "Gemini Vision lỗi sau "
+        f"{MAX_GEMINI_RETRIES} lần thử: "
+        f"{last_error}"
+    )
+
+
+# =====================================================================
+# 20. GEMINI IMAGE EMBEDDING
 #
-# QUAN TRỌNG:
+# CRITICAL:
+#   IMAGE -> GEMINI EMBEDDING 2 -> 768
 #
-# Hàm này CHỈ nhận image bytes.
-#
-# Không được truyền:
-#
-#     ai_result["reason"]
-#
-# Không được truyền:
-#
-#     ai_category
-#
-# Vì database đang lưu IMAGE embedding.
-#
+# KHÔNG TEXT FALLBACK
+# KHÔNG 3072 FALLBACK
+# KHÔNG ZERO VECTOR
 # =====================================================================
 
 def get_image_embedding(
@@ -1391,64 +1310,42 @@ def get_image_embedding(
     last_error = None
 
     for attempt in range(
-        MAX_API_RETRIES
+        MAX_GEMINI_RETRIES
     ):
 
         try:
 
-            response = (
-                gemini_client
-                .models
-                .embed_content(
+            response = gemini_client.models.embed_content(
 
-                    model=EMBEDDING_MODEL,
+                model=EMBEDDING_MODEL,
 
-                    contents=[
+                contents=[
 
-                        types.Part.from_bytes(
+                    types.Part.from_bytes(
 
-                            data=image_bytes,
+                        data=image_bytes,
 
-                            mime_type="image/jpeg"
+                        mime_type="image/jpeg"
 
-                        )
-
-                    ],
-
-                    config=(
-                        types.EmbedContentConfig(
-
-                            output_dimensionality=(
-                                EMBEDDING_DIMENSION
-                            )
-
-                        )
                     )
 
+                ],
+
+                config=types.EmbedContentConfig(
+
+                    output_dimensionality=768
+
                 )
+
             )
 
-
-            embeddings = getattr(
-                response,
-                "embeddings",
-                None
-            )
-
-
-            if not embeddings:
+            if not response.embeddings:
 
                 raise Exception(
-                    "Gemini không trả embedding."
+                    "Gemini không trả về embedding."
                 )
 
-
-            values = getattr(
-                embeddings[0],
-                "values",
-                None
-            )
-
+            values = response.embeddings[0].values
 
             if not values:
 
@@ -1456,99 +1353,85 @@ def get_image_embedding(
                     "Embedding rỗng."
                 )
 
-
             values = [
+
                 float(x)
+
                 for x in values
+
             ]
 
+            # =====================================================
+            # ABSOLUTE DIMENSION LOCK
+            # =====================================================
 
-            actual_dimension = len(
-                values
-            )
-
-
-            # -----------------------------------------------------
-            # HARD DIMENSION LOCK
-            # -----------------------------------------------------
-
-            if actual_dimension != EMBEDDING_DIMENSION:
+            if len(values) != EMBEDDING_DIMENSION:
 
                 raise Exception(
 
-                    "Embedding dimension không đúng. "
-                    f"Nhận được {actual_dimension}, "
-                    f"yêu cầu {EMBEDDING_DIMENSION}."
+                    "SAI DIMENSION: Gemini trả về "
+                    f"{len(values)} dimensions, "
+                    f"hệ thống yêu cầu "
+                    f"{EMBEDDING_DIMENSION}."
 
                 )
 
-
-            # -----------------------------------------------------
+            # =====================================================
             # NORMALIZE
-            # -----------------------------------------------------
+            # =====================================================
 
             norm = math.sqrt(
+
                 sum(
                     x * x
                     for x in values
                 )
-            )
 
+            )
 
             if norm > 0:
 
                 values = [
+
                     x / norm
+
                     for x in values
+
                 ]
 
+            # =====================================================
+            # FINAL CHECK
+            # =====================================================
+
+            if len(values) != 768:
+
+                raise Exception(
+                    "Vector cuối cùng không phải 768."
+                )
 
             return values
-
 
         except Exception as e:
 
             last_error = e
 
-            error_text = str(e).lower()
-
-            retryable = any(
-                keyword in error_text
-                for keyword in [
-                    "429",
-                    "503",
-                    "500",
-                    "overloaded",
-                    "resource exhausted",
-                    "unavailable",
-                    "timeout",
-                    "temporarily"
-                ]
-            )
-
-            if (
-                retryable
-                and attempt
-                < MAX_API_RETRIES - 1
-            ):
+            if attempt < MAX_GEMINI_RETRIES - 1:
 
                 time.sleep(
                     RETRY_DELAY_SECONDS
                 )
 
-                continue
-
-            break
-
-
     raise Exception(
-        "Gemini Image Embedding lỗi: "
-        + str(last_error)
+
+        "Gemini Image Embedding lỗi sau "
+        f"{MAX_GEMINI_RETRIES} lần thử: "
+        f"{last_error}"
+
     )
 
 
 # =====================================================================
-# 18. UPLOAD IMAGE TO SUPABASE STORAGE
+# 21. STORAGE UPLOAD
 # =====================================================================
 
 def upload_image_to_storage(
@@ -1557,74 +1440,129 @@ def upload_image_to_storage(
 ):
 
     safe_name = re.sub(
+
         r"[^A-Za-z0-9._-]",
+
         "_",
+
         filename
+
     )
 
-    path = safe_name
+    # ---------------------------------------------------------
+    # Không dùng trực tiếp filename để tránh duplicate
+    # ---------------------------------------------------------
+
+    file_hash = hashlib.sha256(
+        image_bytes
+    ).hexdigest()[:12]
+
+    base_name = safe_name.rsplit(
+        ".",
+        1
+    )[0]
+
+    ext = (
+        safe_name.rsplit(
+            ".",
+            1
+        )[-1]
+        if "." in safe_name
+        else "jpg"
+    )
+
+    path = (
+        f"{base_name}_{file_hash}.{ext}"
+    )
 
     mime_type = get_mime_type(
         filename
     )
 
-
-    file_options = {
-
-        "content-type": mime_type,
-
-        "upsert": "true",
-
-        "cache-control": "3600"
-
-    }
-
-
     try:
 
-        (
-            supabase
-            .storage
-            .from_(BUCKET_NAME)
+        supabase.storage \
+            .from_(BUCKET_NAME) \
             .upload(
 
                 path=path,
 
                 file=image_bytes,
 
-                file_options=file_options
+                file_options={
+
+                    "content-type":
+                        mime_type,
+
+                    "upsert":
+                        "true",
+
+                    "cache-control":
+                        "3600"
+
+                }
 
             )
-        )
 
+    except Exception as e:
 
-    except Exception as upload_error:
+        error_text = str(e)
 
-        error_text = str(
-            upload_error
-        )
+        # =====================================================
+        # RLS
+        # =====================================================
 
-        # -----------------------------------------------------
-        # Nếu file đã tồn tại:
-        # thử update.
-        # -----------------------------------------------------
+        if (
+
+            "row-level security"
+            in error_text.lower()
+
+            or "unauthorized"
+            in error_text.lower()
+
+            or "403"
+            in error_text
+
+        ):
+
+            raise Exception(
+
+                "Supabase Storage bị chặn bởi RLS Policy. "
+
+                f"Bucket: {BUCKET_NAME}. "
+
+                "API key hiện tại không có quyền INSERT/UPLOAD."
+
+            )
+
+        # =====================================================
+        # TRY UPDATE
+        # =====================================================
 
         try:
 
-            (
-                supabase
-                .storage
-                .from_(BUCKET_NAME)
+            supabase.storage \
+                .from_(BUCKET_NAME) \
                 .update(
 
                     path=path,
 
                     file=image_bytes,
 
-                    file_options=file_options
+                    file_options={
+
+                        "content-type":
+                            mime_type,
+
+                        "upsert":
+                            "true",
+
+                        "cache-control":
+                            "3600"
+
+                    }
 
                 )
-            )
 
         except Exception:
 
@@ -1633,22 +1571,19 @@ def upload_image_to_storage(
                 + error_text
             )
 
-
-    # ---------------------------------------------------------
+    # =========================================================
     # PUBLIC URL
-    # ---------------------------------------------------------
+    # =========================================================
 
     try:
 
         public_url = (
 
-            supabase
-            .storage
+            supabase.storage
             .from_(BUCKET_NAME)
             .get_public_url(path)
 
         )
-
 
         if isinstance(
             public_url,
@@ -1669,9 +1604,7 @@ def upload_image_to_storage(
 
             )
 
-
         return public_url
-
 
     except Exception as e:
 
@@ -1682,7 +1615,7 @@ def upload_image_to_storage(
 
 
 # =====================================================================
-# 19. SAVE PRODUCT
+# 22. SAVE PRODUCT
 # =====================================================================
 
 def save_product(
@@ -1695,9 +1628,9 @@ def save_product(
     filename
 ):
 
-    # ---------------------------------------------------------
-    # DIMENSION CHECK TRƯỚC DATABASE
-    # ---------------------------------------------------------
+    # =========================================================
+    # CRITICAL DATABASE DIMENSION CHECK
+    # =========================================================
 
     if not isinstance(
         embedding,
@@ -1708,36 +1641,52 @@ def save_product(
             "Embedding không phải list."
         )
 
+    embedding_dimension = len(
+        embedding
+    )
 
-    if len(embedding) != EMBEDDING_DIMENSION:
+    if embedding_dimension != 768:
 
         raise Exception(
 
-            "Không thể lưu database: "
-            f"embedding có {len(embedding)} dimensions, "
-            f"database yêu cầu {EMBEDDING_DIMENSION}."
+            "Database BLOCK: embedding phải "
+            f"768 dimensions nhưng code đang có "
+            f"{embedding_dimension}."
 
         )
 
+    # =========================================================
+    # ROW
+    # =========================================================
 
     row = {
 
-        "product_code": product_code,
+        "product_code":
+            product_code,
 
-        "image_url": image_url,
+        "image_url":
+            image_url,
 
-        "category": category,
+        "category":
+            category,
 
-        "ai_category": ai_category,
+        "ai_category":
+            ai_category,
 
-        "embedding": embedding,
+        "embedding":
+            embedding,
 
-        "ai_analysis": ai_result,
+        "ai_analysis":
+            ai_result,
 
-        "file_name": filename
+        "file_name":
+            filename
 
     }
 
+    # =========================================================
+    # UPSERT
+    # =========================================================
 
     try:
 
@@ -1758,7 +1707,6 @@ def save_product(
 
         return response
 
-
     except Exception as e:
 
         raise Exception(
@@ -1768,7 +1716,7 @@ def save_product(
 
 
 # =====================================================================
-# 20. SEARCH SIMILAR PRODUCTS
+# 23. SEARCH SIMILAR PRODUCTS
 # =====================================================================
 
 def search_similar_products(
@@ -1776,9 +1724,9 @@ def search_similar_products(
     match_count=SEARCH_COUNT
 ):
 
-    # ---------------------------------------------------------
-    # DIMENSION CHECK
-    # ---------------------------------------------------------
+    # =========================================================
+    # CRITICAL DIMENSION CHECK
+    # =========================================================
 
     if not isinstance(
         embedding,
@@ -1789,60 +1737,46 @@ def search_similar_products(
             "Query embedding không phải list."
         )
 
-
-    actual_dimension = len(
+    dimension = len(
         embedding
     )
 
-
-    if actual_dimension != EMBEDDING_DIMENSION:
+    if dimension != 768:
 
         raise Exception(
 
-            "Query embedding sai dimension: "
-            f"{actual_dimension}. "
-            f"Supabase yêu cầu {EMBEDDING_DIMENSION}."
+            "Vector search bị chặn: "
+            f"query có {dimension} dimensions, "
+            "database yêu cầu 768."
 
         )
-
 
     try:
 
-        response = (
+        response = supabase.rpc(
 
-            supabase
-            .rpc(
+            "match_products_v4",
 
-                "match_products_v4",
+            {
 
-                {
+                "query_embedding":
+                    embedding,
 
-                    "query_embedding": embedding,
+                "match_threshold":
+                    MIN_SIMILARITY,
 
-                    "match_threshold": (
-                        MIN_SIMILARITY
-                    ),
+                "match_count":
+                    match_count
 
-                    "match_count": match_count
+            }
 
-                }
-
-            )
-            .execute()
-
-        )
-
+        ).execute()
 
         return response.data or []
-
 
     except Exception as e:
 
         error_text = str(e)
-
-        # -----------------------------------------------------
-        # Hiển thị lỗi dimension rõ ràng.
-        # -----------------------------------------------------
 
         if (
             "different vector dimensions"
@@ -1851,15 +1785,12 @@ def search_similar_products(
 
             raise Exception(
 
-                "Supabase similarity search lỗi: "
-                "Database/RPC đang không đồng bộ dimension. "
-                f"Code hiện tại = {EMBEDDING_DIMENSION}D. "
-                "Hãy kiểm tra products.embedding và "
-                "match_products_v4 đều dùng vector(3072). "
+                "Supabase RPC đang dùng vector dimension "
+                "không đồng nhất. Database hiện tại yêu cầu "
+                "768 dimensions. "
                 f"Chi tiết: {error_text}"
 
             )
-
 
         raise Exception(
             "Supabase similarity search lỗi: "
@@ -1868,7 +1799,7 @@ def search_similar_products(
 
 
 # =====================================================================
-# 21. CATEGORY BOOST
+# 24. CATEGORY BOOST
 # =====================================================================
 
 def calculate_display_score(
@@ -1889,14 +1820,12 @@ def calculate_display_score(
 
         similarity = 0
 
-
     db_category = normalize_category(
         item.get(
             "category",
             ""
         )
     )
-
 
     ai_category = normalize_category(
         item.get(
@@ -1905,36 +1834,26 @@ def calculate_display_score(
         )
     )
 
-
     score = similarity
 
+    # =========================================================
+    # CATEGORY CHỈ BOOST
+    # KHÔNG LOẠI RECORD
+    # =========================================================
 
-    # ---------------------------------------------------------
-    # CATEGORY BOOST
-    #
-    # KHÔNG LOẠI BỎ RECORD.
-    # ---------------------------------------------------------
-
-    if (
-        query_category
-        == db_category
-    ):
+    if query_category == db_category:
 
         score += 0.08
 
-    elif (
-        query_category
-        == ai_category
-    ):
+    elif query_category == ai_category:
 
         score += 0.05
-
 
     return score
 
 
 # =====================================================================
-# 22. RANK RESULTS
+# 25. RANK RESULTS
 # =====================================================================
 
 def rank_results(
@@ -1944,49 +1863,44 @@ def rank_results(
 
     enriched = []
 
-
-    for raw_item in results:
+    for item in results:
 
         item = dict(
-            raw_item
+            item
         )
-
 
         score = calculate_display_score(
             item,
             query_category
         )
 
-
         item[
             "display_score"
         ] = score
-
 
         enriched.append(
             item
         )
 
-
     enriched.sort(
 
-        key=lambda x: float(
-            x.get(
-                "display_score",
-                0
-            )
-        ),
+        key=lambda x:
+            float(
+                x.get(
+                    "display_score",
+                    0
+                )
+            ),
 
         reverse=True
 
     )
 
-
     return enriched
 
 
 # =====================================================================
-# 23. PRODUCT CODE FROM FILE NAME
+# 26. PRODUCT CODE FROM FILE
 # =====================================================================
 
 def product_code_from_filename(
@@ -2000,7 +1914,6 @@ def product_code_from_filename(
         1
     )[0]
 
-
     return (
         name
         .strip()
@@ -2009,25 +1922,26 @@ def product_code_from_filename(
 
 
 # =====================================================================
-# 24. HEADER
+# 27. HEADER
 # =====================================================================
 
 st.title(
     "🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG"
 )
 
-
 st.caption(
 
     "AI Garment Recognition + "
-    "Gemini Embedding 2 Image 3072D + "
-    f"Supabase Vector Search — {APP_VERSION}"
+    "Gemini Embedding 2 + "
+    "Supabase pgvector — "
+    f"{APP_VERSION} — "
+    "Embedding LOCK: 768"
 
 )
 
 
 # =====================================================================
-# 25. TABS
+# 28. TABS
 # =====================================================================
 
 tab_search, tab_storage = st.tabs(
@@ -2056,18 +1970,15 @@ with tab_search:
         "🔍 Tìm mã hàng bằng ảnh"
     )
 
-
     st.info(
 
         "Không cần chọn dòng hàng. "
-        "AI tự nhận dạng garment và tìm "
-        "trên toàn bộ kho bằng image embedding 3072D."
+        "AI tự nhận dạng garment và tìm trên toàn bộ kho."
 
     )
 
-
     # ---------------------------------------------------------
-    # FILE UPLOADER
+    # UPLOAD SEARCH IMAGE
     # ---------------------------------------------------------
 
     search_file = st.file_uploader(
@@ -2081,19 +1992,17 @@ with tab_search:
             "webp"
         ],
 
-        key="search_uploader_v44"
+        key="search_uploader_v45"
 
     )
 
-
     # ---------------------------------------------------------
-    # CLEAR CURRENT SEARCH
+    # CLEAR SEARCH
     # ---------------------------------------------------------
 
     col_a, _ = st.columns(
         [1, 5]
     )
-
 
     with col_a:
 
@@ -2101,7 +2010,7 @@ with tab_search:
 
             "🗑️ Xóa ảnh hiện tại",
 
-            key="clear_search_file_v44"
+            key="clear_search_file_v45"
 
         ):
 
@@ -2113,31 +2022,25 @@ with tab_search:
 
             st.rerun()
 
-
     # ---------------------------------------------------------
-    # SEARCH FILE
+    # SEARCH PROCESS
     # ---------------------------------------------------------
 
     if search_file is not None:
 
-        image_bytes = (
-            search_file.getvalue()
-        )
-
+        image_bytes = search_file.getvalue()
 
         st.session_state.search_file = (
             image_bytes
         )
 
-
         col1, col2 = st.columns(
-            [1, 1]
+            [1, 2]
         )
 
-
-        # -----------------------------------------------------
+        # =====================================================
         # IMAGE
-        # -----------------------------------------------------
+        # =====================================================
 
         with col1:
 
@@ -2151,17 +2054,15 @@ with tab_search:
 
             )
 
-
-        # -----------------------------------------------------
-        # AI SEARCH
-        # -----------------------------------------------------
+        # =====================================================
+        # ACTION
+        # =====================================================
 
         with col2:
 
             st.markdown(
-                "### 🤖 AI nhận dạng & tìm kiếm"
+                "### 🤖 AI nhận dạng"
             )
-
 
             if st.button(
 
@@ -2171,21 +2072,19 @@ with tab_search:
 
                 use_container_width=True,
 
-                key="run_search_v44"
+                key="run_search_v45"
 
             ):
 
                 try:
 
-                    # =================================================
+                    # =========================================
                     # STEP 1
-                    # GEMINI VISION
-                    # =================================================
+                    # VISION
+                    # =========================================
 
                     with st.spinner(
-
                         "🤖 AI đang nhận dạng garment..."
-
                     ):
 
                         ai_result = (
@@ -2194,25 +2093,17 @@ with tab_search:
                             )
                         )
 
-
                     st.session_state.search_ai_result = (
                         ai_result
                     )
 
-
-                    # =================================================
+                    # =========================================
                     # STEP 2
-                    # IMAGE EMBEDDING 3072
-                    #
-                    # QUAN TRỌNG:
-                    # truyền IMAGE BYTES
-                    # không truyền reason.
-                    # =================================================
+                    # IMAGE EMBEDDING 768
+                    # =========================================
 
                     with st.spinner(
-
-                        "🧠 Gemini đang tạo image embedding 3072D..."
-
+                        "🧠 Gemini Embedding 2 — vector 768..."
                     ):
 
                         query_embedding = (
@@ -2221,16 +2112,28 @@ with tab_search:
                             )
                         )
 
+                    # =========================================
+                    # ABSOLUTE CHECK
+                    # =========================================
 
-                    # =================================================
+                    if len(
+                        query_embedding
+                    ) != 768:
+
+                        raise Exception(
+
+                            "Query embedding không đúng 768 "
+                            f"(đang là {len(query_embedding)})."
+
+                        )
+
+                    # =========================================
                     # STEP 3
                     # VECTOR SEARCH
-                    # =================================================
+                    # =========================================
 
                     with st.spinner(
-
                         "🔎 Đang đối chiếu toàn bộ kho..."
-
                     ):
 
                         results = (
@@ -2239,11 +2142,10 @@ with tab_search:
                             )
                         )
 
-
-                    # =================================================
+                    # =========================================
                     # STEP 4
                     # RANK
-                    # =================================================
+                    # =========================================
 
                     results = rank_results(
 
@@ -2255,31 +2157,25 @@ with tab_search:
 
                     )
 
-
                     st.session_state.search_result = (
                         results
                     )
 
-
                 except Exception as e:
 
-                    st.session_state.search_result = (
-                        None
-                    )
+                    st.session_state.search_result = None
 
                     st.error(
                         f"❌ Lỗi tìm kiếm: {str(e)}"
                     )
 
-
-    # ---------------------------------------------------------
-    # DISPLAY AI RESULT
-    # ---------------------------------------------------------
+    # =========================================================
+    # DISPLAY AI
+    # =========================================================
 
     ai_result = (
         st.session_state.search_ai_result
     )
-
 
     if ai_result:
 
@@ -2289,11 +2185,9 @@ with tab_search:
             "### 🤖 Kết quả AI"
         )
 
-
         c1, c2, c3, c4 = st.columns(
             4
         )
-
 
         with c1:
 
@@ -2308,31 +2202,15 @@ with tab_search:
 
             )
 
-
         with c2:
-
-            try:
-
-                confidence = float(
-                    ai_result.get(
-                        "confidence",
-                        0
-                    )
-                )
-
-            except Exception:
-
-                confidence = 0
-
 
             st.metric(
 
                 "Confidence",
 
-                f"{confidence:.0f}%"
+                f"{float(ai_result.get('confidence', 0)):.0f}%"
 
             )
-
 
         with c3:
 
@@ -2351,7 +2229,6 @@ with tab_search:
 
             )
 
-
         with c4:
 
             st.metric(
@@ -2369,7 +2246,6 @@ with tab_search:
 
             )
 
-
         if ai_result.get(
             "reason"
         ):
@@ -2385,15 +2261,13 @@ with tab_search:
 
             )
 
-
-    # ---------------------------------------------------------
-    # DISPLAY SEARCH RESULTS
-    # ---------------------------------------------------------
+    # =========================================================
+    # DISPLAY RESULTS
+    # =========================================================
 
     results = (
         st.session_state.search_result
     )
-
 
     if results is not None:
 
@@ -2403,155 +2277,144 @@ with tab_search:
             "### 🎯 Mã hàng tương đồng"
         )
 
-
         if not results:
 
             st.warning(
-
-                "Không tìm thấy mã hàng tương đồng "
-                "trong kho."
-
+                "Không tìm thấy mã hàng tương đồng trong kho."
             )
-
 
         else:
 
-            display_results = results[
-                :DISPLAY_COUNT
-            ]
-
-
-            column_count = min(
-                4,
-                len(display_results)
+            display_results = (
+                results[:8]
             )
 
-
-            if column_count > 0:
-
-                columns = st.columns(
-                    column_count
+            columns = st.columns(
+                min(
+                    4,
+                    len(display_results)
                 )
+            )
 
+            for index, item in enumerate(
+                display_results
+            ):
 
-                for index, item in enumerate(
-                    display_results
-                ):
+                with columns[
+                    index % len(columns)
+                ]:
 
-                    with columns[
-                        index % column_count
-                    ]:
+                    st.markdown(
+                        "---"
+                    )
 
-                        st.markdown(
-                            "---"
-                        )
+                    # -----------------------------------------
+                    # IMAGE
+                    # -----------------------------------------
 
+                    image_url = item.get(
+                        "image_url"
+                    )
 
-                        # IMAGE
-
-                        image_url = item.get(
-                            "image_url"
-                        )
-
-
-                        if image_url:
-
-                            try:
-
-                                st.image(
-
-                                    image_url,
-
-                                    use_container_width=True
-
-                                )
-
-                            except Exception:
-
-                                pass
-
-
-                        # PRODUCT CODE
-
-                        st.markdown(
-
-                            f"### 🏷️ "
-                            f"{item.get('product_code', 'N/A')}"
-
-                        )
-
-
-                        # SIMILARITY
+                    if image_url:
 
                         try:
 
-                            similarity = float(
-                                item.get(
-                                    "similarity",
-                                    0
-                                )
+                            st.image(
+
+                                image_url,
+
+                                use_container_width=True
+
                             )
 
                         except Exception:
 
-                            similarity = 0
-
-
-                        try:
-
-                            display_score = float(
-                                item.get(
-                                    "display_score",
-                                    similarity
-                                )
+                            st.caption(
+                                "Không hiển thị được ảnh."
                             )
 
-                        except Exception:
+                    # -----------------------------------------
+                    # CODE
+                    # -----------------------------------------
 
-                            display_score = similarity
+                    st.markdown(
 
+                        f"### 🏷️ "
+                        f"{item.get('product_code', 'N/A')}"
 
-                        st.metric(
+                    )
 
-                            "Độ tương đồng",
+                    # -----------------------------------------
+                    # SIMILARITY
+                    # -----------------------------------------
 
-                            f"{similarity * 100:.2f}%"
+                    try:
 
-                        )
-
-
-                        st.caption(
-
-                            f"Điểm ranking: "
-                            f"{display_score * 100:.2f}%"
-
-                        )
-
-
-                        # CATEGORY
-
-                        st.write(
-
-                            "📦 Kho:",
-
+                        similarity = float(
                             item.get(
-                                "category",
-                                "N/A"
+                                "similarity",
+                                0
                             )
-
                         )
 
+                    except Exception:
 
-                        st.write(
+                        similarity = 0
 
-                            "🤖 AI:",
+                    try:
 
+                        display_score = float(
                             item.get(
-                                "ai_category",
-                                "N/A"
+                                "display_score",
+                                similarity
                             )
-
                         )
+
+                    except Exception:
+
+                        display_score = similarity
+
+                    st.metric(
+
+                        "Độ tương đồng",
+
+                        f"{similarity * 100:.2f}%"
+
+                    )
+
+                    st.caption(
+
+                        "Điểm xếp hạng: "
+                        f"{display_score * 100:.2f}%"
+
+                    )
+
+                    # -----------------------------------------
+                    # CATEGORY
+                    # -----------------------------------------
+
+                    st.write(
+
+                        "📦 Kho:",
+
+                        item.get(
+                            "category",
+                            "N/A"
+                        )
+
+                    )
+
+                    st.write(
+
+                        "🤖 AI:",
+
+                        item.get(
+                            "ai_category",
+                            "N/A"
+                        )
+
+                    )
 
 
 # =====================================================================
@@ -2567,18 +2430,15 @@ with tab_storage:
         "📦 Nạp mã hàng vào kho"
     )
 
-
     st.info(
 
-        "Không cần chọn dòng hàng. "
-        "AI sẽ tự nhận diện category và lưu "
-        "category AI vào database."
+        "AI sẽ tự nhận diện dòng hàng. "
+        "Không cần chọn Category thủ công."
 
     )
 
-
     # ---------------------------------------------------------
-    # UPLOAD FILE
+    # UPLOAD FILES
     # ---------------------------------------------------------
 
     uploaded_files = st.file_uploader(
@@ -2586,23 +2446,17 @@ with tab_storage:
         "📷 Chọn ảnh mã hàng",
 
         type=[
-
             "jpg",
-
             "jpeg",
-
             "png",
-
             "webp"
-
         ],
 
         accept_multiple_files=True,
 
-        key="storage_uploader_v44"
+        key="storage_uploader_v45"
 
     )
-
 
     # ---------------------------------------------------------
     # ADD NEW FILES TO QUEUE
@@ -2610,37 +2464,48 @@ with tab_storage:
 
     if uploaded_files:
 
-        current_names = [
+        current_keys = [
 
-            f.name
+            (
+                f.name,
+                len(
+                    f.getvalue()
+                )
+
+            )
 
             for f in
             st.session_state.pending_upload_files
 
         ]
 
-
         for file in uploaded_files:
 
-            if file.name not in current_names:
+            file_key = (
 
-                st.session_state.pending_upload_files.append(
-                    file
+                file.name,
+
+                len(
+                    file.getvalue()
                 )
 
-                current_names.append(
-                    file.name
-                )
+            )
 
+            if file_key not in current_keys:
+
+                st.session_state \
+                    .pending_upload_files \
+                    .append(
+                        file
+                    )
 
     # ---------------------------------------------------------
-    # CLEAR PENDING
+    # CLEAR QUEUE
     # ---------------------------------------------------------
 
     c1, _ = st.columns(
         [1, 5]
     )
-
 
     with c1:
 
@@ -2648,14 +2513,13 @@ with tab_storage:
 
             "🗑️ Xóa danh sách chờ",
 
-            key="clear_pending_files_v44"
+            key="clear_pending_files_v45"
 
         ):
 
             st.session_state.pending_upload_files = []
 
             st.rerun()
-
 
     # ---------------------------------------------------------
     # PENDING FILES
@@ -2664,7 +2528,6 @@ with tab_storage:
     pending_files = (
         st.session_state.pending_upload_files
     )
-
 
     if pending_files:
 
@@ -2676,28 +2539,25 @@ with tab_storage:
 
         )
 
-
-        # -----------------------------------------------------
+        # =====================================================
         # PREVIEW
-        # -----------------------------------------------------
-
-        preview_count = min(
-            5,
-            len(pending_files)
-        )
-
+        # =====================================================
 
         preview_cols = st.columns(
-            preview_count
-        )
 
+            min(
+                5,
+                len(pending_files)
+            )
+
+        )
 
         for i, file in enumerate(
             pending_files
         ):
 
             with preview_cols[
-                i % preview_count
+                i % len(preview_cols)
             ]:
 
                 st.image(
@@ -2710,13 +2570,11 @@ with tab_storage:
 
                 )
 
-
         st.divider()
 
-
-        # -----------------------------------------------------
+        # =====================================================
         # START BULK UPLOAD
-        # -----------------------------------------------------
+        # =====================================================
 
         if st.button(
 
@@ -2726,7 +2584,7 @@ with tab_storage:
 
             use_container_width=True,
 
-            key="start_storage_upload_v44"
+            key="start_storage_upload_v45"
 
         ):
 
@@ -2734,25 +2592,20 @@ with tab_storage:
                 pending_files
             )
 
-
             success_count = 0
 
             failed_count = 0
-
 
             progress = st.progress(
                 0
             )
 
-
             status = st.empty()
-
 
             upload_results = []
 
-
             # =================================================
-            # BULK LOOP
+            # PROCESS EACH FILE
             # =================================================
 
             for index, file in enumerate(
@@ -2765,27 +2618,34 @@ with tab_storage:
                     )
                 )
 
-
                 status.write(
 
                     f"⏳ "
                     f"{index + 1}/{total} "
-                    f"— Mã: `{product_code}`"
+                    f"— `{product_code}`"
 
                 )
 
-
                 try:
+
+                    # =========================================
+                    # GET BYTES
+                    # =========================================
 
                     image_bytes = (
                         file.getvalue()
                     )
 
+                    if not image_bytes:
 
-                    # =============================================
+                        raise Exception(
+                            "File ảnh rỗng."
+                        )
+
+                    # =========================================
                     # STEP 1
                     # AI VISION
-                    # =============================================
+                    # =========================================
 
                     status.write(
 
@@ -2794,36 +2654,36 @@ with tab_storage:
 
                     )
 
-
                     ai_result = (
                         analyze_garment_with_gemini(
                             image_bytes
                         )
                     )
 
+                    # =========================================
+                    # AI CATEGORY
+                    # =========================================
 
-                    ai_category = (
-                        ai_result[
-                            "category"
-                        ]
+                    ai_category = normalize_category(
+
+                        ai_result.get(
+                            "category",
+                            "Quần dài"
+                        )
+
                     )
 
-
-                    # =============================================
+                    # =========================================
                     # STEP 2
-                    # IMAGE EMBEDDING 3072
-                    #
-                    # QUAN TRỌNG:
-                    # truyền IMAGE BYTES.
-                    # =============================================
+                    # IMAGE EMBEDDING
+                    # =========================================
 
                     status.write(
 
-                        f"🧠 Tạo image embedding 3072D "
+                        f"🧠 Tạo image embedding 768 "
                         f"`{product_code}`..."
 
                     )
-
 
                     embedding = (
                         get_image_embedding(
@@ -2831,30 +2691,25 @@ with tab_storage:
                         )
                     )
 
+                    # =========================================
+                    # ABSOLUTE DIMENSION CHECK
+                    # =========================================
 
-                    # =============================================
-                    # STEP 2.5
-                    # DIMENSION AUDIT
-                    # =============================================
-
-                    if len(embedding) != (
-                        EMBEDDING_DIMENSION
-                    ):
+                    if len(
+                        embedding
+                    ) != 768:
 
                         raise Exception(
 
-                            f"Embedding sai dimension: "
-                            f"{len(embedding)}. "
-                            f"Yêu cầu: "
-                            f"{EMBEDDING_DIMENSION}."
+                            f"Embedding của {product_code} "
+                            f"không đúng 768 dimensions."
 
                         )
 
-
-                    # =============================================
+                    # =========================================
                     # STEP 3
                     # STORAGE
-                    # =============================================
+                    # =========================================
 
                     status.write(
 
@@ -2862,7 +2717,6 @@ with tab_storage:
                         f"`{product_code}`..."
 
                     )
-
 
                     image_url = (
                         upload_image_to_storage(
@@ -2874,11 +2728,10 @@ with tab_storage:
                         )
                     )
 
-
-                    # =============================================
+                    # =========================================
                     # STEP 4
                     # DATABASE
-                    # =============================================
+                    # =========================================
 
                     status.write(
 
@@ -2887,48 +2740,40 @@ with tab_storage:
 
                     )
 
-
                     save_product(
 
-                        product_code=(
-                            product_code
-                        ),
+                        product_code=
+                            product_code,
 
-                        image_url=(
-                            image_url
-                        ),
+                        image_url=
+                            image_url,
 
-                        # ------------------------------------------------
-                        # category kho:
-                        # KHÔNG nhập thủ công nữa.
-                        # AI tự nhận diện.
-                        # ------------------------------------------------
+                        # -------------------------------------
+                        # CATEGORY = AI AUTO DETECT
+                        # -------------------------------------
 
-                        category=(
-                            ai_category
-                        ),
+                        category=
+                            ai_category,
 
-                        ai_category=(
-                            ai_category
-                        ),
+                        ai_category=
+                            ai_category,
 
-                        ai_result=(
-                            ai_result
-                        ),
+                        ai_result=
+                            ai_result,
 
-                        embedding=(
-                            embedding
-                        ),
+                        embedding=
+                            embedding,
 
-                        filename=(
+                        filename=
                             file.name
-                        )
 
                     )
 
+                    # =========================================
+                    # SUCCESS
+                    # =========================================
 
                     success_count += 1
-
 
                     upload_results.append({
 
@@ -2942,9 +2787,11 @@ with tab_storage:
                             ai_category,
 
                         "confidence":
-                            ai_result.get(
-                                "confidence",
-                                0
+                            float(
+                                ai_result.get(
+                                    "confidence",
+                                    0
+                                )
                             ),
 
                         "status":
@@ -2952,11 +2799,11 @@ with tab_storage:
 
                     })
 
-
                 except Exception as e:
 
                     failed_count += 1
 
+                    error_text = str(e)
 
                     upload_results.append({
 
@@ -2973,22 +2820,20 @@ with tab_storage:
                             0,
 
                         "status":
-                            str(e)
+                            error_text
 
                     })
 
-
                     st.error(
 
-                        f"❌ `{file.name}` — "
-                        f"{str(e)}"
+                        f"❌ `{product_code}` — "
+                        f"{error_text}"
 
                     )
 
-
-                # =============================================
+                # =================================================
                 # PROGRESS
-                # =============================================
+                # =================================================
 
                 progress.progress(
 
@@ -3004,39 +2849,31 @@ with tab_storage:
 
                 )
 
-
-                # =============================================
+                # =================================================
                 # DELAY
-                # =============================================
+                # =================================================
 
-                if (
-                    index
-                    < total - 1
-                ):
+                if index < total - 1:
 
                     time.sleep(
                         BULK_DELAY_SECONDS
                     )
 
-
-            # =================================================
-            # COMPLETE
-            # =================================================
+            # =====================================================
+            # FINISH
+            # =====================================================
 
             status.empty()
-
 
             st.session_state.last_upload_result = (
                 upload_results
             )
 
-
-            # -------------------------------------------------
-            # CLEAR QUEUE
-            # -------------------------------------------------
+            # -----------------------------------------------------
+            # Chỉ xóa queue sau khi xử lý
+            # -----------------------------------------------------
 
             st.session_state.pending_upload_files = []
-
 
             if success_count:
 
@@ -3048,7 +2885,6 @@ with tab_storage:
 
                 )
 
-
             if failed_count:
 
                 st.warning(
@@ -3059,39 +2895,35 @@ with tab_storage:
 
                 )
 
-
             st.rerun()
 
-
     # ---------------------------------------------------------
-    # UPLOAD RESULT
+    # UPLOAD REPORT
     # ---------------------------------------------------------
 
     if st.session_state.last_upload_result:
 
         st.divider()
 
-
         st.markdown(
             "### 📋 Kết quả nạp kho"
         )
-
 
         for item in (
             st.session_state.last_upload_result
         ):
 
-            if item[
+            if item.get(
                 "status"
-            ] == "OK":
+            ) == "OK":
 
                 st.success(
 
                     f"✅ "
-                    f"{item['product_code']} — "
-                    f"AI: {item['ai_category']} — "
-                    f"Confidence: "
-                    f"{item['confidence']:.0f}%"
+                    f"{item.get('product_code', 'N/A')} — "
+                    f"AI: {item.get('ai_category', 'N/A')} — "
+                    f"Độ tự tin: "
+                    f"{float(item.get('confidence', 0)):.0f}%"
 
                 )
 
@@ -3100,22 +2932,17 @@ with tab_storage:
                 st.error(
 
                     f"❌ "
-                    f"{item['product_code']} — "
+                    f"{item.get('product_code', 'N/A')} — "
                     f"Lỗi: "
-                    f"{item['status']}"
+                    f"{item.get('status', 'Unknown')}"
 
                 )
-
-
-        # -----------------------------------------------------
-        # CLEAR REPORT
-        # -----------------------------------------------------
 
         if st.button(
 
             "🗑️ Xóa thông báo kết quả",
 
-            key="clear_upload_result_report_v44"
+            key="clear_upload_result_report_v45"
 
         ):
 
@@ -3125,16 +2952,16 @@ with tab_storage:
 
 
 # =====================================================================
-# 26. FOOTER
+# 29. FOOTER
 # =====================================================================
 
 st.divider()
 
-
 st.caption(
 
     "AI Garment Similarity Search — "
-    "Gemini Vision + Gemini Embedding 2 Image 3072D + "
-    "Supabase pgvector — V4.4"
+    "Gemini Vision + Gemini Embedding 2 + "
+    "Supabase pgvector — "
+    "VECTOR DIMENSION: 768"
 
 )
