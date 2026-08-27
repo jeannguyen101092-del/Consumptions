@@ -278,71 +278,41 @@ def normalize_garment_result(result):
         "length": str(result.get("length", "")), "reason": str(result.get("reason", ""))
     }
 # =====================================================================
-# 17. GEMINI MULTIMODAL SEMANTIC EMBEDDING (ĐÃ SỬA LỖI 404)
+# 17. GEMINI SEMANTIC TEXT EMBEDDING (TỐI ƯU GIẢM REQUEST)
 # =====================================================================
 
-def get_image_embedding(image_bytes):
+def get_image_embedding(semantic_text: str):
     """
-    Sử dụng giải pháp trích xuất thuộc tính kỹ thuật trang phục (Vision)
-    sau đó chuyển đổi sang không gian vector bằng text-embedding-004.
-    Giải pháp này giúp kết quả đối chứng chính xác 100% theo rập may mặc.
+    Tạo vector nhúng đặc trưng từ chuỗi mô tả cấu trúc rập kỹ thuật.
+    Không truyền ảnh vào đây để tránh bị trùng lặp request gây lỗi 429.
     """
     try:
-        # Bước 1: Tận dụng kết quả phân tích cấu trúc vật lý từ hàm Vision có sẵn
-        # (Để tiết kiệm token và thời gian request, ta gọi Vision phân tích nhanh)
-        response_vision = gemini_client.models.generate_content(
-            model=VISION_MODEL,
-            contents=[
-                types.Part.from_bytes(
-                    data=normalize_image_bytes(image_bytes),
-                    mime_type="image/jpeg"
-                ),
-                "Describe the detailed garment construction, boundaries, pockets, waist, cuffs, and silhouette for technical matching."
-            ]
-        )
-        semantic_text = response_vision.text if response_vision.text else "garment"
-        
-        # Bước 2: Tạo vector nhúng chuẩn từ dữ liệu cấu trúc kỹ thuật vừa bóc tách bằng text-embedding-004
         response = gemini_client.models.embed_content(
             model=EMBEDDING_MODEL,
-            contents=semantic_text,
+            contents=semantic_text if semantic_text else "garment",
             config=types.EmbedContentConfig(
                 output_dimensionality=EMBEDDING_DIMENSION
             )
         )
     except Exception as e:
-        raise Exception("Gemini Embedding Engine lỗi: " + str(e))
+        raise Exception("Gemini Image Embedding lỗi: " + str(e))
 
     try:
-        # Trích xuất mảng dữ liệu vector float từ kết quả trả về của SDK mới
         if hasattr(response, "embeddings") and response.embeddings:
-            values = response.embeddings[0].values
+            values = response.embeddings.values
         elif hasattr(response, "embedding") and response.embedding:
             values = response.embedding.values
         else:
             values = response.embeddings.values
     except Exception as e:
-        raise Exception("Không lấy được mảng giá trị vector: " + str(e))
+        raise Exception("Không lấy được vector embedding: " + str(e))
 
     if not values:
-        raise Exception("Mảng đặc trưng vector rỗng.")
+        raise Exception("Embedding rỗng.")
 
-    # ---------------------------------------------------------
     # NORMALIZE VECTOR
-    # ---------------------------------------------------------
-    norm = math.sqrt(
-        sum(
-            float(x) * float(x)
-            for x in values
-        )
-    )
-
-    if norm > 0:
-        values = [float(x) / norm for x in values]
-    else:
-        values = [float(x) for x in values]
-
-    return values
+    norm = math.sqrt(sum(float(x) * float(x) for x in values))
+    return [float(x) / norm for x in values] if norm > 0 else [float(x) for x in values]
 
 # --- 18. UPLOAD IMAGE TO SUPABASE STORAGE ---
 def upload_image_to_storage(image_bytes, filename):
