@@ -34,7 +34,7 @@ except Exception as e:
     st.stop()
 
 # =====================================================================
-# 3. CONSTANTS (CẬP NHẬT CHUẨN ĐỊNH DẠNG)
+# 3. CONSTANTS (THAY ĐỔI MÔ HÌNH NHÚNG ĐỂ TRÁNH LỖI ENDPOINT 404)
 # =====================================================================
 
 APP_VERSION = "V4.0"
@@ -46,10 +46,10 @@ PRODUCT_TABLE = "products"
 # Gemini Vision
 VISION_MODEL = "gemini-2.5-flash"
 
-# Gemini Multimodal Embedding ID chính xác cho SDK mới
-EMBEDDING_MODEL = "text-embedding-004"
+# CHỈNH SỬA: Thay thế sang mô hình thế hệ 2 tương thích endpoint v1beta mới của Google
+EMBEDDING_MODEL = "gemini-embedding-2"
 
-# Embedding dimension
+# Giữ nguyên độ rộng vector đặc trưng
 EMBEDDING_DIMENSION = 768
 
 SEARCH_COUNT = 12
