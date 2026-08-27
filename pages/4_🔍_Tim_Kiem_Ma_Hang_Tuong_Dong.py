@@ -198,18 +198,90 @@ AVAILABLE CATEGORIES
 Return ONLY JSON. Do NOT guess cargo just because the pants have pockets.
 """
 
-# --- 14. GEMINI CATEGORY NORMALIZER ---
+# =====================================================================
+# 14. GEMINI CATEGORY NORMALIZER
+# =====================================================================
+
 def normalize_category(category):
-    if category is None: return "Quần dài"
+    if category is None: 
+        return "Quần dài"
     value = str(category).strip()
     upper = value.upper()
-    if upper in CATEGORY_ALIAS: return CATEGORY_ALIAS[upper]
+    if upper in CATEGORY_ALIAS: 
+        return CATEGORY_ALIAS[upper]
     for valid in CATEGORY_OPTIONS:
-        if value.lower() == valid.lower(): return valid
+        if value.lower() == valid.lower(): 
+            return valid
     return "Quần dài"
 
+
 # =====================================================================
-# 15. GEMINI VISION ANALYSIS (NÂNG CẤP RETRY CHỐNG 429/503 TỪ LÕI)
+# 15. GARMENT RULE ENGINE (ĐÃ DI CHUYỂN LÊN TRÊN ĐỂ TRÁNH LỖI NOT DEFINED)
+# =====================================================================
+
+def normalize_garment_result(result):
+    if not isinstance(result, dict): 
+        result = {}
+        
+    category = normalize_category(
+        result.get("category", "Quần dài")
+    )
+
+    def bool_value(value):
+        if isinstance(value, bool): 
+            return value
+        if isinstance(value, str): 
+            return value.lower().strip() in ["true", "yes", "1"]
+        if isinstance(value, (int, float)): 
+            return bool(value)
+        return False
+
+    one_piece = bool_value(result.get("one_piece", False))
+    bib = bool_value(result.get("bib", False))
+    shoulder_straps = bool_value(result.get("shoulder_straps", False))
+    cargo_pockets = bool_value(result.get("cargo_pockets", False))
+    denim = bool_value(result.get("denim", False))
+    jogger_cuffs = bool_value(result.get("jogger_cuffs", False))
+    hood = bool_value(result.get("hood", False))
+
+    if one_piece: 
+        category = "Quần yếm" if (bib and shoulder_straps) else "Áo liền quần"
+    elif bib and shoulder_straps: 
+        category = "Quần yếm"
+    elif category == "Quần túi hộp" and not cargo_pockets: 
+        category = "Quần dài"
+        
+    if not one_piece and not bib and denim and category in ["Quần dài", "Quần short"]: 
+        category = "Quần jean"
+    if not one_piece and not bib and jogger_cuffs and category == "Quần dài": 
+        category = "Quần jogger"
+        
+    try: 
+        confidence = float(result.get("confidence", 0))
+    except Exception: 
+        confidence = 0
+    confidence = max(0, min(100, confidence))
+
+    return {
+        "category": category, 
+        "confidence": confidence, 
+        "one_piece": one_piece, 
+        "bib": bib,
+        "shoulder_straps": shoulder_straps, 
+        "cargo_pockets": cargo_pockets, 
+        "denim": denim,
+        "jogger_cuffs": jogger_cuffs, 
+        "hood": hood, 
+        "sleeve": str(result.get("sleeve", "")),
+        "collar": str(result.get("collar", "")), 
+        "silhouette": str(result.get("silhouette", "")),
+        "length": str(result.get("length", "")), 
+        "reason": str(result.get("reason", ""))
+    }
+
+
+# =====================================================================
+# 16. GEMINI VISION ANALYSIS
 # =====================================================================
 
 def analyze_garment_with_gemini(image_bytes):
@@ -259,15 +331,12 @@ def analyze_garment_with_gemini(image_bytes):
                     temperature=0.0
                 )
             )
-            # Nếu chạy thành công, thoát khỏi vòng lặp thử lại
             break
             
         except Exception as e:
             err_msg = str(e)
-            # Nếu dính lỗi giới hạn lượt gọi (429) hoặc máy chủ bận (503)
             if "429" in err_msg or "503" in err_msg:
                 if attempt < max_retries - 1:
-                    # Chờ lũy tiến tăng dần thời gian để Google giải phóng hàng đợi
                     time.sleep(retry_delay * (attempt + 1))
                     continue
             raise Exception("Gemini Vision lỗi: " + err_msg)
@@ -292,8 +361,10 @@ def analyze_garment_with_gemini(image_bytes):
         except Exception as e:
             raise Exception("Không parse được JSON Gemini: " + str(e))
 
+    # Gọi hàm đã được khai báo ở phía trên hoàn toàn an toàn
     result = normalize_garment_result(result)
     return result
+
 
 # =====================================================================
 # 17. GEMINI SEMANTIC TEXT EMBEDDING (TỐI ƯU GIẢM REQUEST)
