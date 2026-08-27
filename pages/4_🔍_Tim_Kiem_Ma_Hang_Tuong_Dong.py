@@ -373,62 +373,163 @@ st.caption(f"AI Garment Recognition + Gemini Embedding 2 + Supabase Vector Searc
 tab_search, tab_storage = st.tabs(["🔍 TÌM KIẾM TƯƠNG ĐỒNG", "📦 NẠP KHO HÀNG LOẠT"])
 
 # =====================================================================
-# TAB 1: TÌM KIẾM MÃ TƯƠNG ĐỒNG
+# TAB 1: TÌM KIẾM MÃ TƯƠNG ĐỒNG (ĐÃ SỬA LỖI TRÙNG LOGIC & CHỐNG 503/429)
 # =====================================================================
 with tab_search:
     st.subheader("🔍 Tìm mã hàng bằng ảnh")
     st.info("Không cần chọn dòng hàng. AI sẽ tự nhận dạng garment và tìm trên toàn bộ kho.")
-    search_file = st.file_uploader("📷 Tải ảnh Sketch / ảnh mẫu cần tìm", type=["jpg", "jpeg", "png", "webp"], key="search_uploader")
+    
+    # ---------------------------------------------------------
+    # FILE UPLOADER
+    # ---------------------------------------------------------
+    search_file = st.file_uploader(
+        "📷 Tải ảnh Sketch / ảnh mẫu cần tìm", 
+        type=["jpg", "jpeg", "png", "webp"], 
+        key="search_uploader"
+    )
 
+    # ---------------------------------------------------------
+    # CLEAR CURRENT SEARCH FILE
+    # ---------------------------------------------------------
     col_a, _ = st.columns([1, 5])
     with col_a:
         if st.button("🗑️ Xóa ảnh hiện tại", key="clear_search_file"):
-            st.session_state.search_file = None; st.session_state.search_result = None; st.session_state.search_ai_result = None; st.rerun()
+            st.session_state.search_file = None
+            st.session_state.search_result = None
+            st.session_state.search_ai_result = None
+            st.rerun()
 
+    # ---------------------------------------------------------
+    # SEARCH FILE PROCESS
+    # ---------------------------------------------------------
     if search_file is not None:
         image_bytes = search_file.getvalue()
         st.session_state.search_file = image_bytes
+
         col1, col2 = st.columns()
-        with col1: st.image(image_bytes, caption=search_file.name, use_container_width=True)
+
+        with col1:
+            st.image(image_bytes, caption=search_file.name, use_container_width=True)
+
         with col2:
             st.markdown("### 🤖 AI nhận dạng")
+
             if st.button(
                 "🚀 PHÂN TÍCH & TÌM MÃ TƯƠNG ĐỒNG",
                 type="primary",
                 use_container_width=True,
                 key="run_search"
             ):
+                import time
                 try:
+                    # Cấu hình cơ chế tự động thử lại (Retry) nếu Gemini quá tải cục bộ
+                    max_retries = 3
+                    retry_delay = 4
+                    ai_result = None
+                    
                     # =================================================
-                    # STEP 1: AI VISION
+                    # STEP 1: AI VISION (Phân tích cấu trúc rập)
                     # =================================================
-                    with st.spinner("🤖 AI đang nhận dạng garment..."):
-                        ai_result = analyze_garment_with_gemini(image_bytes)
+                    for attempt in range(max_retries):
+                        try:
+                            with st.spinner("🤖 AI đang nhận dạng garment..."):
+                                ai_result = analyze_garment_with_gemini(image_bytes)
+                            break
+                        except Exception as ai_err:
+                            if "503" in str(ai_err) or "429" in str(ai_err):
+                                if attempt < max_retries - 1:
+                                    st.warning(f"⚠️ Hệ thống bận, đang tự động tìm kiếm lại sau {retry_delay} giây...")
+                                    time.sleep(retry_delay)
+                                    continue
+                            raise ai_err
+
+                    if not ai_result:
+                        raise Exception("Không nhận được phản hồi từ hệ thống AI Vision.")
+                        
                     st.session_state.search_ai_result = ai_result
 
-                    # Lấy nội dung văn bản lập luận cấu trúc kỹ thuật để tạo không gian vector
+                    # Chuyển đổi thông tin lập luận sang chuỗi ngữ nghĩa vector
                     text_for_embedding = ai_result.get("reason", ai_result["category"])
 
                     # =================================================
-                    # STEP 2: EMBEDDING (Đồng bộ truyền văn bản text bóc tách từ Vision)
+                    # STEP 2: IMAGE EMBEDDING (Đồng bộ xử lý text mã hóa)
                     # =================================================
                     with st.spinner("🧠 Đang tạo image embedding..."):
                         query_embedding = get_image_embedding(text_for_embedding)
 
                     # =================================================
-                    # STEP 3: VECTOR SEARCH
+                    # STEP 3: VECTOR SEARCH (Quét cơ sở dữ liệu)
                     # =================================================
                     with st.spinner("🔎 Đang tìm mã tương đồng..."):
                         results = search_similar_products(query_embedding)
 
                     # =================================================
-                    # STEP 4: RANK & BOOST
+                    # STEP 4: RANK & BOOST (Tối ưu thứ tự xếp hạng)
                     # =================================================
                     results = rank_results(results, ai_result["category"])
                     st.session_state.search_result = results
 
                 except Exception as e:
-                    st.error(str(e))
+                    st.error(f"Lỗi tìm kiếm: {str(e)}")
+
+        # ---------------------------------------------------------
+        # DISPLAY AI RESULT (Hiển thị thông số cấu trúc bóc tách)
+        # ---------------------------------------------------------
+        ai_result = st.session_state.search_ai_result
+        if ai_result:
+            st.divider()
+            st.markdown("### 🤖 Kết quả AI")
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("Category AI", ai_result["category"])
+            with c2:
+                st.metric("Confidence", f"{ai_result['confidence']:.0f}%")
+            with c3:
+                st.metric("One Piece", "YES" if ai_result["one_piece"] else "NO")
+            with c4:
+                st.metric("Cargo Pocket", "YES" if ai_result["cargo_pockets"] else "NO")
+
+            if ai_result.get("reason"):
+                st.info("🧠 " + ai_result["reason"])
+
+        # ---------------------------------------------------------
+        # DISPLAY SEARCH RESULTS (Hiển thị dạng Grid)
+        # ---------------------------------------------------------
+        results = st.session_state.search_result
+        if results is not None:
+            st.divider()
+            st.markdown("### 🎯 Mã hàng tương đồng")
+
+            if not results:
+                st.warning("Không tìm thấy mã hàng tương đồng trong kho.")
+            else:
+                display_results = results[:8]
+                columns = st.columns(min(4, len(display_results)))
+
+                for index, item in enumerate(display_results):
+                    with columns[index % len(columns)]:
+                        st.markdown("---")
+
+                        # IMAGE public URL
+                        image_url = item.get("image_url")
+                        if image_url:
+                            try:
+                                st.image(image_url, use_container_width=True)
+                            except Exception:
+                                pass
+
+                        # PRODUCT CODE
+                        st.markdown(f"### 🏷️ {item.get('product_code', 'N/A')}")
+
+                        # SIMILARITY
+                        similarity = float(item.get("similarity", 0))
+                        st.metric("Độ tương đồng", f"{similarity * 100:.2f}%")
+
+                        # CATEGORIES
+                        st.write("📦 Kho:", item.get("category", "N/A"))
+                        st.write("🤖 AI:", item.get("ai_category", "N/A"))
+
 
 
 # =====================================================================
