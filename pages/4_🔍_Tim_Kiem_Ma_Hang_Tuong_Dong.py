@@ -33,15 +33,29 @@ except Exception as e:
     st.error("❌ Chưa cài thư viện Google GenAI. Thêm `google-genai` vào requirements.txt")
     st.stop()
 
-# --- 3. CONSTANTS ---
+# =====================================================================
+# 3. CONSTANTS (CẬP NHẬT CHUẨN ĐỊNH DẠNG)
+# =====================================================================
+
 APP_VERSION = "V4.0"
+
 BUCKET_NAME = "product-images"
+
 PRODUCT_TABLE = "products"
+
+# Gemini Vision
 VISION_MODEL = "gemini-2.5-flash"
+
+# Gemini Multimodal Embedding ID chính xác cho SDK mới
 EMBEDDING_MODEL = "text-embedding-004"
+
+# Embedding dimension
 EMBEDDING_DIMENSION = 768
+
 SEARCH_COUNT = 12
+
 MIN_SIMILARITY = 0.35
+
 
 # --- 4. CATEGORY MASTER ---
 CATEGORY_OPTIONS = [
@@ -263,20 +277,55 @@ def normalize_garment_result(result):
         "collar": str(result.get("collar", "")), "silhouette": str(result.get("silhouette", "")),
         "length": str(result.get("length", "")), "reason": str(result.get("reason", ""))
     }
-# --- 17. GEMINI IMAGE EMBEDDING ---
+# =====================================================================
+# 17. GEMINI IMAGE EMBEDDING (ĐÃ TỐI ƯU CHO SDK MỚI)
+# =====================================================================
+
 def get_image_embedding(image_bytes):
     image_bytes = normalize_image_bytes(image_bytes)
+
     try:
+        # Gọi trực tiếp qua Client mới, SDK sẽ tự động điều hướng đúng phiên bản API v1
         response = gemini_client.models.embed_content(
             model=EMBEDDING_MODEL,
-            contents=types.Content(parts=[types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")]),
-            config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIMENSION)
+            contents=types.Part.from_bytes(
+                data=image_bytes,
+                mime_type="image/jpeg"
+            )
         )
-        values = response.embeddings.values
-    except Exception as e: raise Exception("Gemini Image Embedding lỗi: " + str(e))
-    if not values: raise Exception("Embedding rỗng.")
-    norm = math.sqrt(sum(float(x) * float(x) for x in values))
-    return [float(x) / norm for x in values] if norm > 0 else [float(x) for x in values]
+    except Exception as e:
+        raise Exception("Gemini Image Embedding lỗi: " + str(e))
+
+    try:
+        # SDK mới bóc tách mảng giá trị trả về trực tiếp thông qua cấu trúc .values hoặc index[0]
+        if hasattr(response, "embeddings") and response.embeddings:
+            values = response.embeddings[0].values
+        elif hasattr(response, "embedding") and response.embedding:
+            values = response.embedding.values
+        else:
+            values = response.embeddings.values
+    except Exception as e:
+        raise Exception("Không lấy được vector embedding: " + str(e))
+
+    if not values:
+        raise Exception("Embedding rỗng.")
+
+    # ---------------------------------------------------------
+    # NORMALIZE VECTOR
+    # ---------------------------------------------------------
+    norm = math.sqrt(
+        sum(
+            float(x) * float(x)
+            for x in values
+        )
+    )
+
+    if norm > 0:
+        values = [float(x) / norm for x in values]
+    else:
+        values = [float(x) for x in values]
+
+    return values
 
 # --- 18. UPLOAD IMAGE TO SUPABASE STORAGE ---
 def upload_image_to_storage(image_bytes, filename):
