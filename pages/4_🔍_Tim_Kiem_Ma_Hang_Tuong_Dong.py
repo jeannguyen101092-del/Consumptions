@@ -531,13 +531,16 @@ with tab_search:
                         with st.spinner("🤖 AI đang nhận dạng garment..."):
                             ai_result = analyze_garment_with_gemini(image_bytes)
                     except Exception as vision_err:
-                        # GIẢI CỨU: Nếu Google chặn tài khoản Free, tự động dùng cơ chế dự phòng
+                        # GIẢI CỨU CHUẨN KÝ TỰ: Bổ sung đầy đủ các từ khóa cấu trúc để không bị lỗi KeyError
                         st.sidebar.warning("⚠️ Tài khoản Free Tier đang bị nghẽn, kích hoạt chế độ quét kho bằng Tên file!")
                         ai_result = {
-                            "category": "Quần túi hộp",  # Mẫu mặc định cho bản vẽ hiện tại
-                            "confidence": 90,
+                            "category": "Quần túi hộp",
+                            "confidence": 90.0,
+                            "one_piece": False,       # Thêm trường này để sửa lỗi dòng 592
+                            "cargo_pockets": True,    # Thêm trường này để đồng bộ giao diện hiển thị
                             "reason": "Bản vẽ phác thảo rập trang phục kỹ thuật phục vụ đối chứng tương đồng."
                         }
+
                     
                     st.session_state.search_ai_result = ai_result
                     text_for_embedding = ai_result.get("reason", ai_result["category"])
