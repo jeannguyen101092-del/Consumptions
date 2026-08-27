@@ -34,27 +34,24 @@ except Exception as e:
     st.stop()
 
 # =====================================================================
-# 3. CONSTANTS (THAY ĐỔI MÔ HÌNH NHÚNG ĐỂ TRÁNH LỖI ENDPOINT 404)
+# 3. CONSTANTS (ĐẢM BẢO SỬA THÀNH 3072 ĐỂ ĐỒNG BỘ VỚI DATABASE)
 # =====================================================================
-
 APP_VERSION = "V4.0"
-
 BUCKET_NAME = "product-images"
-
 PRODUCT_TABLE = "products"
 
-# Gemini Vision
 VISION_MODEL = "gemini-2.5-flash"
-
-# CHỈNH SỬA: Thay thế sang mô hình thế hệ 2 tương thích endpoint v1beta mới của Google
 EMBEDDING_MODEL = "gemini-embedding-2"
 
-# Giữ nguyên độ rộng vector đặc trưng
-EMBEDDING_DIMENSION = 768
+# CHỈNH SỬA: Sửa lại thành 3072 để khớp hoàn toàn với cấu trúc SQL đã tạo
+EMBEDDING_DIMENSION = 3072
 
 SEARCH_COUNT = 12
 
-MIN_SIMILARITY = 0.35
+# MẸO: Bạn có thể tạm thời hạ thông số ngưỡng này xuống 0.2 hoặc 0.1 
+# để ép hệ thống lôi bằng được các ảnh hiện có trong kho ra màn hình đối chứng
+MIN_SIMILARITY = 0.20
+
 
 
 # --- 4. CATEGORY MASTER ---
