@@ -3458,37 +3458,15 @@ with tab_search:
 # =====================================================================
 # =====================================================================
 
-with tab_storage:
+# --- WIDGET UPLOAD ---
+uploaded_files = st.file_uploader(
+    "📷 Chọn ảnh mã hàng", 
+    type=["jpg", "jpeg", "png", "webp"], 
+    accept_multiple_files=True, 
+    key="storage_uploader"
+)
 
-    st.subheader(
-        "📦 Nạp mã hàng vào kho"
-    )
-
-
-    st.info(
-
-        "Category kho là phân loại nghiệp vụ. "
-        "AI vẫn tự nhận dạng garment và lưu "
-        "AI category riêng."
-
-    )
-
-
-    # ================================================================
-    # CATEGORY
-    #
-    # KEY RIÊNG -> FIX DuplicateElementKey
-    # ================================================================
-
-    storage_category = st.selectbox(
-
-        "📦 Chọn dòng hàng để lưu kho",
-
-        CATEGORY_OPTIONS,
-
-        key="storage_category_v42"
-
-    )
+    
 
 
     # ================================================================
