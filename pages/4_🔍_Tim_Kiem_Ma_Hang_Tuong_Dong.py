@@ -392,41 +392,44 @@ with tab_search:
         with col1: st.image(image_bytes, caption=search_file.name, use_container_width=True)
         with col2:
             st.markdown("### 🤖 AI nhận dạng")
-            if st.button("🚀 PHÂN TÍCH & TÌM MÃ TƯƠNG ĐỒNG", type="primary", use_container_width=True, key="run_search"):
+            if st.button(
+                "🚀 PHÂN TÍCH & TÌM MÃ TƯƠNG ĐỒNG",
+                type="primary",
+                use_container_width=True,
+                key="run_search"
+            ):
                 try:
-                    with st.spinner("🤖 AI đang nhận dạng garment..."): ai_result = analyze_garment_with_gemini(image_bytes)
+                    # =================================================
+                    # STEP 1: AI VISION
+                    # =================================================
+                    with st.spinner("🤖 AI đang nhận dạng garment..."):
+                        ai_result = analyze_garment_with_gemini(image_bytes)
                     st.session_state.search_ai_result = ai_result
-                    with st.spinner("🧠 Đang tạo image embedding..."): query_embedding = get_image_embedding(image_bytes)
-                    with st.spinner("🔎 Đang tìm mã tương đồng..."): results = search_similar_products(query_embedding)
-                    st.session_state.search_result = rank_results(results, ai_result["category"])
-                except Exception as e: st.error(str(e))
 
-        ai_result = st.session_state.search_ai_result
-        if ai_result:
-            st.divider(); st.markdown("### 🤖 Kết quả AI")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Category AI", ai_result["category"])
-            c2.metric("Confidence", f"{ai_result['confidence']:.0f}%")
-            c3.metric("One Piece", "YES" if ai_result["one_piece"] else "NO")
-            c4.metric("Cargo Pocket", "YES" if ai_result["cargo_pockets"] else "NO")
-            if ai_result.get("reason"): st.info("🧠 " + ai_result["reason"])
+                    # Lấy nội dung văn bản lập luận cấu trúc kỹ thuật để tạo không gian vector
+                    text_for_embedding = ai_result.get("reason", ai_result["category"])
 
-        results = st.session_state.search_result
-        if results is not None:
-            st.divider(); st.markdown("### 🎯 Mã hàng tương đồng")
-            if not results: st.warning("Không tìm thấy mã hàng tương đồng.")
-            else:
-                display_results = results[:8]
-                columns = st.columns(min(4, len(display_results)))
-                for index, item in enumerate(display_results):
-                    with columns[index % len(columns)]:
-                        st.markdown("---")
-                        if item.get("image_url"):
-                            try: st.image(item.get("image_url"), use_container_width=True)
-                            except Exception: pass
-                        st.markdown(f"### 🏷️ {item.get('product_code', 'N/A')}")
-                        st.metric("Độ tương đồng", f"{float(item.get('similarity', 0)) * 100:.2f}%")
-                        st.write("📦 Kho:", item.get("category", "N/A")); st.write("🤖 AI:", item.get("ai_category", "N/A"))
+                    # =================================================
+                    # STEP 2: EMBEDDING (Đồng bộ truyền văn bản text bóc tách từ Vision)
+                    # =================================================
+                    with st.spinner("🧠 Đang tạo image embedding..."):
+                        query_embedding = get_image_embedding(text_for_embedding)
+
+                    # =================================================
+                    # STEP 3: VECTOR SEARCH
+                    # =================================================
+                    with st.spinner("🔎 Đang tìm mã tương đồng..."):
+                        results = search_similar_products(query_embedding)
+
+                    # =================================================
+                    # STEP 4: RANK & BOOST
+                    # =================================================
+                    results = rank_results(results, ai_result["category"])
+                    st.session_state.search_result = results
+
+                except Exception as e:
+                    st.error(str(e))
+
 
 # =====================================================================
 # TAB 2: NẠP KHO HÀNG LOẠT
