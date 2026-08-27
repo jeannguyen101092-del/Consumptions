@@ -510,7 +510,7 @@ with tab_search:
         image_bytes = search_file.getvalue()
         st.session_state.search_file = image_bytes
 
-        col1, col2 = st.columns()
+        col1, col2 = st.columns(2)
 
         with col1:
             st.image(image_bytes, caption=search_file.name, use_container_width=True)
