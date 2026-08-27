@@ -367,34 +367,35 @@ def analyze_garment_with_gemini(image_bytes):
 
 
 # =====================================================================
-# 17. GEMINI IMAGE EMBEDDING (ĐÃ SỬA ĐỒNG BỘ ĐẦU VÀO TEXT CHUẨN)
+# 17. GEMINI TEXT EMBEDDING (ĐÃ FIX LỖI API VERSION 404 NOT FOUND)
 # =====================================================================
 
 def get_image_embedding(text_content: str):
     """
     Tạo vector nhúng ngữ nghĩa (768 chiều) từ chuỗi mô tả kỹ thuật rập thời trang.
-    Đầu vào nhận một chuỗi văn bản (String), KHÔNG nhận byte ảnh thô.
+    Sử dụng giải pháp truyền chuỗi trực tiếp phù hợp với SDK google-genai stable.
     """
     try:
-        # Gọi trực tiếp API nhúng văn bản thông qua thư viện google-genai mới
+        # Sử dụng đúng cú pháp quy định của SDK google-genai mới
         response = gemini_client.models.embed_content(
             model=EMBEDDING_MODEL,
-            contents=str(text_content) if text_content else "garment",
-            config=types.EmbedContentConfig(
-                output_dimensionality=EMBEDDING_DIMENSION
-            )
+            contents=str(text_content) if text_content else "garment"
         )
     except Exception as e:
         raise Exception("Gemini Image Embedding lỗi: " + str(e))
 
     try:
-        # Bóc tách mảng giá trị vector float từ kết quả trả về của SDK
+        # Kiểm tra mảng dữ liệu trả về theo đúng định dạng phân lớp của Google
         if hasattr(response, "embeddings") and response.embeddings:
-            values = response.embeddings.values
+            # Nếu trả về mảng danh sách (List) phần tử
+            if isinstance(response.embeddings, list) and len(response.embeddings) > 0:
+                values = response.embeddings[0].values
+            else:
+                values = response.embeddings.values
         elif hasattr(response, "embedding") and response.embedding:
             values = response.embedding.values
         else:
-            values = response.embeddings.values
+            raise Exception("Không tìm thấy thuộc tính chứa mảng vector trong phản hồi.")
     except Exception as e:
         raise Exception("Không lấy được mảng giá trị vector embedding: " + str(e))
 
@@ -417,6 +418,7 @@ def get_image_embedding(text_content: str):
         values = [float(x) for x in values]
 
     return values
+
 
 # --- 18. UPLOAD IMAGE TO SUPABASE STORAGE ---
 def upload_image_to_storage(image_bytes, filename):
