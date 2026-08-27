@@ -622,62 +622,163 @@ with tab_search:
 
 
 # =====================================================================
-# TAB 2: NẠP KHO HÀNG LOẠT
+# TAB 2: NẠP KHO HÀNG LOẠT (ĐÃ ĐỒNG BỘ TEXT EMBEDDING & CHỐNG LỖI QUÁ TẢI)
 # =====================================================================
 with tab_storage:
     st.subheader("📦 Nạp mã hàng vào kho")
     st.info("Category kho là phân loại nghiệp vụ. AI vẫn tự nhận dạng và lưu thêm AI category.")
-    storage_category = st.selectbox("📦 Chọn dòng hàng để lưu kho", CATEGORY_OPTIONS, key="storage_category")
-    uploaded_files = st.file_uploader("📷 Chọn ảnh mã hàng", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True, key="storage_uploader")
+    
+    # --- DÒNG HÀNG KHO ---
+    storage_category = st.selectbox(
+        "📦 Chọn dòng hàng để lưu kho", 
+        CATEGORY_OPTIONS, 
+        key="storage_category"
+    )
 
+    # --- WIDGET UPLOAD ---
+    uploaded_files = st.file_uploader(
+        "📷 Chọn ảnh mã hàng", 
+        type=["jpg", "jpeg", "png", "webp"], 
+        accept_multiple_files=True, 
+        key="storage_uploader"
+    )
+
+    # Nạp tệp mới vào hàng đợi session_state
     if uploaded_files:
         current_names = [f.name for f in st.session_state.pending_upload_files]
         for file in uploaded_files:
-            if file.name not in current_names: st.session_state.pending_upload_files.append(file)
+            if file.name not in current_names: 
+                st.session_state.pending_upload_files.append(file)
 
+    # --- HỦY DANH SÁCH CHỜ ---
     c1, _ = st.columns([1, 5])
     with c1:
         if st.button("🗑️ Xóa danh sách chờ", key="clear_pending_files"):
-            st.session_state.pending_upload_files = []; st.rerun()
+            st.session_state.pending_upload_files = []
+            st.rerun()
 
+    # --- XỬ LÝ HÀNG ĐỢI ---
     pending_files = st.session_state.pending_upload_files
     if pending_files:
         st.success(f"📂 Đang chờ **{len(pending_files)}** file để nạp kho.")
+        
+        # Xem trước ảnh hàng đợi dạng Grid nhỏ
         preview_cols = st.columns(min(5, len(pending_files)))
         for i, file in enumerate(pending_files):
-            with preview_cols[i % len(preview_cols)]: st.image(file, caption=file.name, use_container_width=True)
+            with preview_cols[i % len(preview_cols)]: 
+                st.image(file, caption=file.name, use_container_width=True)
 
         st.divider()
-        if st.button(" Bertram 📤 BẮT ĐẦU NẠP TOÀN BỘ VÀO KHO", type="primary", use_container_width=True, key="start_storage_upload"):
-            total = len(pending_files); success_count = 0; failed_count = 0
-            progress = st.progress(0); status = st.empty(); upload_results = []
+        
+        # Kích hoạt tiến trình đồng bộ
+        if st.button(
+            "📤 BẮT ĐẦU NẠP TOÀN BỘ VÀO KHO", 
+            type="primary", 
+            use_container_width=True, 
+            key="start_storage_upload"
+        ):
+            import time  # Thêm thư viện thời gian để tạo độ trễ an toàn
+            
+            total = len(pending_files)
+            success_count = 0
+            failed_count = 0
+
+            progress = st.progress(0)
+            status = st.empty()
+            upload_results = []
 
             for index, file in enumerate(pending_files):
                 product_code = product_code_from_filename(file.name)
-                status.write(f"⏳ {index + 1}/{total} — {product_code}")
+                status.write(f"⏳ {index + 1}/{total} — Xử lý mã: `{product_code}`")
+                
                 try:
                     image_bytes = file.getvalue()
-                    status.write(f"🤖 AI nhận dạng {product_code}...")
+
+                    # STEP 1: AI VISION
+                    status.write(f"🤖 AI đang phân tích rập `{product_code}`...")
                     ai_result = analyze_garment_with_gemini(image_bytes)
-                    embedding = get_image_embedding(image_bytes)
+                    ai_category = ai_result["category"]
+                    
+                    # Bóc tách text ngữ nghĩa để chuẩn bị tạo không gian vector
+                    text_for_embedding = ai_result.get("reason", ai_category)
+
+                    # STEP 2: IMAGE EMBEDDING (Đồng bộ: Truyền Text, KHÔNG truyền byte ảnh thô)
+                    status.write(f"🧠 Tạo đặc trưng vector ngữ nghĩa cho `{product_code}`...")
+                    embedding = get_image_embedding(text_for_embedding)
+
+                    # STEP 3: STORAGE
+                    status.write(f"☁️ Upload tệp hình ảnh `{product_code}` lên Storage...")
                     image_url = upload_image_to_storage(image_bytes, file.name)
-                    save_product(product_code, image_url, storage_category, ai_result["category"], ai_result, embedding, file.name)
+
+                    # STEP 4: DATABASE
+                    status.write(f"💾 Thực thi đồng bộ dữ liệu `{product_code}` vào Database...")
+                    save_product(
+                        product_code=product_code,
+                        image_url=image_url,
+                        category=storage_category,
+                        ai_category=ai_category,
+                        ai_result=ai_result,
+                        embedding=embedding,
+                        filename=file.name
+                    )
+
                     success_count += 1
-                    upload_results.append({"product_code": product_code, "category": storage_category, "ai_category": ai_result["category"], "confidence": ai_result["confidence"], "status": "OK"})
+                    upload_results.append({
+                        "product_code": product_code, 
+                        "category": storage_category, 
+                        "ai_category": ai_category, 
+                        "confidence": ai_result["confidence"], 
+                        "status": "OK"
+                    })
+                    
                 except Exception as e:
                     failed_count += 1
-                    upload_results.append({"product_code": product_code, "category": storage_category, "ai_category": "", "confidence": 0, "status": str(e)})
-                    st.error(f"❌ {file.name}: {str(e)}")
+                    upload_results.append({
+                        "product_code": product_code, 
+                        "category": storage_category, 
+                        "ai_category": "", 
+                        "confidence": 0, 
+                        "status": str(e)
+                    })
+                    st.error(f"❌ Mã hàng `{file.name}` gặp lỗi: {str(e)}")
+                    
+                # Cập nhật trạng thái thanh tiến trình
                 progress.progress(int((index + 1) / total * 100))
+                
+                # CHÈN ĐỘ TRỄ GIÃN CÁCH để không làm nghẽn máy chủ API của Google (Free Tier)
+                if index < total - 1:
+                    time.sleep(4.5)
 
-            status.empty(); st.session_state.last_upload_result = upload_results; st.session_state.pending_upload_files = []
-            if success_count: st.success(f"🎉 Đã lưu **{success_count}/{total}** mã hàng vào kho.")
-            if failed_count: st.warning(f"⚠️ Có **{failed_count}** file lỗi.")
+            status.empty()
+            st.session_state.last_upload_result = upload_results
+            st.session_state.pending_upload_files = []
+
+            if success_count: 
+                st.success(f"🎉 Đã nạp thành công **{success_count}/{total}** mã hàng vào hệ thống.")
+            if failed_count: 
+                st.warning(f"⚠️ Phát hiện **{failed_count}** tệp tin xử lý thất bại.")
             st.rerun()
 
+    # --- IN NHẬT KÝ BÁO CÁO (LOGS) ---
     if st.session_state.last_upload_result:
-        st.divider(); st.markdown("### 📋 Kết quả nạp kho")
+        st.divider()
+        st.markdown("### 📋 Kết quả nạp kho")
+        
         for item in st.session_state.last_upload_result:
-            if item["status"] == "OK": st.success(f"✅ {item['product_code']} — Kho: {item['category']} — AI: {item['ai_category']} — Độ tự tin: {item['confidence']:.0f}%")
-            else: st.error(f"❌ {item['product_code']} — Kho: {item['category']} — Lỗi: {item['status']}")
-        if st.button("🗑️ Xóa thông báo kết quả", key="clear_upload_result_report"): st.session_state.last_upload_result = None; st.rerun()
+            if item["status"] == "OK": 
+                st.success(
+                    f"✅ {item['product_code']} — "
+                    f"Kho: {item['category']} — "
+                    f"AI: {item['ai_category']} — "
+                    f"Độ tự tin: {item['confidence']:.0f}%"
+                )
+            else: 
+                st.error(
+                    f"❌ {item['product_code']} — "
+                    f"Kho: {item['category']} — "
+                    f"Lỗi hệ thống: {item['status']}"
+                )
+                
+        if st.button("🗑️ Xóa thông báo kết quả", key="clear_upload_result_report"):
+            st.session_state.last_upload_result = None
+            st.rerun()
