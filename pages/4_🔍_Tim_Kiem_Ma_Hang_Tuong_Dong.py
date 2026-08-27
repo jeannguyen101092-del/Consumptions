@@ -3705,10 +3705,10 @@ with tab_storage:
     # =================================================================
 
     storage_category = st.selectbox(
-        "📦 Chọn dòng hàng để lưu kho",
-        CATEGORY_OPTIONS,
-        key="storage_category"
-    )
+    "📦 Chọn dòng hàng để lưu kho",
+    CATEGORY_OPTIONS,
+    key="storage_category_v40"
+)
 
     # =================================================================
     # 2. UPLOAD FILE
