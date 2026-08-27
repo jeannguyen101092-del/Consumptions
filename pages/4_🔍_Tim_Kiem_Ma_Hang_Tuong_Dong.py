@@ -1,25 +1,15 @@
 # =====================================================================
 # 🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG
 # VERSION V2.6
+# PART 1/2
 #
 # GEMINI VISION
 # GEMINI EMBEDDING 2
 # SUPABASE + PGVECTOR
 #
-# KHÔNG DÙNG HUGGING FACE
-# KHÔNG DÙNG CLIP
-# KHÔNG DÙNG TORCH
-#
-# Chức năng:
-# 1. Upload ảnh tìm kiếm
-# 2. AI tự nhận diện category
-# 3. Gemini tạo image embedding
-# 4. Tìm mã hàng tương đồng trong Supabase
-# 5. Upload hàng loạt vào kho
-# 6. AI tự nhận diện category khi lưu
-# 7. Lưu ảnh + embedding + AI analysis
-# 8. Xóa file đang chờ upload
-# 9. Không ảnh hưởng dữ liệu kho khi xóa file đang chờ
+# KHÔNG HUGGING FACE
+# KHÔNG CLIP
+# KHÔNG TORCH
 # =====================================================================
 
 import streamlit as st
@@ -28,18 +18,16 @@ import re
 import io
 import os
 import uuid
-import mimetypes
 import numpy as np
 
 from PIL import Image
 from supabase import create_client, Client
-
 from google import genai
 from google.genai import types
 
 
 # =====================================================================
-# 0. PAGE CONFIG
+# 1. PAGE CONFIG
 # =====================================================================
 
 st.set_page_config(
@@ -51,25 +39,22 @@ st.set_page_config(
 
 
 # =====================================================================
-# 1. CONSTANTS
+# 2. CONSTANTS
 # =====================================================================
 
 APP_VERSION = "V2.6"
 
 SUPABASE_BUCKET = "product-images"
 
-# Gemini Vision
 VISION_MODEL = "gemini-2.5-flash"
 
-# Gemini multimodal embedding
 EMBEDDING_MODEL = "gemini-embedding-2"
 
-# 768 là kích thước được Google khuyến nghị cho embedding 2
 EMBEDDING_DIM = 768
 
 TOP_K = 12
 
-# Category chuẩn của hệ thống
+
 VALID_CATEGORIES = [
     "Áo liền quần",
     "Quần yếm",
@@ -89,114 +74,104 @@ VALID_CATEGORIES = [
 
 
 # =====================================================================
-# 2. LOAD SECRETS
+# 3. LOAD STREAMLIT SECRETS
 # =====================================================================
 
-def get_secret(name, required=True):
-    """
-    Đọc secret an toàn từ Streamlit Secrets.
-
-    Hỗ trợ:
-        st.secrets["SUPABASE_URL"]
-
-    hoặc:
-
-        [api]
-        SUPABASE_URL = "..."
-    """
+def get_secret(name):
 
     # ---------------------------------------------------------------
-    # Cách 1: flat
+    # FLAT
     # ---------------------------------------------------------------
 
     try:
+
         if name in st.secrets:
 
             value = st.secrets[name]
 
             if value is not None:
+
                 value = str(value).strip()
 
                 if value:
+
                     return value
 
     except Exception:
+
         pass
 
 
     # ---------------------------------------------------------------
-    # Cách 2: [api]
+    # [api]
     # ---------------------------------------------------------------
 
     try:
 
         if "api" in st.secrets:
 
-            api_section = st.secrets["api"]
+            section = st.secrets["api"]
 
-            if name in api_section:
+            if name in section:
 
-                value = api_section[name]
+                value = section[name]
 
                 if value is not None:
+
                     value = str(value).strip()
 
                     if value:
+
                         return value
 
     except Exception:
+
         pass
 
 
     # ---------------------------------------------------------------
-    # Cách 3: [secrets]
+    # [secrets]
     # ---------------------------------------------------------------
 
     try:
 
         if "secrets" in st.secrets:
 
-            secret_section = st.secrets["secrets"]
+            section = st.secrets["secrets"]
 
-            if name in secret_section:
+            if name in section:
 
-                value = secret_section[name]
+                value = section[name]
 
                 if value is not None:
+
                     value = str(value).strip()
 
                     if value:
+
                         return value
 
     except Exception:
+
         pass
 
-
-    if required:
-        return None
 
     return None
 
 
 # =====================================================================
-# 3. READ SECURITY KEYS
+# 4. READ KEYS
 # =====================================================================
 
-SUPABASE_URL = get_secret(
-    "SUPABASE_URL"
-)
+SUPABASE_URL = get_secret("SUPABASE_URL")
 
-SUPABASE_KEY = get_secret(
-    "SUPABASE_KEY"
-)
+SUPABASE_KEY = get_secret("SUPABASE_KEY")
 
-GEMINI_API_KEY = get_secret(
-    "GEMINI_API_KEY"
-)
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 
 
 # =====================================================================
-# 4. SECURITY CHECK
+# 5. SECURITY CHECK
 # =====================================================================
 
 missing_keys = []
@@ -214,25 +189,23 @@ if not GEMINI_API_KEY:
 if missing_keys:
 
     st.error(
-        "❌ Không đọc được thông tin bảo mật từ "
-        "Streamlit Secrets."
+        "❌ Không đọc được thông tin bảo mật "
+        "từ Streamlit Secrets."
     )
 
-    st.write(
+    st.warning(
         "Hãy kiểm tra các key sau:"
     )
 
     for key in missing_keys:
 
-        st.code(
-            key
-        )
+        st.code(key)
 
     st.stop()
 
 
 # =====================================================================
-# 5. INITIALIZE CLIENTS
+# 6. INIT SUPABASE
 # =====================================================================
 
 try:
@@ -253,6 +226,10 @@ except Exception as e:
     st.stop()
 
 
+# =====================================================================
+# 7. INIT GEMINI
+# =====================================================================
+
 try:
 
     gemini_client = genai.Client(
@@ -271,7 +248,7 @@ except Exception as e:
 
 
 # =====================================================================
-# 6. SESSION STATE
+# 8. SESSION STATE
 # =====================================================================
 
 if "pending_uploads_v26" not in st.session_state:
@@ -303,148 +280,124 @@ if "search_file_name_v26" not in st.session_state:
 
 
 # =====================================================================
-# 7. GARMENT PROMPT
+# 9. AI GARMENT PROMPT
 # =====================================================================
 
 GARMENT_PROMPT = r"""
 You are an expert apparel product recognition AI.
 
-Your job is to identify the actual garment construction
-from a fashion sketch, tech-pack image, flat sketch,
-product photo, or garment image.
+Identify the actual garment construction from a
+fashion sketch, tech pack, flat sketch, product photo,
+or garment image.
 
-This is NOT generic image classification.
-
-You must focus on garment construction.
+Focus on garment construction.
 
 ===========================================================
-CRITICAL CLASSIFICATION RULES
+CLASSIFICATION RULES
 ===========================================================
 
-1. ONE PIECE / JUMPSUIT
-
-If upper body and lower body are physically connected
-into one garment:
+ONE PIECE / JUMPSUIT
+If upper and lower body are physically connected:
 
 category = "Áo liền quần"
 
-Do NOT classify a jumpsuit as cargo pants.
+Do NOT classify jumpsuit as cargo pants.
 
 -----------------------------------------------------------
 
-2. BIB OVERALL / QUẦN YẾM
-
-If the garment has:
-
-- bib front
-- shoulder straps
-- overall construction
+BIB OVERALL
+If garment has bib front, shoulder straps and overall
+construction:
 
 category = "Quần yếm"
 
-Do NOT classify bib overalls as cargo pants.
+Do NOT classify bib overall as cargo.
 
 -----------------------------------------------------------
 
-3. CARGO PANTS / QUẦN TÚI HỘP
-
+CARGO
 Cargo pants must be:
 
-- a separate pants garment
-- AND have clearly visible external cargo / patch pockets
-  on the side leg area.
+- separate pants
+- clearly visible external cargo / patch pockets
+  on side leg
 
-If there are no obvious cargo pockets:
+No obvious cargo pockets:
 
-DO NOT classify as "Quần túi hộp".
+DO NOT classify as cargo.
 
 -----------------------------------------------------------
 
-4. JEANS
-
-If the garment is separate denim jeans:
+JEANS
+Separate denim jeans:
 
 category = "Quần jean"
 
 -----------------------------------------------------------
 
-5. JOGGER
-
-If separate pants have jogger construction,
+JOGGER
+Separate pants with jogger construction,
 especially elastic/rib cuffs:
 
 category = "Quần jogger"
 
 -----------------------------------------------------------
 
-6. SHORTS
-
-If separate pants with short leg length:
+SHORTS
+Separate short-leg pants:
 
 category = "Quần short"
 
 -----------------------------------------------------------
 
-7. NORMAL LONG PANTS
-
-If separate long pants without clear cargo,
-denim or jogger construction:
+NORMAL LONG PANTS
+Separate long pants without cargo, denim or jogger:
 
 category = "Quần dài"
 
 -----------------------------------------------------------
 
-8. JACKET
-
+JACKET
 Separate upper-body outerwear:
 
 category = "Jacket"
 
 -----------------------------------------------------------
 
-9. SHIRT / TOP
-
+SHIRT
 Normal woven upper-body shirt:
 
 category = "Áo"
 
 -----------------------------------------------------------
 
-10. T-SHIRT
-
-T-shirt construction:
+T-SHIRT
 
 category = "T-shirt"
 
 -----------------------------------------------------------
 
-11. POLO
-
-Polo construction:
+POLO
 
 category = "Polo"
 
 -----------------------------------------------------------
 
-12. HOODIE
-
-Hooded sweatshirt / hoodie:
+HOODIE
 
 category = "Hoodie"
 
 -----------------------------------------------------------
 
-13. SKIRT
-
-Skirt:
+SKIRT
 
 category = "Skirt"
 
 -----------------------------------------------------------
 
-14. DRESS
+DRESS
 
-One-piece dress silhouette that is NOT pants-based:
+One-piece dress that is NOT pants-based:
 
 category = "Dress"
 
@@ -452,12 +405,12 @@ category = "Dress"
 IMPORTANT
 ===========================================================
 
-Never use "Quần túi hộp" merely because the lower half
-looks like workwear.
+Never use cargo merely because lower half looks like
+workwear.
 
-Cargo requires visible cargo/patch pockets.
+Cargo requires visible cargo / patch pockets.
 
-Never classify a jumpsuit as cargo pants.
+Never classify jumpsuit as cargo pants.
 
 Never classify bib overall as cargo pants.
 
@@ -465,28 +418,24 @@ Never classify bib overall as cargo pants.
 VALID CATEGORIES
 ===========================================================
 
-- Áo liền quần
-- Quần yếm
-- Quần túi hộp
-- Quần jean
-- Quần jogger
-- Quần short
-- Quần dài
-- Jacket
-- Áo
-- T-shirt
-- Polo
-- Hoodie
-- Skirt
-- Dress
+Áo liền quần
+Quần yếm
+Quần túi hộp
+Quần jean
+Quần jogger
+Quần short
+Quần dài
+Jacket
+Áo
+T-shirt
+Polo
+Hoodie
+Skirt
+Dress
 
 ===========================================================
-RETURN
+RETURN ONLY JSON
 ===========================================================
-
-Return ONLY valid JSON.
-
-Use exactly:
 
 {
   "category": "Quần dài",
@@ -508,114 +457,61 @@ Use exactly:
 
 
 # =====================================================================
-# 8. CATEGORY ALIASES
+# 10. CATEGORY ALIASES
 # =====================================================================
 
 CATEGORY_ALIASES = {
 
-    "JUMPSUIT":
-        "Áo liền quần",
+    "JUMPSUIT": "Áo liền quần",
+    "ROMPER": "Áo liền quần",
+    "ONE PIECE": "Áo liền quần",
+    "ONE-PIECE": "Áo liền quần",
 
-    "ROMPER":
-        "Áo liền quần",
+    "OVERALL": "Quần yếm",
+    "OVERALLS": "Quần yếm",
+    "BIB OVERALL": "Quần yếm",
+    "DUNGAREES": "Quần yếm",
 
-    "ONE PIECE":
-        "Áo liền quần",
+    "CARGO": "Quần túi hộp",
+    "CARGO PANTS": "Quần túi hộp",
+    "CARGO TROUSERS": "Quần túi hộp",
 
-    "ONE-PIECE":
-        "Áo liền quần",
+    "JEANS": "Quần jean",
+    "DENIM": "Quần jean",
+    "DENIM JEANS": "Quần jean",
 
-    "OVERALL":
-        "Quần yếm",
+    "JOGGER": "Quần jogger",
+    "JOGGERS": "Quần jogger",
 
-    "OVERALLS":
-        "Quần yếm",
+    "SHORT": "Quần short",
+    "SHORTS": "Quần short",
 
-    "BIB OVERALL":
-        "Quần yếm",
+    "PANTS": "Quần dài",
+    "TROUSERS": "Quần dài",
+    "LONG PANTS": "Quần dài",
 
-    "DUNGAREES":
-        "Quần yếm",
+    "SHIRT": "Áo",
+    "TOP": "Áo",
 
-    "CARGO":
-        "Quần túi hộp",
+    "TEE": "T-shirt",
+    "T-SHIRT": "T-shirt",
+    "TSHIRT": "T-shirt",
 
-    "CARGO PANTS":
-        "Quần túi hộp",
+    "POLO SHIRT": "Polo",
+    "POLO": "Polo",
 
-    "CARGO TROUSERS":
-        "Quần túi hộp",
+    "HOODIE": "Hoodie",
 
-    "JEANS":
-        "Quần jean",
+    "JACKET": "Jacket",
+    "COAT": "Jacket",
 
-    "DENIM":
-        "Quần jean",
-
-    "DENIM JEANS":
-        "Quần jean",
-
-    "JOGGER":
-        "Quần jogger",
-
-    "JOGGERS":
-        "Quần jogger",
-
-    "SHORT":
-        "Quần short",
-
-    "SHORTS":
-        "Quần short",
-
-    "PANTS":
-        "Quần dài",
-
-    "TROUSERS":
-        "Quần dài",
-
-    "LONG PANTS":
-        "Quần dài",
-
-    "SHIRT":
-        "Áo",
-
-    "TOP":
-        "Áo",
-
-    "TEE":
-        "T-shirt",
-
-    "T-SHIRT":
-        "T-shirt",
-
-    "TSHIRT":
-        "T-shirt",
-
-    "POLO SHIRT":
-        "Polo",
-
-    "POLO":
-        "Polo",
-
-    "HOODIE":
-        "Hoodie",
-
-    "JACKET":
-        "Jacket",
-
-    "COAT":
-        "Jacket",
-
-    "DRESS":
-        "Dress",
-
-    "SKIRT":
-        "Skirt",
+    "DRESS": "Dress",
+    "SKIRT": "Skirt",
 }
 
 
 # =====================================================================
-# 9. IMAGE UTILITIES
+# 11. IMAGE UTILITIES
 # =====================================================================
 
 def normalize_image(image_bytes):
@@ -626,11 +522,7 @@ def normalize_image(image_bytes):
             io.BytesIO(image_bytes)
         )
 
-        image = image.convert(
-            "RGB"
-        )
-
-        return image
+        return image.convert("RGB")
 
     except Exception as e:
 
@@ -648,8 +540,7 @@ def get_image_mime(image_bytes):
         )
 
         fmt = (
-            image.format
-            or "JPEG"
+            image.format or "JPEG"
         ).upper()
 
     except Exception:
@@ -670,7 +561,7 @@ def get_image_mime(image_bytes):
 
 
 # =====================================================================
-# 10. JSON CLEANER
+# 12. JSON EXTRACTOR
 # =====================================================================
 
 def extract_json(text):
@@ -682,9 +573,7 @@ def extract_json(text):
         )
 
 
-    text = str(
-        text
-    ).strip()
+    text = str(text).strip()
 
 
     if not text:
@@ -693,10 +582,6 @@ def extract_json(text):
             "Gemini trả về nội dung rỗng."
         )
 
-
-    # ---------------------------------------------------------------
-    # REMOVE MARKDOWN
-    # ---------------------------------------------------------------
 
     text = re.sub(
         r"```json",
@@ -713,10 +598,6 @@ def extract_json(text):
 
     text = text.strip()
 
-
-    # ---------------------------------------------------------------
-    # FIND JSON OBJECT
-    # ---------------------------------------------------------------
 
     start = text.find("{")
 
@@ -743,10 +624,6 @@ def extract_json(text):
         )
 
     except Exception as e:
-
-        # -----------------------------------------------------------
-        # TRY REPAIR SIMPLE TRUNCATION
-        # -----------------------------------------------------------
 
         repaired = json_text
 
@@ -777,23 +654,16 @@ def extract_json(text):
             raise Exception(
                 "Gemini không trả JSON hợp lệ: "
                 + str(e)
-                + "\n\n"
-                + text[:2000]
             )
 
 
 # =====================================================================
-# 11. NORMALIZE AI RESULT
+# 13. NORMALIZE AI RESULT
 # =====================================================================
 
-def normalize_garment_result(
-    result
-):
+def normalize_garment_result(result):
 
-    if not isinstance(
-        result,
-        dict
-    ):
+    if not isinstance(result, dict):
 
         raise Exception(
             "AI result không phải dictionary."
@@ -808,11 +678,7 @@ def normalize_garment_result(
     ).strip()
 
 
-    category_upper = (
-        category
-        .upper()
-        .strip()
-    )
+    category_upper = category.upper()
 
 
     if category_upper in CATEGORY_ALIASES:
@@ -827,14 +693,8 @@ def normalize_garment_result(
         category = "Quần dài"
 
 
-    result[
-        "category"
-    ] = category
+    result["category"] = category
 
-
-    # ---------------------------------------------------------------
-    # BOOLEAN
-    # ---------------------------------------------------------------
 
     bool_fields = [
 
@@ -857,15 +717,10 @@ def normalize_garment_result(
         )
 
 
-        if isinstance(
-            value,
-            str
-        ):
+        if isinstance(value, str):
 
             value = (
-                value
-                .strip()
-                .lower()
+                value.strip().lower()
                 in [
                     "true",
                     "yes",
@@ -875,16 +730,8 @@ def normalize_garment_result(
             )
 
 
-        result[
-            field
-        ] = bool(
-            value
-        )
+        result[field] = bool(value)
 
-
-    # ---------------------------------------------------------------
-    # CONFIDENCE
-    # ---------------------------------------------------------------
 
     try:
 
@@ -900,9 +747,7 @@ def normalize_garment_result(
         confidence = 0
 
 
-    result[
-        "confidence"
-    ] = max(
+    result["confidence"] = max(
         0,
         min(
             100,
@@ -912,13 +757,10 @@ def normalize_garment_result(
 
 
     # ===============================================================
-    # HARD RULE 1
-    # ONE PIECE
+    # HARD RULE
     # ===============================================================
 
-    if result[
-        "one_piece"
-    ]:
+    if result["one_piece"]:
 
         if (
             result["bib"]
@@ -926,21 +768,12 @@ def normalize_garment_result(
             result["shoulder_straps"]
         ):
 
-            result[
-                "category"
-            ] = "Quần yếm"
+            result["category"] = "Quần yếm"
 
         else:
 
-            result[
-                "category"
-            ] = "Áo liền quần"
+            result["category"] = "Áo liền quần"
 
-
-    # ===============================================================
-    # HARD RULE 2
-    # BIB
-    # ===============================================================
 
     elif (
         result["bib"]
@@ -948,75 +781,44 @@ def normalize_garment_result(
         result["shoulder_straps"]
     ):
 
-        result[
-            "category"
-        ] = "Quần yếm"
+        result["category"] = "Quần yếm"
 
-
-    # ===============================================================
-    # HARD RULE 3
-    # CARGO
-    # ===============================================================
 
     elif (
-        result["category"]
-        ==
-        "Quần túi hộp"
+        result["category"] == "Quần túi hộp"
         and
         not result["cargo_pockets"]
     ):
 
-        result[
-            "category"
-        ] = "Quần dài"
+        result["category"] = "Quần dài"
 
-
-    # ===============================================================
-    # HARD RULE 4
-    # DENIM
-    # ===============================================================
 
     elif (
         result["denim"]
         and
-        result["category"]
-        ==
-        "Quần dài"
+        result["category"] == "Quần dài"
     ):
 
-        result[
-            "category"
-        ] = "Quần jean"
+        result["category"] = "Quần jean"
 
-
-    # ===============================================================
-    # HARD RULE 5
-    # JOGGER
-    # ===============================================================
 
     elif (
         result["jogger_cuffs"]
         and
-        result["category"]
-        ==
-        "Quần dài"
+        result["category"] == "Quần dài"
     ):
 
-        result[
-            "category"
-        ] = "Quần jogger"
+        result["category"] = "Quần jogger"
 
 
     return result
 
 
 # =====================================================================
-# 12. GEMINI VISION
+# 14. GEMINI VISION
 # =====================================================================
 
-def analyze_garment_with_gemini(
-    image_bytes
-):
+def analyze_garment_with_gemini(image_bytes):
 
     mime_type = get_image_mime(
         image_bytes
@@ -1025,31 +827,31 @@ def analyze_garment_with_gemini(
 
     try:
 
-        response = gemini_client.models.generate_content(
+        response = (
+            gemini_client.models.generate_content(
 
-            model=VISION_MODEL,
+                model=VISION_MODEL,
 
-            contents=[
+                contents=[
 
-                types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type=mime_type
-                ),
+                    types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type=mime_type
+                    ),
 
-                GARMENT_PROMPT
+                    GARMENT_PROMPT
 
-            ],
+                ],
 
-            config=types.GenerateContentConfig(
+                config=types.GenerateContentConfig(
 
-                temperature=0,
+                    temperature=0,
 
-                max_output_tokens=1200
+                    max_output_tokens=1200
 
+                )
             )
-
         )
-
 
     except Exception as e:
 
@@ -1079,26 +881,18 @@ def analyze_garment_with_gemini(
         )
 
 
-    result = extract_json(
-        text
-    )
+    result = extract_json(text)
 
-
-    result = normalize_garment_result(
+    return normalize_garment_result(
         result
     )
 
 
-    return result
-
-
 # =====================================================================
-# 13. GEMINI IMAGE EMBEDDING 2
+# 15. GEMINI IMAGE EMBEDDING
 # =====================================================================
 
-def create_image_embedding(
-    image_bytes
-):
+def create_image_embedding(image_bytes):
 
     mime_type = get_image_mime(
         image_bytes
@@ -1107,31 +901,38 @@ def create_image_embedding(
 
     try:
 
-        response = gemini_client.models.embed_content(
+        response = (
+            gemini_client.models.embed_content(
 
-            model=EMBEDDING_MODEL,
+                model=EMBEDDING_MODEL,
 
-            contents=[
+                contents=[
 
-                types.Content(
-                    parts=[
+                    types.Content(
 
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type=mime_type
-                        )
+                        parts=[
 
-                    ]
+                            types.Part.from_bytes(
+
+                                data=image_bytes,
+
+                                mime_type=mime_type
+
+                            )
+
+                        ]
+
+                    )
+
+                ],
+
+                config=types.EmbedContentConfig(
+
+                    output_dimensionality=EMBEDDING_DIM
+
                 )
 
-            ],
-
-            config=types.EmbedContentConfig(
-
-                output_dimensionality=EMBEDDING_DIM
-
             )
-
         )
 
     except Exception as e:
@@ -1144,9 +945,7 @@ def create_image_embedding(
 
     try:
 
-        embeddings = (
-            response.embeddings
-        )
+        embeddings = response.embeddings
 
 
         if not embeddings:
@@ -1156,9 +955,7 @@ def create_image_embedding(
             )
 
 
-        values = (
-            embeddings[0].values
-        )
+        values = embeddings[0].values
 
 
         vector = np.asarray(
@@ -1179,37 +976,27 @@ def create_image_embedding(
 
         raise Exception(
             f"Embedding dimension không đúng. "
-            f"Nhận được {vector.size}, "
+            f"Nhận {vector.size}, "
             f"cần {EMBEDDING_DIM}."
         )
 
 
-    # ---------------------------------------------------------------
-    # NORMALIZE
-    # ---------------------------------------------------------------
-
-    norm = np.linalg.norm(
-        vector
-    )
+    norm = np.linalg.norm(vector)
 
 
     if norm > 0:
 
-        vector = (
-            vector / norm
-        )
+        vector = vector / norm
 
 
     return vector.tolist()
 
 
 # =====================================================================
-# 14. VECTOR FORMAT FOR SUPABASE
+# 16. PGVECTOR FORMAT
 # =====================================================================
 
-def vector_to_pgvector(
-    vector
-):
+def vector_to_pgvector(vector):
 
     return (
         "["
@@ -1224,32 +1011,24 @@ def vector_to_pgvector(
 
 
 # =====================================================================
-# 15. PRODUCT CODE
+# 17. PRODUCT CODE
 # =====================================================================
 
-def extract_product_code(
-    filename
-):
+def extract_product_code(filename):
 
     name = os.path.basename(
         filename
     )
 
-
     stem = os.path.splitext(
         name
     )[0]
 
-
-    return (
-        stem
-        .strip()
-        .upper()
-    )
+    return stem.strip().upper()
 
 
 # =====================================================================
-# 16. STORAGE UPLOAD
+# 18. STORAGE UPLOAD
 # =====================================================================
 
 def upload_image_to_storage(
@@ -1289,7 +1068,7 @@ def upload_image_to_storage(
 
     try:
 
-        result = supabase.storage.from_(
+        supabase.storage.from_(
             SUPABASE_BUCKET
         ).upload(
 
@@ -1304,7 +1083,6 @@ def upload_image_to_storage(
 
         )
 
-
     except Exception as e:
 
         raise Exception(
@@ -1318,9 +1096,7 @@ def upload_image_to_storage(
         public_url = (
             supabase
             .storage
-            .from_(
-                SUPABASE_BUCKET
-            )
+            .from_(SUPABASE_BUCKET)
             .get_public_url(
                 unique_name
             )
@@ -1334,43 +1110,11 @@ def upload_image_to_storage(
         )
 
 
-    return (
-        public_url,
-        unique_name
-    )
+    return public_url, unique_name
 
 
 # =====================================================================
-# 17. DELETE STORAGE IMAGE
-# =====================================================================
-
-def delete_storage_image(
-    storage_path
-):
-
-    if not storage_path:
-
-        return
-
-
-    try:
-
-        supabase.storage.from_(
-            SUPABASE_BUCKET
-        ).remove(
-            [storage_path]
-        )
-
-    except Exception as e:
-
-        st.warning(
-            "Không xóa được ảnh Storage: "
-            + str(e)
-        )
-
-
-# =====================================================================
-# 18. SAVE PRODUCT
+# 19. SAVE PRODUCT DATABASE
 # =====================================================================
 
 def save_product_to_database(
@@ -1389,30 +1133,24 @@ def save_product_to_database(
 
     payload = {
 
-        "product_code":
-            product_code,
+        "product_code": product_code,
 
-        "image_url":
-            image_url,
+        "image_url": image_url,
 
-        "storage_path":
-            storage_path,
+        "storage_path": storage_path,
 
-        "category":
-            category,
+        "category": category,
 
-        "ai_analysis":
-            ai_analysis,
+        "ai_analysis": ai_analysis,
 
-        "embedding":
-            embedding_pg
+        "embedding": embedding_pg
 
     }
 
 
     try:
 
-        response = (
+        return (
             supabase
             .table("products")
             .upsert(
@@ -1421,10 +1159,6 @@ def save_product_to_database(
             )
             .execute()
         )
-
-
-        return response
-
 
     except Exception as e:
 
@@ -1435,7 +1169,7 @@ def save_product_to_database(
 
 
 # =====================================================================
-# 19. SEARCH PRODUCTS
+# 20. SEARCH SIMILAR PRODUCTS
 # =====================================================================
 
 def search_similar_products(
@@ -1451,7 +1185,6 @@ def search_similar_products(
 
     # ===============================================================
     # METHOD 1
-    # RPC V2.6
     # ===============================================================
 
     try:
@@ -1461,16 +1194,11 @@ def search_similar_products(
             "match_products_v26",
 
             {
+                "query_embedding": vector_pg,
 
-                "query_embedding":
-                    vector_pg,
+                "match_count": limit,
 
-                "match_count":
-                    limit,
-
-                "filter_category":
-                    category
-
+                "filter_category": category
             }
 
         ).execute()
@@ -1480,20 +1208,13 @@ def search_similar_products(
 
             return response.data
 
-
     except Exception:
+
         pass
 
 
     # ===============================================================
     # METHOD 2
-    # NO CATEGORY FILTER
-    #
-    # Quan trọng:
-    # Không khóa cứng category.
-    #
-    # Nếu AI nhận nhầm Cargo/Pants,
-    # vẫn có thể tìm được sản phẩm tương đồng.
     # ===============================================================
 
     try:
@@ -1503,13 +1224,9 @@ def search_similar_products(
             "match_products_v26_all",
 
             {
+                "query_embedding": vector_pg,
 
-                "query_embedding":
-                    vector_pg,
-
-                "match_count":
-                    limit
-
+                "match_count": limit
             }
 
         ).execute()
@@ -1519,14 +1236,14 @@ def search_similar_products(
 
             return response.data
 
-
     except Exception:
+
         pass
 
 
     # ===============================================================
     # METHOD 3
-    # FALLBACK
+    # PYTHON FALLBACK
     # ===============================================================
 
     try:
@@ -1566,10 +1283,8 @@ def search_similar_products(
 
         for row in rows:
 
-            raw_vector = (
-                row.get(
-                    "embedding"
-                )
+            raw_vector = row.get(
+                "embedding"
             )
 
 
@@ -1588,16 +1303,9 @@ def search_similar_products(
                     clean = (
                         raw_vector
                         .strip()
-                        .replace(
-                            "[",
-                            ""
-                        )
-                        .replace(
-                            "]",
-                            ""
-                        )
+                        .replace("[", "")
+                        .replace("]", "")
                     )
-
 
                     db_vector = np.asarray(
 
@@ -1607,7 +1315,6 @@ def search_similar_products(
                         ],
 
                         dtype=np.float32
-
                     )
 
                 else:
@@ -1617,17 +1324,12 @@ def search_similar_products(
                         dtype=np.float32
                     )
 
-
             except Exception:
 
                 continue
 
 
-            if (
-                db_vector.size
-                !=
-                q.size
-            ):
+            if db_vector.size != q.size:
 
                 continue
 
@@ -1635,9 +1337,7 @@ def search_similar_products(
             denominator = (
                 np.linalg.norm(q)
                 *
-                np.linalg.norm(
-                    db_vector
-                )
+                np.linalg.norm(db_vector)
             )
 
 
@@ -1646,21 +1346,17 @@ def search_similar_products(
                 continue
 
 
-            similarity = (
-                float(
-                    np.dot(
-                        q,
-                        db_vector
-                    )
-                    /
-                    denominator
+            similarity = float(
+
+                np.dot(
+                    q,
+                    db_vector
                 )
+                /
+                denominator
+
             )
 
-
-            # -------------------------------------------------------
-            # CATEGORY BOOST
-            # -------------------------------------------------------
 
             row_category = str(
                 row.get(
@@ -1670,38 +1366,21 @@ def search_similar_products(
             )
 
 
-            category_boost = 0.0
+            category_boost = 0.04 if (
+                row_category == category
+            ) else 0.0
 
 
-            if (
-                row_category
-                ==
-                category
-            ):
-
-                category_boost = 0.04
+            row_copy = dict(row)
 
 
-            final_score = (
+            row_copy["similarity"] = similarity
+
+            row_copy["final_score"] = (
                 similarity
                 +
                 category_boost
             )
-
-
-            row_copy = dict(
-                row
-            )
-
-
-            row_copy[
-                "similarity"
-            ] = similarity
-
-
-            row_copy[
-                "final_score"
-            ] = final_score
 
 
             results.append(
@@ -1710,12 +1389,15 @@ def search_similar_products(
 
 
         results.sort(
+
             key=lambda x:
                 x.get(
                     "final_score",
                     0
                 ),
+
             reverse=True
+
         )
 
 
@@ -1731,12 +1413,24 @@ def search_similar_products(
 
 
 # =====================================================================
-# 20. DISPLAY AI RESULT
+# KẾT THÚC ĐOẠN 1
+#
+# DÁN NGUYÊN ĐOẠN 2 NGAY BÊN DƯỚI
+# =====================================================================
+# =====================================================================
+# 🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG
+# VERSION V2.6
+# PART 2/2
+#
+# UI + SEARCH + WAREHOUSE
 # =====================================================================
 
-def display_ai_result(
-    result
-):
+
+# =====================================================================
+# 21. DISPLAY AI RESULT
+# =====================================================================
+
+def display_ai_result(result):
 
     if not result:
 
@@ -1785,9 +1479,7 @@ def display_ai_result(
         st.metric(
             "One Piece",
             "YES"
-            if result.get(
-                "one_piece"
-            )
+            if result.get("one_piece")
             else "NO"
         )
 
@@ -1797,9 +1489,7 @@ def display_ai_result(
         st.metric(
             "Cargo Pocket",
             "YES"
-            if result.get(
-                "cargo_pockets"
-            )
+            if result.get("cargo_pockets")
             else "NO"
         )
 
@@ -1808,18 +1498,14 @@ def display_ai_result(
         "🔎 Chi tiết AI"
     ):
 
-        st.json(
-            result
-        )
+        st.json(result)
 
 
 # =====================================================================
-# 21. DISPLAY SEARCH RESULTS
+# 22. DISPLAY SEARCH RESULTS
 # =====================================================================
 
-def display_search_results(
-    results
-):
+def display_search_results(results):
 
     if not results:
 
@@ -1843,14 +1529,10 @@ def display_search_results(
     )
 
 
-    for index, item in enumerate(
-        results
-    ):
+    for index, item in enumerate(results):
 
         col = cols[
-            index
-            %
-            len(cols)
+            index % len(cols)
         ]
 
 
@@ -1880,9 +1562,7 @@ def display_search_results(
             try:
 
                 similarity_percent = (
-                    float(similarity)
-                    *
-                    100
+                    float(similarity) * 100
                 )
 
             except Exception:
@@ -1931,21 +1611,16 @@ def display_search_results(
 
 
 # =====================================================================
-# 22. ADD UPLOAD FILES TO SESSION
+# 23. ADD PENDING FILES
 # =====================================================================
 
-def add_pending_files(
-    uploaded_files
-):
+def add_pending_files(uploaded_files):
 
     existing_names = {
 
-        item[
-            "name"
-        ]
+        item["name"]
 
-        for item
-        in st.session_state[
+        for item in st.session_state[
             "pending_uploads_v26"
         ]
 
@@ -1962,21 +1637,16 @@ def add_pending_files(
             continue
 
 
-        file_bytes = (
-            uploaded_file
-            .getvalue()
-        )
+        file_bytes = uploaded_file.getvalue()
 
 
         st.session_state[
             "pending_uploads_v26"
         ].append({
 
-            "name":
-                uploaded_file.name,
+            "name": uploaded_file.name,
 
-            "bytes":
-                file_bytes
+            "bytes": file_bytes
 
         })
 
@@ -1993,12 +1663,10 @@ def add_pending_files(
 
 
 # =====================================================================
-# 23. REMOVE PENDING FILE
+# 24. REMOVE PENDING FILE
 # =====================================================================
 
-def remove_pending_file(
-    index
-):
+def remove_pending_file(index):
 
     files = st.session_state[
         "pending_uploads_v26"
@@ -2006,20 +1674,14 @@ def remove_pending_file(
 
 
     if (
-        0
-        <=
-        index
-        <
-        len(files)
+        0 <= index < len(files)
     ):
 
-        files.pop(
-            index
-        )
+        files.pop(index)
 
 
 # =====================================================================
-# 24. CLEAR PENDING FILES
+# 25. CLEAR PENDING FILES
 # =====================================================================
 
 def clear_pending_files():
@@ -2030,12 +1692,13 @@ def clear_pending_files():
 
 
 # =====================================================================
-# 25. HEADER
+# 26. HEADER
 # =====================================================================
 
 st.title(
     "🔍 AI TÌM KIẾM MÃ HÀNG TƯƠNG ĐỒNG"
 )
+
 
 st.caption(
     f"AI Garment Similarity Search — {APP_VERSION} "
@@ -2044,7 +1707,7 @@ st.caption(
 
 
 # =====================================================================
-# 26. TABS
+# 27. TABS
 # =====================================================================
 
 tab_search, tab_upload = st.tabs([
@@ -2057,10 +1720,8 @@ tab_search, tab_upload = st.tabs([
 
 
 # =====================================================================
-# =====================================================================
 # TAB 1
-# TÌM KIẾM
-# =====================================================================
+# SEARCH
 # =====================================================================
 
 with tab_search:
@@ -2072,7 +1733,7 @@ with tab_search:
 
     st.info(
         "AI sẽ tự nhận diện loại hàng. "
-        "Bạn không cần chọn Quần dài / Cargo / Jacket..."
+        "Bạn không cần chọn Category."
     )
 
 
@@ -2094,10 +1755,7 @@ with tab_search:
 
     if search_file:
 
-        search_bytes = (
-            search_file
-            .getvalue()
-        )
+        search_bytes = search_file.getvalue()
 
 
         col_a, col_b = st.columns(
@@ -2130,12 +1788,13 @@ with tab_search:
 
                 try:
 
-                    # -------------------------------------------------
-                    # AI CATEGORY
-                    # -------------------------------------------------
+                    # =================================================
+                    # STEP 1
+                    # AI VISION
+                    # =================================================
 
                     with st.spinner(
-                        "🤖 Gemini đang nhận diện cấu trúc sản phẩm..."
+                        "🤖 Gemini đang nhận diện cấu trúc..."
                     ):
 
                         ai_result = (
@@ -2160,9 +1819,10 @@ with tab_search:
                     )
 
 
-                    # -------------------------------------------------
-                    # IMAGE EMBEDDING
-                    # -------------------------------------------------
+                    # =================================================
+                    # STEP 2
+                    # EMBEDDING
+                    # =================================================
 
                     with st.spinner(
                         "🧠 Gemini đang tạo image embedding..."
@@ -2175,12 +1835,13 @@ with tab_search:
                         )
 
 
-                    # -------------------------------------------------
+                    # =================================================
+                    # STEP 3
                     # SEARCH
-                    # -------------------------------------------------
+                    # =================================================
 
                     with st.spinner(
-                        "🔎 Đang tìm mã tương đồng trong kho..."
+                        "🔎 Đang tìm mã tương đồng..."
                     ):
 
                         results = (
@@ -2220,21 +1881,13 @@ with tab_search:
                     )
 
 
-    # ---------------------------------------------------------------
-    # SHOW PREVIOUS RESULTS
-    # ---------------------------------------------------------------
+    elif st.session_state[
+        "search_results_v26"
+    ]:
 
-    elif (
-        st.session_state[
-            "search_results_v26"
+        ai_result = st.session_state[
+            "search_ai_result_v26"
         ]
-    ):
-
-        ai_result = (
-            st.session_state[
-                "search_ai_result_v26"
-            ]
-        )
 
 
         if ai_result:
@@ -2254,10 +1907,8 @@ with tab_search:
 
 
 # =====================================================================
-# =====================================================================
 # TAB 2
-# NẠP KHO
-# =====================================================================
+# WAREHOUSE
 # =====================================================================
 
 with tab_upload:
@@ -2313,11 +1964,9 @@ with tab_upload:
     # PENDING FILES
     # ================================================================
 
-    pending_files = (
-        st.session_state[
-            "pending_uploads_v26"
-        ]
-    )
+    pending_files = st.session_state[
+        "pending_uploads_v26"
+    ]
 
 
     st.markdown(
@@ -2340,7 +1989,7 @@ with tab_upload:
 
 
         # ------------------------------------------------------------
-        # CLEAR WAITING FILES
+        # CLEAR
         # ------------------------------------------------------------
 
         if st.button(
@@ -2359,7 +2008,7 @@ with tab_upload:
 
 
         # ------------------------------------------------------------
-        # DISPLAY FILES
+        # DISPLAY
         # ------------------------------------------------------------
 
         for index, item in enumerate(
@@ -2382,9 +2031,7 @@ with tab_upload:
 
                 except Exception:
 
-                    st.write(
-                        "📷"
-                    )
+                    st.write("📷")
 
 
             with col2:
@@ -2392,7 +2039,6 @@ with tab_upload:
                 st.markdown(
                     f"**{item['name']}**"
                 )
-
 
                 st.caption(
                     "Chưa lưu vào kho"
@@ -2492,7 +2138,7 @@ with tab_upload:
 
                     # =================================================
                     # STEP 1
-                    # GEMINI VISION
+                    # VISION
                     # =================================================
 
                     ai_result = (
@@ -2502,11 +2148,9 @@ with tab_upload:
                     )
 
 
-                    category = (
-                        ai_result[
-                            "category"
-                        ]
-                    )
+                    category = ai_result[
+                        "category"
+                    ]
 
 
                     st.write(
@@ -2518,7 +2162,7 @@ with tab_upload:
 
                     # =================================================
                     # STEP 2
-                    # IMAGE EMBEDDING
+                    # EMBEDDING
                     # =================================================
 
                     embedding = (
@@ -2553,23 +2197,17 @@ with tab_upload:
 
                     save_product_to_database(
 
-                        product_code=
-                            product_code,
+                        product_code=product_code,
 
-                        image_url=
-                            image_url,
+                        image_url=image_url,
 
-                        storage_path=
-                            storage_path,
+                        storage_path=storage_path,
 
-                        category=
-                            category,
+                        category=category,
 
-                        ai_analysis=
-                            ai_result,
+                        ai_analysis=ai_result,
 
-                        embedding=
-                            embedding
+                        embedding=embedding
 
                     )
 
@@ -2594,9 +2232,7 @@ with tab_upload:
 
 
                 progress.progress(
-                    (index + 1)
-                    /
-                    total
+                    (index + 1) / total
                 )
 
 
@@ -2604,11 +2240,10 @@ with tab_upload:
 
 
             # =========================================================
-            # REMOVE PROCESSED FILES FROM WAITING LIST
+            # CHỈ XÓA DANH SÁCH CHỜ
             #
-            # Chỉ xóa khỏi danh sách chờ.
-            # KHÔNG xóa ảnh trong Storage.
-            # KHÔNG xóa record trong products.
+            # KHÔNG XÓA STORAGE
+            # KHÔNG XÓA DATABASE
             # =========================================================
 
             st.session_state[
@@ -2630,10 +2265,11 @@ with tab_upload:
 
 
 # =====================================================================
-# 27. FOOTER
+# 28. FOOTER
 # =====================================================================
 
 st.divider()
+
 
 st.caption(
     "AI Garment Similarity Search "
