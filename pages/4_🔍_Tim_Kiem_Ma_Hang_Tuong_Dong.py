@@ -208,75 +208,93 @@ def normalize_category(category):
         if value.lower() == valid.lower(): return valid
     return "Quần dài"
 
-# --- 15. GEMINI VISION ANALYSIS ---
+# =====================================================================
+# 15. GEMINI VISION ANALYSIS (NÂNG CẤP RETRY CHỐNG 429/503 TỪ LÕI)
+# =====================================================================
+
 def analyze_garment_with_gemini(image_bytes):
+    import time
     image_bytes = normalize_image_bytes(image_bytes)
-    try:
-        response = gemini_client.models.generate_content(
-            model=VISION_MODEL,
-            contents=[types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"), GARMENT_PROMPT],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema={
-                    "type": "object",
-                    "properties": {
-                        "category": {"type": "string"}, "confidence": {"type": "number"}, "one_piece": {"type": "boolean"},
-                        "bib": {"type": "boolean"}, "shoulder_straps": {"type": "boolean"}, "cargo_pockets": {"type": "boolean"},
-                        "denim": {"type": "boolean"}, "jogger_cuffs": {"type": "boolean"}, "sleeve": {"type": "string"},
-                        "collar": {"type": "string"}, "hood": {"type": "boolean"}, "silhouette": {"type": "string"},
-                        "length": {"type": "string"}, "reason": {"type": "string"}
+    
+    max_retries = 4
+    retry_delay = 5  # Số giây chờ tăng cường nếu dính giới hạn của Google
+
+    for attempt in range(max_retries):
+        try:
+            response = gemini_client.models.generate_content(
+                model=VISION_MODEL,
+                contents=[
+                    types.Part.from_bytes(
+                        data=image_bytes,
+                        mime_type="image/jpeg"
+                    ),
+                    GARMENT_PROMPT
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "category": {"type": "string"},
+                            "confidence": {"type": "number"},
+                            "one_piece": {"type": "boolean"},
+                            "bib": {"type": "boolean"},
+                            "shoulder_straps": {"type": "boolean"},
+                            "cargo_pockets": {"type": "boolean"},
+                            "denim": {"type": "boolean"},
+                            "jogger_cuffs": {"type": "boolean"},
+                            "sleeve": {"type": "string"},
+                            "collar": {"type": "string"},
+                            "hood": {"type": "boolean"},
+                            "silhouette": {"type": "string"},
+                            "length": {"type": "string"},
+                            "reason": {"type": "string"}
+                        },
+                        "required": [
+                            "category", "confidence", "one_piece", "bib", 
+                            "shoulder_straps", "cargo_pockets", "denim", 
+                            "jogger_cuffs", "hood", "reason"
+                        ]
                     },
-                    "required": ["category", "confidence", "one_piece", "bib", "shoulder_straps", "cargo_pockets", "denim", "jogger_cuffs", "hood", "reason"]
-                },
-                temperature=0.0
+                    temperature=0.0
+                )
             )
-        )
-    except Exception as e: raise Exception("Gemini Vision lỗi: " + str(e))
-    try: text = response.text
-    except Exception: text = None
-    if not text: raise Exception("Gemini không trả về kết quả.")
-    try: result = json.loads(text)
+            # Nếu chạy thành công, thoát khỏi vòng lặp thử lại
+            break
+            
+        except Exception as e:
+            err_msg = str(e)
+            # Nếu dính lỗi giới hạn lượt gọi (429) hoặc máy chủ bận (503)
+            if "429" in err_msg or "503" in err_msg:
+                if attempt < max_retries - 1:
+                    # Chờ lũy tiến tăng dần thời gian để Google giải phóng hàng đợi
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+            raise Exception("Gemini Vision lỗi: " + err_msg)
+
+    try:
+        text = response.text
+    except Exception:
+        text = None
+
+    if not text:
+        raise Exception("Gemini không trả về kết quả.")
+
+    try:
+        result = json.loads(text)
     except Exception:
         cleaned = re.sub(r"```json|```", "", text, flags=re.I).strip()
         match = re.search(r"\{.*\}", cleaned, flags=re.S)
-        if not match: raise Exception("Gemini không trả JSON hợp lệ.")
-        result = json.loads(match.group(0))
-    return normalize_garment_result(result)
+        if not match:
+            raise Exception("Gemini không trả JSON hợp lệ:\n" + text[:2000])
+        try:
+            result = json.loads(match.group(0))
+        except Exception as e:
+            raise Exception("Không parse được JSON Gemini: " + str(e))
 
-# --- 16. GARMENT RULE ENGINE ---
-def normalize_garment_result(result):
-    if not isinstance(result, dict): result = {}
-    category = normalize_category(result.get("category", "Quần dài"))
-    def bool_value(value):
-        if isinstance(value, bool): return value
-        if isinstance(value, str): return value.lower().strip() in ["true", "yes", "1"]
-        if isinstance(value, (int, float)): return bool(value)
-        return False
+    result = normalize_garment_result(result)
+    return result
 
-    one_piece = bool_value(result.get("one_piece", False))
-    bib = bool_value(result.get("bib", False))
-    shoulder_straps = bool_value(result.get("shoulder_straps", False))
-    cargo_pockets = bool_value(result.get("cargo_pockets", False))
-    denim = bool_value(result.get("denim", False))
-    jogger_cuffs = bool_value(result.get("jogger_cuffs", False))
-    hood = bool_value(result.get("hood", False))
-
-    if one_piece: category = "Quần yếm" if (bib and shoulder_straps) else "Áo liền quần"
-    elif bib and shoulder_straps: category = "Quần yếm"
-    elif category == "Quần túi hộp" and not cargo_pockets: category = "Quần dài"
-    if not one_piece and not bib and denim and category in ["Quần dài", "Quần short"]: category = "Quần jean"
-    if not one_piece and not bib and jogger_cuffs and category == "Quần dài": category = "Quần jogger"
-    try: confidence = float(result.get("confidence", 0))
-    except Exception: confidence = 0
-    confidence = max(0, min(100, confidence))
-
-    return {
-        "category": category, "confidence": confidence, "one_piece": one_piece, "bib": bib,
-        "shoulder_straps": shoulder_straps, "cargo_pockets": cargo_pockets, "denim": denim,
-        "jogger_cuffs": jogger_cuffs, "hood": hood, "sleeve": str(result.get("sleeve", "")),
-        "collar": str(result.get("collar", "")), "silhouette": str(result.get("silhouette", "")),
-        "length": str(result.get("length", "")), "reason": str(result.get("reason", ""))
-    }
 # =====================================================================
 # 17. GEMINI SEMANTIC TEXT EMBEDDING (TỐI ƯU GIẢM REQUEST)
 # =====================================================================
