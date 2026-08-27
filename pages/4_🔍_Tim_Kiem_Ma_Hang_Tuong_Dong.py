@@ -367,18 +367,19 @@ def analyze_garment_with_gemini(image_bytes):
 
 
 # =====================================================================
-# 17. GEMINI SEMANTIC TEXT EMBEDDING (TỐI ƯU GIẢM REQUEST)
+# 17. GEMINI IMAGE EMBEDDING (ĐÃ SỬA ĐỒNG BỘ ĐẦU VÀO TEXT CHUẨN)
 # =====================================================================
 
-def get_image_embedding(semantic_text: str):
+def get_image_embedding(text_content: str):
     """
-    Tạo vector nhúng đặc trưng từ chuỗi mô tả cấu trúc rập kỹ thuật.
-    Không truyền ảnh vào đây để tránh bị trùng lặp request gây lỗi 429.
+    Tạo vector nhúng ngữ nghĩa (768 chiều) từ chuỗi mô tả kỹ thuật rập thời trang.
+    Đầu vào nhận một chuỗi văn bản (String), KHÔNG nhận byte ảnh thô.
     """
     try:
+        # Gọi trực tiếp API nhúng văn bản thông qua thư viện google-genai mới
         response = gemini_client.models.embed_content(
             model=EMBEDDING_MODEL,
-            contents=semantic_text if semantic_text else "garment",
+            contents=str(text_content) if text_content else "garment",
             config=types.EmbedContentConfig(
                 output_dimensionality=EMBEDDING_DIMENSION
             )
@@ -387,6 +388,7 @@ def get_image_embedding(semantic_text: str):
         raise Exception("Gemini Image Embedding lỗi: " + str(e))
 
     try:
+        # Bóc tách mảng giá trị vector float từ kết quả trả về của SDK
         if hasattr(response, "embeddings") and response.embeddings:
             values = response.embeddings.values
         elif hasattr(response, "embedding") and response.embedding:
@@ -394,14 +396,27 @@ def get_image_embedding(semantic_text: str):
         else:
             values = response.embeddings.values
     except Exception as e:
-        raise Exception("Không lấy được vector embedding: " + str(e))
+        raise Exception("Không lấy được mảng giá trị vector embedding: " + str(e))
 
     if not values:
-        raise Exception("Embedding rỗng.")
+        raise Exception("Mảng giá trị vector đặc trưng rỗng.")
 
+    # ---------------------------------------------------------
     # NORMALIZE VECTOR
-    norm = math.sqrt(sum(float(x) * float(x) for x in values))
-    return [float(x) / norm for x in values] if norm > 0 else [float(x) for x in values]
+    # ---------------------------------------------------------
+    norm = math.sqrt(
+        sum(
+            float(x) * float(x)
+            for x in values
+        )
+    )
+
+    if norm > 0:
+        values = [float(x) / norm for x in values]
+    else:
+        values = [float(x) for x in values]
+
+    return values
 
 # --- 18. UPLOAD IMAGE TO SUPABASE STORAGE ---
 def upload_image_to_storage(image_bytes, filename):
