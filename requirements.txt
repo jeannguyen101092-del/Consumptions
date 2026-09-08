@@ -33,7 +33,11 @@ pymupdf
 supabase
 Pillow
 requests
-torch
-transformers
+
+
 safetensors
 numpy
+streamlit>=1.30.0
+google-genai>=0.1.0
+supabase>=2.3.0
+Pillow>=10.0.0
