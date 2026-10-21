@@ -5589,7 +5589,7 @@ PRODUCT_EFFICIENCY_ADJUSTMENT = {
     "TROUSER":   0.84,
     "KHAKI":     0.84,
 
-    "SHORT":     0.83,
+    "SHORT":     0.7,
 
     "JACKET":    0.50,
     "COAT":      0.82,
