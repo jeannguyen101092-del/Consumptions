@@ -427,37 +427,130 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # -----------------------------------------------------------------
-    # KHỐI 3: DANH SÁCH LỊCH SỬ MÃ HÀNG ĐỘNG (RECENT CODE HISTORY)
-    # -----------------------------------------------------------------
-    st.markdown("<div style='font-family:\"Segoe UI\", sans-serif; font-size: 12px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>🕒 RECENT CODE HISTORY</div>", unsafe_allow_html=True)
-    if "history_list" not in st.session_state:
-        st.session_state.history_list = ["PPJ-K12-200451", "PPJ-M04-330129"]
-    if kpi_style_id != "N/A" and kpi_style_id not in st.session_state.history_list:
-        st.session_state.history_list.insert(0, kpi_style_id)
-        st.session_state.history_list = st.session_state.history_list[:3]
-
-    history_html = '<div style="background: linear-gradient(135deg, #115e59 0%, #134e4a 100%); border: 1px solid #14b8a6; border-radius: 6px; padding: 6px 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 15px;">'
-    for index, style_code in enumerate(st.session_state.history_list):
-        border_style = 'border-bottom: 1px solid #14b8a6;' if index < len(st.session_state.history_list) - 1 else ''
-        if index == 0 and kpi_style_id != "N/A":
-            history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #ffffff; font-weight: 700;">📦 ' + style_code + '</span>'
-                '    <span style="color: #ffffff; font-size: 10px; font-weight: 700; background-color: #14b8a6; padding: 2px 8px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">Active</span>'
-                '</div>'
-            )
-        else:
-            history_html += (
-                '<div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 0; ' + border_style + ' font-size: 11px; font-family: \'Segoe UI\', sans-serif;">'
-                '    <span style="color: #ccfbf1; font-weight: 600;">📦 ' + style_code + '</span>'
-                '    <span style="color: #5eead4; font-size: 10px;">Processed</span>'
-                '</div>'
-            )
-    history_html += '</div>'
     
-    st.markdown(history_html, unsafe_allow_html=True)
-    st.markdown("<div style='font-size: 10px; color: #ccfbf1; font-family: \"Segoe UI\", sans-serif; text-align: center; margin-top: 15px; opacity: 0.8;'>© 2026 PPJ Digital Transformation</div>", unsafe_allow_html=True)
+
+    # -----------------------------------------------------------------
+    # KHỐI 3 (V28.1): RECENT CODE HISTORY + CLEAR BUTTON
+    # -----------------------------------------------------------------
+    import streamlit as st
+    import html
+
+    st.markdown(
+        "<div style='font-family:\"Segoe UI\",sans-serif;"
+        "font-size:12px;font-weight:700;color:#ffffff;"
+        "text-transform:uppercase;letter-spacing:0.5px;"
+        "margin-bottom:8px;'>🕒 RECENT CODE HISTORY</div>",
+        unsafe_allow_html=True
+    )
+
+    # 1. KHỞI TẠO LỊCH SỬ
+    if "history_list" not in st.session_state:
+        st.session_state["history_list"] = [
+            "PPJ-K12-200451",
+            "PPJ-M04-330129"
+        ]
+
+    if not isinstance(st.session_state["history_list"], list):
+        st.session_state["history_list"] = []
+
+    # 2. CẬP NHẬT MÃ HÀNG GẦN NHẤT
+    if kpi_style_id != "N/A":
+        current_code = str(kpi_style_id).strip()
+
+        if current_code:
+            history = [
+                str(code).strip()
+                for code in st.session_state["history_list"]
+                if str(code).strip() != current_code
+            ]
+
+            st.session_state["history_list"] = (
+                [current_code] + history
+            )[:3]
+
+    # 3. DỰNG DANH SÁCH LỊCH SỬ
+    history_html = (
+        '<div style="background:linear-gradient(135deg,#115e59 0%,'
+        '#134e4a 100%);border:1px solid #14b8a6;border-radius:6px;'
+        'padding:6px 12px;box-shadow:0 4px 6px rgba(0,0,0,0.15);'
+        'margin-bottom:8px;">'
+    )
+
+    history_list = st.session_state["history_list"]
+
+    if history_list:
+        for index, style_code in enumerate(history_list):
+            safe_code = html.escape(str(style_code))
+
+            border_style = (
+                "border-bottom:1px solid #14b8a6;"
+                if index < len(history_list) - 1
+                else ""
+            )
+
+            is_active = (
+                index == 0
+                and kpi_style_id != "N/A"
+                and str(style_code) == str(kpi_style_id)
+            )
+
+            if is_active:
+                label_html = (
+                    '<span style="color:#ffffff;font-size:10px;'
+                    'font-weight:700;background:#14b8a6;'
+                    'padding:2px 8px;border-radius:10px;">'
+                    'Active</span>'
+                )
+                name_color = "#ffffff"
+            else:
+                label_html = (
+                    '<span style="color:#5eead4;font-size:10px;">'
+                    'Processed</span>'
+                )
+                name_color = "#ccfbf1"
+
+            history_html += (
+                '<div style="display:flex;justify-content:space-between;'
+                'align-items:center;padding:7px 0;'
+                + border_style
+                + 'font-size:11px;font-family:Segoe UI,sans-serif;">'
+                '<span style="color:' + name_color
+                + ';font-weight:600;">📦 ' + safe_code + '</span>'
+                + label_html
+                + '</div>'
+            )
+    else:
+        history_html += (
+            '<div style="padding:8px 0;color:#ccfbf1;'
+            'font-size:11px;">Chưa có lịch sử mã hàng.</div>'
+        )
+
+    history_html += "</div>"
+
+    st.markdown(
+        history_html,
+        unsafe_allow_html=True
+    )
+
+    # 4. NÚT XÓA LỊCH SỬ
+    if st.button(
+        "🗑️ XÓA LỊCH SỬ",
+        key="clear_recent_code_history_v281",
+        use_container_width=True,
+        type="secondary"
+    ):
+        st.session_state["history_list"] = []
+        st.rerun()
+
+    # 5. CHÂN SIDEBAR
+    st.markdown(
+        "<div style='font-size:10px;color:#ccfbf1;"
+        "font-family:Segoe UI,sans-serif;text-align:center;"
+        "margin-top:15px;opacity:0.8;'>"
+        "© 2026 PPJ Digital Transformation</div>",
+        unsafe_allow_html=True
+    )
+
 
 
 
