@@ -1,3 +1,4 @@
+
 streamlit>=1.35.0
 pandas
 numpy
@@ -8,19 +9,21 @@ Pillow
 openpyxl
 xlsxwriter
 
-# PDF
+# PDF - Đọc và bóc tách Techpack
 PyMuPDF
 pypdf
 pdf2image
+pdfplumber
+pytesseract
 
-# Google AI
-google-genai
+# Google Gemini AI
+google-genai>=1.0.0
 google-generativeai
 
 # Database
 supabase
 
-# Scientific / calculation
+# Scientific / Calculation
 scipy>=1.10.0
 rapidfuzz==3.9.3
 shapely
@@ -28,7 +31,7 @@ shapely
 # CAD / DXF
 ezdxf
 
-# Image processing
+# Image Processing
 opencv-python-headless
 
 # AI / ML
